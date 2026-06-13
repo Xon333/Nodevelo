@@ -1,1 +1,178 @@
-null
+{
+  "goal": "FTP → 300W \n1-minute power → 600W\n5-second power → 1000W\nNutrition → Dial in daily intake for energy, performance, and quality of life\nTraining → Proper weekly structure with structured recovery; maintain high volume\nDurability → Sustain power on 3h+ rides\nLocal performance → Hill KOMs in Novo Mesto area, Slovenia\nRacing → Begin competing at amateur level\n(The goals are what I am working towards so the main metric is progress in the 4 block towards them)",
+  "lengthWeeks": 4,
+  "startDate": "2026-06-13",
+  "endDate": "2026-07-10",
+  "overview": "This 4-week block targets the athlete's three primary power weakpoints — sprint (5s), 1-minute anaerobic capacity, and 5-minute VO2max — while preserving the aerobic base needed for durability on 3h+ rides. Weeks 1–3 follow a progressive build with two quality sessions per week (one VO2max/SIT, one threshold), a long Saturday Z2 ride, and strict Z2 discipline on easy days; Week 4 is a recovery week at 30–40% reduced volume to convert training stress into fitness. Nutrition targets are prescribed daily to address the athlete's chronic under-fuelling and support the weight gain goal (current 62kg, target 64kg). ---",
+  "createdAt": "2026-06-13T05:19:07.231Z",
+  "days": [
+    {
+      "date": "2026-06-13",
+      "name": "Long Z2 Ride",
+      "type": "Z2",
+      "durationMin": 240
+    },
+    {
+      "date": "2026-06-14",
+      "name": "Easy Recovery Spin",
+      "type": "Recovery",
+      "durationMin": 60
+    },
+    {
+      "date": "2026-06-15",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-06-16",
+      "name": "VO2max — 4×4",
+      "type": "VO2max",
+      "durationMin": 75
+    },
+    {
+      "date": "2026-06-17",
+      "name": "Z2 Endurance",
+      "type": "Z2",
+      "durationMin": 90
+    },
+    {
+      "date": "2026-06-18",
+      "name": "Threshold — 2×20",
+      "type": "Threshold",
+      "durationMin": 75
+    },
+    {
+      "date": "2026-06-19",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-06-20",
+      "name": "Long Z2 Ride",
+      "type": "Z2",
+      "durationMin": 240
+    },
+    {
+      "date": "2026-06-21",
+      "name": "Easy Recovery Spin",
+      "type": "Recovery",
+      "durationMin": 60
+    },
+    {
+      "date": "2026-06-22",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-06-23",
+      "name": "SIT — Sprint Development",
+      "type": "SIT",
+      "durationMin": 60
+    },
+    {
+      "date": "2026-06-24",
+      "name": "Z2 Endurance",
+      "type": "Z2",
+      "durationMin": 90
+    },
+    {
+      "date": "2026-06-25",
+      "name": "Threshold — 3×15",
+      "type": "Threshold",
+      "durationMin": 90
+    },
+    {
+      "date": "2026-06-26",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-06-27",
+      "name": "Long Z2 Ride",
+      "type": "Z2",
+      "durationMin": 240
+    },
+    {
+      "date": "2026-06-28",
+      "name": "Easy Recovery Spin",
+      "type": "Recovery",
+      "durationMin": 60
+    },
+    {
+      "date": "2026-06-29",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-06-30",
+      "name": "VO2max — 5×4 + Sprint Finishers",
+      "type": "VO2max",
+      "durationMin": 90
+    },
+    {
+      "date": "2026-07-01",
+      "name": "Z2 Endurance",
+      "type": "Z2",
+      "durationMin": 90
+    },
+    {
+      "date": "2026-07-02",
+      "name": "Threshold — Over-Unders",
+      "type": "Threshold",
+      "durationMin": 90
+    },
+    {
+      "date": "2026-07-03",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-07-04",
+      "name": "Z2 Long Ride (Reduced)",
+      "type": "Z2",
+      "durationMin": 150
+    },
+    {
+      "date": "2026-07-05",
+      "name": "Easy Recovery Spin",
+      "type": "Recovery",
+      "durationMin": 45
+    },
+    {
+      "date": "2026-07-06",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    },
+    {
+      "date": "2026-07-07",
+      "name": "Threshold — 2×15 (Reduced)",
+      "type": "Threshold",
+      "durationMin": 60
+    },
+    {
+      "date": "2026-07-08",
+      "name": "Z2 Endurance",
+      "type": "Z2",
+      "durationMin": 60
+    },
+    {
+      "date": "2026-07-09",
+      "name": "SIT — Short Sprint Session (Reduced)",
+      "type": "SIT",
+      "durationMin": 45
+    },
+    {
+      "date": "2026-07-10",
+      "name": "Rest",
+      "type": "Rest",
+      "durationMin": 0
+    }
+  ]
+}
