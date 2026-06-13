@@ -1,6 +1,7 @@
 // Anthropic API client + prompt assembly for training block generation.
 import Anthropic from "@anthropic-ai/sdk";
-import type { AthleteProfile, BlockParams, SyncData } from "./types";
+import type { AthleteProfile, BlockParams, BlockSettings, SyncData, TodayAnalysis } from "./types";
+import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
 
 // Non-negotiable: in-app generation always uses claude-sonnet-4-6.
@@ -211,7 +212,8 @@ BLOCK PARAMETERS
 export function buildUserMessage(
   blockParams: BlockParams,
   weeks: string[][],
-  nutritionTableMd: string
+  nutritionTableMd: string,
+  settings: BlockSettings = DEFAULT_BLOCK_SETTINGS
 ): string {
   const calendar = weeks
     .map(
@@ -255,16 +257,93 @@ Hard rules:
 - DURATION is an integer number of minutes.
 - TYPE must be one of: Z2, Threshold, VO2max, SIT, Recovery, Strength, Rest.
 - Workout step durations must sum approximately to DURATION.
-- **WEEKLY VOLUME (non-recovery weeks):** Target 10–12 hours total per week. Loading weeks must reach at least 10h.
-- **WEEKLY VOLUME (recovery week):** Reduce to 6–7 hours total (30–40% volume reduction).
-- **WEEKLY STRUCTURE (loading weeks):** 2 quality sessions (threshold/VO2max/SIT) + 1 long Z2 ride (3–4h) + 2–3 easy Z2 sessions (60–90 min each) + 1 rest day (no recovery spins in addition to Z2 rides; avoid back-to-back hard days).
-- **Rest days:** TYPE: Rest, DURATION: 0, WORKOUT: Rest, description with Intent and Daily target only. Limit to 1 per week.
+- **WEEKLY VOLUME (loading weeks):** Target ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours total per week. Each loading week must reach at least ${settings.weeklyHoursMin}h.
+- **WEEKLY VOLUME (recovery week):** Reduce to ${settings.recoveryWeekHoursMin}–${settings.recoveryWeekHoursMax} hours total.
+- **WEEKLY STRUCTURE (loading weeks):** ${settings.qualitySessionsPerLoadingWeek} quality sessions (threshold/VO2max/SIT) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60–90 min each) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week (avoid back-to-back hard days).${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
+- **Rest days:** TYPE: Rest, DURATION: 0, WORKOUT: Rest, description with Intent and Daily target only. Limit to ${settings.restDaysPerWeek} per week.
 - Do not output anything before BLOCK OVERVIEW or after the final day.`;
 }
 
 export interface GenerationResult {
   raw: string;
   truncated: boolean;
+}
+
+// ---------- Today's ride analysis ----------
+
+export interface RideAnalysisInput {
+  activityDate: string;
+  activityName: string;
+  activityDurationMin: number;
+  activityAvgWatts: number | null;
+  activityAvgHr: number | null;
+  activityKj: number | null;
+  activityTrainingLoad: number | null;
+  activityRpe: number | null;
+  plannedName: string | null;
+  plannedType: string | null;
+  plannedDurationMin: number | null;
+  plannedWorkoutText: string | null;
+  athleteFtp: number;
+  athleteThresholdHr: number;
+}
+
+export async function analyseRide(input: RideAnalysisInput): Promise<string> {
+  if (!isAnthropicConfigured()) {
+    throw new Error("Anthropic API is not configured.");
+  }
+  const planned = input.plannedName
+    ? `Planned: ${input.plannedType} — "${input.plannedName}" (${input.plannedDurationMin} min)${input.plannedWorkoutText ? `\nWorkout steps:\n${input.plannedWorkoutText}` : ""}`
+    : "No session was planned for today.";
+
+  const actual = [
+    `Actual: "${input.activityName}" — ${input.activityDurationMin} min`,
+    input.activityAvgWatts !== null ? `Avg power: ${input.activityAvgWatts} W (IF: ${(input.activityAvgWatts / input.athleteFtp).toFixed(2)})` : null,
+    input.activityAvgHr !== null ? `Avg HR: ${input.activityAvgHr} bpm (threshold: ${input.athleteThresholdHr} bpm)` : null,
+    input.activityKj !== null ? `Work: ${input.activityKj} kJ` : null,
+    input.activityTrainingLoad !== null ? `Training load: ${input.activityTrainingLoad}` : null,
+    input.activityRpe !== null ? `RPE: ${input.activityRpe}/10` : null,
+  ].filter(Boolean).join("\n");
+
+  const prompt = `You are a cycling coach reviewing today's completed ride against the plan. Give a short, direct analysis (3–5 sentences max). Focus on: did the athlete execute the plan, were there notable deviations (under/over-paced), and one concrete takeaway or adjustment for the next session. No preamble.\n\n${planned}\n\n${actual}`;
+
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: GENERATION_MODEL,
+    max_tokens: 300,
+    temperature: 0.4,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  return response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
+
+export function buildRideAnalysisInput(
+  activity: { name: string; date: string; movingTimeSec: number; avgWatts: number | null; avgHr: number | null; kj: number | null; trainingLoad: number | null; rpe: number | null },
+  planned: { name: string; type: string; durationMin: number; workoutText?: string } | null,
+  athleteFtp: number,
+  athleteThresholdHr: number
+): RideAnalysisInput {
+  return {
+    activityDate: activity.date,
+    activityName: activity.name,
+    activityDurationMin: Math.round(activity.movingTimeSec / 60),
+    activityAvgWatts: activity.avgWatts,
+    activityAvgHr: activity.avgHr,
+    activityKj: activity.kj,
+    activityTrainingLoad: activity.trainingLoad,
+    activityRpe: activity.rpe,
+    plannedName: planned?.name ?? null,
+    plannedType: planned?.type ?? null,
+    plannedDurationMin: planned?.durationMin ?? null,
+    plannedWorkoutText: planned?.workoutText ?? null,
+    athleteFtp,
+    athleteThresholdHr,
+  };
 }
 
 export async function generateTrainingBlock(

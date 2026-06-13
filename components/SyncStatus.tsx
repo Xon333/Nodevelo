@@ -19,13 +19,13 @@ export default function SyncStatus({ configured, lastSyncedAt, syncing, error, o
       : "Intervals.icu connected";
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
+    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className={`h-2.5 w-2.5 rounded-full ${dot}`} aria-hidden />
           <div>
-            <p className="text-sm font-medium text-zinc-900">{statusText}</p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{statusText}</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Last synced: {timeAgo(lastSyncedAt)}
               {lastSyncedAt ? ` (${new Date(lastSyncedAt).toLocaleString()})` : ""}
             </p>
@@ -34,13 +34,15 @@ export default function SyncStatus({ configured, lastSyncedAt, syncing, error, o
         <button
           onClick={onSync}
           disabled={!configured || syncing}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
         >
           {syncing ? "Syncing…" : "Sync Now"}
         </button>
       </div>
       {error && (
-        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
+        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </p>
       )}
     </section>
   );

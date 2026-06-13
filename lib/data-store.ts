@@ -2,7 +2,8 @@
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 import { promises as fs } from "fs";
 import path from "path";
-import type { AthleteProfile, CurrentBlock, SyncData } from "./types";
+import type { AthleteProfile, BlockHistoryEntry, BlockSettings, CurrentBlock, SyncData, TodayAnalysis } from "./types";
+import { DEFAULT_BLOCK_SETTINGS } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -68,4 +69,31 @@ export async function readCurrentBlock(): Promise<CurrentBlock | null> {
 
 export async function writeCurrentBlock(block: CurrentBlock | null): Promise<void> {
   await writeJson("current-block.json", block);
+}
+
+export async function readBlockSettings(): Promise<BlockSettings> {
+  return readJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS);
+}
+
+export async function writeBlockSettings(settings: BlockSettings): Promise<void> {
+  await writeJson("block-settings.json", { ...settings, updatedAt: new Date().toISOString() });
+}
+
+export async function readBlockHistory(): Promise<BlockHistoryEntry[]> {
+  return readJson<BlockHistoryEntry[]>("block-history.json", []);
+}
+
+export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void> {
+  const history = await readBlockHistory();
+  // Deduplicate by id to avoid duplicates on retry.
+  const filtered = history.filter((h) => h.id !== entry.id);
+  await writeJson("block-history.json", [entry, ...filtered].slice(0, 20));
+}
+
+export async function readTodayAnalysis(): Promise<TodayAnalysis | null> {
+  return readJson<TodayAnalysis | null>("today-analysis.json", null);
+}
+
+export async function writeTodayAnalysis(analysis: TodayAnalysis | null): Promise<void> {
+  await writeJson("today-analysis.json", analysis);
 }

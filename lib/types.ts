@@ -137,6 +137,62 @@ export interface CurrentBlock {
   days: CurrentBlockDay[];
 }
 
+// ---------- Block generation settings (data/block-settings.json) ----------
+
+export interface BlockSettings {
+  weeklyHoursMin: number; // loading weeks minimum
+  weeklyHoursMax: number; // loading weeks maximum
+  recoveryWeekHoursMin: number;
+  recoveryWeekHoursMax: number;
+  qualitySessionsPerLoadingWeek: number; // threshold / VO2max / SIT sessions
+  longRideDurationMinutes: number; // minimum long ride duration
+  restDaysPerWeek: number;
+  polarisedApproach: boolean; // true = polarised (80/20), false = sweet spot
+  updatedAt: string;
+}
+
+export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
+  weeklyHoursMin: 10,
+  weeklyHoursMax: 12,
+  recoveryWeekHoursMin: 6,
+  recoveryWeekHoursMax: 7,
+  qualitySessionsPerLoadingWeek: 2,
+  longRideDurationMinutes: 180,
+  restDaysPerWeek: 1,
+  polarisedApproach: true,
+  updatedAt: new Date(0).toISOString(),
+};
+
+// ---------- Block history (data/block-history.json) ----------
+
+export interface BlockHistoryEntry {
+  id: string;
+  goal: string;
+  startDate: string;
+  endDate: string;
+  lengthWeeks: number;
+  overview: string;
+  createdAt: string;
+}
+
+// ---------- Today's ride analysis (data/today-analysis.json) ----------
+
+export interface TodayAnalysis {
+  analysedAt: string;
+  activityDate: string;
+  activityName: string;
+  activityDurationMin: number;
+  activityAvgWatts: number | null;
+  activityAvgHr: number | null;
+  activityKj: number | null;
+  activityTrainingLoad: number | null;
+  activityRpe: number | null;
+  plannedName: string | null;
+  plannedType: string | null;
+  plannedDurationMin: number | null;
+  analysis: string; // Claude's short analysis
+}
+
 // ---------- Write-back ----------
 
 export interface IntervalsEventPayload {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createEvent, isIntervalsConfigured } from "@/lib/intervals-api";
-import { writeCurrentBlock } from "@/lib/data-store";
+import { appendBlockHistory, readCurrentBlock, writeCurrentBlock } from "@/lib/data-store";
 import { planDayToEvent } from "@/lib/plan-parser";
 import type { CurrentBlock, GeneratedPlan, PlannedDay, WriteResult } from "@/lib/types";
 import { WORKOUT_TYPES } from "@/lib/types";
@@ -67,6 +67,20 @@ export async function POST(req: Request) {
   const allOk = results.every((r) => r.ok);
   let currentBlock: CurrentBlock | null = null;
   if (allOk) {
+    // Archive the old block before replacing it.
+    const existing = await readCurrentBlock();
+    if (existing) {
+      await appendBlockHistory({
+        id: existing.createdAt,
+        goal: existing.goal,
+        startDate: existing.startDate,
+        endDate: existing.endDate,
+        lengthWeeks: existing.lengthWeeks,
+        overview: existing.overview,
+        createdAt: existing.createdAt,
+      });
+    }
+
     const dates = plan.days.map((d) => d.date).sort();
     currentBlock = {
       goal: plan.blockParams.goal,

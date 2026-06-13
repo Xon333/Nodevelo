@@ -1,19 +1,39 @@
 import { NextResponse } from "next/server";
 import { isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
-import { readCurrentBlock, readLastSync, writeLastSync, writeCurrentBlock } from "@/lib/data-store";
+import {
+  readAthleteProfile,
+  readCurrentBlock,
+  readLastSync,
+  writeTodayAnalysis,
+  writeCurrentBlock,
+  writeLastSync,
+  readTodayAnalysis,
+} from "@/lib/data-store";
+import { analyseRide, buildRideAnalysisInput, isAnthropicConfigured } from "@/lib/anthropic-api";
+import type { TodayAnalysis } from "@/lib/types";
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
-  const [lastSync, currentBlock] = await Promise.all([readLastSync(), readCurrentBlock()]);
+  const [lastSync, currentBlock, todayAnalysis] = await Promise.all([
+    readLastSync(),
+    readCurrentBlock(),
+    readTodayAnalysis(),
+  ]);
   return NextResponse.json({
     configured: isIntervalsConfigured(),
     anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
     lastSync,
     currentBlock,
+    todayAnalysis,
   });
 }
 
-// POST pulls fresh data from Intervals.icu and caches it in data/last-sync.json.
+// POST pulls fresh data from Intervals.icu, then (if a ride happened today)
+// runs a short Claude analysis comparing actual vs planned.
 export async function POST() {
   if (!isIntervalsConfigured()) {
     return NextResponse.json(
@@ -24,7 +44,59 @@ export async function POST() {
   try {
     const lastSync = await runFullSync();
     await writeLastSync(lastSync);
-    return NextResponse.json({ lastSync });
+
+    let todayAnalysis: TodayAnalysis | null = null;
+
+    if (isAnthropicConfigured()) {
+      const today = todayIso();
+      const todayActivity = lastSync.activities.find(
+        (a) => a.date === today && (a.type === "Ride" || a.type === "VirtualRide")
+      );
+
+      if (todayActivity) {
+        const [currentBlock, profile] = await Promise.all([
+          readCurrentBlock(),
+          readAthleteProfile(),
+        ]);
+        const plannedDay = currentBlock?.days.find((d) => d.date === today) ?? null;
+
+        try {
+          const input = buildRideAnalysisInput(
+            todayActivity,
+            plannedDay
+              ? {
+                  name: plannedDay.name,
+                  type: plannedDay.type,
+                  durationMin: plannedDay.durationMin,
+                }
+              : null,
+            profile.performance.ftp,
+            profile.performance.thresholdHr
+          );
+          const analysis = await analyseRide(input);
+          todayAnalysis = {
+            analysedAt: new Date().toISOString(),
+            activityDate: today,
+            activityName: todayActivity.name,
+            activityDurationMin: Math.round(todayActivity.movingTimeSec / 60),
+            activityAvgWatts: todayActivity.avgWatts,
+            activityAvgHr: todayActivity.avgHr,
+            activityKj: todayActivity.kj,
+            activityTrainingLoad: todayActivity.trainingLoad,
+            activityRpe: todayActivity.rpe,
+            plannedName: plannedDay?.name ?? null,
+            plannedType: plannedDay?.type ?? null,
+            plannedDurationMin: plannedDay?.durationMin ?? null,
+            analysis,
+          };
+          await writeTodayAnalysis(todayAnalysis);
+        } catch {
+          // Analysis is best-effort — don't fail the whole sync.
+        }
+      }
+    }
+
+    return NextResponse.json({ lastSync, todayAnalysis });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

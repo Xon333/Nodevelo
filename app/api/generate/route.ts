@@ -7,7 +7,7 @@ import {
   generateTrainingBlock,
   isAnthropicConfigured,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readLastSync } from "@/lib/data-store";
+import { readAthleteProfile, readBlockSettings, readLastSync } from "@/lib/data-store";
 import { loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import {
   buildNutritionReferenceRows,
@@ -59,10 +59,11 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
+      readBlockSettings(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
       buildAthleteDataSection(profile, sync),
       blockParams
     );
-    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable);
+    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings);
 
     const { raw, truncated } = await generateTrainingBlock(system, userMessage);
     const { overview, days, warnings } = parsePlan(raw, weeks.flat());
