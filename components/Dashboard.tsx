@@ -68,7 +68,13 @@ function BlockCalendar({ block }: { block: CurrentBlock }) {
   );
 }
 
-function CurrentBlockSection({ block }: { block: CurrentBlock | null }) {
+function CurrentBlockSection({
+  block,
+  onDelete,
+}: {
+  block: CurrentBlock | null;
+  onDelete?: () => void;
+}) {
   if (!block) {
     return (
       <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-center">
@@ -98,6 +104,15 @@ function CurrentBlockSection({ block }: { block: CurrentBlock | null }) {
               : "finished"}
           </p>
         </div>
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+            title="Delete this block to generate a new one"
+          >
+            Delete block
+          </button>
+        )}
       </div>
       {block.overview && (
         <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{block.overview}</p>
@@ -285,6 +300,18 @@ export default function Dashboard() {
     }
   };
 
+  const deleteBlock = async () => {
+    if (!window.confirm("Delete the current block? You can generate a new one after.")) return;
+    try {
+      await api("/api/sync", { method: "DELETE" });
+      setState((s) => (s ? { ...s, currentBlock: null } : s));
+      setPlan(null);
+      setWriteResults(null);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
+
   if (loadError) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -309,7 +336,7 @@ export default function Dashboard() {
         onSync={doSync}
       />
 
-      <CurrentBlockSection block={state.currentBlock} />
+      <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} />
 
       {/* Actions + block settings */}
       <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4">

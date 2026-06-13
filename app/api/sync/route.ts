@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
-import { readCurrentBlock, readLastSync, writeLastSync } from "@/lib/data-store";
+import { readCurrentBlock, readLastSync, writeLastSync, writeCurrentBlock } from "@/lib/data-store";
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
@@ -30,4 +30,10 @@ export async function POST() {
     const message = err instanceof Error ? err.message : "Sync failed";
     return NextResponse.json({ error: message }, { status });
   }
+}
+
+// DELETE clears the current block so a new one can be generated.
+export async function DELETE() {
+  await writeCurrentBlock(null);
+  return NextResponse.json({ ok: true });
 }

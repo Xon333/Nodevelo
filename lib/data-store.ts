@@ -66,6 +66,6 @@ export async function readCurrentBlock(): Promise<CurrentBlock | null> {
   return readJson<CurrentBlock | null>("current-block.json", null);
 }
 
-export async function writeCurrentBlock(block: CurrentBlock): Promise<void> {
+export async function writeCurrentBlock(block: CurrentBlock | null): Promise<void> {
   await writeJson("current-block.json", block);
 }
