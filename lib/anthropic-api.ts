@@ -241,10 +241,10 @@ DAY [date]: [Session name]
 
 DESCRIPTION FORMAT for each workout:
   Intent: [1 sentence on the physiological goal of this session]
-  Pre-ride: [Specific food/timing recommendation using the pre-ride carb grams from the reference table]
-  In-ride: [Carbohydrate target in grams/hr and suggested sources, only for rides > 60 min]
-  Post-ride: [Recovery nutrition: carbs + protein targets and timing from the reference table]
-  Daily target: [Total kcal for the day, copied from the reference table]
+  Pre-ride: [Carbohydrate grams from the reference table]
+  In-ride: [Carbohydrate grams/hr from the reference table, only for rides > 60 min]
+  Post-ride: [Carbs and protein targets in grams from the reference table]
+  Daily intake: [Total kcal for the day, copied from the reference table]
 
 NUTRITION REFERENCE TABLE (pre-computed by the app's deterministic formula — copy these values, never calculate your own; pick the row matching the session's type and closest duration):
 
