@@ -1,0 +1,19 @@
+{
+  "performance": {
+    "ftp": 200,
+    "maxHr": 190,
+    "thresholdHr": 170,
+    "weightKg": 75,
+    "weeklyHoursMin": 6,
+    "weeklyHoursMax": 10
+  },
+  "goals": [],
+  "weakpoints": [],
+  "nutrition": {
+    "baseCalories": 2000,
+    "restDayTarget": 2600,
+    "buffer": 300,
+    "targetWeightKg": 75
+  },
+  "updatedAt": "1970-01-01T00:00:00.000Z"
+}
