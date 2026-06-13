@@ -52,8 +52,8 @@
 
 | Zone | Name | Power Range | HR Range |
 |------|------|------------|----------|
-| Z1 | Active Recovery | < 158W | < 120 BPM |
-| Z2 | Endurance | 161–216W | 120–152 BPM |
+| Z1 | Active Recovery | < 175W | < 120 BPM |
+| Z2 | Endurance | 175–216W | 120–152 BPM |
 | Z3 | Tempo | 217–259W | 152–170 BPM |
 | Z4 | Threshold | 260–302W | 170–182 BPM |
 | Z5 | VO2max | 303–346W | 182–194 BPM |
