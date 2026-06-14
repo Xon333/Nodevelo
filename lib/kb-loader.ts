@@ -159,6 +159,70 @@ export async function loadKnowledgeBaseContext(): Promise<string> {
   return sections.join("\n\n");
 }
 
+// ---------- Block retrospectives ----------
+// Stored under knowledge-base/block-retrospectives/. They are NOT pulled into
+// loadKnowledgeBaseContext() (listKnowledgeFiles only matches flat .md files),
+// so they never bloat the generation prompt. Instead the *latest* file's
+// next_block_seeds — editable by the athlete — are injected at generation time.
+
+const RETRO_DIR = path.join(KB_DIR, "block-retrospectives");
+
+async function ensureRetroDir(): Promise<void> {
+  await fs.mkdir(RETRO_DIR, { recursive: true });
+}
+
+// Newest-first (filenames start with the block start date, so a reverse
+// lexicographic sort is chronological).
+export async function listRetrospectives(): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(RETRO_DIR);
+    return entries.filter((f) => f.endsWith(".md")).sort((a, b) => b.localeCompare(a));
+  } catch {
+    return [];
+  }
+}
+
+export async function readRetrospective(name: string): Promise<string> {
+  assertSafeName(name);
+  return fs.readFile(path.join(RETRO_DIR, name), "utf-8");
+}
+
+// Unlike core KB files, retrospectives can be created (one per completed block).
+export async function writeRetrospective(name: string, content: string): Promise<void> {
+  assertSafeName(name);
+  await ensureRetroDir();
+  await fs.writeFile(path.join(RETRO_DIR, name), content, "utf-8");
+}
+
+// Parse the `next_block_seeds:` YAML list out of the newest retrospective's
+// frontmatter. Athlete edits to this list flow straight into the next block.
+export async function latestRetrospectiveSeeds(): Promise<string[]> {
+  const all = await listRetrospectives();
+  // Only date-prefixed retrospectives count for "latest" — ignore any stray
+  // notes the athlete may have dropped in (their ISO date prefix sorts correctly).
+  const dated = all.filter((f) => /^\d{4}-\d{2}-\d{2}_/.test(f));
+  if (dated.length === 0) return [];
+  let content = "";
+  try {
+    content = await fs.readFile(path.join(RETRO_DIR, dated[0]), "utf-8");
+  } catch {
+    return [];
+  }
+  const lines = content.split("\n");
+  const seeds: string[] = [];
+  let inSeeds = false;
+  for (const line of lines) {
+    if (/^next_block_seeds:\s*$/.test(line)) { inSeeds = true; continue; }
+    if (inSeeds) {
+      const m = line.match(/^\s+-\s+"?(.*?)"?\s*$/);
+      if (m && m[1].trim()) { seeds.push(m[1].trim()); continue; }
+      // A non-list line ends the block (next key, closing ---, or blank-then-key).
+      if (line.trim() !== "" && !/^\s+-/.test(line)) break;
+    }
+  }
+  return seeds;
+}
+
 // athlete.json is the source of truth; this regenerates athlete_profile.md so
 // the two stay in sync (non-negotiable #6).
 export function athleteProfileToMarkdown(profile: AthleteProfile): string {

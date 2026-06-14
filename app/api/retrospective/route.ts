@@ -4,9 +4,9 @@ import {
   readBlockHistory,
   readCurrentBlock,
   readLastSync,
-  writeBlockMarkdown,
   writeCurrentBlock,
 } from "@/lib/data-store";
+import { writeRetrospective } from "@/lib/kb-loader";
 import { generateRetrospective, isAnthropicConfigured } from "@/lib/anthropic-api";
 import type { BlockHistoryEntry, WorkoutType } from "@/lib/types";
 
@@ -149,7 +149,7 @@ export async function POST() {
     retrospective,
   ].join("\n");
 
-  await writeBlockMarkdown(fileId, frontmatter);
+  await writeRetrospective(`${fileId}.md`, frontmatter);
 
   // Persist retrospective into block history and move block out of current.
   const historyEntry: BlockHistoryEntry = {

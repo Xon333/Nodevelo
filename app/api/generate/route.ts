@@ -7,8 +7,8 @@ import {
   generateTrainingBlock,
   isAnthropicConfigured,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockHistory, readBlockSettings, readComplianceMemory, readLastSync } from "@/lib/data-store";
-import { loadKnowledgeBaseContext } from "@/lib/kb-loader";
+import { readAthleteProfile, readBlockSettings, readComplianceMemory, readLastSync } from "@/lib/data-store";
+import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import {
   buildNutritionReferenceRows,
   nutritionTableMarkdown,
@@ -59,13 +59,13 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, complianceMemory, blockHistory] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, complianceMemory, retroSeeds] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
       readBlockSettings(),
       readComplianceMemory(),
-      readBlockHistory(),
+      latestRetrospectiveSeeds(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -100,10 +100,10 @@ export async function POST(req: Request) {
       ? `\nCOMPLIANCE HISTORY (from logged sessions)\n${complianceLines.join("\n")}`
       : "";
 
-    // Seeds from the most recent block retrospective, if available.
-    const latestRetro = blockHistory.find((h) => h.nextBlockSeeds && h.nextBlockSeeds.length > 0);
-    const seedsContext = latestRetro?.nextBlockSeeds?.length
-      ? `\nPREVIOUS BLOCK PRIORITIES (carry forward into planning)\n${latestRetro.nextBlockSeeds.map((s) => `- ${s}`).join("\n")}`
+    // Seeds from the latest block retrospective markdown (athlete-editable in the
+    // Knowledge Base). Edits to next_block_seeds flow directly into this block.
+    const seedsContext = retroSeeds.length
+      ? `\nPREVIOUS BLOCK PRIORITIES (carry forward into planning)\n${retroSeeds.map((s) => `- ${s}`).join("\n")}`
       : "";
 
     const system = buildSystemPrompt(

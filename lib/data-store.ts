@@ -123,17 +123,3 @@ export async function readRollingBaselines(): Promise<RollingBaselines> {
 export async function writeRollingBaselines(baselines: RollingBaselines): Promise<void> {
   await writeJson("rolling-baselines.json", baselines);
 }
-
-export async function writeBlockMarkdown(id: string, content: string): Promise<void> {
-  const dir = path.join(DATA_DIR, "blocks");
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, `${id}.md`), content, "utf-8");
-}
-
-export async function readBlockMarkdown(id: string): Promise<string | null> {
-  try {
-    return await fs.readFile(path.join(DATA_DIR, "blocks", `${id}.md`), "utf-8");
-  } catch {
-    return null;
-  }
-}
