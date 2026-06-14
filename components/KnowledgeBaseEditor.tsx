@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
 
 type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; message: string };
+type Kind = "kb" | "retro";
+type Selection = { name: string; kind: Kind };
 
 export default function KnowledgeBaseEditor() {
   const [files, setFiles] = useState<string[] | null>(null);
+  const [retros, setRetros] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [content, setContent] = useState("");
   const [original, setOriginal] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({ state: "idle" });
@@ -18,9 +21,10 @@ export default function KnowledgeBaseEditor() {
   useEffect(() => {
     (async () => {
       try {
-        const { files } = await api<{ files: string[] }>("/api/knowledge");
+        const { files, retrospectives } = await api<{ files: string[]; retrospectives: string[] }>("/api/knowledge");
         setFiles(files);
-        if (files.length > 0) void open(files[0], true);
+        setRetros(retrospectives ?? []);
+        if (files.length > 0) void open({ name: files[0], kind: "kb" }, true);
       } catch (err) {
         setLoadError(err instanceof Error ? err.message : "Failed to list files");
       }
@@ -28,11 +32,12 @@ export default function KnowledgeBaseEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const open = async (file: string, force = false) => {
+  const open = async (sel: Selection, force = false) => {
     if (!force && dirty && !window.confirm("Discard unsaved changes?")) return;
     try {
-      const data = await api<{ content: string }>(`/api/knowledge?file=${encodeURIComponent(file)}`);
-      setSelected(file);
+      const param = sel.kind === "retro" ? `retro=${encodeURIComponent(sel.name)}` : `file=${encodeURIComponent(sel.name)}`;
+      const data = await api<{ content: string }>(`/api/knowledge?${param}`);
+      setSelected(sel);
       setContent(data.content);
       setOriginal(data.content);
       setSaveState({ state: "idle" });
@@ -45,7 +50,8 @@ export default function KnowledgeBaseEditor() {
     if (!selected) return;
     setSaveState({ state: "saving" });
     try {
-      await api("/api/knowledge", { method: "PUT", body: JSON.stringify({ file: selected, content }) });
+      const body = selected.kind === "retro" ? { retro: selected.name, content } : { file: selected.name, content };
+      await api("/api/knowledge", { method: "PUT", body: JSON.stringify(body) });
       setOriginal(content);
       setSaveState({ state: "saved" });
     } catch (err) {
@@ -64,31 +70,54 @@ export default function KnowledgeBaseEditor() {
     return <p className="py-12 text-center text-sm text-zinc-400">Loading…</p>;
   }
 
+  const isRetro = selected?.kind === "retro";
+
+  const navButton = (sel: Selection, label: string) => {
+    const active = selected?.name === sel.name && selected?.kind === sel.kind;
+    return (
+      <button
+        onClick={() => void open(sel)}
+        className={`w-full truncate rounded px-3 py-2 text-left text-xs font-medium transition-colors ${
+          active
+            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+            : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+        }`}
+        title={label}
+      >
+        {label}
+        {active && dirty ? " ●" : ""}
+      </button>
+    );
+  };
+
   return (
     <div>
       <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Knowledge base</h1>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-        Injected into every generation prompt. Edits apply immediately to the next generation.
+        {isRetro
+          ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block."
+          : "Injected into every generation prompt. Edits apply immediately to the next generation."}
       </p>
       <div className="mt-4 flex gap-3">
-        <aside className="w-48 shrink-0">
+        <aside className="w-52 shrink-0">
           <ul className="space-y-0.5">
             {files.map((file) => (
-              <li key={file}>
-                <button
-                  onClick={() => void open(file)}
-                  className={`w-full rounded px-3 py-2 text-left text-xs font-medium transition-colors ${
-                    selected === file
-                      ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-                  }`}
-                >
-                  {file}
-                  {selected === file && dirty ? " ●" : ""}
-                </button>
-              </li>
+              <li key={file}>{navButton({ name: file, kind: "kb" }, file)}</li>
             ))}
           </ul>
+
+          {retros.length > 0 && (
+            <>
+              <p className="mt-4 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                Block retrospectives
+              </p>
+              <ul className="space-y-0.5">
+                {retros.map((r) => (
+                  <li key={r}>{navButton({ name: r, kind: "retro" }, r.replace(/\.md$/, ""))}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </aside>
         <div className="min-w-0 flex-1">
           {selected ? (

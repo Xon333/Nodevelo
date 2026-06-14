@@ -2,7 +2,7 @@
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 import { promises as fs } from "fs";
 import path from "path";
-import type { AthleteProfile, BlockHistoryEntry, BlockSettings, CurrentBlock, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, BlockHistoryEntry, BlockSettings, ComplianceMemory, CurrentBlock, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -96,4 +96,40 @@ export async function readTodayAnalysis(): Promise<TodayAnalysis | null> {
 
 export async function writeTodayAnalysis(analysis: TodayAnalysis | null): Promise<void> {
   await writeJson("today-analysis.json", analysis);
+}
+
+const DEFAULT_COMPLIANCE: ComplianceMemory = { byType: {}, updatedAt: new Date(0).toISOString() };
+
+export async function readComplianceMemory(): Promise<ComplianceMemory> {
+  return readJson<ComplianceMemory>("compliance-memory.json", DEFAULT_COMPLIANCE);
+}
+
+export async function writeComplianceMemory(memory: ComplianceMemory): Promise<void> {
+  await writeJson("compliance-memory.json", memory);
+}
+
+const DEFAULT_BASELINES: RollingBaselines = {
+  avgCtl90d: null,
+  avgDecoupling90d: null,
+  avgCadence90d: null,
+  avgTss90d: null,
+  updatedAt: new Date(0).toISOString(),
+};
+
+export async function readRollingBaselines(): Promise<RollingBaselines> {
+  return readJson<RollingBaselines>("rolling-baselines.json", DEFAULT_BASELINES);
+}
+
+export async function writeRollingBaselines(baselines: RollingBaselines): Promise<void> {
+  await writeJson("rolling-baselines.json", baselines);
+}
+
+const DEFAULT_SCORE_LOG: ScoreLog = { entries: [], updatedAt: new Date(0).toISOString() };
+
+export async function readScoreLog(): Promise<ScoreLog> {
+  return readJson<ScoreLog>("score-log.json", DEFAULT_SCORE_LOG);
+}
+
+export async function writeScoreLog(log: ScoreLog): Promise<void> {
+  await writeJson("score-log.json", log);
 }

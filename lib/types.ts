@@ -62,6 +62,12 @@ export interface ActivitySummary {
   trainingLoad: number | null;
   rpe: number | null; // icu_rpe, 1-10
   decoupling: number | null; // aerobic decoupling %
+  description: string | null; // athlete's free-text note written in Intervals.icu
+  avgCadence: number | null; // rpm
+  distanceMeters: number | null;
+  elevationGain: number | null; // metres
+  powerZoneTimes: number[] | null; // seconds in each power zone [z1, z2, ..., z7]
+  hrZoneTimes: number[] | null; // seconds in each HR zone
 }
 
 export interface WellnessEntry {
@@ -177,6 +183,76 @@ export interface BlockHistoryEntry {
   lengthWeeks: number;
   overview: string;
   createdAt: string;
+  // Retrospective fields — populated when block is completed
+  complianceByType?: Partial<Record<WorkoutType, number>>;
+  actualHours?: number;
+  plannedHours?: number;
+  ctlGain?: number | null;
+  nextBlockSeeds?: string[];
+  retrospective?: string; // Claude narrative
+}
+
+// ---------- Readiness / fatigue signals (computed at sync time) ----------
+
+export interface ReadinessSignal {
+  level: "Build" | "Hold" | "Recover";
+  reason: string;
+}
+
+export interface FatigueAlert {
+  triggered: boolean;
+  type: "atl_ctl_ratio" | "tsb" | "none";
+  reason: string | null;
+}
+
+export interface LoadRampAlert {
+  triggered: boolean;
+  level: "none" | "caution" | "high";
+  thisWeekTss: number;
+  lastWeekTss: number;
+  changePct: number | null;
+  reason: string | null;
+}
+
+// ---------- Compliance memory (data/compliance-memory.json) ----------
+
+export interface ComplianceEntry {
+  sessions: number;
+  avgCompliancePct: number;
+  recentCompliancePct: number | null; // last 28 days
+  highComplianceWorkouts: Array<{ date: string; name: string; workoutText: string }>;
+}
+
+export interface ComplianceMemory {
+  byType: Partial<Record<WorkoutType, ComplianceEntry>>;
+  updatedAt: string;
+}
+
+// ---------- Per-ride execution score log (data/score-log.json) ----------
+// Accumulates over time so the trends view can chart execution quality across
+// blocks, even after a block is cleared from current-block.json.
+
+export interface RideScoreEntry {
+  date: string;
+  executionScore: number;
+  plannedType: WorkoutType;
+  compliancePct: number | null;
+  intensityFactor: number | null;
+}
+
+export interface ScoreLog {
+  entries: RideScoreEntry[];
+  updatedAt: string;
+}
+
+// ---------- Rolling baselines (data/rolling-baselines.json) ----------
+
+export interface RollingBaselines {
+  avgCtl90d: number | null;
+  avgDecoupling90d: number | null;
+  avgCadence90d: number | null;
+  avgTss90d: number | null;
+  updatedAt: string;
 }
 
 // ---------- Today's ride analysis (data/today-analysis.json) ----------
@@ -206,6 +282,10 @@ export interface TodayAnalysis {
   advisedBaseKcal: number | null;
   advisedBufferKcal: number | null;
   advisedRideFuelKcal: number | null;
+  activityDescription: string | null; // athlete's note from Intervals.icu, fed to coach
+  powerZoneTimes: number[] | null;
+  hrZoneTimes: number[] | null;
+  executionScore: number | null; // 1-10 deterministic quality score
   coachNote: string; // Claude 2-3 sentence narrative
 }
 

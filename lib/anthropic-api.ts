@@ -1,6 +1,6 @@
 // Anthropic API client + prompt assembly for training block generation.
 import Anthropic from "@anthropic-ai/sdk";
-import type { AthleteProfile, BlockParams, BlockSettings, SyncData, TodayAnalysis } from "./types";
+import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
 
@@ -274,12 +274,23 @@ export interface GenerationResult {
 export interface RideAnalysisInput {
   activityDate: string;
   activityName: string;
+  activityType: string;
   activityDurationMin: number;
   activityAvgWatts: number | null;
+  activityNormalizedPower: number | null;
+  activityMaxWatts: number | null;
   activityAvgHr: number | null;
+  activityMaxHr: number | null;
   activityKj: number | null;
   activityTrainingLoad: number | null;
   activityRpe: number | null;
+  activityDecoupling: number | null;
+  activityDescription: string | null;
+  avgCadence: number | null;
+  distanceMeters: number | null;
+  elevationGain: number | null;
+  powerZoneTimes: number[] | null;
+  hrZoneTimes: number[] | null;
   plannedName: string | null;
   plannedType: string | null;
   plannedDurationMin: number | null;
@@ -288,33 +299,81 @@ export interface RideAnalysisInput {
   athleteThresholdHr: number;
 }
 
+function fmtZones(times: number[], prefix: string): string | null {
+  const total = times.reduce((s, t) => s + t, 0);
+  if (total === 0) return null;
+  const parts = times
+    .map((t, i) => ({ z: i + 1, pct: Math.round((t / total) * 100) }))
+    .filter((z) => z.pct >= 1)
+    .map((z) => `Z${z.z} ${z.pct}%`);
+  return parts.length > 0 ? `${prefix}: ${parts.join(" · ")}` : null;
+}
+
 export async function analyseRide(input: RideAnalysisInput): Promise<string> {
   if (!isAnthropicConfigured()) {
     throw new Error("Anthropic API is not configured.");
   }
+
   const planned = input.plannedName
     ? `Planned: ${input.plannedType} — "${input.plannedName}" (${input.plannedDurationMin} min)`
     : "No session planned today.";
 
-  const np = input.activityAvgWatts !== null ? Math.round(input.activityAvgWatts * 1.05) : null;
-  const actual = [
-    `Actual: "${input.activityName}" — ${input.activityDurationMin} min`,
-    input.activityAvgWatts !== null
-      ? `Avg ${input.activityAvgWatts}W · NP ~${np}W · IF ${(input.activityAvgWatts / input.athleteFtp).toFixed(2)}`
-      : null,
-    input.activityAvgHr !== null
-      ? `Avg HR ${input.activityAvgHr} bpm (threshold ${input.athleteThresholdHr} bpm)`
-      : null,
-    input.activityTrainingLoad !== null ? `TSS ${input.activityTrainingLoad}` : null,
-    input.activityRpe !== null ? `RPE ${input.activityRpe}/10` : null,
-  ].filter(Boolean).join(" · ");
+  // Header: name, type, duration, distance, elevation
+  const dist = input.distanceMeters ? ` · ${(input.distanceMeters / 1000).toFixed(1)} km` : "";
+  const elev = input.elevationGain ? ` · +${Math.round(input.elevationGain)}m` : "";
+  const typeLabel = input.activityType !== "Ride" ? ` (${input.activityType})` : "";
+  const header = `Actual: "${input.activityName}"${typeLabel} — ${input.activityDurationMin} min${dist}${elev}`;
 
-  const prompt = `You are a cycling coach. Review today's ride vs the plan in 2–3 short sentences. Be direct and specific: execution quality, any notable deviation, and one concrete takeaway for the next session. No greeting, no fluff.\n\n${planned}\n${actual}`;
+  // Power line
+  let powerLine: string | null = null;
+  if (input.activityAvgWatts !== null) {
+    const np = input.activityNormalizedPower ?? Math.round(input.activityAvgWatts * 1.05);
+    const ifVal = (input.activityAvgWatts / input.athleteFtp).toFixed(2);
+    const maxW = input.activityMaxWatts ? ` · Max ${input.activityMaxWatts}W` : "";
+    const dec = input.activityDecoupling != null ? ` · Decoupling ${input.activityDecoupling.toFixed(1)}%` : "";
+    const npLabel = input.activityNormalizedPower ? "NP" : "NP ~";
+    powerLine = `Power:  Avg ${input.activityAvgWatts}W · ${npLabel} ${np}W · IF ${ifVal}${maxW}${dec}`;
+  }
+
+  // HR line
+  let hrLine: string | null = null;
+  if (input.activityAvgHr !== null) {
+    const maxHr = input.activityMaxHr ? ` · Max ${input.activityMaxHr} bpm` : "";
+    hrLine = `HR:     Avg ${input.activityAvgHr} bpm${maxHr} (threshold ${input.athleteThresholdHr} bpm)`;
+  }
+
+  // Effort line
+  const effortParts: string[] = [];
+  if (input.activityTrainingLoad !== null) effortParts.push(`TSS ${input.activityTrainingLoad}`);
+  if (input.activityRpe !== null) effortParts.push(`RPE ${input.activityRpe}/10`);
+  if (input.avgCadence !== null) effortParts.push(`Cadence ${Math.round(input.avgCadence)} rpm`);
+  const effortLine = effortParts.length > 0 ? `Effort: ${effortParts.join(" · ")}` : null;
+
+  // Zone distributions
+  const powerZoneLine = input.powerZoneTimes ? fmtZones(input.powerZoneTimes, "Power zones") : null;
+  const hrZoneLine = input.hrZoneTimes ? fmtZones(input.hrZoneTimes, "HR zones") : null;
+
+  const athleteNote = input.activityDescription?.trim()
+    ? `Athlete note: "${input.activityDescription.trim().slice(0, 400)}"`
+    : null;
+
+  const prompt = [
+    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. Use the zone distribution and decoupling data to assess aerobic execution quality. If the athlete left a note, factor it in. No greeting, no fluff.",
+    "",
+    planned,
+    header,
+    powerLine,
+    hrLine,
+    effortLine,
+    powerZoneLine,
+    hrZoneLine,
+    athleteNote,
+  ].filter(Boolean).join("\n");
 
   const client = new Anthropic();
   const response = await client.messages.create({
     model: GENERATION_MODEL,
-    max_tokens: 200,
+    max_tokens: 280,
     temperature: 0.3,
     messages: [{ role: "user", content: prompt }],
   });
@@ -327,7 +386,7 @@ export async function analyseRide(input: RideAnalysisInput): Promise<string> {
 }
 
 export function buildRideAnalysisInput(
-  activity: { name: string; date: string; movingTimeSec: number; avgWatts: number | null; avgHr: number | null; kj: number | null; trainingLoad: number | null; rpe: number | null },
+  activity: ActivitySummary,
   planned: { name: string; type: string; durationMin: number; workoutText?: string } | null,
   athleteFtp: number,
   athleteThresholdHr: number
@@ -335,12 +394,23 @@ export function buildRideAnalysisInput(
   return {
     activityDate: activity.date,
     activityName: activity.name,
+    activityType: activity.type,
     activityDurationMin: Math.round(activity.movingTimeSec / 60),
     activityAvgWatts: activity.avgWatts,
+    activityNormalizedPower: activity.normalizedPower,
+    activityMaxWatts: activity.maxWatts,
     activityAvgHr: activity.avgHr,
+    activityMaxHr: activity.maxHr,
     activityKj: activity.kj,
     activityTrainingLoad: activity.trainingLoad,
     activityRpe: activity.rpe,
+    activityDecoupling: activity.decoupling,
+    activityDescription: activity.description,
+    avgCadence: activity.avgCadence,
+    distanceMeters: activity.distanceMeters,
+    elevationGain: activity.elevationGain,
+    powerZoneTimes: activity.powerZoneTimes,
+    hrZoneTimes: activity.hrZoneTimes,
     plannedName: planned?.name ?? null,
     plannedType: planned?.type ?? null,
     plannedDurationMin: planned?.durationMin ?? null,
@@ -348,6 +418,76 @@ export function buildRideAnalysisInput(
     athleteFtp,
     athleteThresholdHr,
   };
+}
+
+// ---------- Block retrospective ----------
+
+export interface RetrospectiveInput {
+  goal: string;
+  lengthWeeks: number;
+  startDate: string;
+  endDate: string;
+  plannedHours: number;
+  actualHours: number;
+  overallCompliancePct: number;
+  ctlStart: number | null;
+  ctlEnd: number | null;
+  complianceByType: Record<string, number>;
+  topSessions: Array<{ date: string; name: string; tss: number }>;
+  avgDecoupling: number | null;
+}
+
+export async function generateRetrospective(input: RetrospectiveInput): Promise<string> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+
+  const ctlLine =
+    input.ctlStart !== null && input.ctlEnd !== null
+      ? `CTL: ${input.ctlStart} → ${input.ctlEnd} (${input.ctlEnd >= input.ctlStart ? "+" : ""}${(input.ctlEnd - input.ctlStart).toFixed(1)})`
+      : "";
+
+  const typeLines = Object.entries(input.complianceByType)
+    .map(([t, pct]) => `  ${t}: ${pct}%`)
+    .join("\n");
+
+  const topLine = input.topSessions
+    .map((s) => `"${s.name}" ${s.date} (TSS ${s.tss})`)
+    .join(", ");
+
+  const decoupLine = input.avgDecoupling !== null
+    ? `Avg decoupling across block: ${input.avgDecoupling.toFixed(1)}%`
+    : "";
+
+  const prompt = [
+    "You are a cycling coach writing a concise retrospective for a completed training block. Be direct and coaching-like — no bullet points, no fluff, flowing prose only. Do not start with 'This block'.",
+    "",
+    `Block: "${input.goal}" — ${input.lengthWeeks} weeks (${input.startDate} → ${input.endDate})`,
+    `Volume: ${input.plannedHours.toFixed(1)}h planned → ${input.actualHours.toFixed(1)}h actual (${input.overallCompliancePct}% compliance)`,
+    ctlLine,
+    decoupLine,
+    "",
+    "Compliance by session type:",
+    typeLines || "  (no data)",
+    "",
+    `Top sessions: ${topLine || "(none)"}`,
+    "",
+    "Write 3–4 sentences covering: overall execution quality, which session types worked vs. fell short, one key physiological observation (CTL gain/decoupling), and one concrete priority for the next block.",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: GENERATION_MODEL,
+    max_tokens: 380,
+    temperature: 0.3,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  return response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
 }
 
 export async function generateTrainingBlock(

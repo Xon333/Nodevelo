@@ -9,16 +9,19 @@ export interface TypeStyle {
   accent: string; // hex color for borders / left stripe
 }
 
+// Cyberpunk neon spectrum, cool→warm by intensity, each hue distinct:
+// Recovery cyan · Z2 emerald · Strength violet · Threshold amber · VO2max orange ·
+// SIT rose · Rest muted zinc. Reads as one palette but stays easy to tell apart.
 export const TYPE_STYLES: Record<WorkoutType, TypeStyle> = {
   Z2: {
-    badge: "bg-green-100 text-green-800 border-green-300",
-    cell: "bg-green-500",
-    accent: "#22c55e",
+    badge: "bg-emerald-100 text-emerald-800 border-emerald-300",
+    cell: "bg-emerald-500",
+    accent: "#10b981",
   },
   Recovery: {
-    badge: "bg-emerald-100 text-emerald-700 border-emerald-300",
-    cell: "bg-emerald-400",
-    accent: "#34d399",
+    badge: "bg-cyan-100 text-cyan-800 border-cyan-300",
+    cell: "bg-cyan-500",
+    accent: "#06b6d4",
   },
   Threshold: {
     badge: "bg-amber-100 text-amber-800 border-amber-300",
@@ -26,23 +29,23 @@ export const TYPE_STYLES: Record<WorkoutType, TypeStyle> = {
     accent: "#f59e0b",
   },
   VO2max: {
-    badge: "bg-red-100 text-red-800 border-red-300",
-    cell: "bg-red-500",
-    accent: "#ef4444",
+    badge: "bg-orange-100 text-orange-800 border-orange-300",
+    cell: "bg-orange-500",
+    accent: "#f97316",
   },
   SIT: {
-    badge: "bg-red-200 text-red-900 border-red-400",
-    cell: "bg-red-600",
-    accent: "#dc2626",
+    badge: "bg-rose-100 text-rose-800 border-rose-300",
+    cell: "bg-rose-500",
+    accent: "#f43f5e",
   },
   Strength: {
-    badge: "bg-blue-100 text-blue-800 border-blue-300",
-    cell: "bg-blue-500",
-    accent: "#3b82f6",
+    badge: "bg-violet-100 text-violet-800 border-violet-300",
+    cell: "bg-violet-500",
+    accent: "#8b5cf6",
   },
   Rest: {
-    badge: "bg-gray-100 text-gray-600 border-gray-300",
-    cell: "bg-gray-300",
-    accent: "#9ca3af",
+    badge: "bg-zinc-100 text-zinc-600 border-zinc-300",
+    cell: "bg-zinc-300",
+    accent: "#a1a1aa",
   },
 };

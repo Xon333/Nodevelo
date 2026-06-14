@@ -36,6 +36,7 @@ interface WeightPoint {
 
 interface ProfileResponse {
   nutrition: NutritionSettings;
+  ftpStaleDays: number | null;
   athleteMd: AthleteMdSnapshot;
   autoSync: AutoSyncInfo;
   bufferStatus: BufferStatus;
@@ -92,7 +93,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
         fill="none"
         strokeWidth="1.5"
         strokeLinejoin="round"
-        className="stroke-blue-500 dark:stroke-[#00ff88]"
+        className="stroke-blue-500 dark:stroke-[#ff49c8]"
       />
 
       {/* Min/max range labels — hide while tooltip active */}
@@ -107,26 +108,16 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
         </>
       )}
 
-      {/* Data points + transparent hit areas */}
+      {/* Hover hit areas only — no persistent dots, just the line; a dot appears on hover */}
       {points.map((p, i) => {
         const cx = toX(i);
         const cy = toY(p.weightKg);
         const isHovered = hoveredIdx === i;
-        const isLast = i === points.length - 1;
         return (
           <g key={i}>
-            <circle
-              cx={cx}
-              cy={cy}
-              r={isHovered ? 4.5 : isLast ? 3 : 1.8}
-              className={
-                isHovered || isLast
-                  ? "fill-blue-500 dark:fill-[#00ff88]"
-                  : "fill-blue-300 dark:fill-zinc-600"
-              }
-              style={{ pointerEvents: "none" }}
-            />
-            {/* Large transparent hit area */}
+            {isHovered && (
+              <circle cx={cx} cy={cy} r={4} className="fill-blue-500 dark:fill-[#ff49c8]" style={{ pointerEvents: "none" }} />
+            )}
             <circle
               cx={cx}
               cy={cy}
@@ -149,7 +140,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
             x2={hx} y2={hy - 6}
             strokeWidth={1}
             strokeDasharray="2 2"
-            className="stroke-zinc-300 dark:stroke-[#00ff88]/35"
+            className="stroke-zinc-300 dark:stroke-[#ff49c8]/35"
           />
           {/* Tooltip bg */}
           <rect
@@ -166,7 +157,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
             rx={3}
             fill="none"
             strokeWidth={0.5}
-            className="stroke-zinc-300 dark:stroke-[#00ff88]/30"
+            className="stroke-zinc-300 dark:stroke-[#ff49c8]/30"
           />
           {/* Weight value */}
           <text
@@ -175,7 +166,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
             fontSize={9}
             fontWeight="600"
             fontFamily="monospace"
-            className="fill-zinc-800 dark:fill-[#00ff88]"
+            className="fill-zinc-800 dark:fill-[#ff49c8]"
           >
             {hp.weightKg.toFixed(1)} kg
           </text>
@@ -208,11 +199,11 @@ function Section({
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</h2>
         {editHref && (
-          <Link href={editHref} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
-            Edit in Knowledge Base →
+          <Link href={editHref} className="shrink-0 whitespace-nowrap text-xs text-cyan-700 hover:underline dark:text-[#00d4ff]">
+            Edit →
           </Link>
         )}
       </div>
@@ -227,7 +218,7 @@ function StatGrid({ items }: { items: Array<{ label: string; value: string }> })
       {items.map(({ label, value }) => (
         <div key={label}>
           <dt className="text-[11px] text-zinc-400 dark:text-zinc-500">{label}</dt>
-          <dd className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">{value || "—"}</dd>
+          <dd className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00d4ff]">{value || "—"}</dd>
         </div>
       ))}
     </dl>
@@ -296,17 +287,32 @@ export default function AthleteProfileForm() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Athlete profile</h1>
-        <Link href="/knowledge" className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+        <Link href="/knowledge" className="text-xs text-cyan-700 hover:underline dark:text-[#00d4ff]">
           Edit athlete_profile.md →
         </Link>
       </div>
+
+      {/* FTP stale warning */}
+      {data.ftpStaleDays !== null && data.ftpStaleDays > 90 && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/40">
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-300">
+              FTP may be stale — last updated {data.ftpStaleDays} days ago
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+              All intensity metrics (IF, TSS, zones) are calculated from FTP. Consider a ramp test or 20-min effort to refresh it, then update your profile.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 1. Live data from Intervals.icu — top priority */}
       <Section title="Live data from Intervals.icu">
         {autoSync.syncedAt === null ? (
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             No sync yet —{" "}
-            <Link href="/dashboard" className="text-blue-600 hover:underline dark:text-blue-400">
+            <Link href="/dashboard" className="text-cyan-700 hover:underline dark:text-[#00d4ff]">
               sync from the dashboard
             </Link>.
           </p>
@@ -348,7 +354,7 @@ export default function AthleteProfileForm() {
                   return (
                     <div key={pt.durationSec} className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
                       <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{label}</p>
-                      <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00ff88]">{pt.watts}W</p>
+                      <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00d4ff]">{pt.watts}W</p>
                       {wkg && <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{wkg} W/kg</p>}
                     </div>
                   );

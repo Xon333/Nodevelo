@@ -25,8 +25,13 @@ export async function GET() {
     .filter((w) => w.kcalConsumed !== null)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
 
+  const ftpStaleDays = Math.floor(
+    (Date.now() - Date.parse(profile.updatedAt)) / 86_400_000
+  );
+
   return NextResponse.json({
     nutrition: profile.nutrition,
+    ftpStaleDays: Number.isFinite(ftpStaleDays) ? ftpStaleDays : null,
     athleteMd,
     syncedPowerCurve: sync?.powerCurve ?? [],
     weightHistory: (sync?.wellness ?? [])
