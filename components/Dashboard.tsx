@@ -45,7 +45,7 @@ function todayIso(): string {
 // ---------- Readiness badge ----------
 
 const READINESS_STYLES: Record<ReadinessSignal["level"], string> = {
-  Build:   "bg-green-50  text-green-800  border-green-200  dark:bg-green-950/60 dark:text-[#00ff88] dark:border-green-800",
+  Build:   "bg-green-50  text-green-800  border-green-200  dark:bg-green-950/60 dark:text-emerald-300 dark:border-green-800",
   Hold:    "bg-amber-50  text-amber-800  border-amber-200  dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800",
   Recover: "bg-red-50    text-red-800    border-red-200    dark:bg-red-950/60   dark:text-red-300   dark:border-red-800",
 };
@@ -180,7 +180,7 @@ function RetroSection({
       <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-800">
         <div className="flex items-center gap-2 mb-3">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Block retrospective</h2>
-          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-[#00ff88]/70">
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-[#ff49c8]/70">
             completed
           </span>
         </div>
@@ -193,7 +193,7 @@ function RetroSection({
             <ul className="space-y-1">
               {result.seeds.map((s, i) => (
                 <li key={i} className="flex items-start gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300 dark:bg-[#00ff88]/40" />
+                  <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300 dark:bg-[#ff49c8]/40" />
                   {s}
                 </li>
               ))}
@@ -219,7 +219,7 @@ function RetroSection({
         <button
           onClick={onGenerate}
           disabled={generating}
-          className="shrink-0 rounded-md bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50 dark:bg-[#00ff88]/20 dark:text-[#00ff88] dark:hover:bg-[#00ff88]/30 dark:border dark:border-[#00ff88]/40"
+          className="shrink-0 rounded-md bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50 dark:bg-[#ff49c8]/20 dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/30 dark:border dark:border-[#ff49c8]/40"
         >
           {generating ? "Generating…" : "Wrap up block"}
         </button>
@@ -364,7 +364,7 @@ function TodayRideCard({
           {metrics.map((m) => (
             <div key={m.label} className="rounded bg-zinc-100 px-2.5 py-1.5 dark:bg-zinc-900">
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{m.label}</p>
-              <p className={`font-mono text-sm font-semibold text-zinc-800 ${m.highlight ? m.highlight : "dark:text-[#00ff88]"}`}>
+              <p className={`font-mono text-sm font-semibold text-zinc-800 ${m.highlight ? m.highlight : "dark:text-[#ff49c8]"}`}>
                 {m.value}
               </p>
             </div>
@@ -377,7 +377,7 @@ function TodayRideCard({
         <div className="mt-3 flex items-center gap-3">
           <div className="flex items-center gap-2 rounded bg-zinc-100 px-3 py-1.5 dark:bg-zinc-900">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Execution</span>
-            <span className="font-mono text-sm font-bold text-zinc-800 dark:text-[#00ff88]">
+            <span className="font-mono text-sm font-bold text-zinc-800 dark:text-[#ff49c8]">
               {analysis.executionScore}/10
             </span>
             <span className="text-xs text-zinc-400 dark:text-zinc-500">
@@ -400,7 +400,7 @@ function TodayRideCard({
         <div className="mt-3 flex items-baseline gap-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Advised daily intake</p>
-            <p className="mt-0.5 font-mono text-base font-bold text-zinc-900 dark:text-[#00ff88] dark:[text-shadow:0_0_8px_rgba(0,255,136,0.3)]">
+            <p className="mt-0.5 font-mono text-base font-bold text-zinc-900 dark:text-[#ff49c8] dark:[text-shadow:0_0_8px_rgba(255, 73, 200,0.3)]">
               {analysis.advisedIntakeKcal.toLocaleString()} kcal
             </p>
           </div>
@@ -424,7 +424,7 @@ function TodayRideCard({
 
       {/* Coach note */}
       {(analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis) && (
-        <div className="mt-3 border-l-2 border-zinc-300 pl-3 dark:border-[#00ff88]/30">
+        <div className="mt-3 border-l-2 border-zinc-300 pl-3 dark:border-[#ff49c8]/30">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Coach note</p>
           <p className="mt-0.5 text-xs leading-5 text-zinc-600 dark:text-zinc-400">
             {analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis}
@@ -565,7 +565,7 @@ function BlockCalendar({ block, scores }: { block: CurrentBlock; scores: RideSco
                     <div
                       className={`flex h-9 w-full items-center justify-center rounded text-[10px] font-medium ${TYPE_STYLES[day.type].cell} ${
                         day.type === "Rest" ? "text-zinc-600" : "text-white"
-                      } ${day.date === today ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-[#00ff88] dark:ring-offset-zinc-800" : ""} ${
+                      } ${day.date === today ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-[#ff49c8] dark:ring-offset-zinc-800" : ""} ${
                         completed ? "font-bold ring-1 ring-inset ring-white/60 dark:ring-black/30" : ""
                       } ${missed ? "opacity-40" : ""} ${!completed && !missed && day.date < today ? "opacity-40" : ""}`}
                     >
@@ -655,14 +655,14 @@ function CurrentBlockSection({
   );
   const upcoming = block.days.filter((d) => d.date >= today).length;
   return (
-    <section className="relative rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-[#00ff88]/30 dark:bg-zinc-900 dark:shadow-[0_0_24px_-10px_rgba(0,255,136,0.35)]">
+    <section className="relative rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-[#ff49c8]/30 dark:bg-zinc-900 dark:shadow-[0_0_24px_-10px_rgba(255, 73, 200,0.35)]">
       <CyberFrame />
       <div className="relative z-10">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Active block</h2>
-              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-[#00ff88]/10 dark:text-[#00ff88]/90 dark:ring-1 dark:ring-[#00ff88]/30">
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-[#ff49c8]/10 dark:text-[#ff49c8]/90 dark:ring-1 dark:ring-[#ff49c8]/30">
                 {block.lengthWeeks}w
               </span>
             </div>
@@ -1041,7 +1041,7 @@ export default function Dashboard() {
           <button
             onClick={generate}
             disabled={generating || !state.anthropicConfigured}
-            className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:border dark:border-[#00ff88]/50 dark:bg-transparent dark:text-[#00ff88] dark:hover:bg-[#00ff88]/10 dark:disabled:border-zinc-600 dark:disabled:text-zinc-500 dark:disabled:bg-transparent"
+            className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:border dark:border-[#ff49c8]/50 dark:bg-transparent dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/10 dark:disabled:border-zinc-600 dark:disabled:text-zinc-500 dark:disabled:bg-transparent"
           >
             {generating
               ? `Generating… ${elapsed}s`
@@ -1076,7 +1076,7 @@ export default function Dashboard() {
                   onClick={() => setLengthWeeks(w)}
                   className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
                     lengthWeeks === w
-                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-[#00ff88]/60 dark:bg-[#00ff88]/10 dark:text-[#00ff88]"
+                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-[#ff49c8]/60 dark:bg-[#ff49c8]/10 dark:text-[#ff49c8]"
                       : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-500"
                   }`}
                 >

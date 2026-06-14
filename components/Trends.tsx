@@ -59,7 +59,7 @@ function trendDir(points: Point[], higherIsBetter = true): { label: string; cls:
   if (Math.abs(delta) < eps) return { label: "→ stable", cls: "text-zinc-400" };
   const improving = higherIsBetter ? delta > 0 : delta < 0;
   return improving
-    ? { label: delta > 0 ? "↑ improving" : "↓ improving", cls: "text-green-600 dark:text-[#00ff88]" }
+    ? { label: delta > 0 ? "↑ improving" : "↓ improving", cls: "text-green-600 dark:text-emerald-400" }
     : { label: delta > 0 ? "↑ declining" : "↓ declining", cls: "text-red-500" };
 }
 
@@ -67,7 +67,7 @@ function trendDir(points: Point[], higherIsBetter = true): { label: string; cls:
 
 function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
   return (
-    <section className="relative rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-[#00ff88]/30 dark:bg-zinc-900 dark:shadow-[0_0_24px_-10px_rgba(0,255,136,0.35)]">
+    <section className="relative rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-[#ff49c8]/30 dark:bg-zinc-900 dark:shadow-[0_0_24px_-10px_rgba(255, 73, 200,0.35)]">
       <CyberFrame />
       <div className="relative z-10">
       <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Block history</h2>
@@ -92,7 +92,7 @@ function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
                 {b.ctlGain != null && (
                   <span
                     className={`font-mono text-xs font-semibold ${
-                      b.ctlGain > 0 ? "text-green-600 dark:text-[#00ff88]" : b.ctlGain < 0 ? "text-red-500" : "text-zinc-400"
+                      b.ctlGain > 0 ? "text-green-600 dark:text-emerald-400" : b.ctlGain < 0 ? "text-red-500" : "text-zinc-400"
                     }`}
                   >
                     CTL {b.ctlGain > 0 ? "+" : ""}{b.ctlGain}
@@ -143,7 +143,7 @@ function ScoreBars({ scores }: { scores: ScoreEntry[] }) {
   if (recent.length < 2) return null;
   const avg = Math.round((recent.reduce((s, e) => s + e.executionScore, 0) / recent.length) * 10) / 10;
   const barColor = (v: number) =>
-    v >= 7 ? "bg-green-400 dark:bg-[#00ff88]/70" : v >= 5 ? "bg-amber-400 dark:bg-amber-500" : "bg-red-400 dark:bg-red-500";
+    v >= 7 ? "bg-green-400 dark:bg-emerald-500/70" : v >= 5 ? "bg-amber-400 dark:bg-amber-500" : "bg-red-400 dark:bg-red-500";
   return (
     <div>
       <div className="flex items-end gap-[3px]" style={{ height: 56 }}>
@@ -224,10 +224,10 @@ export default function Trends() {
     },
     {
       label: "Weight",
-      strokeClass: "stroke-emerald-500 dark:stroke-[#00ff88]",
-      fillClass: "fill-emerald-500 dark:fill-[#00ff88]",
-      swatchClass: "bg-emerald-500 dark:bg-[#00ff88]",
-      textClass: "text-emerald-600 dark:text-[#00ff88]",
+      strokeClass: "stroke-emerald-500 dark:stroke-[#ff49c8]",
+      fillClass: "fill-emerald-500 dark:fill-[#ff49c8]",
+      swatchClass: "bg-emerald-500 dark:bg-[#ff49c8]",
+      textClass: "text-emerald-600 dark:text-[#ff49c8]",
       format: (v) => `${v.toFixed(1)} kg`,
       points: data.energy.filter((e) => e.weightKg != null).map((e) => ({ date: e.date, value: e.weightKg as number })),
     },
@@ -294,7 +294,7 @@ export default function Trends() {
           <div className="space-y-1.5">
             {data.complianceByType.map((c) => {
               const pct = c.avgCompliancePct ?? 0;
-              const barCls = pct >= 90 ? "bg-green-400 dark:bg-[#00ff88]/70" : pct >= 75 ? "bg-amber-400 dark:bg-amber-500" : "bg-red-400 dark:bg-red-500";
+              const barCls = pct >= 90 ? "bg-green-400 dark:bg-emerald-500/70" : pct >= 75 ? "bg-amber-400 dark:bg-amber-500" : "bg-red-400 dark:bg-red-500";
               return (
                 <div key={c.type} className="flex items-center gap-2">
                   <span className="w-20 shrink-0 text-xs text-zinc-600 dark:text-zinc-400">{c.type}</span>

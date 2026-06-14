@@ -20,7 +20,7 @@ export function Card({
   return (
     <section
       className={`rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800 ${
-        accentTop ? "dark:[border-top-color:rgba(0,255,136,0.4)]" : ""
+        accentTop ? "dark:[border-top-color:rgba(255, 73, 200,0.4)]" : ""
       } ${className ?? ""}`}
     >
       {(title || hint) && (
@@ -39,7 +39,7 @@ export function StatTile({ label, value, arrow }: { label: string; value: string
   return (
     <div className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
       <p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">
+      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#ff49c8]">
         {value}
         {arrow ? <span className="text-[10px] font-normal opacity-60">{arrow}</span> : null}
       </p>
@@ -52,7 +52,7 @@ export function StatTile({ label, value, arrow }: { label: string; value: string
 // Inspired by nyxui's cyberpunk-card, but static (no JS) to keep the app fast.
 // Place BEFORE the content and wrap content in `relative z-10` so it sits on top.
 export function CyberFrame() {
-  const corner = "pointer-events-none absolute h-3 w-3 border-zinc-300 dark:border-[#00ff88]/70";
+  const corner = "pointer-events-none absolute h-3 w-3 border-zinc-300 dark:border-[#ff49c8]/70";
   return (
     <>
       <span
@@ -60,7 +60,7 @@ export function CyberFrame() {
         className="pointer-events-none absolute inset-0 z-0 hidden rounded-lg dark:block"
         style={{
           backgroundImage:
-            "repeating-linear-gradient(to bottom, rgba(0,255,136,0.04) 0px, rgba(0,255,136,0.04) 1px, transparent 1px, transparent 3px)",
+            "repeating-linear-gradient(to bottom, rgba(255, 73, 200,0.04) 0px, rgba(255, 73, 200,0.04) 1px, transparent 1px, transparent 3px)",
         }}
       />
       <span aria-hidden className={`${corner} left-0 top-0 border-l-2 border-t-2`} />

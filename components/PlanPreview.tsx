@@ -121,7 +121,7 @@ export default function PlanPreview({
               <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 Week {week}{weekDays[0]?.weekTheme ? ` · ${weekDays[0].weekTheme}` : ""}
               </h3>
-              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:border dark:border-[#00ff88]/40 dark:bg-[#00ff88]/8 dark:text-[#00ff88]">
+              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:border dark:border-[#ff49c8]/40 dark:bg-[#ff49c8]/8 dark:text-[#ff49c8]">
                 {wHours}
               </span>
             </div>
@@ -146,7 +146,7 @@ export default function PlanPreview({
         <button
           onClick={onWrite}
           disabled={writing || written || !intervalsConfigured}
-          className="rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-[#00ff88] dark:text-zinc-900 dark:hover:brightness-110 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
+          className="rounded bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-[#ff49c8] dark:text-zinc-900 dark:hover:brightness-110 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
         >
           {writing ? `Writing ${plan.days.length} events…` : written ? "✓ Written to Intervals.icu" : "Write to Intervals.icu"}
         </button>

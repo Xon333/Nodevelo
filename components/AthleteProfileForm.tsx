@@ -93,7 +93,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
         fill="none"
         strokeWidth="1.5"
         strokeLinejoin="round"
-        className="stroke-blue-500 dark:stroke-[#00ff88]"
+        className="stroke-blue-500 dark:stroke-[#ff49c8]"
       />
 
       {/* Min/max range labels — hide while tooltip active */}
@@ -122,7 +122,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
               r={isHovered ? 4.5 : isLast ? 3 : 1.8}
               className={
                 isHovered || isLast
-                  ? "fill-blue-500 dark:fill-[#00ff88]"
+                  ? "fill-blue-500 dark:fill-[#ff49c8]"
                   : "fill-blue-300 dark:fill-zinc-600"
               }
               style={{ pointerEvents: "none" }}
@@ -150,7 +150,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
             x2={hx} y2={hy - 6}
             strokeWidth={1}
             strokeDasharray="2 2"
-            className="stroke-zinc-300 dark:stroke-[#00ff88]/35"
+            className="stroke-zinc-300 dark:stroke-[#ff49c8]/35"
           />
           {/* Tooltip bg */}
           <rect
@@ -167,7 +167,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
             rx={3}
             fill="none"
             strokeWidth={0.5}
-            className="stroke-zinc-300 dark:stroke-[#00ff88]/30"
+            className="stroke-zinc-300 dark:stroke-[#ff49c8]/30"
           />
           {/* Weight value */}
           <text
@@ -176,7 +176,7 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
             fontSize={9}
             fontWeight="600"
             fontFamily="monospace"
-            className="fill-zinc-800 dark:fill-[#00ff88]"
+            className="fill-zinc-800 dark:fill-[#ff49c8]"
           >
             {hp.weightKg.toFixed(1)} kg
           </text>
@@ -228,7 +228,7 @@ function StatGrid({ items }: { items: Array<{ label: string; value: string }> })
       {items.map(({ label, value }) => (
         <div key={label}>
           <dt className="text-[11px] text-zinc-400 dark:text-zinc-500">{label}</dt>
-          <dd className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">{value || "—"}</dd>
+          <dd className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#ff49c8]">{value || "—"}</dd>
         </div>
       ))}
     </dl>
@@ -364,7 +364,7 @@ export default function AthleteProfileForm() {
                   return (
                     <div key={pt.durationSec} className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
                       <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{label}</p>
-                      <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00ff88]">{pt.watts}W</p>
+                      <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#ff49c8]">{pt.watts}W</p>
                       {wkg && <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{wkg} W/kg</p>}
                     </div>
                   );

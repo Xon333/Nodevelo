@@ -5,35 +5,36 @@
 :root {
   --background: #fafafa;
   --foreground: #18181b;
-  --neon: #00ff88;
+  --neon: #ff49c8;
   --cyan: #00d4ff;
 }
 
 .dark {
   --background: #09090b;
   --foreground: #f4f4f5;
-  --neon: #00ff88;
+  --neon: #ff49c8;
   --cyan: #00d4ff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-chakra);
+  --font-mono: var(--font-jetbrains);
+  --font-display: var(--font-chakra);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-chakra), system-ui, Arial, Helvetica, sans-serif;
 }
 
-/* Subtle grid texture — dark mode only */
+/* Subtle duotone grid texture — dark mode only (pink + cyan) */
 .dark body {
   background-image:
-    linear-gradient(rgba(0, 255, 136, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 136, 0.022) 1px, transparent 1px);
+    linear-gradient(rgba(255, 73, 200, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.022) 1px, transparent 1px);
   background-size: 44px 44px;
   background-attachment: fixed;
 }

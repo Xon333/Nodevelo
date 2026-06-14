@@ -106,9 +106,9 @@ export default function Nav() {
         <div className="flex items-center justify-between px-4 py-3">
           <Link
             href="/dashboard"
-            className="font-[family-name:var(--font-orbitron)] text-sm font-semibold tracking-wide text-zinc-900 dark:text-[#00ff88] dark:[text-shadow:0_0_10px_rgba(0,255,136,0.4)]"
+            className="text-base font-bold uppercase tracking-[0.18em] text-zinc-900 dark:text-[#ff49c8] dark:[text-shadow:0_0_10px_rgba(255,73,200,0.45)]"
           >
-            NodeVelo
+            Node<span className="text-[#00d4ff] dark:[text-shadow:0_0_10px_rgba(0,212,255,0.45)]">Velo</span>
           </Link>
           <DarkToggle />
         </div>
@@ -118,9 +118,9 @@ export default function Nav() {
       <aside className="no-print fixed right-0 top-0 z-40 hidden h-full w-44 flex-col border-l border-zinc-200 bg-white/90 backdrop-blur sm:flex dark:border-zinc-700 dark:bg-zinc-900/90">
         <Link
           href="/dashboard"
-          className="font-[family-name:var(--font-orbitron)] px-4 py-5 text-base font-semibold tracking-wide text-zinc-900 dark:text-[#00ff88] dark:[text-shadow:0_0_10px_rgba(0,255,136,0.4)]"
+          className="px-4 py-5 text-lg font-bold uppercase tracking-[0.18em] text-zinc-900 dark:text-[#ff49c8] dark:[text-shadow:0_0_10px_rgba(255,73,200,0.45)]"
         >
-          NodeVelo
+          Node<span className="text-[#00d4ff] dark:[text-shadow:0_0_10px_rgba(0,212,255,0.45)]">Velo</span>
         </Link>
         <nav className="flex flex-1 flex-col gap-1 px-2">
           {LINKS.map((link) => (
@@ -130,7 +130,7 @@ export default function Nav() {
               aria-current={isActive(link.href) ? "page" : undefined}
               className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
                 isActive(link.href)
-                  ? "bg-zinc-900 text-white dark:bg-[#00ff88]/10 dark:text-[#00ff88] dark:ring-1 dark:ring-[#00ff88]/40"
+                  ? "bg-zinc-900 text-white dark:bg-[#ff49c8]/10 dark:text-[#ff49c8] dark:ring-1 dark:ring-[#ff49c8]/40"
                   : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               }`}
             >
@@ -156,11 +156,11 @@ export default function Nav() {
                 aria-current={active ? "page" : undefined}
                 className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
                   active
-                    ? "text-zinc-900 dark:text-[#00ff88]"
+                    ? "text-zinc-900 dark:text-[#ff49c8]"
                     : "text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300"
                 }`}
               >
-                <Icon name={link.icon} className={`h-5 w-5 ${active ? "dark:[filter:drop-shadow(0_0_4px_rgba(0,255,136,0.5))]" : ""}`} />
+                <Icon name={link.icon} className={`h-5 w-5 ${active ? "dark:[filter:drop-shadow(0_0_4px_rgba(255, 73, 200,0.5))]" : ""}`} />
                 {link.short}
               </Link>
             );
