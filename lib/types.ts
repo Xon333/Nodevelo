@@ -205,6 +205,15 @@ export interface FatigueAlert {
   reason: string | null;
 }
 
+export interface LoadRampAlert {
+  triggered: boolean;
+  level: "none" | "caution" | "high";
+  thisWeekTss: number;
+  lastWeekTss: number;
+  changePct: number | null;
+  reason: string | null;
+}
+
 // ---------- Compliance memory (data/compliance-memory.json) ----------
 
 export interface ComplianceEntry {

@@ -1,7 +1,7 @@
 // Deterministic daily readiness signal from TSB, ATL/CTL ratio, and HRV.
 // Returns a "Build / Hold / Recover" level with a plain-English reason.
 
-import type { FatigueAlert, FitnessMetrics, ReadinessSignal, WellnessEntry } from "./types";
+import type { FatigueAlert, FitnessMetrics, LoadRampAlert, ReadinessSignal, WellnessEntry } from "./types";
 
 export function computeFatigueAlert(fitness: FitnessMetrics): FatigueAlert {
   const { ctl, atl, tsb } = fitness;
@@ -56,6 +56,62 @@ export function computeReadiness(
   if (tsb > 25) return { level: "Hold", reason: `TSB ${tsb} — very fresh, may be tapering or underloaded` };
   if (tsb >= -15) return { level: "Hold", reason: `TSB ${tsb} — moderate load, stick to plan` };
   return { level: "Recover", reason: `TSB ${tsb} — accumulated fatigue, consider softening today` };
+}
+
+// Week-over-week training-load ramp. Compares the trailing 7 days of TSS against
+// the 7 days before that. The ~10% weekly progression guideline is a widely used
+// injury-risk heuristic; a noise floor avoids firing on early-season ramps from a
+// near-zero base.
+export function computeLoadRamp(
+  activities: Array<{ date: string; trainingLoad: number | null }>
+): LoadRampAlert {
+  const today = new Date().toISOString().slice(0, 10);
+  const dayMs = 86_400_000;
+  const iso = (offsetDays: number) => new Date(Date.now() - offsetDays * dayMs).toISOString().slice(0, 10);
+
+  const thisStart = iso(6); // [today-6 .. today]
+  const lastEnd = iso(7);
+  const lastStart = iso(13); // [today-13 .. today-7]
+
+  const sum = (from: string, to: string) =>
+    Math.round(
+      activities
+        .filter((a) => a.date >= from && a.date <= to && a.trainingLoad !== null)
+        .reduce((s, a) => s + (a.trainingLoad as number), 0)
+    );
+
+  const thisWeekTss = sum(thisStart, today);
+  const lastWeekTss = sum(lastStart, lastEnd);
+
+  const NOISE_FLOOR = 150; // ignore ramps off a trivial base
+  if (lastWeekTss < NOISE_FLOOR) {
+    return { triggered: false, level: "none", thisWeekTss, lastWeekTss, changePct: null, reason: null };
+  }
+
+  const changePct = Math.round(((thisWeekTss - lastWeekTss) / lastWeekTss) * 100);
+
+  if (changePct > 30) {
+    return {
+      triggered: true,
+      level: "high",
+      thisWeekTss,
+      lastWeekTss,
+      changePct,
+      reason: `Load jumped ${changePct}% over the previous 7 days (${thisWeekTss} vs ${lastWeekTss} TSS) — well past the ~10% safe ramp. High overreach/injury risk; ease the next day or two.`,
+    };
+  }
+  if (changePct > 10) {
+    return {
+      triggered: true,
+      level: "caution",
+      thisWeekTss,
+      lastWeekTss,
+      changePct,
+      reason: `Load up ${changePct}% on the previous 7 days (${thisWeekTss} vs ${lastWeekTss} TSS) — above the ~10% progressive-overload guideline. Watch recovery.`,
+    };
+  }
+
+  return { triggered: false, level: "none", thisWeekTss, lastWeekTss, changePct, reason: null };
 }
 
 // Rolling 90-day averages from recent activities.

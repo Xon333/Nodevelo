@@ -15,7 +15,7 @@ import {
 import { analyseRide, buildRideAnalysisInput, isAnthropicConfigured } from "@/lib/anthropic-api";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore } from "@/lib/execution-score";
-import { computeFatigueAlert, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
+import { computeFatigueAlert, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import type { ComplianceMemory, TodayAnalysis, WorkoutType } from "@/lib/types";
 
 function todayIso(): string {
@@ -33,6 +33,7 @@ export async function GET() {
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
     : null;
   const fatigueAlert = lastSync ? computeFatigueAlert(lastSync.fitness) : null;
+  const loadRamp = lastSync ? computeLoadRamp(lastSync.activities) : null;
   return NextResponse.json({
     configured: isIntervalsConfigured(),
     anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
@@ -41,6 +42,7 @@ export async function GET() {
     todayAnalysis,
     readiness,
     fatigueAlert,
+    loadRamp,
   });
 }
 
@@ -164,7 +166,8 @@ export async function POST() {
 
     const readiness = computeReadiness(lastSync.fitness, lastSync.wellness);
     const fatigueAlert = computeFatigueAlert(lastSync.fitness);
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert });
+    const loadRamp = computeLoadRamp(lastSync.activities);
+    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

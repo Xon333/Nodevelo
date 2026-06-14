@@ -8,6 +8,7 @@ import type {
   CurrentBlock,
   FatigueAlert,
   GeneratedPlan,
+  LoadRampAlert,
   ReadinessSignal,
   SyncData,
   TodayAnalysis,
@@ -26,6 +27,7 @@ interface AppState {
   todayAnalysis: TodayAnalysis | null;
   readiness: ReadinessSignal | null;
   fatigueAlert: FatigueAlert | null;
+  loadRamp: LoadRampAlert | null;
 }
 
 function todayIso(): string {
@@ -45,7 +47,15 @@ const READINESS_STYLES: Record<ReadinessSignal["level"], string> = {
   Recover: "bg-red-50    text-red-800    border-red-200    dark:bg-red-950/60   dark:text-red-300   dark:border-red-800",
 };
 
-function ReadinessBadge({ readiness, fatigueAlert }: { readiness: ReadinessSignal | null; fatigueAlert: FatigueAlert | null }) {
+function ReadinessBadge({
+  readiness,
+  fatigueAlert,
+  loadRamp,
+}: {
+  readiness: ReadinessSignal | null;
+  fatigueAlert: FatigueAlert | null;
+  loadRamp: LoadRampAlert | null;
+}) {
   if (!readiness) return null;
   return (
     <div className="space-y-1.5">
@@ -54,6 +64,28 @@ function ReadinessBadge({ readiness, fatigueAlert }: { readiness: ReadinessSigna
           <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-red-500" />
           <p className="text-xs font-medium text-red-700 dark:text-red-300">
             <span className="font-semibold">Fatigue alert — </span>{fatigueAlert.reason}
+          </p>
+        </div>
+      )}
+      {loadRamp?.triggered && (
+        <div
+          className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 ${
+            loadRamp.level === "high"
+              ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/60"
+              : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50"
+          }`}
+        >
+          <span
+            className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${loadRamp.level === "high" ? "bg-red-500" : "bg-amber-500"}`}
+          />
+          <p
+            className={`text-xs font-medium ${
+              loadRamp.level === "high"
+                ? "text-red-700 dark:text-red-300"
+                : "text-amber-800 dark:text-amber-300"
+            }`}
+          >
+            <span className="font-semibold">Load ramp — </span>{loadRamp.reason}
           </p>
         </div>
       )}
@@ -805,6 +837,7 @@ export default function Dashboard() {
         todayAnalysis: TodayAnalysis | null;
         readiness: ReadinessSignal | null;
         fatigueAlert: FatigueAlert | null;
+        loadRamp: LoadRampAlert | null;
       }>("/api/sync", { method: "POST" });
       setState((s) =>
         s
@@ -814,6 +847,7 @@ export default function Dashboard() {
               todayAnalysis: result.todayAnalysis,
               readiness: result.readiness,
               fatigueAlert: result.fatigueAlert,
+              loadRamp: result.loadRamp,
             }
           : s
       );
@@ -1007,8 +1041,12 @@ export default function Dashboard() {
         onSync={doSync}
       />
 
-      {(state.readiness || state.fatigueAlert?.triggered) && (
-        <ReadinessBadge readiness={state.readiness} fatigueAlert={state.fatigueAlert} />
+      {(state.readiness || state.fatigueAlert?.triggered || state.loadRamp?.triggered) && (
+        <ReadinessBadge
+          readiness={state.readiness}
+          fatigueAlert={state.fatigueAlert}
+          loadRamp={state.loadRamp}
+        />
       )}
 
       {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
