@@ -6,11 +6,14 @@ import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type {
   BlockHistoryEntry,
   CurrentBlock,
+  FatigueAlert,
   GeneratedPlan,
+  ReadinessSignal,
   SyncData,
   TodayAnalysis,
   WriteResult,
 } from "@/lib/types";
+import { executionScoreLabel } from "@/lib/execution-score";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import PlanPreview from "./PlanPreview";
 import SyncStatus from "./SyncStatus";
@@ -21,6 +24,8 @@ interface AppState {
   lastSync: SyncData | null;
   currentBlock: CurrentBlock | null;
   todayAnalysis: TodayAnalysis | null;
+  readiness: ReadinessSignal | null;
+  fatigueAlert: FatigueAlert | null;
 }
 
 function todayIso(): string {
@@ -29,6 +34,78 @@ function todayIso(): string {
     `${d.getFullYear()}-` +
     `${String(d.getMonth() + 1).padStart(2, "0")}-` +
     `${String(d.getDate()).padStart(2, "0")}`
+  );
+}
+
+// ---------- Readiness badge ----------
+
+const READINESS_STYLES: Record<ReadinessSignal["level"], string> = {
+  Build:   "bg-green-50  text-green-800  border-green-200  dark:bg-green-950/60 dark:text-[#00ff88] dark:border-green-800",
+  Hold:    "bg-amber-50  text-amber-800  border-amber-200  dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800",
+  Recover: "bg-red-50    text-red-800    border-red-200    dark:bg-red-950/60   dark:text-red-300   dark:border-red-800",
+};
+
+function ReadinessBadge({ readiness, fatigueAlert }: { readiness: ReadinessSignal | null; fatigueAlert: FatigueAlert | null }) {
+  if (!readiness) return null;
+  return (
+    <div className="space-y-1.5">
+      {fatigueAlert?.triggered && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-800 dark:bg-red-950/60">
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-red-500" />
+          <p className="text-xs font-medium text-red-700 dark:text-red-300">
+            <span className="font-semibold">Fatigue alert — </span>{fatigueAlert.reason}
+          </p>
+        </div>
+      )}
+      <div className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${READINESS_STYLES[readiness.level]}`}>
+        <span className="text-xs font-semibold uppercase tracking-wider opacity-60">Readiness</span>
+        <span className="text-sm font-semibold">{readiness.level}</span>
+        <span className="text-xs opacity-70">— {readiness.reason}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Zone distribution mini-bars ----------
+
+function ZoneBars({ times, label }: { times: number[]; label: string }) {
+  const total = times.reduce((s, t) => s + t, 0);
+  if (total === 0) return null;
+  const pcts = times.map((t) => Math.round((t / total) * 100));
+  const ZONE_COLORS = [
+    "bg-blue-300 dark:bg-blue-700",
+    "bg-green-400 dark:bg-green-600",
+    "bg-yellow-400 dark:bg-yellow-500",
+    "bg-orange-400 dark:bg-orange-500",
+    "bg-red-400 dark:bg-red-500",
+    "bg-red-600 dark:bg-red-700",
+    "bg-red-900 dark:bg-red-900",
+  ];
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">{label}</p>
+      <div className="flex h-3 w-full overflow-hidden rounded gap-px">
+        {pcts.map((pct, i) =>
+          pct >= 1 ? (
+            <div
+              key={i}
+              title={`Z${i + 1}: ${pct}%`}
+              style={{ width: `${pct}%` }}
+              className={`${ZONE_COLORS[i] ?? "bg-zinc-400"} shrink-0`}
+            />
+          ) : null
+        )}
+      </div>
+      <div className="mt-0.5 flex gap-2 flex-wrap">
+        {pcts.map((pct, i) =>
+          pct >= 1 ? (
+            <span key={i} className="text-[10px] text-zinc-400 dark:text-zinc-500">
+              Z{i + 1} {pct}%
+            </span>
+          ) : null
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -123,6 +200,29 @@ function TodayRideCard({ analysis }: { analysis: TodayAnalysis }) {
         </div>
       )}
 
+      {/* Execution score */}
+      {analysis.executionScore != null && (
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex items-center gap-2 rounded bg-zinc-100 px-3 py-1.5 dark:bg-zinc-900">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Execution</span>
+            <span className="font-mono text-sm font-bold text-zinc-800 dark:text-[#00ff88]">
+              {analysis.executionScore}/10
+            </span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              {executionScoreLabel(analysis.executionScore)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Zone distribution bars */}
+      {(analysis.powerZoneTimes || analysis.hrZoneTimes) && (
+        <div className="mt-3 space-y-2.5">
+          {analysis.powerZoneTimes && <ZoneBars times={analysis.powerZoneTimes} label="Power zones" />}
+          {analysis.hrZoneTimes && <ZoneBars times={analysis.hrZoneTimes} label="HR zones" />}
+        </div>
+      )}
+
       {/* Advised daily intake */}
       {analysis.advisedIntakeKcal != null && (
         <div className="mt-3 flex items-baseline gap-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
@@ -136,6 +236,16 @@ function TodayRideCard({ analysis }: { analysis: TodayAnalysis }) {
             {analysis.advisedBaseKcal?.toLocaleString()} base
             {analysis.advisedRideFuelKcal ? ` + ${analysis.advisedRideFuelKcal.toLocaleString()} ride` : ""}
             {analysis.advisedBufferKcal ? ` + ${analysis.advisedBufferKcal.toLocaleString()} buffer` : ""}
+          </p>
+        </div>
+      )}
+
+      {/* Athlete note (from Intervals.icu activity description) */}
+      {analysis.activityDescription != null && analysis.activityDescription.trim() !== "" && (
+        <div className="mt-3 rounded border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Your note</p>
+          <p className="mt-0.5 text-xs leading-5 text-zinc-600 dark:text-zinc-400 italic">
+            {analysis.activityDescription}
           </p>
         </div>
       )}
@@ -377,14 +487,31 @@ function CurrentBlockSection({
 
 // ---------- Recent data summary ----------
 
+function trendArrow(current: number | null, prev: number | null, higherIsBetter = true): string {
+  if (current === null || prev === null) return "";
+  const delta = current - prev;
+  if (Math.abs(delta) < 0.5) return " →";
+  return delta > 0 ? (higherIsBetter ? " ↑" : " ↓") : (higherIsBetter ? " ↓" : " ↑");
+}
+
 function RecentDataSummary({ sync }: { sync: SyncData | null }) {
   if (!sync) return null;
   const today = todayIso();
   const cutoff7 = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+  const cutoff14 = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
   const hours7 =
     sync.activities
       .filter((a) => a.date >= cutoff7 && a.date <= today)
       .reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
+
+  // Wellness sorted newest-first for trend deltas.
+  const wSorted = [...sync.wellness].sort((a, b) => b.date.localeCompare(a.date));
+  const latest7d = wSorted.find((w) => w.date >= cutoff7 && w.ctl !== null);
+  const week2Ago = wSorted.find((w) => w.date < cutoff7 && w.date >= cutoff14 && w.ctl !== null);
+  const ctlArrow = trendArrow(latest7d?.ctl ?? null, week2Ago?.ctl ?? null, true);
+  const atlArrow = trendArrow(latest7d?.atl ?? null, week2Ago?.atl ?? null, false);
+  const tsbArrow = trendArrow(sync.fitness.tsb, null, true); // TSB relative to zero
+
   const weighIns = sync.wellness
     .filter((w) => w.weightKg !== null)
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -392,15 +519,19 @@ function RecentDataSummary({ sync }: { sync: SyncData | null }) {
   const weekAgo = weighIns.find(
     (w) => (Date.parse(latestWeight?.date ?? today) - Date.parse(w.date)) / 86_400_000 >= 4
   );
-  const trend =
+  const weightTrend =
     latestWeight?.weightKg != null && weekAgo?.weightKg != null
       ? Math.round((latestWeight.weightKg - weekAgo.weightKg) * 10) / 10
       : null;
+  const weightArrow = weightTrend !== null ? (weightTrend > 0.1 ? " ↑" : weightTrend < -0.1 ? " ↓" : " →") : "";
 
-  const stat = (label: string, value: string) => (
+  const stat = (label: string, value: string, arrow = "") => (
     <div className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
       <p className="text-[11px] uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">{value}</p>
+      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">
+        {value}
+        {arrow && <span className="text-[10px] font-normal opacity-60">{arrow}</span>}
+      </p>
     </div>
   );
 
@@ -408,15 +539,12 @@ function RecentDataSummary({ sync }: { sync: SyncData | null }) {
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Training status</p>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {stat("CTL (fitness)", sync.fitness.ctl?.toFixed(1) ?? "—")}
-        {stat("ATL (fatigue)", sync.fitness.atl?.toFixed(1) ?? "—")}
-        {stat("TSB (form)", sync.fitness.tsb?.toFixed(1) ?? "—")}
+        {stat("CTL (fitness)", sync.fitness.ctl?.toFixed(1) ?? "—", ctlArrow)}
+        {stat("ATL (fatigue)", sync.fitness.atl?.toFixed(1) ?? "—", atlArrow)}
+        {stat("TSB (form)", sync.fitness.tsb?.toFixed(1) ?? "—", tsbArrow)}
         {stat("7-day hours", `${hours7.toFixed(1)} h`)}
-        {stat(
-          "Weight",
-          latestWeight?.weightKg != null ? `${latestWeight.weightKg.toFixed(1)} kg` : "—"
-        )}
-        {stat("Weight trend", trend !== null ? `${trend > 0 ? "+" : ""}${trend.toFixed(1)} kg` : "—")}
+        {stat("Weight", latestWeight?.weightKg != null ? `${latestWeight.weightKg.toFixed(1)} kg` : "—", weightArrow)}
+        {stat("Weight trend", weightTrend !== null ? `${weightTrend > 0 ? "+" : ""}${weightTrend.toFixed(1)} kg` : "—")}
       </div>
     </section>
   );
@@ -452,9 +580,22 @@ export default function Dashboard() {
     setSyncing(true);
     setSyncError(null);
     try {
-      const result = await api<{ lastSync: SyncData; todayAnalysis: TodayAnalysis | null }>("/api/sync", { method: "POST" });
+      const result = await api<{
+        lastSync: SyncData;
+        todayAnalysis: TodayAnalysis | null;
+        readiness: ReadinessSignal | null;
+        fatigueAlert: FatigueAlert | null;
+      }>("/api/sync", { method: "POST" });
       setState((s) =>
-        s ? { ...s, lastSync: result.lastSync, todayAnalysis: result.todayAnalysis } : s
+        s
+          ? {
+              ...s,
+              lastSync: result.lastSync,
+              todayAnalysis: result.todayAnalysis,
+              readiness: result.readiness,
+              fatigueAlert: result.fatigueAlert,
+            }
+          : s
       );
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : "Sync failed");
@@ -605,6 +746,10 @@ export default function Dashboard() {
         error={syncError}
         onSync={doSync}
       />
+
+      {(state.readiness || state.fatigueAlert?.triggered) && (
+        <ReadinessBadge readiness={state.readiness} fatigueAlert={state.fatigueAlert} />
+      )}
 
       {state.todayAnalysis && state.todayAnalysis.activityDate === todayIso() && (
         <TodayRideCard analysis={state.todayAnalysis} />

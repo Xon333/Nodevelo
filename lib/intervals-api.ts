@@ -81,6 +81,12 @@ function str(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function numArr(value: unknown): number[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const arr = value.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0));
+  return arr.some((v) => v > 0) ? arr : null;
+}
+
 function localDate(value: unknown): string {
   // "2026-06-01T09:30:00" -> "2026-06-01"
   return str(value).slice(0, 10);
@@ -109,6 +115,12 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       trainingLoad: num(a.icu_training_load),
       rpe: num(a.icu_rpe),
       decoupling: num(a.icu_power_hr_decoupling),
+      description: str(a.description) || null,
+      avgCadence: num(a.average_cadence),
+      distanceMeters: num(a.distance),
+      elevationGain: num(a.total_elevation_gain),
+      powerZoneTimes: numArr(a.icu_power_zone_times),
+      hrZoneTimes: numArr(a.icu_hr_zone_times),
     };
   });
 }

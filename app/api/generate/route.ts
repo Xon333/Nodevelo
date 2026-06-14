@@ -7,7 +7,7 @@ import {
   generateTrainingBlock,
   isAnthropicConfigured,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readLastSync } from "@/lib/data-store";
+import { readAthleteProfile, readBlockSettings, readComplianceMemory, readLastSync } from "@/lib/data-store";
 import { loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import {
   buildNutritionReferenceRows,
@@ -59,11 +59,12 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, complianceMemory] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
       readBlockSettings(),
+      readComplianceMemory(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -85,8 +86,21 @@ export async function POST(req: Request) {
     );
 
     const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);
+
+    // Build compliance annotation for types with meaningful history (≥3 sessions).
+    const complianceLines: string[] = [];
+    for (const [type, entry] of Object.entries(complianceMemory.byType)) {
+      if (!entry || entry.sessions < 3) continue;
+      const pct = entry.avgCompliancePct;
+      if (pct < 80) complianceLines.push(`- ${type}: ${pct}% avg compliance (${entry.sessions} sessions) — athlete consistently under-delivers; reduce frequency or duration`);
+      else if (pct >= 95) complianceLines.push(`- ${type}: ${pct}% avg compliance — athlete executes these well`);
+    }
+    const complianceContext = complianceLines.length
+      ? `\nCOMPLIANCE HISTORY (from logged sessions)\n${complianceLines.join("\n")}`
+      : "";
+
     const system = buildSystemPrompt(
-      kbContext,
+      kbContext + complianceContext,
       buildAthleteDataSection(profile, sync),
       blockParams
     );
