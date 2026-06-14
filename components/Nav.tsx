@@ -103,12 +103,12 @@ export default function Nav() {
     <>
       {/* Top bar: full nav on desktop, brand + toggle on mobile */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/90">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-5xl items-center justify-end gap-3 px-4 py-3 sm:gap-4">
           <Link
             href="/dashboard"
             className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-[#00ff88] dark:[text-shadow:0_0_10px_rgba(0,255,136,0.4)]"
           >
-            Velox
+            NodeVelo
           </Link>
           <nav className="hidden items-center gap-1 sm:flex">
             {LINKS.map((link) => (
@@ -125,11 +125,8 @@ export default function Nav() {
                 {link.label}
               </Link>
             ))}
-            <DarkToggle />
           </nav>
-          <div className="sm:hidden">
-            <DarkToggle />
-          </div>
+          <DarkToggle />
         </div>
       </header>
 

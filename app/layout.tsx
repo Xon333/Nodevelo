@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Velox",
+  title: "NodeVelo",
   description: "AI-powered training block generator on top of Intervals.icu.",
 };
 

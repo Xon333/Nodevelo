@@ -10,6 +10,7 @@ import type {
   GeneratedPlan,
   LoadRampAlert,
   ReadinessSignal,
+  RideScoreEntry,
   SyncData,
   TodayAnalysis,
   WriteResult,
@@ -29,6 +30,7 @@ interface AppState {
   readiness: ReadinessSignal | null;
   fatigueAlert: FatigueAlert | null;
   loadRamp: LoadRampAlert | null;
+  scores: RideScoreEntry[];
 }
 
 function todayIso(): string {
@@ -47,6 +49,15 @@ const READINESS_STYLES: Record<ReadinessSignal["level"], string> = {
   Hold:    "bg-amber-50  text-amber-800  border-amber-200  dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800",
   Recover: "bg-red-50    text-red-800    border-red-200    dark:bg-red-950/60   dark:text-red-300   dark:border-red-800",
 };
+
+// One-line explanation shown on hover over an alert/readiness bracket.
+function MetricTip({ text }: { text: string }) {
+  return (
+    <span className="pointer-events-none absolute left-0 top-full z-30 mt-1 w-64 max-w-[80vw] rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-normal normal-case leading-snug text-zinc-600 opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+      {text}
+    </span>
+  );
+}
 
 function ReadinessBadge({
   readiness,
@@ -70,7 +81,7 @@ function ReadinessBadge({
       )}
       {loadRamp?.triggered && (
         <div
-          className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 ${
+          className={`group relative flex items-start gap-2 rounded-lg border px-3 py-2.5 ${
             loadRamp.level === "high"
               ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/60"
               : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50"
@@ -88,12 +99,16 @@ function ReadinessBadge({
           >
             <span className="font-semibold">Load ramp — </span>{loadRamp.reason}
           </p>
+          <span className="ml-auto shrink-0 self-start text-xs opacity-40">ⓘ</span>
+          <MetricTip text="Flags when this week's training load jumps well above last week's — a common injury-risk signal." />
         </div>
       )}
-      <div className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${READINESS_STYLES[readiness.level]}`}>
+      <div className={`group relative flex items-center gap-2.5 rounded-lg border px-3 py-2 ${READINESS_STYLES[readiness.level]}`}>
         <span className="text-xs font-semibold uppercase tracking-wider opacity-60">Readiness</span>
         <span className="text-sm font-semibold">{readiness.level}</span>
         <span className="text-xs opacity-70">— {readiness.reason}</span>
+        <span className="ml-auto shrink-0 text-xs opacity-40">ⓘ</span>
+        <MetricTip text="Combines your form (TSB) and recent HRV to suggest whether to build, hold, or recover today." />
       </div>
     </div>
   );
@@ -515,8 +530,11 @@ function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
 
 // ---------- Current block card ----------
 
-function BlockCalendar({ block }: { block: CurrentBlock }) {
+function BlockCalendar({ block, scores }: { block: CurrentBlock; scores: RideScoreEntry[] }) {
   const today = todayIso();
+  const scoreByDate = new Map(scores.map((s) => [s.date, s.executionScore]));
+  const scoreColor = (v: number) =>
+    v >= 7 ? "text-green-700 dark:text-green-400" : v >= 5 ? "text-amber-700 dark:text-amber-400" : "text-red-600 dark:text-red-400";
   const weeks: CurrentBlock["days"][] = [];
   const sorted = [...block.days].sort((a, b) => a.date.localeCompare(b.date));
   for (let i = 0; i < sorted.length; i += 7) weeks.push(sorted.slice(i, i + 7));
@@ -539,16 +557,26 @@ function BlockCalendar({ block }: { block: CurrentBlock }) {
               {week.map((day, dayIdx) => {
                 const alignClass =
                   dayIdx <= 1 ? "left-0" : dayIdx >= week.length - 2 ? "right-0" : "left-1/2 -translate-x-1/2";
+                const score = scoreByDate.get(day.date);
+                const completed = score !== undefined;
+                const missed = !completed && day.date < today && day.type !== "Rest";
                 return (
                   <div key={day.date} className="group relative flex-1">
                     <div
                       className={`flex h-9 w-full items-center justify-center rounded text-[10px] font-medium ${TYPE_STYLES[day.type].cell} ${
                         day.type === "Rest" ? "text-zinc-600" : "text-white"
                       } ${day.date === today ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-[#00ff88] dark:ring-offset-zinc-800" : ""} ${
-                        day.date < today ? "opacity-40" : ""
-                      }`}
+                        completed ? "font-bold ring-1 ring-inset ring-white/60 dark:ring-black/30" : ""
+                      } ${missed ? "opacity-40" : ""} ${!completed && !missed && day.date < today ? "opacity-40" : ""}`}
                     >
-                      {day.date.slice(8)}
+                      {completed ? (
+                        <span className="flex items-baseline gap-0.5">
+                          <span className="text-[8px] leading-none">✓</span>
+                          {score}
+                        </span>
+                      ) : (
+                        day.date.slice(8)
+                      )}
                     </div>
                     {/* Custom tooltip */}
                     <div
@@ -569,6 +597,14 @@ function BlockCalendar({ block }: { block: CurrentBlock }) {
                             </span>
                           )}
                         </div>
+                        {completed ? (
+                          <p className="mt-0.5 text-[10px] font-medium">
+                            <span className="text-zinc-500 dark:text-zinc-400">Completed · </span>
+                            <span className={scoreColor(score)}>execution {score}/10</span>
+                          </p>
+                        ) : missed ? (
+                          <p className="mt-0.5 text-[10px] font-medium text-red-500">Missed</p>
+                        ) : null}
                         <p className="mt-0.5 font-mono text-[10px] text-zinc-400 dark:text-zinc-600">
                           {day.date}
                         </p>
@@ -597,9 +633,11 @@ function BlockCalendar({ block }: { block: CurrentBlock }) {
 function CurrentBlockSection({
   block,
   onDelete,
+  scores,
 }: {
   block: CurrentBlock | null;
   onDelete?: () => void;
+  scores: RideScoreEntry[];
 }) {
   if (!block) {
     return (
@@ -646,7 +684,7 @@ function CurrentBlockSection({
       {block.overview && (
         <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{block.overview}</p>
       )}
-      <BlockCalendar block={block} />
+      <BlockCalendar block={block} scores={scores} />
     </section>
   );
 }
@@ -754,6 +792,7 @@ export default function Dashboard() {
         readiness: ReadinessSignal | null;
         fatigueAlert: FatigueAlert | null;
         loadRamp: LoadRampAlert | null;
+        scores: RideScoreEntry[];
       }>("/api/sync", { method: "POST" });
       setState((s) =>
         s
@@ -764,6 +803,7 @@ export default function Dashboard() {
               readiness: result.readiness,
               fatigueAlert: result.fatigueAlert,
               loadRamp: result.loadRamp,
+              scores: result.scores,
             }
           : s
       );
@@ -982,9 +1022,17 @@ export default function Dashboard() {
         onGenerate={generateRetro}
       />
 
-      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} />}
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} />}
 
-      {/* Block generation form */}
+      <SectionDivider label="Review" />
+
+      {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
+
+      <RecentDataSummary sync={state.lastSync} />
+
+      {athleteMd && <GoalsProgress athleteMd={athleteMd} />}
+
+      {/* Block generation form — kept at the bottom, under goals */}
       <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-800">
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -1088,14 +1136,6 @@ export default function Dashboard() {
           }}
         />
       )}
-
-      <SectionDivider label="Review" />
-
-      {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
-
-      <RecentDataSummary sync={state.lastSync} />
-
-      {athleteMd && <GoalsProgress athleteMd={athleteMd} />}
 
       <BlockHistory history={blockHistory} />
     </div>

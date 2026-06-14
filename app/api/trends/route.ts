@@ -48,29 +48,51 @@ export async function GET() {
     .map((w) => ({ date: w.date, value: Math.round((w.ctl as number) * 10) / 10 }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Energy balance & weight per day (ride burn ≈ kJ, intake + weight from wellness).
-  const energyMap = new Map<string, { burnKcal: number | null; intakeKcal: number | null; weightKg: number | null }>();
-  const getE = (date: string) => {
-    let e = energyMap.get(date);
+  // Energy balance & weight aggregated by week (Monday-anchored): total ride burn
+  // (≈kJ) and total intake for the week, against the week's MEDIAN bodyweight.
+  // Weekly buckets smooth out day-to-day logging gaps; this fills in over a few weeks.
+  const mondayOf = (dateStr: string): string => {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    const dow = d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+    return d.toISOString().slice(0, 10);
+  };
+  const median = (xs: number[]): number => {
+    const s = [...xs].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  const wk = new Map<string, { burn: number; burnN: number; intake: number; intakeN: number; weights: number[] }>();
+  const getW = (monday: string) => {
+    let e = wk.get(monday);
     if (!e) {
-      e = { burnKcal: null, intakeKcal: null, weightKg: null };
-      energyMap.set(date, e);
+      e = { burn: 0, burnN: 0, intake: 0, intakeN: 0, weights: [] };
+      wk.set(monday, e);
     }
     return e;
   };
   for (const a of sync?.activities ?? []) {
     if ((a.type === "Ride" || a.type === "VirtualRide") && a.kj !== null) {
-      const e = getE(a.date);
-      e.burnKcal = (e.burnKcal ?? 0) + a.kj;
+      const e = getW(mondayOf(a.date));
+      e.burn += a.kj;
+      e.burnN += 1;
     }
   }
   for (const w of sync?.wellness ?? []) {
-    const e = getE(w.date);
-    if (w.kcalConsumed !== null) e.intakeKcal = w.kcalConsumed;
-    if (w.weightKg !== null) e.weightKg = w.weightKg;
+    const e = getW(mondayOf(w.date));
+    if (w.kcalConsumed !== null) {
+      e.intake += w.kcalConsumed;
+      e.intakeN += 1;
+    }
+    if (w.weightKg !== null) e.weights.push(w.weightKg);
   }
-  const energy = [...energyMap.entries()]
-    .map(([date, e]) => ({ date, ...e }))
+  const energy = [...wk.entries()]
+    .map(([date, e]) => ({
+      date,
+      burnKcal: e.burnN > 0 ? Math.round(e.burn) : null,
+      intakeKcal: e.intakeN > 0 ? Math.round(e.intake) : null,
+      weightKg: e.weights.length > 0 ? Math.round(median(e.weights) * 10) / 10 : null,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Block timeline — newest first. Already accumulates across blocks.

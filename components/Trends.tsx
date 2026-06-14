@@ -272,10 +272,10 @@ export default function Trends() {
       )}
 
       {energyHasData && (
-        <Card title="Fueling & weight" hint="tap a metric to isolate">
+        <Card title="Fueling & weight" hint="weekly · tap to isolate">
           <MultiSparkline series={energySeries} />
           <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Ride burn (kJ≈kcal) and daily intake against bodyweight — each on its own scale. Tap a legend chip to show/hide it; isolating one fills the area for a clearer trend.
+            Per week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. Fills in over a few weeks. Tap a legend chip to show/hide; isolating one fills the area.
           </p>
         </Card>
       )}

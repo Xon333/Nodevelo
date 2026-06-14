@@ -27,10 +27,11 @@ function todayIso(): string {
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
-  const [lastSync, currentBlock, todayAnalysis] = await Promise.all([
+  const [lastSync, currentBlock, todayAnalysis, scoreLog] = await Promise.all([
     readLastSync(),
     readCurrentBlock(),
     readTodayAnalysis(),
+    readScoreLog(),
   ]);
   const readiness = lastSync
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
@@ -46,6 +47,7 @@ export async function GET() {
     readiness,
     fatigueAlert,
     loadRamp,
+    scores: scoreLog.entries,
   });
 }
 
@@ -187,7 +189,8 @@ export async function POST() {
     const readiness = computeReadiness(lastSync.fitness, lastSync.wellness);
     const fatigueAlert = computeFatigueAlert(lastSync.fitness);
     const loadRamp = computeLoadRamp(lastSync.activities);
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp });
+    const scoreLog = await readScoreLog();
+    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, scores: scoreLog.entries });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";
