@@ -204,6 +204,7 @@ export default function Trends() {
     {
       label: "Burn",
       strokeClass: "stroke-amber-500 dark:stroke-amber-400",
+      fillClass: "fill-amber-500 dark:fill-amber-400",
       swatchClass: "bg-amber-500 dark:bg-amber-400",
       textClass: "text-amber-600 dark:text-amber-400",
       format: kcal,
@@ -212,6 +213,7 @@ export default function Trends() {
     {
       label: "Intake",
       strokeClass: "stroke-sky-500 dark:stroke-[#00d4ff]",
+      fillClass: "fill-sky-500 dark:fill-[#00d4ff]",
       swatchClass: "bg-sky-500 dark:bg-[#00d4ff]",
       textClass: "text-sky-600 dark:text-[#00d4ff]",
       format: kcal,
@@ -220,6 +222,7 @@ export default function Trends() {
     {
       label: "Weight",
       strokeClass: "stroke-emerald-500 dark:stroke-[#00ff88]",
+      fillClass: "fill-emerald-500 dark:fill-[#00ff88]",
       swatchClass: "bg-emerald-500 dark:bg-[#00ff88]",
       textClass: "text-emerald-600 dark:text-[#00ff88]",
       format: (v) => `${v.toFixed(1)} kg`,
@@ -269,10 +272,10 @@ export default function Trends() {
       )}
 
       {energyHasData && (
-        <Card title="Fueling & weight" hint="burn · intake · weight">
+        <Card title="Fueling & weight" hint="tap a metric to isolate">
           <MultiSparkline series={energySeries} />
           <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Ride burn (kJ≈kcal) and daily intake against bodyweight — each on its own scale, to spot energy balance vs weight drift.
+            Ride burn (kJ≈kcal) and daily intake against bodyweight — each on its own scale. Tap a legend chip to show/hide it; isolating one fills the area for a clearer trend.
           </p>
         </Card>
       )}
