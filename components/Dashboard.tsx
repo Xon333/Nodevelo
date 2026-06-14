@@ -17,7 +17,6 @@ import type {
 import { executionScoreLabel } from "@/lib/execution-score";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import PlanPreview from "./PlanPreview";
-import Sparkline from "./Sparkline";
 import SyncStatus from "./SyncStatus";
 
 interface AppState {
@@ -99,48 +98,6 @@ function ReadinessBadge({
   );
 }
 
-// ---------- Pa:HR aerobic efficiency sparkline ----------
-
-function PaHrChart({ activities }: { activities: SyncData["activities"] }) {
-  const rides = activities
-    .filter((a) => (a.type === "Ride" || a.type === "VirtualRide") && a.avgWatts !== null && a.avgHr !== null && a.avgHr > 0)
-    .map((a) => ({ date: a.date, pahr: Math.round(((a.avgWatts as number) / (a.avgHr as number)) * 100) / 100 }))
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-16);
-
-  if (rides.length < 3) return null;
-
-  // Trend: compare first half vs second half avg
-  const mid = Math.floor(rides.length / 2);
-  const firstAvg = rides.slice(0, mid).reduce((s, r) => s + r.pahr, 0) / mid;
-  const secondAvg = rides.slice(mid).reduce((s, r) => s + r.pahr, 0) / (rides.length - mid);
-  const delta = secondAvg - firstAvg;
-  const trendLabel = delta > 0.05 ? "↑ improving" : delta < -0.05 ? "↓ declining" : "→ stable";
-  const trendColor = delta > 0.05 ? "text-green-600 dark:text-[#00ff88]" : delta < -0.05 ? "text-red-500" : "text-zinc-400";
-
-  const latest = rides[rides.length - 1];
-
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="flex items-baseline justify-between gap-3 mb-2">
-        <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-          Aerobic efficiency — Pa:HR
-        </p>
-        <div className="flex items-center gap-3">
-          <span className={`text-xs font-medium ${trendColor}`}>{trendLabel}</span>
-          <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-            latest {latest.pahr.toFixed(2)}
-          </span>
-        </div>
-      </div>
-      <Sparkline points={rides.map((r) => ({ date: r.date, value: r.pahr }))} format={(v) => v.toFixed(2)} />
-      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-        Last {rides.length} rides · higher = more power per heartbeat = better aerobic base
-      </p>
-    </section>
-  );
-}
-
 // ---------- Weekly debrief ----------
 
 function WeeklyDebrief({ sync }: { sync: SyncData }) {
@@ -150,7 +107,9 @@ function WeeklyDebrief({ sync }: { sync: SyncData }) {
   const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
   const monday = new Date(d);
   monday.setDate(d.getDate() + mondayOffset);
-  const weekStart = monday.toISOString().slice(0, 10);
+  // Format from local components (matches todayIso() and activity start_date_local)
+  // so the week boundary doesn't shift via UTC near midnight.
+  const weekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
 
   const weekActivities = sync.activities.filter((a) => a.date >= weekStart && a.date <= today);
   const weekHours = weekActivities.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
@@ -487,14 +446,12 @@ function TodayRideCard({
 
 interface ProfileGoals {
   athleteMd: AthleteMdSnapshot;
-  lastSync: SyncData | null;
 }
 
-function GoalsProgress({ athleteMd, lastSync }: ProfileGoals) {
+function GoalsProgress({ athleteMd }: ProfileGoals) {
   if (!athleteMd.goals.length) return null;
 
   const powerGoals = athleteMd.performanceData;
-  const ftp = lastSync ? null : null; // FTP comes from athlete profile, not sync
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-800">
@@ -726,7 +683,9 @@ function RecentDataSummary({ sync }: { sync: SyncData | null }) {
   const week2Ago = wSorted.find((w) => w.date < cutoff7 && w.date >= cutoff14 && w.ctl !== null);
   const ctlArrow = trendArrow(latest7d?.ctl ?? null, week2Ago?.ctl ?? null, true);
   const atlArrow = trendArrow(latest7d?.atl ?? null, week2Ago?.atl ?? null, false);
-  const tsbArrow = trendArrow(sync.fitness.tsb, null, true); // TSB relative to zero
+  const tsbNow = latest7d?.ctl != null && latest7d?.atl != null ? latest7d.ctl - latest7d.atl : null;
+  const tsbPrev = week2Ago?.ctl != null && week2Ago?.atl != null ? week2Ago.ctl - week2Ago.atl : null;
+  const tsbArrow = trendArrow(tsbNow, tsbPrev, true); // rising form (fresher) is "up"
 
   const weighIns = sync.wellness
     .filter((w) => w.weightKg !== null)
@@ -1157,9 +1116,7 @@ export default function Dashboard() {
 
       <RecentDataSummary sync={state.lastSync} />
 
-      {state.lastSync && <PaHrChart activities={state.lastSync.activities} />}
-
-      {athleteMd && <GoalsProgress athleteMd={athleteMd} lastSync={state.lastSync} />}
+      {athleteMd && <GoalsProgress athleteMd={athleteMd} />}
 
       <BlockHistory history={blockHistory} />
     </div>

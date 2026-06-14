@@ -5,6 +5,7 @@ import { api, timeAgo } from "@/lib/client-api";
 import type { RollingBaselines, WorkoutType } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import Sparkline, { type SparkPoint } from "./Sparkline";
+import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
 
 type Point = SparkPoint;
 interface TrendBlock {
@@ -28,9 +29,16 @@ interface ScoreEntry {
   executionScore: number;
   plannedType: WorkoutType;
 }
+interface EnergyRow {
+  date: string;
+  burnKcal: number | null;
+  intakeKcal: number | null;
+  weightKg: number | null;
+}
 interface TrendsData {
   paHr: Point[];
   ctl: Point[];
+  energy: EnergyRow[];
   blocks: TrendBlock[];
   complianceByType: ComplianceRow[];
   baselines: RollingBaselines;
@@ -202,6 +210,35 @@ export default function Trends() {
   const ctlTrend = trendDir(data.ctl, true);
   const cards = baselineCards(data.baselines);
 
+  const kcal = (v: number) => `${Math.round(v).toLocaleString()} kcal`;
+  const energySeries: MultiSeries[] = [
+    {
+      label: "Burn",
+      strokeClass: "stroke-amber-500 dark:stroke-amber-400",
+      swatchClass: "bg-amber-500 dark:bg-amber-400",
+      textClass: "text-amber-600 dark:text-amber-400",
+      format: kcal,
+      points: data.energy.filter((e) => e.burnKcal != null).map((e) => ({ date: e.date, value: e.burnKcal as number })),
+    },
+    {
+      label: "Intake",
+      strokeClass: "stroke-sky-500 dark:stroke-[#00d4ff]",
+      swatchClass: "bg-sky-500 dark:bg-[#00d4ff]",
+      textClass: "text-sky-600 dark:text-[#00d4ff]",
+      format: kcal,
+      points: data.energy.filter((e) => e.intakeKcal != null).map((e) => ({ date: e.date, value: e.intakeKcal as number })),
+    },
+    {
+      label: "Weight",
+      strokeClass: "stroke-emerald-500 dark:stroke-[#00ff88]",
+      swatchClass: "bg-emerald-500 dark:bg-[#00ff88]",
+      textClass: "text-emerald-600 dark:text-[#00ff88]",
+      format: (v) => `${v.toFixed(1)} kg`,
+      points: data.energy.filter((e) => e.weightKg != null).map((e) => ({ date: e.date, value: e.weightKg as number })),
+    },
+  ];
+  const energyHasData = energySeries.some((s) => s.points.length >= 2);
+
   return (
     <div className="space-y-3">
       <div className="flex items-baseline justify-between">
@@ -227,7 +264,7 @@ export default function Trends() {
       {data.paHr.length >= 3 && (
         <Card
           title="Aerobic efficiency — Pa:HR"
-          hint={`${data.paHr.length} rides · last ~8 weeks`}
+          hint={`${data.paHr.length} endurance rides · last ~8 weeks`}
         >
           <div className="mb-1 flex items-center justify-between">
             <span className={`text-xs font-medium ${paHrTrend.cls}`}>{paHrTrend.label}</span>
@@ -237,7 +274,16 @@ export default function Trends() {
           </div>
           <Sparkline points={data.paHr} format={(v) => v.toFixed(2)} />
           <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Power per heartbeat. Rising = more output at the same HR = better aerobic base.
+            Power per heartbeat on endurance rides. Rising = more output at the same HR = better aerobic base.
+          </p>
+        </Card>
+      )}
+
+      {energyHasData && (
+        <Card title="Fueling & weight" hint="burn · intake · weight">
+          <MultiSparkline series={energySeries} />
+          <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+            Ride burn (kJ≈kcal) and daily intake against bodyweight — each on its own scale, to spot energy balance vs weight drift.
           </p>
         </Card>
       )}
@@ -287,7 +333,7 @@ export default function Trends() {
       )}
 
       {cards.length > 0 && (
-        <Card title="90-day baselines" hint="rolling reference">
+        <Card title="Recent baselines" hint="last ~8 weeks">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {cards.map((c) => (
               <div key={c.label} className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
