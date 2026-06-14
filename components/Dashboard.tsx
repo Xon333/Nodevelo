@@ -18,6 +18,7 @@ import { executionScoreLabel } from "@/lib/execution-score";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import PlanPreview from "./PlanPreview";
 import SyncStatus from "./SyncStatus";
+import { Card, StatTile, SectionDivider } from "./ui";
 
 interface AppState {
   configured: boolean;
@@ -125,24 +126,16 @@ function WeeklyDebrief({ sync }: { sync: SyncData }) {
 
   if (weekActivities.length === 0 && avgHrv === null) return null;
 
-  const chip = (label: string, value: string) => (
-    <div key={label} className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">{value}</p>
-    </div>
-  );
-
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">This week</p>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {chip("Hours", `${weekHours.toFixed(1)} h`)}
-        {weekTss > 0 && chip("TSS", String(Math.round(weekTss)))}
-        {topSession && chip("Top session", `${topSession.name.slice(0, 18)} · ${topSession.trainingLoad} TSS`)}
-        {avgHrv !== null && chip("Avg HRV", String(avgHrv))}
-        {avgSleep !== null && chip("Avg sleep", `${avgSleep} h`)}
+    <Card title="This week">
+      <div className="flex flex-wrap gap-2">
+        <StatTile label="Hours" value={`${weekHours.toFixed(1)} h`} />
+        {weekTss > 0 && <StatTile label="TSS" value={String(Math.round(weekTss))} />}
+        {topSession && <StatTile label="Top session" value={`${topSession.name.slice(0, 18)} · ${topSession.trainingLoad} TSS`} />}
+        {avgHrv !== null && <StatTile label="Avg HRV" value={String(avgHrv)} />}
+        {avgSleep !== null && <StatTile label="Avg sleep" value={`${avgSleep} h`} />}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -700,28 +693,17 @@ function RecentDataSummary({ sync }: { sync: SyncData | null }) {
       : null;
   const weightArrow = weightTrend !== null ? (weightTrend > 0.1 ? " ↑" : weightTrend < -0.1 ? " ↓" : " →") : "";
 
-  const stat = (label: string, value: string, arrow = "") => (
-    <div className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">
-        {value}
-        {arrow && <span className="text-[10px] font-normal opacity-60">{arrow}</span>}
-      </p>
-    </div>
-  );
-
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Training status</p>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {stat("CTL (fitness)", sync.fitness.ctl?.toFixed(1) ?? "—", ctlArrow)}
-        {stat("ATL (fatigue)", sync.fitness.atl?.toFixed(1) ?? "—", atlArrow)}
-        {stat("TSB (form)", sync.fitness.tsb?.toFixed(1) ?? "—", tsbArrow)}
-        {stat("7-day hours", `${hours7.toFixed(1)} h`)}
-        {stat("Weight", latestWeight?.weightKg != null ? `${latestWeight.weightKg.toFixed(1)} kg` : "—", weightArrow)}
-        {stat("Weight trend", weightTrend !== null ? `${weightTrend > 0 ? "+" : ""}${weightTrend.toFixed(1)} kg` : "—")}
+    <Card title="Training status">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <StatTile label="CTL (fitness)" value={sync.fitness.ctl?.toFixed(1) ?? "—"} arrow={ctlArrow} />
+        <StatTile label="ATL (fatigue)" value={sync.fitness.atl?.toFixed(1) ?? "—"} arrow={atlArrow} />
+        <StatTile label="TSB (form)" value={sync.fitness.tsb?.toFixed(1) ?? "—"} arrow={tsbArrow} />
+        <StatTile label="7-day hours" value={`${hours7.toFixed(1)} h`} />
+        <StatTile label="Weight" value={latestWeight?.weightKg != null ? `${latestWeight.weightKg.toFixed(1)} kg` : "—"} arrow={weightArrow} />
+        <StatTile label="Weight trend" value={weightTrend !== null ? `${weightTrend > 0 ? "+" : ""}${weightTrend.toFixed(1)} kg` : "—"} />
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1107,10 +1089,7 @@ export default function Dashboard() {
         />
       )}
 
-      <div className="flex items-center gap-2 pt-1">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Review</span>
-        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
-      </div>
+      <SectionDivider label="Review" />
 
       {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
 

@@ -6,6 +6,7 @@ import type { RollingBaselines, WorkoutType } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import Sparkline, { type SparkPoint } from "./Sparkline";
 import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
+import { Card, StatTile } from "./ui";
 
 type Point = SparkPoint;
 interface TrendBlock {
@@ -60,18 +61,6 @@ function trendDir(points: Point[], higherIsBetter = true): { label: string; cls:
   return improving
     ? { label: delta > 0 ? "↑ improving" : "↓ improving", cls: "text-green-600 dark:text-[#00ff88]" }
     : { label: delta > 0 ? "↑ declining" : "↓ declining", cls: "text-red-500" };
-}
-
-function Card({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h2 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{title}</h2>
-        {hint && <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{hint}</span>}
-      </div>
-      {children}
-    </section>
-  );
 }
 
 // ---------- sections ----------
@@ -336,10 +325,7 @@ export default function Trends() {
         <Card title="Recent baselines" hint="last ~8 weeks">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {cards.map((c) => (
-              <div key={c.label} className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-                <p className="text-[10px] uppercase tracking-wide text-zinc-400">{c.label}</p>
-                <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">{c.value}</p>
-              </div>
+              <StatTile key={c.label} label={c.label} value={c.value} />
             ))}
           </div>
         </Card>
