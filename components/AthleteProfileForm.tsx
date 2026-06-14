@@ -36,6 +36,7 @@ interface WeightPoint {
 
 interface ProfileResponse {
   nutrition: NutritionSettings;
+  ftpStaleDays: number | null;
   athleteMd: AthleteMdSnapshot;
   autoSync: AutoSyncInfo;
   bufferStatus: BufferStatus;
@@ -300,6 +301,21 @@ export default function AthleteProfileForm() {
           Edit athlete_profile.md →
         </Link>
       </div>
+
+      {/* FTP stale warning */}
+      {data.ftpStaleDays !== null && data.ftpStaleDays > 90 && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/40">
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+          <div>
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-300">
+              FTP may be stale — last updated {data.ftpStaleDays} days ago
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+              All intensity metrics (IF, TSS, zones) are calculated from FTP. Consider a ramp test or 20-min effort to refresh it, then update your profile.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 1. Live data from Intervals.icu — top priority */}
       <Section title="Live data from Intervals.icu">

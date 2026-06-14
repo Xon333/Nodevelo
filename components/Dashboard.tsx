@@ -66,6 +66,194 @@ function ReadinessBadge({ readiness, fatigueAlert }: { readiness: ReadinessSigna
   );
 }
 
+// ---------- Pa:HR aerobic efficiency sparkline ----------
+
+function PaHrChart({ activities }: { activities: SyncData["activities"] }) {
+  const rides = activities
+    .filter((a) => (a.type === "Ride" || a.type === "VirtualRide") && a.avgWatts !== null && a.avgHr !== null && a.avgHr > 0)
+    .map((a) => ({ date: a.date, pahr: Math.round(((a.avgWatts as number) / (a.avgHr as number)) * 100) / 100 }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-16);
+
+  if (rides.length < 3) return null;
+
+  const W = 340;
+  const H = 52;
+  const PAD = 6;
+  const pahrs = rides.map((r) => r.pahr);
+  const minP = Math.min(...pahrs);
+  const maxP = Math.max(...pahrs);
+  const range = maxP - minP || 0.1;
+
+  const toX = (i: number) => PAD + (i / (rides.length - 1)) * (W - PAD * 2);
+  const toY = (p: number) => PAD + (1 - (p - minP) / range) * (H - PAD * 2);
+
+  const pathD = rides
+    .map((r, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(r.pahr).toFixed(1)}`)
+    .join(" ");
+
+  // Trend: compare first half vs second half avg
+  const mid = Math.floor(rides.length / 2);
+  const firstAvg = rides.slice(0, mid).reduce((s, r) => s + r.pahr, 0) / mid;
+  const secondAvg = rides.slice(mid).reduce((s, r) => s + r.pahr, 0) / (rides.length - mid);
+  const delta = secondAvg - firstAvg;
+  const trendLabel = delta > 0.05 ? "↑ improving" : delta < -0.05 ? "↓ declining" : "→ stable";
+  const trendColor = delta > 0.05 ? "text-green-600 dark:text-[#00ff88]" : delta < -0.05 ? "text-red-500" : "text-zinc-400";
+
+  const latest = rides[rides.length - 1];
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
+      <div className="flex items-baseline justify-between gap-3 mb-2">
+        <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+          Aerobic efficiency — Pa:HR
+        </p>
+        <div className="flex items-center gap-3">
+          <span className={`text-xs font-medium ${trendColor}`}>{trendLabel}</span>
+          <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+            latest {latest.pahr.toFixed(2)}
+          </span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+        <path d={pathD} fill="none" strokeWidth="1.5" strokeLinejoin="round" className="stroke-blue-400 dark:stroke-[#00ff88]/70" />
+        {rides.map((r, i) => (
+          <circle
+            key={i}
+            cx={toX(i)}
+            cy={toY(r.pahr)}
+            r={i === rides.length - 1 ? 3.5 : 2}
+            className={i === rides.length - 1 ? "fill-blue-500 dark:fill-[#00ff88]" : "fill-blue-300 dark:fill-zinc-600"}
+          />
+        ))}
+      </svg>
+      <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+        Last {rides.length} rides · higher = more power per heartbeat = better aerobic base
+      </p>
+    </section>
+  );
+}
+
+// ---------- Weekly debrief ----------
+
+function WeeklyDebrief({ sync }: { sync: SyncData }) {
+  const today = todayIso();
+  const d = new Date();
+  const dayOfWeek = d.getDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + mondayOffset);
+  const weekStart = monday.toISOString().slice(0, 10);
+
+  const weekActivities = sync.activities.filter((a) => a.date >= weekStart && a.date <= today);
+  const weekHours = weekActivities.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
+  const weekTss = weekActivities.reduce((s, a) => s + (a.trainingLoad ?? 0), 0);
+  const topSession = [...weekActivities].sort((a, b) => (b.trainingLoad ?? 0) - (a.trainingLoad ?? 0))[0];
+
+  const cutoff7 = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+  const weekWellness = sync.wellness.filter((w) => w.date >= cutoff7 && w.date <= today);
+  const hrvValues = weekWellness.map((w) => w.hrv).filter((v): v is number => v !== null);
+  const sleepValues = weekWellness.map((w) => w.sleepHours).filter((v): v is number => v !== null);
+  const avgHrv = hrvValues.length > 0 ? Math.round(hrvValues.reduce((s, v) => s + v, 0) / hrvValues.length) : null;
+  const avgSleep = sleepValues.length > 0 ? (sleepValues.reduce((s, v) => s + v, 0) / sleepValues.length).toFixed(1) : null;
+
+  if (weekActivities.length === 0 && avgHrv === null) return null;
+
+  const chip = (label: string, value: string) => (
+    <div key={label} className="rounded-md bg-zinc-50 px-2.5 py-1.5 dark:bg-zinc-900">
+      <p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p>
+      <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#00ff88]">{value}</p>
+    </div>
+  );
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
+      <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">This week</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {chip("Hours", `${weekHours.toFixed(1)} h`)}
+        {weekTss > 0 && chip("TSS", String(Math.round(weekTss)))}
+        {topSession && chip("Top session", `${topSession.name.slice(0, 18)} · ${topSession.trainingLoad} TSS`)}
+        {avgHrv !== null && chip("Avg HRV", String(avgHrv))}
+        {avgSleep !== null && chip("Avg sleep", `${avgSleep} h`)}
+      </div>
+    </section>
+  );
+}
+
+// ---------- Retrospective section ----------
+
+function RetroSection({
+  block,
+  generating,
+  result,
+  error,
+  onGenerate,
+}: {
+  block: CurrentBlock | null;
+  generating: boolean;
+  result: { retrospective: string; seeds: string[]; complianceByType: Record<string, number> } | null;
+  error: string | null;
+  onGenerate: () => void;
+}) {
+  const today = todayIso();
+  const blockEnded = block && block.endDate < today;
+
+  // Show the latest retro from a history entry if we've already run it for this block.
+  if (!result && !blockEnded) return null;
+
+  if (result) {
+    return (
+      <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-800">
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Block retrospective</h2>
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-[#00ff88]/70">
+            completed
+          </span>
+        </div>
+        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">{result.retrospective}</p>
+        {result.seeds.length > 0 && (
+          <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1.5">
+              Seeded into next block
+            </p>
+            <ul className="space-y-1">
+              {result.seeds.map((s, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300 dark:bg-[#00ff88]/40" />
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 dark:border-zinc-600 dark:bg-zinc-800">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-amber-900 dark:text-zinc-100">
+            Block ended {block!.endDate}
+          </p>
+          <p className="mt-0.5 text-xs text-amber-700 dark:text-zinc-400">
+            Generate a retrospective to close the block and seed the next one with insights.
+          </p>
+          {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        </div>
+        <button
+          onClick={onGenerate}
+          disabled={generating}
+          className="shrink-0 rounded-md bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50 dark:bg-[#00ff88]/20 dark:text-[#00ff88] dark:hover:bg-[#00ff88]/30 dark:border dark:border-[#00ff88]/40"
+        >
+          {generating ? "Generating…" : "Wrap up block"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // ---------- Zone distribution mini-bars ----------
 
 function ZoneBars({ times, label }: { times: number[]; label: string }) {
@@ -111,7 +299,17 @@ function ZoneBars({ times, label }: { times: number[]; label: string }) {
 
 // ---------- Today's ride analysis ----------
 
-function TodayRideCard({ analysis }: { analysis: TodayAnalysis }) {
+function TodayRideCard({
+  analysis,
+  onPostNote,
+  notePosting,
+  notePosted,
+}: {
+  analysis: TodayAnalysis;
+  onPostNote?: () => void;
+  notePosting?: boolean;
+  notePosted?: boolean;
+}) {
   const plannedStyle = analysis.plannedType
     ? TYPE_STYLES[analysis.plannedType as keyof typeof TYPE_STYLES] ?? TYPE_STYLES.Z2
     : null;
@@ -260,9 +458,20 @@ function TodayRideCard({ analysis }: { analysis: TodayAnalysis }) {
         </div>
       )}
 
-      <p className="mt-2 text-[10px] text-zinc-400 dark:text-zinc-500">
-        {new Date(analysis.analysedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · sync to refresh
-      </p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
+          {new Date(analysis.analysedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · sync to refresh
+        </p>
+        {onPostNote && analysis.coachNote && (
+          <button
+            onClick={onPostNote}
+            disabled={notePosting || notePosted}
+            className="rounded border border-zinc-300 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+          >
+            {notePosted ? "Posted to Intervals.icu ✓" : notePosting ? "Posting…" : "Post to Intervals.icu"}
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -574,6 +783,17 @@ export default function Dashboard() {
   const [athleteMd, setAthleteMd] = useState<AthleteMdSnapshot | null>(null);
   const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
 
+  const [retroGenerating, setRetroGenerating] = useState(false);
+  const [retroResult, setRetroResult] = useState<{
+    retrospective: string;
+    seeds: string[];
+    complianceByType: Record<string, number>;
+  } | null>(null);
+  const [retroError, setRetroError] = useState<string | null>(null);
+
+  const [notePosting, setNotePosting] = useState(false);
+  const [notePosted, setNotePosted] = useState(false);
+
   const autoSyncDone = useRef(false);
 
   const doSync = useCallback(async () => {
@@ -723,6 +943,46 @@ export default function Dashboard() {
     }
   };
 
+  const generateRetro = async () => {
+    setRetroGenerating(true);
+    setRetroError(null);
+    try {
+      const result = await api<{ retrospective: string; seeds: string[]; complianceByType: Record<string, number> }>(
+        "/api/retrospective",
+        { method: "POST" }
+      );
+      setRetroResult(result);
+      // Block is now cleared server-side — update local state.
+      setState((s) => (s ? { ...s, currentBlock: null } : s));
+      void loadBlockHistory();
+    } catch (err) {
+      setRetroError(err instanceof Error ? err.message : "Retrospective failed");
+    } finally {
+      setRetroGenerating(false);
+    }
+  };
+
+  const postNote = async () => {
+    if (!state?.todayAnalysis) return;
+    setNotePosting(true);
+    try {
+      await api("/api/note", {
+        method: "POST",
+        body: JSON.stringify({
+          date: state.todayAnalysis.activityDate,
+          activityName: state.todayAnalysis.activityName,
+          coachNote: state.todayAnalysis.coachNote,
+          executionScore: state.todayAnalysis.executionScore,
+        }),
+      });
+      setNotePosted(true);
+    } catch {
+      // best-effort — don't show error for note post failure
+    } finally {
+      setNotePosting(false);
+    }
+  };
+
   if (loadError) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -751,11 +1011,26 @@ export default function Dashboard() {
         <ReadinessBadge readiness={state.readiness} fatigueAlert={state.fatigueAlert} />
       )}
 
+      {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
+
       {state.todayAnalysis && state.todayAnalysis.activityDate === todayIso() && (
-        <TodayRideCard analysis={state.todayAnalysis} />
+        <TodayRideCard
+          analysis={state.todayAnalysis}
+          onPostNote={state.configured ? postNote : undefined}
+          notePosting={notePosting}
+          notePosted={notePosted}
+        />
       )}
 
-      <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} />
+      <RetroSection
+        block={state.currentBlock}
+        generating={retroGenerating}
+        result={retroResult}
+        error={retroError}
+        onGenerate={generateRetro}
+      />
+
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} />}
 
       {/* Block generation form */}
       <section className="rounded-lg border border-zinc-200 bg-white px-4 py-4 dark:border-zinc-700 dark:bg-zinc-800">
@@ -865,6 +1140,8 @@ export default function Dashboard() {
       {athleteMd && <GoalsProgress athleteMd={athleteMd} lastSync={state.lastSync} />}
 
       <RecentDataSummary sync={state.lastSync} />
+
+      {state.lastSync && <PaHrChart activities={state.lastSync.activities} />}
 
       <BlockHistory history={blockHistory} />
     </div>

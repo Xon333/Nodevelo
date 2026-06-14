@@ -7,7 +7,7 @@ import {
   generateTrainingBlock,
   isAnthropicConfigured,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readComplianceMemory, readLastSync } from "@/lib/data-store";
+import { readAthleteProfile, readBlockHistory, readBlockSettings, readComplianceMemory, readLastSync } from "@/lib/data-store";
 import { loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import {
   buildNutritionReferenceRows,
@@ -59,12 +59,13 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, complianceMemory] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, complianceMemory, blockHistory] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
       readBlockSettings(),
       readComplianceMemory(),
+      readBlockHistory(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
 
     const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);
 
-    // Build compliance annotation for types with meaningful history (≥3 sessions).
+    // Compliance annotations for types with ≥3 sessions of history.
     const complianceLines: string[] = [];
     for (const [type, entry] of Object.entries(complianceMemory.byType)) {
       if (!entry || entry.sessions < 3) continue;
@@ -99,8 +100,14 @@ export async function POST(req: Request) {
       ? `\nCOMPLIANCE HISTORY (from logged sessions)\n${complianceLines.join("\n")}`
       : "";
 
+    // Seeds from the most recent block retrospective, if available.
+    const latestRetro = blockHistory.find((h) => h.nextBlockSeeds && h.nextBlockSeeds.length > 0);
+    const seedsContext = latestRetro?.nextBlockSeeds?.length
+      ? `\nPREVIOUS BLOCK PRIORITIES (carry forward into planning)\n${latestRetro.nextBlockSeeds.map((s) => `- ${s}`).join("\n")}`
+      : "";
+
     const system = buildSystemPrompt(
-      kbContext + complianceContext,
+      kbContext + complianceContext + seedsContext,
       buildAthleteDataSection(profile, sync),
       blockParams
     );

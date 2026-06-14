@@ -420,6 +420,76 @@ export function buildRideAnalysisInput(
   };
 }
 
+// ---------- Block retrospective ----------
+
+export interface RetrospectiveInput {
+  goal: string;
+  lengthWeeks: number;
+  startDate: string;
+  endDate: string;
+  plannedHours: number;
+  actualHours: number;
+  overallCompliancePct: number;
+  ctlStart: number | null;
+  ctlEnd: number | null;
+  complianceByType: Record<string, number>;
+  topSessions: Array<{ date: string; name: string; tss: number }>;
+  avgDecoupling: number | null;
+}
+
+export async function generateRetrospective(input: RetrospectiveInput): Promise<string> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+
+  const ctlLine =
+    input.ctlStart !== null && input.ctlEnd !== null
+      ? `CTL: ${input.ctlStart} → ${input.ctlEnd} (${input.ctlEnd >= input.ctlStart ? "+" : ""}${(input.ctlEnd - input.ctlStart).toFixed(1)})`
+      : "";
+
+  const typeLines = Object.entries(input.complianceByType)
+    .map(([t, pct]) => `  ${t}: ${pct}%`)
+    .join("\n");
+
+  const topLine = input.topSessions
+    .map((s) => `"${s.name}" ${s.date} (TSS ${s.tss})`)
+    .join(", ");
+
+  const decoupLine = input.avgDecoupling !== null
+    ? `Avg decoupling across block: ${input.avgDecoupling.toFixed(1)}%`
+    : "";
+
+  const prompt = [
+    "You are a cycling coach writing a concise retrospective for a completed training block. Be direct and coaching-like — no bullet points, no fluff, flowing prose only. Do not start with 'This block'.",
+    "",
+    `Block: "${input.goal}" — ${input.lengthWeeks} weeks (${input.startDate} → ${input.endDate})`,
+    `Volume: ${input.plannedHours.toFixed(1)}h planned → ${input.actualHours.toFixed(1)}h actual (${input.overallCompliancePct}% compliance)`,
+    ctlLine,
+    decoupLine,
+    "",
+    "Compliance by session type:",
+    typeLines || "  (no data)",
+    "",
+    `Top sessions: ${topLine || "(none)"}`,
+    "",
+    "Write 3–4 sentences covering: overall execution quality, which session types worked vs. fell short, one key physiological observation (CTL gain/decoupling), and one concrete priority for the next block.",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: GENERATION_MODEL,
+    max_tokens: 380,
+    temperature: 0.3,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  return response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
+
 export async function generateTrainingBlock(
   system: string,
   userMessage: string
