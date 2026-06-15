@@ -109,7 +109,6 @@ export function Zone({
   hint,
   hero,
   accent = "cyan",
-  fill,
   className,
   children,
 }: {
@@ -118,10 +117,6 @@ export function Zone({
   hint?: string;
   hero?: boolean;
   accent?: "cyan" | "pink";
-  // When true the card stretches to fill its (flex) parent and the body scrolls
-  // internally — for variable-length content (e.g. the coach note) that must not push
-  // the page taller than its sibling column.
-  fill?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -133,9 +128,9 @@ export function Zone({
     ? `relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent}`
     : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
   return (
-    <section className={`${shell} ${fill ? "flex min-h-0 flex-1 flex-col" : ""} ${className ?? ""}`}>
+    <section className={`${shell} ${className ?? ""}`}>
       {hero && <CyberFrame accent={accent} />}
-      <div className={`${hero ? "relative z-10 " : ""}${fill ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+      <div className={hero ? "relative z-10" : ""}>
         <div className="mb-2 flex items-center gap-2">
           {rank != null && (
             <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-600 dark:bg-synced/15 dark:text-synced">
@@ -145,7 +140,7 @@ export function Zone({
           <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
           {hint && <span className="ml-auto text-[10px] text-zinc-400 dark:text-zinc-500">{hint}</span>}
         </div>
-        {fill ? <div className="min-h-0 flex-1 overflow-y-auto">{children}</div> : children}
+        {children}
       </div>
     </section>
   );

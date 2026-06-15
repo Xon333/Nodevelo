@@ -388,6 +388,20 @@ function TodayRideCard({
               {executionScoreLabel(analysis.executionScore)}
             </span>
           </div>
+          {onPostNote && analysis.coachNote && (
+            <button
+              onClick={onPostNote}
+              disabled={notePosting || notePosted}
+              title="Post coach note to Intervals.icu"
+              className={`ml-auto shrink-0 whitespace-nowrap rounded border px-2 py-1 text-[10px] font-medium transition-colors ${
+                notePosted
+                  ? "border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
+                  : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+              }`}
+            >
+              {notePosted ? "✓ Posted" : notePosting ? "Posting…" : "↑ Post to Intervals.icu"}
+            </button>
+          )}
         </div>
       )}
 
@@ -463,40 +477,25 @@ function TodayRideCard({
         </div>
       )}
 
-      {/* Athlete note (from Intervals.icu activity description) */}
+      {/* Athlete note (from Intervals.icu activity description) — scrolls if long */}
       {analysis.activityDescription != null && analysis.activityDescription.trim() !== "" && (
         <div className="mt-3 rounded border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Your note</p>
-          <p className="mt-0.5 text-xs leading-5 text-zinc-600 dark:text-zinc-400 italic">
+          <p className="mt-0.5 max-h-20 overflow-y-auto text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">
             {analysis.activityDescription}
           </p>
         </div>
       )}
 
-      {/* Coach note */}
+      {/* Coach note (only when shown inline, i.e. not relocated to its own card) */}
       {!hideCoachNote && (analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis) && (
         <div className="mt-3 border-l-2 border-zinc-300 pl-3 dark:border-[#ff49c8]/30">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Coach note</p>
-          <p className="mt-0.5 text-xs leading-5 text-zinc-600 dark:text-zinc-400">
+          <p className="mt-0.5 max-h-48 overflow-y-auto text-xs leading-5 text-zinc-600 dark:text-zinc-400">
             {analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis}
           </p>
         </div>
       )}
-
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-[10px] text-zinc-400 dark:text-zinc-500">
-          {new Date(analysis.analysedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · sync to refresh
-        </p>
-        {onPostNote && analysis.coachNote && (
-          <button
-            onClick={onPostNote}
-            disabled={notePosting || notePosted}
-            className="rounded border border-zinc-300 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
-          >
-            {notePosted ? "Posted to Intervals.icu ✓" : notePosting ? "Posting…" : "Post to Intervals.icu"}
-          </button>
-        )}
-      </div>
     </>
   );
   if (bare) return body;
@@ -1111,13 +1110,15 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
               )}
             </Zone>
 
-            <div className="flex min-h-0 flex-col gap-3">
+            <div className="flex flex-col gap-3">
               <Zone rank={3} title="Trend pulse — am I improving?" hint="opens Trends">
                 <TrendPulse vertical />
               </Zone>
               {state.todayAnalysis?.activityDate === todayIso() && state.todayAnalysis.coachNote && (
-                <Zone title="Coach note" hero accent="pink" fill>
-                  <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{state.todayAnalysis.coachNote}</p>
+                <Zone title="Coach note" hero accent="pink">
+                  <p className="max-h-72 overflow-y-auto text-xs leading-5 text-zinc-600 dark:text-zinc-300">
+                    {state.todayAnalysis.coachNote}
+                  </p>
                 </Zone>
               )}
             </div>
