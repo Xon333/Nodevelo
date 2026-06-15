@@ -1051,7 +1051,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
     state.currentBlock !== null && state.currentBlock.endDate >= todayIso();
 
   return (
-    <div className="space-y-3">
+    <div className={mode === "today" ? "flex flex-col gap-3 lg:h-[calc(100dvh-4rem)] lg:overflow-hidden" : "space-y-3"}>
       {mode === "today" && (
         <>
           <Zone rank={1} title="Readiness — can I go hard?">
@@ -1095,10 +1095,11 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
             )}
           </Zone>
 
-          {/* Session & fuel as the wide focus; trend pulse + coach note fill the column
-              beside it (the coach note moves here so the session card needn't scroll). */}
-          <div className="grid gap-3 lg:grid-cols-[1.7fr_1fr]">
-            <Zone rank={2} title="Today — session & fuel" hero>
+          {/* Session & fuel is the wide focus; trend pulse + coach note fill the column
+              beside it. On desktop the page is locked to the viewport — the session card's
+              body and the right column scroll internally so all borders stay visible. */}
+          <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1.7fr_1fr] lg:[grid-template-rows:minmax(0,1fr)]">
+            <Zone rank={2} title="Today — session & fuel" hero fill>
               {state.todayAnalysis && state.todayAnalysis.activityDate === todayIso() ? (
                 <TodayRideCard
                   analysis={state.todayAnalysis}
@@ -1113,7 +1114,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
               )}
             </Zone>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 lg:min-h-0 lg:overflow-y-auto">
               <Zone rank={3} title="Trend pulse — am I improving?" hint="opens Trends">
                 <TrendPulse vertical />
               </Zone>
