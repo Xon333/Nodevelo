@@ -9,7 +9,9 @@ import {
 } from "@/lib/anthropic-api";
 import { readAthleteProfile, readBlockSettings, readComplianceMemory, readLastSync, readScoreLog } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
+import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights, insightsToPromptBlock } from "@/lib/athlete-model";
+import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
   nutritionTableMarkdown,
@@ -60,7 +62,7 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, complianceMemory, retroSeeds, scoreLog] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, complianceMemory, retroSeeds, scoreLog, physStore] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
@@ -68,6 +70,7 @@ export async function POST(req: Request) {
       readComplianceMemory(),
       latestRetrospectiveSeeds(),
       readScoreLog(),
+      readPhysiology(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -112,9 +115,26 @@ export async function POST(req: Request) {
     // directives (weak types, declining trends, ready-to-progress) for this block.
     const insightsContext = insightsToPromptBlock(deriveInsights(buildAthleteModel(scoreLog.entries)));
 
+    // Live training zones from the physiology store, rendered for the prompt (these used to
+    // live in athlete_profile.md but are now synced from Intervals.icu).
+    const fmtZoneRange = (z: Zone, unit: string) =>
+      z.lo === 0 ? `< ${z.hi}${unit}` : z.hi === null ? `> ${z.lo}${unit}` : `${z.lo}–${z.hi}${unit}`;
+    let zonesText = "";
+    if (physStore) {
+      const pz = resolvePowerZones(physStore.current);
+      const hz = resolveHrZones(physStore.current);
+      if (pz.length > 0) {
+        const rows = pz.map((z, i) => {
+          const hr = hz[i] ? `, HR ${fmtZoneRange(hz[i], " bpm")}` : "";
+          return `- ${z.name}: ${fmtZoneRange(z, " W")}${hr}`;
+        });
+        zonesText = `TRAINING ZONES (live, from Intervals.icu — FTP ${physStore.current.ftp} W):\n${rows.join("\n")}`;
+      }
+    }
+
     const system = buildSystemPrompt(
       kbContext + complianceContext + seedsContext + insightsContext,
-      buildAthleteDataSection(profile, sync),
+      buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );
     const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings);

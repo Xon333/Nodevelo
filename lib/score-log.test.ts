@@ -41,14 +41,32 @@ function block(days: Array<{ date: string; type: WorkoutType; durationMin: numbe
 }
 
 describe("buildRideScores", () => {
-  it("scores planned days that have a matching ride", () => {
+  const ftp200 = () => 200;
+
+  it("scores planned days that have a matching ride and stamps the FTP used", () => {
     const b = block([{ date: "2026-01-01", type: "Z2", durationMin: 60 }]);
     const acts = [activity({ date: "2026-01-01", avgWatts: 135, normalizedPower: 138 })]; // IF ~0.69 @ ftp200
-    const scores = buildRideScores(b, acts, 200, "2026-01-10");
+    const scores = buildRideScores(b, acts, ftp200, "2026-01-10");
     expect(scores).toHaveLength(1);
     expect(scores[0].plannedType).toBe("Z2");
+    expect(scores[0].ftpUsed).toBe(200);
     expect(scores[0].executionScore).toBeGreaterThanOrEqual(1);
     expect(scores[0].executionScore).toBeLessThanOrEqual(10);
+  });
+
+  it("resolves FTP per ride date (as-of), not a single current FTP", () => {
+    const b = block([
+      { date: "2026-01-01", type: "Z2", durationMin: 60 },
+      { date: "2026-02-01", type: "Z2", durationMin: 60 },
+    ]);
+    const acts = [
+      activity({ date: "2026-01-01", avgWatts: 135, normalizedPower: 138 }),
+      activity({ date: "2026-02-01", avgWatts: 135, normalizedPower: 138 }),
+    ];
+    const ftpForDate = (date: string) => (date < "2026-01-15" ? 200 : 300);
+    const scores = buildRideScores(b, acts, ftpForDate, "2026-03-01");
+    expect(scores.find((s) => s.date === "2026-01-01")?.ftpUsed).toBe(200);
+    expect(scores.find((s) => s.date === "2026-02-01")?.ftpUsed).toBe(300);
   });
 
   it("skips rest days, future days, and days without a ride", () => {
@@ -58,7 +76,7 @@ describe("buildRideScores", () => {
       { date: "2026-01-20", type: "Z2", durationMin: 60 }, // future vs the "today" below
     ]);
     const acts = [activity({ date: "2026-01-20", avgWatts: 140 })];
-    const scores = buildRideScores(b, acts, 200, "2026-01-10");
+    const scores = buildRideScores(b, acts, ftp200, "2026-01-10");
     expect(scores).toHaveLength(0);
   });
 });
@@ -70,14 +88,18 @@ describe("mergeScoreLog", () => {
     plannedType: "Z2",
     compliancePct: 100,
     intensityFactor: 0.68,
+    ftpUsed: 288,
   });
 
-  it("dedupes by date with fresh overriding and keeps sorted order", () => {
+  it("is immutable: existing entries are frozen and fresh only fills new dates", () => {
     const existing = [mk("2026-01-01", 5), mk("2026-01-03", 6)];
     const fresh = [mk("2026-01-03", 9), mk("2026-01-02", 7)];
     const merged = mergeScoreLog(existing, fresh);
     expect(merged.map((e) => e.date)).toEqual(["2026-01-01", "2026-01-02", "2026-01-03"]);
-    expect(merged.find((e) => e.date === "2026-01-03")?.executionScore).toBe(9);
+    // 2026-01-03 already existed → kept at 6, not overwritten by the fresh 9.
+    expect(merged.find((e) => e.date === "2026-01-03")?.executionScore).toBe(6);
+    // 2026-01-02 is new → added.
+    expect(merged.find((e) => e.date === "2026-01-02")?.executionScore).toBe(7);
   });
 
   it("caps the log length", () => {

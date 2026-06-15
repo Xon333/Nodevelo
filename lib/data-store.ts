@@ -5,6 +5,7 @@ import path from "path";
 import type { AthleteProfile, BlockHistoryEntry, BlockSettings, ComplianceMemory, CurrentBlock, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { readMdPerformance } from "./kb-loader";
+import { readPhysiology } from "./physiology";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -50,12 +51,20 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 
 export async function readAthleteProfile(): Promise<AthleteProfile> {
   const profile = await readJson<AthleteProfile>("athlete.json", DEFAULT_PROFILE);
-  // athlete_profile.md is the athlete-edited source of truth for FTP/HR — overlay its
-  // values so IF/execution scoring, trends and generation all agree with the markdown.
+  // Overlay FTP/HR so IF/execution scoring, trends and generation all agree on the same
+  // numbers. Precedence: athlete.json defaults < athlete_profile.md (fallback) < the
+  // physiology store (the source of truth, synced from Intervals.icu).
   const md = await readMdPerformance();
   if (md.ftp !== undefined && md.ftp > 0) profile.performance.ftp = md.ftp;
   if (md.thresholdHr !== undefined && md.thresholdHr > 0) profile.performance.thresholdHr = md.thresholdHr;
   if (md.maxHr !== undefined && md.maxHr > 0) profile.performance.maxHr = md.maxHr;
+  const phys = await readPhysiology();
+  if (phys?.current) {
+    const c = phys.current;
+    if (c.ftp > 0) profile.performance.ftp = c.ftp;
+    if (c.lthr !== null && c.lthr > 0) profile.performance.thresholdHr = c.lthr;
+    if (c.maxHr !== null && c.maxHr > 0) profile.performance.maxHr = c.maxHr;
+  }
   return profile;
 }
 

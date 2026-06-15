@@ -9,6 +9,7 @@ const entry = (type: WorkoutType, executionScore: number, compliancePct: number 
   plannedType: type,
   compliancePct,
   intensityFactor: null,
+  ftpUsed: 288,
 });
 
 describe("buildAthleteModel", () => {

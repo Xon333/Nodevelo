@@ -34,9 +34,17 @@ interface WeightPoint {
   weightKg: number;
 }
 
+interface PhysiologyChange {
+  fromFtp: number;
+  toFtp: number;
+  date: string;
+}
+
 interface ProfileResponse {
   nutrition: NutritionSettings;
   ftpStaleDays: number | null;
+  physiologyChange: PhysiologyChange | null;
+  physiologySource: "intervals" | "manual" | null;
   athleteMd: AthleteMdSnapshot;
   autoSync: AutoSyncInfo;
   bufferStatus: BufferStatus;
@@ -306,6 +314,17 @@ export default function AthleteProfileForm() {
         </Link>
       </div>
 
+      {/* Physiology change note — FTP/zones synced from Intervals.icu */}
+      {data.physiologyChange && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 dark:border-[#00d4ff]/40 dark:bg-[#00d4ff]/10">
+          <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-cyan-500 dark:bg-[#00d4ff]" />
+          <p className="text-sm text-cyan-900 dark:text-[#7fe7ff]">
+            FTP changed {data.physiologyChange.fromFtp} → {data.physiologyChange.toFtp}W on{" "}
+            {data.physiologyChange.date} — zones updated automatically from Intervals.icu.
+          </p>
+        </div>
+      )}
+
       {/* FTP stale warning */}
       {data.ftpStaleDays !== null && data.ftpStaleDays > 90 && (
         <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/40">
@@ -315,7 +334,7 @@ export default function AthleteProfileForm() {
               FTP may be stale — last updated {data.ftpStaleDays} days ago
             </p>
             <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
-              All intensity metrics (IF, TSS, zones) are calculated from FTP. Consider a ramp test or 20-min effort to refresh it, then update your profile.
+              All intensity metrics (IF, TSS, zones) are calculated from FTP. Do a ramp test or 20-min effort so Intervals.icu refreshes your FTP — it syncs in automatically from there.
             </p>
           </div>
         </div>
@@ -408,7 +427,7 @@ export default function AthleteProfileForm() {
               <ul className="space-y-1.5">
                 {athleteMd.goals.map((g, i) => (
                   <li key={i} className="flex items-start justify-between gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-                    <span className="min-w-0 break-words text-sm text-zinc-800 dark:text-zinc-200">{g.goal}</span>
+                    <span className="min-w-0 text-sm text-zinc-800 dark:text-zinc-200">{g.goal}</span>
                     {g.target && g.target !== g.goal && (
                       <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
                         {g.target}
@@ -424,9 +443,9 @@ export default function AthleteProfileForm() {
               <ul className="space-y-1.5">
                 {athleteMd.weakpoints.map((w, i) => (
                   <li key={i} className="rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-                    <p className="break-words text-sm font-medium text-zinc-800 dark:text-zinc-200">{w.weakpoint}</p>
+                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{w.weakpoint}</p>
                     {w.detail && w.detail !== w.weakpoint && (
-                      <p className="mt-0.5 break-words text-xs leading-5 text-zinc-500 dark:text-zinc-400">{w.detail}</p>
+                      <p className="mt-0.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{w.detail}</p>
                     )}
                   </li>
                 ))}
@@ -436,9 +455,12 @@ export default function AthleteProfileForm() {
         </div>
       )}
 
-      {/* 4. Training zones */}
+      {/* 4. Training zones — synced from Intervals.icu (no manual edit) */}
       {athleteMd.trainingZones.length > 0 && (
-        <Section title="Training zones" editHref="/knowledge">
+        <Section title="Training zones">
+          <p className="mb-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+            Synced from Intervals.icu, anchored to your current FTP{data.physiologySource === "manual" ? " (seeded; awaiting first sport-settings sync)" : ""}.
+          </p>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createEvent, fetchHrStream, fetchIntervals, fetchPowerStream, isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
-import { readMdHrZones, readMdPowerZones } from "@/lib/kb-loader";
+import { createEvent, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
 import { buildRideTrace } from "@/lib/trace";
@@ -73,8 +73,19 @@ export async function POST() {
     );
   }
   try {
+    const today = todayIso();
     const lastSync = await runFullSync();
     await writeLastSync(lastSync);
+
+    // Reconcile the physiology store against Intervals.icu's current sport-settings (FTP,
+    // zones, threshold/max HR). On a real change the old snapshot is archived with its own
+    // effective date, so historical analyses stay anchored to the FTP that was live then.
+    const incomingPhys = await fetchSportSettings(today);
+    if (incomingPhys) {
+      const { store } = reconcile(await readPhysiology(), incomingPhys, today);
+      await writePhysiology(store);
+    }
+    const physStore = await readPhysiology();
 
     let todayAnalysis: TodayAnalysis | null = null;
 
@@ -82,25 +93,31 @@ export async function POST() {
     const baselines = computeRollingBaselines(lastSync.activities, lastSync.wellness);
     await writeRollingBaselines({ ...baselines, updatedAt: new Date().toISOString() });
 
+    // FTP in effect on a given ride date — falls back to the current profile FTP when the
+    // physiology history doesn't reach that far back.
+    const fallbackFtp = (await readAthleteProfile()).performance.ftp;
+    const ftpForDate = (date: string) => physiologyAsOf(physStore, date)?.ftp ?? fallbackFtp;
+
     // Accumulate per-ride execution scores for the trends view. Deterministic and
-    // independent of Anthropic — covers every matched planned day of the active block.
+    // independent of Anthropic — covers every matched planned day of the active block. The
+    // log is immutable per date; new dates are scored against their as-of FTP, and legacy
+    // entries that predate this feature are backfilled once with a best-effort FTP.
     {
       const block = await readCurrentBlock();
       if (block) {
-        const profile = await readAthleteProfile();
-        const fresh = buildRideScores(block, lastSync.activities, profile.performance.ftp);
-        if (fresh.length > 0) {
-          const log = await readScoreLog();
-          await writeScoreLog({
-            entries: mergeScoreLog(log.entries, fresh),
-            updatedAt: new Date().toISOString(),
-          });
-        }
+        const log = await readScoreLog();
+        const backfilled = log.entries.map((e) =>
+          e.ftpUsed != null ? e : { ...e, ftpUsed: ftpForDate(e.date) }
+        );
+        const fresh = buildRideScores(block, lastSync.activities, ftpForDate);
+        await writeScoreLog({
+          entries: mergeScoreLog(backfilled, fresh),
+          updatedAt: new Date().toISOString(),
+        });
       }
     }
 
     if (isAnthropicConfigured()) {
-      const today = todayIso();
       const todayActivity = lastSync.activities.find(
         (a) => a.date === today && (a.type === "Ride" || a.type === "VirtualRide")
       );
@@ -151,18 +168,18 @@ export async function POST() {
           // Intervals provided if a stream or the md zones are unavailable.
           let powerZoneTimes = todayActivity.powerZoneTimes;
           let hrZoneTimes = todayActivity.hrZoneTimes;
-          const [mdPowerZones, mdHrZones, powerStream, hrStream] = await Promise.all([
-            readMdPowerZones(),
-            readMdHrZones(),
+          const [powerZones, hrZones, powerStream, hrStream] = await Promise.all([
+            readPowerZones(),
+            readHrZones(),
             todayActivity.avgWatts !== null ? fetchPowerStream(todayActivity.id) : Promise.resolve<number[]>([]),
             todayActivity.avgHr !== null ? fetchHrStream(todayActivity.id) : Promise.resolve<number[]>([]),
           ]);
-          if (mdPowerZones.length > 0 && powerStream.length > 0) {
-            const b = bucketZones(powerStream, mdPowerZones);
+          if (powerZones.length > 0 && powerStream.length > 0) {
+            const b = bucketZones(powerStream, powerZones);
             if (b.some((t) => t > 0)) powerZoneTimes = b;
           }
-          if (mdHrZones.length > 0 && hrStream.length > 0) {
-            const b = bucketZones(hrStream, mdHrZones);
+          if (hrZones.length > 0 && hrStream.length > 0) {
+            const b = bucketZones(hrStream, hrZones);
             if (b.some((t) => t > 0)) hrZoneTimes = b;
           }
 

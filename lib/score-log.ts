@@ -7,10 +7,12 @@ import type { ActivitySummary, CurrentBlock, RideScoreEntry } from "./types";
 
 const MAX_ENTRIES = 250;
 
+// ftpForDate resolves the FTP that was in effect on a given ride date (physiologyAsOf),
+// so each entry is scored against the right physiological context — never today's FTP.
 export function buildRideScores(
   block: CurrentBlock,
   activities: ActivitySummary[],
-  ftp: number,
+  ftpForDate: (date: string) => number,
   today: string = new Date().toISOString().slice(0, 10)
 ): RideScoreEntry[] {
   const out: RideScoreEntry[] = [];
@@ -21,6 +23,7 @@ export function buildRideScores(
     );
     if (!act) continue;
 
+    const ftp = ftpForDate(day.date);
     const actualMin = Math.round(act.movingTimeSec / 60);
     const compliancePct = day.durationMin > 0 ? Math.round((actualMin / day.durationMin) * 100) : null;
     const ifBasis = act.normalizedPower ?? act.avgWatts;
@@ -39,15 +42,17 @@ export function buildRideScores(
     });
     if (executionScore === null) continue;
 
-    out.push({ date: day.date, executionScore, plannedType: day.type, compliancePct, intensityFactor });
+    out.push({ date: day.date, executionScore, plannedType: day.type, compliancePct, intensityFactor, ftpUsed: ftp });
   }
   return out;
 }
 
-// Fresh entries override existing ones for the same date (recompute on each sync).
+// The score log is an immutable historical ledger: once a date is scored it is frozen, so a
+// later FTP change never rewrites the past. Existing entries win on a date collision; fresh
+// entries only fill in dates not yet recorded.
 export function mergeScoreLog(existing: RideScoreEntry[], fresh: RideScoreEntry[]): RideScoreEntry[] {
   const byDate = new Map<string, RideScoreEntry>();
-  for (const e of existing) byDate.set(e.date, e);
   for (const e of fresh) byDate.set(e.date, e);
+  for (const e of existing) byDate.set(e.date, e); // existing overrides fresh — immutable
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-MAX_ENTRIES);
 }

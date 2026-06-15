@@ -91,7 +91,11 @@ function weightTrend14d(sync: SyncData): number | null {
   return Math.round((latest.weightKg - reference.weightKg) * 10) / 10;
 }
 
-export function buildAthleteDataSection(profile: AthleteProfile, sync: SyncData | null): string {
+export function buildAthleteDataSection(
+  profile: AthleteProfile,
+  sync: SyncData | null,
+  zonesText?: string
+): string {
   const p = profile.performance;
   const lines: string[] = [
     "ATHLETE CURRENT DATA",
@@ -99,6 +103,11 @@ export function buildAthleteDataSection(profile: AthleteProfile, sync: SyncData 
     `Profile: FTP ${p.ftp} W, Max HR ${p.maxHr} bpm, Threshold HR ${p.thresholdHr} bpm, weight ${p.weightKg} kg (target ${profile.nutrition.targetWeightKg} kg).`,
     `Weekly training availability: ${p.weeklyHoursMin}-${p.weeklyHoursMax} hours. The plan MUST fit inside this.`,
   ];
+  // Live training zones from the physiology store (synced from Intervals.icu), so workout
+  // power targets are calibrated to the athlete's current FTP/zone boundaries.
+  if (zonesText && zonesText.trim() !== "") {
+    lines.push("", zonesText.trim());
+  }
 
   if (!sync) {
     lines.push(

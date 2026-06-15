@@ -6,10 +6,12 @@ import type {
   ExecutedInterval,
   FitnessMetrics,
   IntervalsEventPayload,
+  PhysiologySnapshot,
   PowerCurvePoint,
   SyncData,
   WellnessEntry,
 } from "./types";
+import { parseSportSettings } from "./physiology";
 
 const BASE_URL = "https://intervals.icu/api/v1";
 
@@ -179,6 +181,20 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       hrZoneTimes: numArr(a.icu_hr_zone_times),
     };
   });
+}
+
+// The athlete's per-sport settings (FTP, power/HR zones, threshold/max HR) — the source of
+// truth for physiology. Best-effort: null on any failure so a missing endpoint never breaks
+// sync. The Ride setting is selected and mapped to a snapshot in parseSportSettings.
+export async function fetchSportSettings(
+  today: string = new Date().toISOString().slice(0, 10)
+): Promise<PhysiologySnapshot | null> {
+  try {
+    const data = await icuFetch(athletePath(`/sport-settings`));
+    return parseSportSettings(data, today);
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchWellness(oldest: string, newest: string): Promise<WellnessEntry[]> {

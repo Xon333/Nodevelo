@@ -1,16 +1,49 @@
 import { NextResponse } from "next/server";
 import { readAthleteProfile, readLastSync, writeAthleteProfile } from "@/lib/data-store";
 import { parseAthleteMd } from "@/lib/kb-loader";
+import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
+import type { Zone } from "@/lib/zones";
 
 // GET returns the parsed athlete_profile.md snapshot plus Intervals.icu auto-sync data.
 // Performance, goals and weakpoints all come from the markdown — no re-entry needed.
 export async function GET() {
-  const [profile, sync, athleteMd] = await Promise.all([
+  const [profile, sync, athleteMd, physStore] = await Promise.all([
     readAthleteProfile(),
     readLastSync(),
     parseAthleteMd(),
+    readPhysiology(),
   ]);
+
+  // FTP, threshold/max HR and zones are no longer in the markdown — project them from the
+  // physiology store into the shape the profile UI already renders.
+  let physiologyChange: { fromFtp: number; toFtp: number; date: string } | null = null;
+  if (physStore) {
+    const c = physStore.current;
+    const fmtRange = (z: Zone, unit: string) =>
+      z.lo === 0 ? `< ${z.hi}${unit}` : z.hi === null ? `> ${z.lo}${unit}` : `${z.lo}–${z.hi}${unit}`;
+    athleteMd.performanceData = {
+      ...athleteMd.performanceData,
+      FTP: `${c.ftp}W`,
+      ...(c.lthr !== null ? { "Threshold HR": `${c.lthr} BPM` } : {}),
+      ...(c.maxHr !== null ? { "Max HR": `${c.maxHr} BPM` } : {}),
+    };
+    const pz = resolvePowerZones(c);
+    const hz = resolveHrZones(c);
+    if (pz.length > 0) {
+      athleteMd.trainingZones = pz.map((z, i) => ({
+        zone: z.name.split(/\s+/)[0] || `Z${i + 1}`,
+        name: z.name.replace(/^Z\d+\s*/, ""),
+        power: fmtRange(z, "W"),
+        hr: hz[i] ? fmtRange(hz[i], " BPM") : "",
+      }));
+    }
+    // The most recent FTP change Intervals reported (drives the "zones updated" note).
+    const prev = physStore.history[physStore.history.length - 1];
+    if (prev && prev.ftp !== c.ftp) {
+      physiologyChange = { fromFtp: prev.ftp, toFtp: c.ftp, date: c.effectiveFrom };
+    }
+  }
 
   const weighIns = (sync?.wellness ?? [])
     .filter((w) => w.weightKg !== null)
@@ -25,13 +58,17 @@ export async function GET() {
     .filter((w) => w.kcalConsumed !== null)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
 
-  const ftpStaleDays = Math.floor(
-    (Date.now() - Date.parse(profile.updatedAt)) / 86_400_000
-  );
+  // Staleness is measured from when the current FTP became effective (synced from
+  // Intervals.icu), not the nutrition-save time on athlete.json.
+  const ftpStaleDays = physStore
+    ? Math.floor((Date.now() - Date.parse(physStore.current.effectiveFrom)) / 86_400_000)
+    : NaN;
 
   return NextResponse.json({
     nutrition: profile.nutrition,
     ftpStaleDays: Number.isFinite(ftpStaleDays) ? ftpStaleDays : null,
+    physiologyChange,
+    physiologySource: physStore?.current.source ?? null,
     athleteMd,
     syncedPowerCurve: sync?.powerCurve ?? [],
     weightHistory: (sync?.wellness ?? [])

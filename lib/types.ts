@@ -298,6 +298,7 @@ export interface RideScoreEntry {
   plannedType: WorkoutType;
   compliancePct: number | null;
   intensityFactor: number | null;
+  ftpUsed: number; // FTP this entry was scored against — frozen so history never re-shifts
 }
 
 // ---------- Athlete model (the learning "second brain") ----------
@@ -328,6 +329,31 @@ export interface Insight {
 export interface ScoreLog {
   entries: RideScoreEntry[];
   updatedAt: string;
+}
+
+// ---------- Physiology store (data/physiology.json) ----------
+// The single source of truth for time-varying physiology (FTP, zones, threshold/max HR).
+// Pulled from Intervals.icu on sync; effective-dated so every historical analysis can be
+// anchored to the FTP/zones that were live when the ride happened. Zones are stored as
+// Intervals stores them — power as % of FTP, HR as raw bounds — and resolved on demand.
+
+export interface PhysiologySnapshot {
+  effectiveFrom: string; // YYYY-MM-DD this FTP/zone set became active
+  capturedAt: string; // ISO timestamp it was first observed
+  source: "intervals" | "manual";
+  ftp: number; // watts
+  lthr: number | null; // lactate-threshold HR (bpm)
+  maxHr: number | null; // bpm
+  powerZonePct: number[]; // ascending upper bounds as % of FTP (top zone open above the last)
+  hrZones: number[]; // ascending upper bounds (bpm if hrZonesAreBpm, else % of LTHR)
+  hrZonesAreBpm: boolean; // how to interpret hrZones
+  powerZoneNames: string[]; // optional names; synthesized Z1..Zn if absent
+  hrZoneNames: string[];
+}
+
+export interface PhysiologyStore {
+  current: PhysiologySnapshot;
+  history: PhysiologySnapshot[]; // superseded snapshots, oldest→newest (current excluded)
 }
 
 // ---------- Rolling baselines (data/rolling-baselines.json) ----------
