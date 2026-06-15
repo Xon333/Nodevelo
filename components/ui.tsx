@@ -101,13 +101,14 @@ export function CyberFrame({ accent = "pink" }: { accent?: "pink" | "cyan" }) {
 }
 
 // Ranked section wrapper for the command-center layout. A numbered badge + eyebrow
-// title establishes the priority path (visual hierarchy); `hero` promotes it to the
-// cyan cyber-framed card used for the single most important zone.
+// title establishes the priority path (visual hierarchy); `hero` promotes it to a
+// cyber-framed card (cyan by default, pink via `accent`) for the most important zones.
 export function Zone({
   rank,
   title,
   hint,
   hero,
+  accent = "cyan",
   className,
   children,
 }: {
@@ -115,15 +116,20 @@ export function Zone({
   title: string;
   hint?: string;
   hero?: boolean;
+  accent?: "cyan" | "pink";
   className?: string;
   children: ReactNode;
 }) {
+  const heroAccent =
+    accent === "pink"
+      ? "dark:border-[#ff49c8]/55 dark:shadow-[0_0_28px_-8px_rgba(255,73,200,0.45)]"
+      : "dark:border-[#00d4ff]/55 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]";
   const shell = hero
-    ? "relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3.5 dark:border-synced/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]"
+    ? `relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent}`
     : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
   return (
     <section className={`${shell} ${className ?? ""}`}>
-      {hero && <CyberFrame accent="cyan" />}
+      {hero && <CyberFrame accent={accent} />}
       <div className={hero ? "relative z-10" : ""}>
         <div className="mb-2 flex items-center gap-2">
           {rank != null && (

@@ -1116,9 +1116,9 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
                 <TrendPulse vertical />
               </Zone>
               {state.todayAnalysis?.activityDate === todayIso() && state.todayAnalysis.coachNote && (
-                <Card title="Coach note">
+                <Zone title="Coach note" hero accent="pink">
                   <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{state.todayAnalysis.coachNote}</p>
-                </Card>
+                </Zone>
               )}
             </div>
           </div>
