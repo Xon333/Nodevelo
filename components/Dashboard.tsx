@@ -249,7 +249,6 @@ function ZoneBars({ times, label, secondary }: { times: number[]; label: string;
           pct >= 1 ? (
             <div
               key={i}
-              title={`Z${i + 1}: ${pct}%`}
               style={{ width: `${pct}%` }}
               className={`${ZONE_COLORS[i] ?? "bg-zinc-400"} shrink-0`}
             />
@@ -1073,19 +1072,23 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
             {(state.acwr || state.polarization) && (
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
                 {state.acwr && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="uppercase tracking-wide text-zinc-400">ACWR</span>
+                  <span className="group relative flex items-center gap-1.5">
+                    <span className="cursor-help uppercase tracking-wide text-zinc-400 underline decoration-dotted underline-offset-2">ACWR</span>
                     <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">{state.acwr.ratio.toFixed(2)}</span>
                     <span className={ACWR_COLOR[state.acwr.level]}>{state.acwr.level}</span>
+                    <MetricTip
+                      text={`Acute:chronic workload ratio — your last 7 days of load (${state.acwr.acute} TSS/day) vs the last 28 (${state.acwr.chronic} TSS/day). 0.8–1.3 is the safe progression band; >1.5 is a spike with raised injury risk. You're at ${state.acwr.ratio.toFixed(2)} (${state.acwr.level}).`}
+                    />
                   </span>
                 )}
                 {state.polarization && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="uppercase tracking-wide text-zinc-400">Polarization</span>
+                  <span className="group relative flex items-center gap-1.5">
+                    <span className="cursor-help uppercase tracking-wide text-zinc-400 underline decoration-dotted underline-offset-2">Polarization</span>
                     <span className="font-mono text-zinc-700 dark:text-zinc-300">
                       {state.polarization.easyPct}/{state.polarization.moderatePct}/{state.polarization.hardPct}
                     </span>
                     <span className="text-zinc-400 dark:text-zinc-500">easy/mod/hard, 7d</span>
+                    <MetricTip text="Share of training time spent easy / moderate / hard (by ride power vs FTP) over the last 7 days. ~80% easy is the endurance-base target — most of your time should be in the first number." />
                   </span>
                 )}
               </div>
