@@ -52,9 +52,12 @@ const POWER_CURVE_LABELS: Record<number, string> = {
   120: "2 min", 300: "5 min", 1200: "20 min", 1800: "30 min", 3600: "60 min",
 };
 
+// Intensity ramp (cool→hot) for the training-zone dots — quick visual scanning.
+const ZONE_DOT = ["bg-blue-400", "bg-green-400", "bg-yellow-400", "bg-orange-400", "bg-red-400", "bg-red-600", "bg-red-900"];
+
 // ---------- Weight sparkline ----------
 
-function WeightSparkline({ points }: { points: WeightPoint[] }) {
+function WeightSparkline({ points, goalWeight }: { points: WeightPoint[]; goalWeight?: number | null }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (points.length < 2) return null;
@@ -68,10 +71,13 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
   const weights = points.map((p) => p.weightKg);
   const minW = Math.min(...weights);
   const maxW = Math.max(...weights);
-  const range = maxW - minW || 0.5;
+  // Include the goal in the vertical range so the goal line is on-chart.
+  const lo = goalWeight != null ? Math.min(minW, goalWeight) : minW;
+  const hi = goalWeight != null ? Math.max(maxW, goalWeight) : maxW;
+  const range = hi - lo || 0.5;
 
   const toX = (i: number) => PAD + (i / (points.length - 1)) * (W - PAD * 2);
-  const toY = (w: number) => TIP + PAD + (1 - (w - minW) / range) * (H - PAD * 2);
+  const toY = (w: number) => TIP + PAD + (1 - (w - lo) / range) * (H - PAD * 2);
 
   const pathD = points
     .map((p, i) => `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(p.weightKg).toFixed(1)}`)
@@ -80,13 +86,20 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
   const hp = hoveredIdx !== null ? points[hoveredIdx] : null;
   const hx = hoveredIdx !== null ? toX(hoveredIdx) : 0;
   const hy = hp ? toY(hp.weightKg) : 0;
+  const goalY = goalWeight != null ? toY(goalWeight) : null;
 
   // Tooltip rect clamped to SVG bounds
   const TIP_W = 86;
   const tipRx = hp ? Math.max(0, Math.min(hx - TIP_W / 2, W - TIP_W)) : 0;
 
   return (
+    <div>
     <svg viewBox={`0 0 ${W} ${TOTAL}`} className="w-full overflow-visible" style={{ height: TOTAL }}>
+      {/* Goal-weight reference line (range/labels now live below the chart, not over it) */}
+      {goalY !== null && (
+        <line x1={PAD} y1={goalY} x2={W - PAD} y2={goalY} strokeWidth={1} strokeDasharray="3 3" className="stroke-emerald-400/70 dark:stroke-emerald-500/60" />
+      )}
+
       {/* Chart line */}
       <path
         d={pathD}
@@ -95,18 +108,6 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
         strokeLinejoin="round"
         className="stroke-blue-500 dark:stroke-[#ff49c8]"
       />
-
-      {/* Min/max range labels — hide while tooltip active */}
-      {!hp && (
-        <>
-          <text x={W - 2} y={TIP + PAD + 6} textAnchor="end" fontSize={8} className="fill-zinc-400 dark:fill-zinc-600">
-            {maxW.toFixed(1)}
-          </text>
-          <text x={W - 2} y={TOTAL - 2} textAnchor="end" fontSize={8} className="fill-zinc-400 dark:fill-zinc-600">
-            {minW.toFixed(1)}
-          </text>
-        </>
-      )}
 
       {/* Hover hit areas only — no persistent dots, just the line; a dot appears on hover */}
       {points.map((p, i) => {
@@ -183,6 +184,19 @@ function WeightSparkline({ points }: { points: WeightPoint[] }) {
         </g>
       )}
     </svg>
+      <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <span>
+          Low <span className="font-mono font-medium text-zinc-700 dark:text-zinc-200">{minW.toFixed(1)}</span> · High{" "}
+          <span className="font-mono font-medium text-zinc-700 dark:text-zinc-200">{maxW.toFixed(1)}</span> kg
+        </span>
+        {goalWeight != null && (
+          <span className="flex items-center gap-1">
+            <span className="h-1.5 w-3 rounded-full bg-emerald-400/70" />
+            Goal <span className="font-mono font-medium text-zinc-700 dark:text-zinc-200">{goalWeight.toFixed(1)}</span>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -329,8 +343,8 @@ export default function AthleteProfileForm() {
                 <p className="mb-1 text-[10px] text-zinc-400 dark:text-zinc-500">
                   Weight — last {weightHistory.length} entries
                 </p>
-                <div className="overflow-hidden rounded bg-zinc-50 px-2 py-1 dark:bg-zinc-900">
-                  <WeightSparkline points={weightHistory} />
+                <div className="rounded bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
+                  <WeightSparkline points={weightHistory} goalWeight={data.nutrition.targetWeightKg} />
                 </div>
               </div>
             )}
@@ -393,10 +407,12 @@ export default function AthleteProfileForm() {
             <Section title="Goals" editHref="/knowledge">
               <ul className="space-y-1.5">
                 {athleteMd.goals.map((g, i) => (
-                  <li key={i} className="flex items-start justify-between gap-3 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-                    <span className="text-sm text-zinc-800 dark:text-zinc-200">{g.goal}</span>
+                  <li key={i} className="flex items-start justify-between gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
+                    <span className="min-w-0 break-words text-sm text-zinc-800 dark:text-zinc-200">{g.goal}</span>
                     {g.target && g.target !== g.goal && (
-                      <span className="shrink-0 text-xs text-zinc-400 dark:text-zinc-500">{g.target}</span>
+                      <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
+                        {g.target}
+                      </span>
                     )}
                   </li>
                 ))}
@@ -408,9 +424,9 @@ export default function AthleteProfileForm() {
               <ul className="space-y-1.5">
                 {athleteMd.weakpoints.map((w, i) => (
                   <li key={i} className="rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-                    <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{w.weakpoint}</p>
+                    <p className="break-words text-sm font-medium text-zinc-800 dark:text-zinc-200">{w.weakpoint}</p>
                     {w.detail && w.detail !== w.weakpoint && (
-                      <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{w.detail}</p>
+                      <p className="mt-0.5 break-words text-xs leading-5 text-zinc-500 dark:text-zinc-400">{w.detail}</p>
                     )}
                   </li>
                 ))}
@@ -434,12 +450,17 @@ export default function AthleteProfileForm() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700">
-                {athleteMd.trainingZones.map((z) => (
+                {athleteMd.trainingZones.map((z, i) => (
                   <tr key={z.zone}>
-                    <td className="py-1 pr-3 font-semibold text-zinc-800 dark:text-zinc-200">{z.zone}</td>
-                    <td className="py-1 pr-3 text-zinc-500 dark:text-zinc-400">{z.name}</td>
-                    <td className="py-1 pr-3 text-zinc-500 dark:text-zinc-400">{z.power}</td>
-                    <td className="py-1 text-zinc-500 dark:text-zinc-400">{z.hr}</td>
+                    <td className="py-1.5 pr-3 font-semibold text-zinc-800 dark:text-zinc-200">
+                      <span className="flex items-center gap-1.5">
+                        <span className={`h-2 w-2 shrink-0 rounded-sm ${ZONE_DOT[i] ?? "bg-zinc-400"}`} />
+                        {z.zone}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-3 text-zinc-600 dark:text-zinc-300">{z.name}</td>
+                    <td className="py-1.5 pr-3 font-mono text-zinc-500 dark:text-zinc-400">{z.power}</td>
+                    <td className="py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{z.hr}</td>
                   </tr>
                 ))}
               </tbody>
