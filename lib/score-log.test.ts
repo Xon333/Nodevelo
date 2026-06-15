@@ -17,6 +17,7 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     trainingLoad: 60,
     rpe: 5,
     decoupling: 3,
+    efficiencyFactor: 1.3,
     description: null,
     avgCadence: 88,
     distanceMeters: 30000,

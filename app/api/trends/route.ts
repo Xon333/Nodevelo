@@ -38,8 +38,11 @@ export async function GET() {
       return power !== null && isEndurance(power);
     })
     .map((a) => {
+      // Pull Pw:HR straight from Intervals.icu (icu_efficiency_factor); only fall back to
+      // computing NP/HR if the field is missing on an activity.
       const power = (a.normalizedPower ?? a.avgWatts) as number;
-      return { date: a.date, value: Math.round((power / (a.avgHr as number)) * 100) / 100 };
+      const value = a.efficiencyFactor ?? Math.round((power / (a.avgHr as number)) * 100) / 100;
+      return { date: a.date, value: Math.round(value * 100) / 100 };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 

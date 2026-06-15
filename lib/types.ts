@@ -62,6 +62,7 @@ export interface ActivitySummary {
   trainingLoad: number | null;
   rpe: number | null; // icu_rpe, 1-10
   decoupling: number | null; // aerobic decoupling %
+  efficiencyFactor: number | null; // icu_efficiency_factor — Pw:HR pulled from Intervals.icu
   description: string | null; // athlete's free-text note written in Intervals.icu
   avgCadence: number | null; // rpm
   distanceMeters: number | null;

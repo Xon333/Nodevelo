@@ -67,7 +67,7 @@ export default function TrendPulse({ vertical }: { vertical?: boolean }) {
 
   return (
     <div className={`grid gap-2 ${vertical ? "grid-cols-2 lg:grid-cols-1" : "grid-cols-2 sm:grid-cols-4"}`}>
-      <TrendTile label="EF (NP/HR)" value={ef.length ? ef[ef.length - 1].toFixed(2) : "—"} points={ef} delta={delta(ef)} onClick={go} />
+      <TrendTile label="Pw:HR" value={ef.length ? ef[ef.length - 1].toFixed(2) : "—"} points={ef} delta={delta(ef)} onClick={go} />
       <TrendTile label="CTL" value={ctl.length ? ctl[ctl.length - 1].toFixed(0) : "—"} points={ctl} delta={delta(ctl)} onClick={go} />
       <TrendTile label="Execution" value={exec.length ? `${exec[exec.length - 1].toFixed(1)}/10` : "—"} points={exec} delta={delta(exec)} onClick={go} />
       <TrendTile label="Compliance" value={compAvg !== null ? `${compAvg}%` : "—"} points={comp} delta={delta(comp)} onClick={go} />

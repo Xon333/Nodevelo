@@ -288,7 +288,7 @@ export default function Trends() {
 
       {data.ef.length >= 3 && (
         <Card
-          title="Aerobic efficiency — EF"
+          title="Pw:HR — power-to-heart-rate"
           hint={`${data.ef.length} endurance rides · ≥45 min`}
         >
           <div className="mb-1 flex items-center justify-between">
@@ -299,7 +299,7 @@ export default function Trends() {
           </div>
           <Sparkline points={data.ef} format={(v) => v.toFixed(2)} />
           <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Efficiency Factor = normalized power ÷ avg HR on steady endurance rides. Rising = more output at the same HR = better aerobic base.
+            Power-to-HR ratio pulled from Intervals.icu, on steady endurance rides. Rising = more output at the same HR = better aerobic base.
           </p>
         </Card>
       )}

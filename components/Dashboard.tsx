@@ -523,7 +523,7 @@ function GoalsProgress({ athleteMd }: ProfileGoals) {
       <div className="mt-3 flex flex-col gap-2">
         {athleteMd.goals.map((g) => (
           <div key={g.goal} className="flex items-baseline justify-between gap-2">
-            <span className="text-sm text-zinc-700 dark:text-zinc-300">{g.goal}</span>
+            <span className="min-w-0 break-words text-sm text-zinc-700 dark:text-zinc-300">{g.goal}</span>
             {g.target && (
               <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff] dark:ring-1 dark:ring-[#00d4ff]/30">
                 → {g.target}

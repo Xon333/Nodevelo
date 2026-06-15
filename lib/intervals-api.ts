@@ -170,6 +170,7 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       trainingLoad: num(a.icu_training_load),
       rpe: num(a.icu_rpe),
       decoupling: num(a.icu_power_hr_decoupling),
+      efficiencyFactor: num(a.icu_efficiency_factor),
       description: str(a.description) || null,
       avgCadence: num(a.average_cadence),
       distanceMeters: num(a.distance),
