@@ -8,6 +8,8 @@ import type {
   CurrentBlock,
   FatigueAlert,
   GeneratedPlan,
+  AcwrResult,
+  IntensityDistribution,
   LoadRampAlert,
   ReadinessSignal,
   RideScoreEntry,
@@ -32,6 +34,8 @@ interface AppState {
   readiness: ReadinessSignal | null;
   fatigueAlert: FatigueAlert | null;
   loadRamp: LoadRampAlert | null;
+  acwr: AcwrResult | null;
+  polarization: IntensityDistribution | null;
   scores: RideScoreEntry[];
 }
 
@@ -50,6 +54,13 @@ const READINESS_STYLES: Record<ReadinessSignal["level"], string> = {
   Build:   "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800",
   Hold:    "bg-amber-50  text-amber-800  border-amber-200  dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800",
   Recover: "bg-red-50    text-red-800    border-red-200    dark:bg-red-950/60   dark:text-red-300   dark:border-red-800",
+};
+
+const ACWR_COLOR: Record<AcwrResult["level"], string> = {
+  low: "text-zinc-400 dark:text-zinc-500",
+  optimal: "text-green-600 dark:text-green-400",
+  high: "text-amber-600 dark:text-amber-400",
+  danger: "text-red-600 dark:text-red-400",
 };
 
 // One-line explanation shown on hover over an alert/readiness bracket.
@@ -899,6 +910,8 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
         readiness: ReadinessSignal | null;
         fatigueAlert: FatigueAlert | null;
         loadRamp: LoadRampAlert | null;
+        acwr: AcwrResult | null;
+        polarization: IntensityDistribution | null;
         scores: RideScoreEntry[];
       }>("/api/sync", { method: "POST" });
       setState((s) =>
@@ -910,6 +923,8 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
               readiness: result.readiness,
               fatigueAlert: result.fatigueAlert,
               loadRamp: result.loadRamp,
+              acwr: result.acwr,
+              polarization: result.polarization,
               scores: result.scores,
             }
           : s
@@ -1124,6 +1139,26 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
             {state.lastSync && (
               <div className="mt-2">
                 <RecentDataSummary sync={state.lastSync} bare />
+              </div>
+            )}
+            {(state.acwr || state.polarization) && (
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+                {state.acwr && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="uppercase tracking-wide text-zinc-400">ACWR</span>
+                    <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">{state.acwr.ratio.toFixed(2)}</span>
+                    <span className={ACWR_COLOR[state.acwr.level]}>{state.acwr.level}</span>
+                  </span>
+                )}
+                {state.polarization && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="uppercase tracking-wide text-zinc-400">Polarization</span>
+                    <span className="font-mono text-zinc-700 dark:text-zinc-300">
+                      {state.polarization.easyPct}/{state.polarization.moderatePct}/{state.polarization.hardPct}
+                    </span>
+                    <span className="text-zinc-400 dark:text-zinc-500">easy/mod/hard, 7d</span>
+                  </span>
+                )}
               </div>
             )}
           </Zone>

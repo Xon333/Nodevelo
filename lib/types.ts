@@ -130,6 +130,22 @@ export interface GeneratedPlan {
 
 // ---------- Active block (data/current-block.json) ----------
 
+// Acute:chronic workload ratio (7-day vs 28-day average daily TSS) — the standard
+// injury-risk load signal. Sweet spot ~0.8–1.3; >1.5 is danger.
+export interface AcwrResult {
+  acute: number; // avg daily TSS, last 7d
+  chronic: number; // avg daily TSS, last 28d
+  ratio: number;
+  level: "low" | "optimal" | "high" | "danger";
+}
+
+// Training-time intensity split (polarization check; ~80/20 easy/hard is the target).
+export interface IntensityDistribution {
+  easyPct: number; // < 0.75 IF
+  moderatePct: number; // 0.75–0.90
+  hardPct: number; // > 0.90
+}
+
 // A prescribed work effort parsed from a planned day's workout — the coach's intent,
 // captured structurally so execution can be compared against it (e.g. "2×20 @ 288W").
 export interface PrescribedInterval {

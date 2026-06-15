@@ -22,7 +22,7 @@ import { analyseRide, buildRideAnalysisInput, isAnthropicConfigured } from "@/li
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore } from "@/lib/execution-score";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
-import { computeFatigueAlert, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
+import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import type { ComplianceMemory, ExecutedInterval, TodayAnalysis, WorkoutType } from "@/lib/types";
 
 function todayIso(): string {
@@ -31,17 +31,20 @@ function todayIso(): string {
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
-  const [lastSync, currentBlock, todayAnalysis, scoreLog] = await Promise.all([
+  const [lastSync, currentBlock, todayAnalysis, scoreLog, profile] = await Promise.all([
     readLastSync(),
     readCurrentBlock(),
     readTodayAnalysis(),
     readScoreLog(),
+    readAthleteProfile(),
   ]);
   const readiness = lastSync
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
     : null;
   const fatigueAlert = lastSync ? computeFatigueAlert(lastSync.fitness) : null;
   const loadRamp = lastSync ? computeLoadRamp(lastSync.activities) : null;
+  const acwr = lastSync ? computeAcwr(lastSync.activities) : null;
+  const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp) : null;
   return NextResponse.json({
     configured: isIntervalsConfigured(),
     anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
@@ -51,6 +54,8 @@ export async function GET() {
     readiness,
     fatigueAlert,
     loadRamp,
+    acwr,
+    polarization,
     scores: scoreLog.entries,
   });
 }
@@ -235,8 +240,10 @@ export async function POST() {
     const readiness = computeReadiness(lastSync.fitness, lastSync.wellness);
     const fatigueAlert = computeFatigueAlert(lastSync.fitness);
     const loadRamp = computeLoadRamp(lastSync.activities);
+    const acwr = computeAcwr(lastSync.activities);
+    const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
     const scoreLog = await readScoreLog();
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, scores: scoreLog.entries });
+    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

@@ -1,7 +1,7 @@
 // Deterministic daily readiness signal from TSB, ATL/CTL ratio, and HRV.
 // Returns a "Build / Hold / Recover" level with a plain-English reason.
 
-import type { FatigueAlert, FitnessMetrics, LoadRampAlert, ReadinessSignal, WellnessEntry } from "./types";
+import type { AcwrResult, FatigueAlert, FitnessMetrics, IntensityDistribution, LoadRampAlert, ReadinessSignal, WellnessEntry } from "./types";
 
 export function computeFatigueAlert(fitness: FitnessMetrics): FatigueAlert {
   const { ctl, atl, tsb } = fitness;
@@ -112,6 +112,58 @@ export function computeLoadRamp(
   }
 
   return { triggered: false, level: "none", thisWeekTss, lastWeekTss, changePct, reason: null };
+}
+
+// Acute:chronic workload ratio — acute = avg daily TSS over the last 7 days, chronic =
+// avg daily TSS over the last 28. The classic injury-risk signal: sweet spot ~0.8–1.3,
+// >1.5 = spike/danger. Returns null until there's enough chronic base to be meaningful.
+export function computeAcwr(
+  activities: Array<{ date: string; trainingLoad: number | null }>
+): AcwrResult | null {
+  const today = new Date().toISOString().slice(0, 10);
+  const dayMs = 86_400_000;
+  const iso = (offsetDays: number) => new Date(Date.now() - offsetDays * dayMs).toISOString().slice(0, 10);
+  const sumFrom = (from: string) =>
+    activities
+      .filter((a) => a.date >= from && a.date <= today && a.trainingLoad !== null)
+      .reduce((s, a) => s + (a.trainingLoad as number), 0);
+
+  const acute = sumFrom(iso(6)) / 7;
+  const chronic = sumFrom(iso(27)) / 28;
+  if (chronic < 5) return null; // not enough chronic load to compute a stable ratio
+
+  const ratio = Math.round((acute / chronic) * 100) / 100;
+  const level = ratio > 1.5 ? "danger" : ratio >= 1.3 ? "high" : ratio >= 0.8 ? "optimal" : "low";
+  return { acute: Math.round(acute), chronic: Math.round(chronic), ratio, level };
+}
+
+// Polarization check: share of training TIME spent easy / moderate / hard over the
+// window, by ride-average power vs FTP. ~80% easy is the endurance-base target.
+export function computeIntensityDistribution(
+  activities: Array<{ date: string; movingTimeSec: number; avgWatts: number | null }>,
+  ftp: number,
+  days = 7
+): IntensityDistribution | null {
+  if (ftp <= 0) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  let easy = 0;
+  let moderate = 0;
+  let hard = 0;
+  for (const a of activities) {
+    if (a.date < from || a.date > today || a.avgWatts === null || a.movingTimeSec <= 0) continue;
+    const r = a.avgWatts / ftp;
+    if (r < 0.75) easy += a.movingTimeSec;
+    else if (r < 0.9) moderate += a.movingTimeSec;
+    else hard += a.movingTimeSec;
+  }
+  const total = easy + moderate + hard;
+  if (total === 0) return null;
+  return {
+    easyPct: Math.round((easy / total) * 100),
+    moderatePct: Math.round((moderate / total) * 100),
+    hardPct: Math.round((hard / total) * 100),
+  };
 }
 
 // Rolling 90-day averages from recent activities.
