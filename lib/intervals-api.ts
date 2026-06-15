@@ -94,6 +94,27 @@ function localDate(value: unknown): string {
 
 // ---------- reads ----------
 
+// Per-sample heart-rate stream for one activity, so HR can be re-bucketed into the
+// athlete's own zones. Best-effort: returns [] on any failure (caller falls back).
+export async function fetchHrStream(activityId: string): Promise<number[]> {
+  if (!activityId) return [];
+  try {
+    const data = await icuFetch(`/activity/${encodeURIComponent(activityId)}/streams?types=heartrate`);
+    let raw: unknown = null;
+    if (Array.isArray(data)) {
+      const hr = data.find((s) => asRecord(s).type === "heartrate");
+      raw = hr ? asRecord(hr).data : null;
+    } else {
+      const rec = asRecord(data);
+      raw = asRecord(rec.heartrate).data ?? rec.heartrate;
+    }
+    if (!Array.isArray(raw)) return [];
+    return raw.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchActivities(oldest: string, newest: string): Promise<ActivitySummary[]> {
   const data = await icuFetch(athletePath(`/activities?oldest=${oldest}&newest=${newest}`));
   if (!Array.isArray(data)) return [];

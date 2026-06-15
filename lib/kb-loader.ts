@@ -4,6 +4,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import type { AthleteProfile } from "./types";
+import type { HrZone } from "./hr-zones";
 
 // ---------- athlete_profile.md parser ----------
 
@@ -118,6 +119,36 @@ export async function readMdPerformance(): Promise<{ ftp?: number; thresholdHr?:
     thresholdHr: firstInt(findValue((k) => k.includes("threshold") && k.includes("hr"))),
     maxHr: firstInt(findValue((k) => k.includes("max") && k.includes("hr"))),
   };
+}
+
+// The athlete's HR zones parsed from athlete_profile.md's TRAINING ZONES table.
+// Handles "< 120 BPM", "120–152 BPM" (en-dash or hyphen), "> 194 BPM"; skips rows
+// with no HR range (e.g. a neuromuscular "Max" row). Ordered low→high.
+export async function readMdHrZones(): Promise<HrZone[]> {
+  const { trainingZones } = await parseAthleteMd();
+  const out: HrZone[] = [];
+  for (const z of trainingZones) {
+    const s = z.hr ?? "";
+    const ints = (s.match(/\d+/g) ?? []).map(Number);
+    if (ints.length === 0) continue;
+    let lo: number;
+    let hi: number | null;
+    if (/<|less/i.test(s)) {
+      lo = 0;
+      hi = ints[0];
+    } else if (/>|\+/.test(s)) {
+      lo = ints[0];
+      hi = null;
+    } else if (ints.length >= 2) {
+      lo = ints[0];
+      hi = ints[1];
+    } else {
+      lo = ints[0];
+      hi = null;
+    }
+    out.push({ name: `${z.zone} ${z.name}`.trim(), lo, hi });
+  }
+  return out;
 }
 
 const KB_DIR = path.join(process.cwd(), "knowledge-base");

@@ -392,11 +392,12 @@ function TodayRideCard({
         </div>
       )}
 
-      {/* Zone distribution — power only (HR zone boundaries differ between the md and
-          Intervals.icu, so HR-based bars are misleading; power zones are consistent). */}
-      {analysis.powerZoneTimes && (
-        <div className="mt-3">
-          <ZoneBars times={analysis.powerZoneTimes} label="Power zones" />
+      {/* Zone distribution. HR bars use the athlete's own zones (re-bucketed from the
+          HR stream against athlete_profile.md), not Intervals' differing boundaries. */}
+      {(analysis.powerZoneTimes || analysis.hrZoneTimes) && (
+        <div className="mt-3 space-y-2.5">
+          {analysis.powerZoneTimes && <ZoneBars times={analysis.powerZoneTimes} label="Power zones" />}
+          {analysis.hrZoneTimes && <ZoneBars times={analysis.hrZoneTimes} label="HR zones (your zones)" />}
         </div>
       )}
 

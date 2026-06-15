@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { fetchHrStream, isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { readMdHrZones } from "@/lib/kb-loader";
+import { bucketHrZones } from "@/lib/hr-zones";
 import {
   readAthleteProfile,
   readComplianceMemory,
@@ -137,12 +139,28 @@ export async function POST() {
           const advisedBaseKcal = profile.nutrition.baseCalories;
           const advisedIntakeKcal = Math.round(advisedBaseKcal + rideFuelKcal + bufferApplied);
 
+          // Re-bucket HR into the athlete's OWN zones (from athlete_profile.md) instead
+          // of Intervals' icu_hr_zone_times, whose boundaries can differ. Best-effort:
+          // falls back to Intervals' zones if the stream or md zones are unavailable.
+          let hrZoneTimes = todayActivity.hrZoneTimes;
+          if (todayActivity.avgHr !== null) {
+            const mdZones = await readMdHrZones();
+            if (mdZones.length > 0) {
+              const stream = await fetchHrStream(todayActivity.id);
+              if (stream.length > 0) {
+                const bucketed = bucketHrZones(stream, mdZones);
+                if (bucketed.some((t) => t > 0)) hrZoneTimes = bucketed;
+              }
+            }
+          }
+
           const input = buildRideAnalysisInput(
             todayActivity,
             plannedDay ? { name: plannedDay.name, type: plannedDay.type, durationMin: plannedDay.durationMin } : null,
             ftp,
             profile.performance.thresholdHr
           );
+          input.hrZoneTimes = hrZoneTimes;
           const coachNote = await analyseRide(input);
 
           todayAnalysis = {
@@ -170,7 +188,7 @@ export async function POST() {
             advisedRideFuelKcal: rideFuelKcal,
             activityDescription: todayActivity.description,
             powerZoneTimes: todayActivity.powerZoneTimes,
-            hrZoneTimes: todayActivity.hrZoneTimes,
+            hrZoneTimes,
             executionScore,
             coachNote,
           };
