@@ -100,6 +100,91 @@ export function CyberFrame({ accent = "pink" }: { accent?: "pink" | "cyan" }) {
   );
 }
 
+// Ranked section wrapper for the command-center layout. A numbered badge + eyebrow
+// title establishes the priority path (visual hierarchy); `hero` promotes it to the
+// cyan cyber-framed card used for the single most important zone.
+export function Zone({
+  rank,
+  title,
+  hint,
+  hero,
+  className,
+  children,
+}: {
+  rank?: number;
+  title: string;
+  hint?: string;
+  hero?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const shell = hero
+    ? "relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3.5 dark:border-synced/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]"
+    : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
+  return (
+    <section className={`${shell} ${className ?? ""}`}>
+      {hero && <CyberFrame accent="cyan" />}
+      <div className={hero ? "relative z-10" : ""}>
+        <div className="mb-2 flex items-center gap-2">
+          {rank != null && (
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-600 dark:bg-synced/15 dark:text-synced">
+              {rank}
+            </span>
+          )}
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
+          {hint && <span className="ml-auto text-[10px] text-zinc-400 dark:text-zinc-500">{hint}</span>}
+        </div>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+// Compact trend tile: tiny static sparkline + latest value, for the Today "trend
+// pulse". Click routes to the full Trends view. Values pre-formatted by the caller.
+export function TrendTile({
+  label,
+  value,
+  points,
+  delta,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  points: number[];
+  delta?: "up" | "down" | "flat";
+  onClick?: () => void;
+}) {
+  const W = 80;
+  const H = 22;
+  let path = "";
+  if (points.length >= 2) {
+    const min = Math.min(...points);
+    const range = Math.max(...points) - min || 1;
+    path = points
+      .map((v, i) => `${i ? "L" : "M"}${((i / (points.length - 1)) * W).toFixed(1)},${(H - ((v - min) / range) * (H - 4) - 2).toFixed(1)}`)
+      .join(" ");
+  }
+  const arrow = delta === "up" ? "↑" : delta === "down" ? "↓" : delta === "flat" ? "→" : "";
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-md bg-zinc-50 px-2.5 py-2 text-left transition-colors hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+    >
+      <p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p>
+      {path && (
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" className="my-0.5" aria-hidden>
+          <path d={path} fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="stroke-zinc-400 dark:stroke-synced/70" />
+        </svg>
+      )}
+      <p className="font-mono text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+        {value}
+        {arrow && <span className="ml-0.5 text-[10px] font-normal text-cyan-600 dark:text-synced">{arrow}</span>}
+      </p>
+    </button>
+  );
+}
+
 // Labelled section break (label + rule) for separating page zones.
 export function SectionDivider({ label }: { label: string }) {
   return (

@@ -22,6 +22,10 @@
   --font-sans: var(--font-chakra);
   --font-mono: var(--font-jetbrains);
   --font-display: var(--font-chakra);
+  /* Colour roles — accent = primary highlight/action, synced = live/secondary.
+     Use as text-accent / border-accent / bg-accent (usually behind dark:). */
+  --color-accent: #ff49c8;
+  --color-synced: #00d4ff;
 }
 
 body {
