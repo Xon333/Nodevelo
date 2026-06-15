@@ -877,24 +877,30 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
         if (cancelled) return;
         setState(appState);
 
-        try {
-          const { athleteMd: md } = await api<{ athleteMd: AthleteMdSnapshot }>("/api/profile");
-          if (!cancelled) {
-            setAthleteMd(md);
-            if (md.goals.length > 0) {
-              setGoal(md.goals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+        // athleteMd (goal/weakpoint prefill) and block history are only used by the
+        // Plan view — skip those fetches on Today so the command view loads lighter.
+        if (mode === "plan") {
+          try {
+            const { athleteMd: md } = await api<{ athleteMd: AthleteMdSnapshot }>("/api/profile");
+            if (!cancelled) {
+              setAthleteMd(md);
+              if (md.goals.length > 0) {
+                setGoal(md.goals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+              }
+              if (md.weakpoints.length > 0) {
+                setWeakpointsText(md.weakpoints.map((w) => w.weakpoint).join("\n"));
+              }
             }
-            if (md.weakpoints.length > 0) {
-              setWeakpointsText(md.weakpoints.map((w) => w.weakpoint).join("\n"));
-            }
+          } catch {
+            // profile prefill is best-effort
           }
-        } catch {
-          // profile prefill is best-effort
+
+          void loadBlockHistory();
         }
 
-        void loadBlockHistory();
-
+        // Auto-sync lives on Today (where sync UI is); Plan just reads cached data.
         if (
+          mode === "today" &&
           appState.configured &&
           isStale(appState.lastSync?.syncedAt ?? null) &&
           !autoSyncDone.current
@@ -909,7 +915,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
     return () => {
       cancelled = true;
     };
-  }, [doSync, loadBlockHistory]);
+  }, [doSync, loadBlockHistory, mode]);
 
   useEffect(() => {
     if (!generating) return;
@@ -1035,16 +1041,15 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
 
   return (
     <div className="space-y-3">
-      <SyncStatus
-        configured={state.configured}
-        lastSyncedAt={state.lastSync?.syncedAt ?? null}
-        syncing={syncing}
-        error={syncError}
-        onSync={doSync}
-      />
-
       {mode === "today" && (
         <>
+          <SyncStatus
+            configured={state.configured}
+            lastSyncedAt={state.lastSync?.syncedAt ?? null}
+            syncing={syncing}
+            error={syncError}
+            onSync={doSync}
+          />
           <Zone rank={1} title="Readiness — can I go hard?">
             {state.readiness || state.fatigueAlert?.triggered || state.loadRamp?.triggered ? (
               <ReadinessBadge

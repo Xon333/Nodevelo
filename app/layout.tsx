@@ -8,7 +8,7 @@ import Nav from "@/components/Nav";
 const chakra = Chakra_Petch({
   variable: "--font-chakra",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
 // Mono face for numeric/data values.
