@@ -132,7 +132,7 @@ export function Zone({
     ? `relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent}`
     : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
   return (
-    <section className={`${shell} ${fill ? "flex min-h-0 flex-col" : ""} ${className ?? ""}`}>
+    <section className={`${shell} ${fill ? "flex min-h-0 flex-1 flex-col" : ""} ${className ?? ""}`}>
       {hero && <CyberFrame accent={accent} />}
       <div className={`${hero ? "relative z-10 " : ""}${fill ? "flex min-h-0 flex-1 flex-col" : ""}`}>
         <div className="mb-2 flex items-center gap-2">

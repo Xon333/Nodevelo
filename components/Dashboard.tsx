@@ -480,9 +480,7 @@ function TodayRideCard({
       {analysis.activityDescription != null && analysis.activityDescription.trim() !== "" && (
         <div className="mt-3 rounded border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Your note</p>
-          <p className="mt-0.5 max-h-20 overflow-y-auto text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">
-            {analysis.activityDescription}
-          </p>
+          <p className="mt-0.5 text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">{analysis.activityDescription}</p>
         </div>
       )}
 
@@ -522,7 +520,7 @@ function GoalsProgress({ athleteMd }: ProfileGoals) {
       <div className="mt-3 flex flex-col gap-2">
         {athleteMd.goals.map((g) => (
           <div key={g.goal} className="flex items-baseline justify-between gap-2">
-            <span className="min-w-0 break-words text-sm text-zinc-700 dark:text-zinc-300">{g.goal}</span>
+            <span className="min-w-0 text-sm text-zinc-700 dark:text-zinc-300">{g.goal}</span>
             {g.target && (
               <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff] dark:ring-1 dark:ring-[#00d4ff]/30">
                 → {g.target}
@@ -1099,6 +1097,8 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
               beside it. On desktop the page is locked to the viewport — the session card's
               body and the right column scroll internally so all borders stay visible. */}
           <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[1.7fr_1fr] lg:[grid-template-rows:minmax(0,1fr)]">
+            {/* Session card fills its grid cell and scrolls internally so the bottom
+                border lands at the page bottom instead of being clipped. */}
             <Zone rank={2} title="Today — session & fuel" hero fill>
               {state.todayAnalysis && state.todayAnalysis.activityDate === todayIso() ? (
                 <TodayRideCard
@@ -1114,15 +1114,15 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
               )}
             </Zone>
 
-            <div className="flex flex-col gap-3 lg:min-h-0 lg:overflow-y-auto">
+            {/* Trend pulse fixed; coach note fills the rest of the column and scrolls,
+                so its bottom border lands at the page bottom (never clipped). */}
+            <div className="flex flex-col gap-3 lg:min-h-0">
               <Zone rank={3} title="Trend pulse — am I improving?" hint="opens Trends">
                 <TrendPulse vertical />
               </Zone>
               {state.todayAnalysis?.activityDate === todayIso() && state.todayAnalysis.coachNote && (
-                <Zone title="Coach note" hero accent="pink">
-                  <p className="max-h-72 overflow-y-auto text-xs leading-5 text-zinc-600 dark:text-zinc-300">
-                    {state.todayAnalysis.coachNote}
-                  </p>
+                <Zone title="Coach note" hero accent="pink" fill>
+                  <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{state.todayAnalysis.coachNote}</p>
                 </Zone>
               )}
             </div>
@@ -1144,7 +1144,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
 
       {/* Goals + this-week side by side, just under the active block */}
       {(athleteMd || state.lastSync) && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-[1.7fr_1fr]">
           {athleteMd && <GoalsProgress athleteMd={athleteMd} />}
           {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
         </div>
