@@ -393,59 +393,58 @@ function TodayRideCard({
         </div>
       )}
 
-      {/* Interval execution vs the coach's prescription (the "second brain" comparison). */}
-      {analysis.intervalComparison && analysis.intervalComparison.reps.length > 0 && (
-        <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Prescribed</span>
-              {analysis.intervalComparison.prescribedLabels.map((l, i) => (
-                <span key={i} className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
-                  {l}
+      {/* Power execution — the card's focal group: prescription vs execution, the
+          power/HR trace, and power time-in-zone. There is no separate HR zone bar;
+          HR comparison lives in the trace overlay (decoupling = the gap widening). */}
+      {(analysis.powerZoneTimes || analysis.trace || (analysis.intervalComparison && analysis.intervalComparison.reps.length > 0)) && (
+        <div className="mt-3 space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">Power execution</p>
+
+          {analysis.intervalComparison && analysis.intervalComparison.reps.length > 0 && (
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Prescribed</span>
+                  {analysis.intervalComparison.prescribedLabels.map((l, i) => (
+                    <span key={i} className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
+                      {l}
+                    </span>
+                  ))}
+                </div>
+                <span className="font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-200">
+                  {analysis.intervalComparison.completed}/{analysis.intervalComparison.total} · {analysis.intervalComparison.avgAdherencePct}%
                 </span>
-              ))}
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {analysis.intervalComparison.reps.map((r, i) => {
+                  const cls =
+                    r.adherencePct >= 97
+                      ? "text-green-700 dark:text-green-400"
+                      : r.adherencePct >= 90
+                      ? "text-amber-700 dark:text-amber-400"
+                      : "text-red-600 dark:text-red-400";
+                  return (
+                    <span key={i} className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] dark:bg-zinc-800">
+                      <span className="text-zinc-700 dark:text-zinc-200">{r.actualWatts}W</span>{" "}
+                      <span className={cls}>{r.adherencePct}%</span>
+                    </span>
+                  );
+                })}
+              </div>
             </div>
-            <span className="font-mono text-xs font-semibold text-zinc-700 dark:text-zinc-200">
-              {analysis.intervalComparison.completed}/{analysis.intervalComparison.total} · {analysis.intervalComparison.avgAdherencePct}%
-            </span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {analysis.intervalComparison.reps.map((r, i) => {
-              const cls =
-                r.adherencePct >= 97
-                  ? "text-green-700 dark:text-green-400"
-                  : r.adherencePct >= 90
-                  ? "text-amber-700 dark:text-amber-400"
-                  : "text-red-600 dark:text-red-400";
-              return (
-                <span key={i} className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] dark:bg-zinc-800">
-                  <span className="text-zinc-700 dark:text-zinc-200">{r.actualWatts}W</span>{" "}
-                  <span className={cls}>{r.adherencePct}%</span>
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Power trace: power (primary) + dashed target + work-interval bands + faint HR. */}
-      {analysis.trace && (
-        <div className="mt-3 rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-          <RideTrace trace={analysis.trace} />
-          <p className="mt-1 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Power (cyan) · HR (grey, secondary){analysis.trace.targetWatts ? ` · dashed = ${analysis.trace.targetWatts}W target` : ""}
-            {analysis.trace.bands.length > 0 ? " · shaded = work intervals" : ""}
-          </p>
-        </div>
-      )}
+          {analysis.trace && (
+            <div className="rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+              <RideTrace trace={analysis.trace} />
+              <p className="mt-1 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
+                Power (cyan) · HR (grey){analysis.trace.targetWatts ? ` · dashed = ${analysis.trace.targetWatts}W target` : ""}
+                {analysis.trace.bands.length > 0 ? " · shaded = work intervals" : ""}
+              </p>
+            </div>
+          )}
 
-      {/* Zone distribution — power is primary, HR secondary. Both are re-bucketed from
-          the raw streams against the athlete's own md zones (Intervals' power zones are
-          often absent and its HR boundaries differ). */}
-      {(analysis.powerZoneTimes || analysis.hrZoneTimes) && (
-        <div className="mt-3 space-y-2.5">
           {analysis.powerZoneTimes && <ZoneBars times={analysis.powerZoneTimes} label="Time in power zones" />}
-          {analysis.hrZoneTimes && <ZoneBars times={analysis.hrZoneTimes} label="HR zones · secondary" secondary />}
         </div>
       )}
 
