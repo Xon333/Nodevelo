@@ -89,7 +89,7 @@ store). Each file has one responsibility:
 |---|---|---|
 | `athlete.json` | data-store | Nutrition settings + non-synced profile defaults |
 | `physiology.json` | physiology | **Source of truth** for FTP, zones, threshold/max HR — effective-dated |
-| `last-sync.json` | data-store | Cached raw Intervals.icu pull (8-week window) |
+| `last-sync.json` | data-store | Cached raw Intervals.icu pull (~6-month / 182-day window) |
 | `current-block.json` | data-store | The active training block (frozen prescriptions) |
 | `score-log.json` | data-store | Immutable per-ride execution ledger (the learning corpus) |
 | `compliance-memory.json` | data-store | Rolling per-workout-type compliance |
@@ -97,6 +97,16 @@ store). Each file has one responsibility:
 | `today-analysis.json` | data-store | Latest ride analysis + coach note |
 | `block-history.json` | data-store | Completed blocks + retrospectives |
 | `block-settings.json` | data-store | Volume/structure knobs + platform toggles |
+
+### Sync window & recency
+
+A full sync pulls **182 days (~6 months)** of activities and wellness. That depth is
+deliberate: CTL has a 42-day time constant (so a fitness *trajectory* needs months to read),
+the rolling baselines are genuinely 90-day, and the second brain gets several blocks of history
+to learn from. It is also cheap — the wider window is just a larger JSON list, **not** more
+requests: per-activity stream fetches happen only for *today's* ride. To keep generation
+anchored to current form, the "last 8 weeks" summary in the prompt is scoped to the most recent
+56 days even though the cache holds six months.
 
 ---
 
@@ -274,10 +284,10 @@ the previous block's carry-forward seeds.
 
 | Page | Purpose |
 |---|---|
-| `/today` (default) | Readiness, today's session & fuel, trend pulse, coach note |
-| `/plan` | Active block calendar, block generation + preview, goals vs. this week, history |
-| `/trends` | Long-term execution, compliance, Pw:HR, CTL, energy balance, learned insights |
-| `/profile` | Synced performance + zones (read-only), PRs, goals, weakpoints, nutrition settings |
+| `/today` (default) | Readiness tiles (CTL/ATL/TSB, ACWR, polarization), today's session & fuel, trend pulse, coach note |
+| `/plan` | Active block calendar, collapsible block generator + preview, goals vs. this week, history |
+| `/trends` | Last-7-day snapshot, learned insights, paired graphs (Pw:HR ‖ CTL, execution ‖ compliance), fueling & weight, block history |
+| `/profile` | Synced performance (FTP, threshold/max HR), all-time PRs, goals, weakpoints, nutrition settings |
 | `/knowledge` | In-place markdown editor for the knowledge base + retrospectives |
 | `/settings` | Volume/structure knobs, training philosophy, platform toggles |
 
