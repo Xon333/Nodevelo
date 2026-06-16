@@ -28,7 +28,9 @@ interface ComplianceRow {
 interface ScoreEntry {
   date: string;
   executionScore: number;
-  plannedType: WorkoutType;
+  plannedType: WorkoutType | null;
+  inferredType: WorkoutType;
+  planned: boolean;
 }
 interface EnergyRow {
   date: string;
@@ -42,6 +44,20 @@ interface RecentSnapshot {
   avgRpe7Day: number | null;
   lastKcalConsumed: number | null;
 }
+interface ValidationData {
+  byDimension: Array<{ dimension: string; validated: number; refuted: number; inconclusive: number; hitRate: number | null }>;
+  evaluated: number;
+  pending: number;
+}
+interface InterventionRow {
+  dimension: string;
+  title: string;
+  firedAt: string;
+  verdict: "validated" | "refuted" | "inconclusive";
+  execDelta: number | null;
+  physDelta: number | null;
+  physMetric: string;
+}
 interface TrendsData {
   ef: Point[];
   ctl: Point[];
@@ -52,6 +68,8 @@ interface TrendsData {
   scores: ScoreEntry[];
   insights: Insight[];
   recent: RecentSnapshot | null;
+  validation: ValidationData | null;
+  recentInterventions: InterventionRow[];
   syncedAt: string | null;
 }
 
@@ -158,7 +176,7 @@ function ScoreBars({ scores }: { scores: ScoreEntry[] }) {
         {recent.map((e, i) => (
           <div
             key={i}
-            title={`${e.date} · ${e.plannedType} · ${e.executionScore}/10`}
+            title={`${e.date} · ${e.plannedType ?? e.inferredType}${e.planned ? "" : " (off-plan)"} · ${e.executionScore}/10`}
             className={`min-w-[4px] flex-1 rounded-sm ${barColor(e.executionScore)}`}
             style={{ height: `${(e.executionScore / 10) * 100}%` }}
           />
@@ -314,6 +332,47 @@ export default function Trends() {
           </ul>
           <p className="mt-1.5 text-[10px] text-zinc-400 dark:text-zinc-500">
             These also steer the next block you generate.
+          </p>
+        </Card>
+      )}
+
+      {data.validation && (data.validation.evaluated > 0 || data.validation.pending > 0) && (
+        <Card
+          title="Insight track record"
+          hint={`${data.validation.evaluated} evaluated · ${data.validation.pending} pending`}
+        >
+          {data.recentInterventions.length > 0 ? (
+            <ul className="space-y-1.5">
+              {data.recentInterventions.map((iv, i) => {
+                const dot =
+                  iv.verdict === "validated" ? "bg-green-500" : iv.verdict === "refuted" ? "bg-red-500" : "bg-zinc-400";
+                const deltas = [
+                  iv.execDelta != null ? `exec ${iv.execDelta > 0 ? "+" : ""}${iv.execDelta}` : null,
+                  iv.physDelta != null ? `${iv.physMetric} ${iv.physDelta > 0 ? "+" : ""}${iv.physDelta}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <li key={i} className="flex items-start gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{iv.title}</p>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        <span className="uppercase tracking-wide">{iv.verdict}</span>
+                        {deltas ? ` · ${deltas}` : ""} · since {iv.firedAt}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="rounded-md bg-zinc-50 px-3 py-3 text-xs text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500">
+              {data.validation.pending} intervention{data.validation.pending === 1 ? "" : "s"} recorded — outcomes evaluate after ~4 weeks.
+            </p>
+          )}
+          <p className="mt-1.5 text-[10px] text-zinc-400 dark:text-zinc-500">
+            Whether acting on each past insight actually moved execution or a physiological marker — the closed learning loop.
           </p>
         </Card>
       )}

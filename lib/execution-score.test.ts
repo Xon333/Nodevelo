@@ -147,6 +147,23 @@ describe("computeExecutionScore", () => {
   });
 });
 
+describe("intrinsic (off-plan) scoring", () => {
+  it("skips the circular intensity-vs-type branch", () => {
+    // A Z2-inferred ride at IF 0.7: planned scoring adds +1 for hitting the band; intrinsic
+    // must not, since the type was inferred FROM that intensity.
+    const args = { ...base, intensityFactor: 0.7, plannedType: "Z2" as const };
+    const planned = computeExecutionScore(args)!;
+    const intrinsic = computeExecutionScore({ ...args, intrinsic: true })!;
+    expect(intrinsic).toBeLessThan(planned);
+  });
+
+  it("still rewards clean aerobic execution off-plan (decoupling)", () => {
+    const tight = computeExecutionScore({ ...base, intensityFactor: 0.7, plannedType: "Z2", decoupling: 1, intrinsic: true })!;
+    const drifty = computeExecutionScore({ ...base, intensityFactor: 0.7, plannedType: "Z2", decoupling: 12, intrinsic: true })!;
+    expect(tight).toBeGreaterThan(drifty);
+  });
+});
+
 describe("executionScoreLabel", () => {
   it("maps score bands to labels", () => {
     expect(executionScoreLabel(10)).toBe("Excellent");

@@ -2,23 +2,26 @@ import { NextResponse } from "next/server";
 import {
   readAthleteProfile,
   readBlockHistory,
+  readInterventionLog,
   readLastSync,
   readRollingBaselines,
   readScoreLog,
 } from "@/lib/data-store";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
+import { summariseValidation } from "@/lib/intervention";
 import { weightTrendFromWellness } from "@/lib/nutrition";
 
 // GET assembles the long-term, second-brain-derived trends. It deliberately does
 // NOT reproduce intervals.icu's raw PMC/power-curve charts — only signals that
 // tie training execution to the athlete's own blocks and adaptation.
 export async function GET() {
-  const [sync, profile, history, baselines, scoreLog] = await Promise.all([
+  const [sync, profile, history, baselines, scoreLog, interventionLog] = await Promise.all([
     readLastSync(),
     readAthleteProfile(),
     readBlockHistory(),
     readRollingBaselines(),
     readScoreLog(),
+    readInterventionLog(),
   ]);
 
   const ftp = profile.performance.ftp;
@@ -118,7 +121,7 @@ export async function GET() {
   // (which only records today's ride at sync time and is therefore gappy).
   const compAgg = new Map<string, { sum: number; n: number }>();
   for (const e of scoreLog.entries) {
-    if (e.compliancePct === null) continue;
+    if (e.compliancePct === null || e.plannedType === null) continue; // off-plan rides have no compliance
     const a = compAgg.get(e.plannedType) ?? { sum: 0, n: 0 };
     a.sum += e.compliancePct;
     a.n += 1;
@@ -155,6 +158,22 @@ export async function GET() {
       }
     : null;
 
+  // Validation track record (the closed learning loop) + the most recent evaluated nudges.
+  const validation = summariseValidation(interventionLog);
+  const recentInterventions = interventionLog.records
+    .filter((r) => r.outcome !== null)
+    .sort((a, b) => (b.outcome as { evaluatedAt: string }).evaluatedAt.localeCompare((a.outcome as { evaluatedAt: string }).evaluatedAt))
+    .slice(0, 6)
+    .map((r) => ({
+      dimension: r.dimension,
+      title: r.title,
+      firedAt: r.firedAt,
+      verdict: r.outcome?.verdict ?? "inconclusive",
+      execDelta: r.outcome?.execDelta ?? null,
+      physDelta: r.outcome?.physDelta ?? null,
+      physMetric: r.physMetric,
+    }));
+
   return NextResponse.json({
     ef,
     ctl,
@@ -162,9 +181,13 @@ export async function GET() {
     blocks,
     complianceByType,
     baselines,
-    scores: scoreLog.entries,
+    // Execution-quality metric excludes legacy (pre-first-block) rides — they remain stored
+    // in the ledger as history, they just don't count toward the metric or the drift signal.
+    scores: scoreLog.entries.filter((e) => !e.legacy),
     insights,
     recent,
+    validation,
+    recentInterventions,
     syncedAt: sync?.syncedAt ?? null,
   });
 }

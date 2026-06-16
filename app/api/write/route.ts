@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createEvent, isIntervalsConfigured } from "@/lib/intervals-api";
-import { appendBlockHistory, readAthleteProfile, readComplianceMemory, readCurrentBlock, writeComplianceMemory, writeCurrentBlock } from "@/lib/data-store";
+import { appendBlockHistory, readAthleteProfile, readComplianceMemory, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, writeComplianceMemory, writeCurrentBlock, writeInterventionLog } from "@/lib/data-store";
+import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
+import { buildInterventions, mergeInterventions } from "@/lib/intervention";
 import { planDayToEvent } from "@/lib/plan-parser";
 import { parsePrescription } from "@/lib/prescription";
 import type { CurrentBlock, GeneratedPlan, PlannedDay, WorkoutType, WriteResult } from "@/lib/types";
@@ -131,6 +133,23 @@ export async function POST(req: Request) {
       }
       memory.updatedAt = new Date().toISOString();
       await writeComplianceMemory(memory);
+    } catch {
+      // Non-critical.
+    }
+
+    // Record the insights that drove this block as interventions, with a baseline snapshot,
+    // to be validated after a horizon (the learning loop). Best-effort.
+    try {
+      const firedAt = new Date().toISOString().slice(0, 10);
+      const [scoreLog, sync, log] = await Promise.all([readScoreLog(), readLastSync(), readInterventionLog()]);
+      const model = buildAthleteModel(scoreLog.entries);
+      const fresh = buildInterventions(deriveInsights(model), model, sync, currentBlock.startDate, firedAt);
+      if (fresh.length > 0) {
+        await writeInterventionLog({
+          records: mergeInterventions(log.records, fresh),
+          updatedAt: new Date().toISOString(),
+        });
+      }
     } catch {
       // Non-critical.
     }

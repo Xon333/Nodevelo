@@ -3,9 +3,14 @@
 // deterministic so it's testable and cheap to recompute on demand (no persistence).
 
 import type { AthleteModel, AthleteTypeStat, Insight, RideScoreEntry, WorkoutType } from "./types";
+import { summariseBehaviour } from "./score-log";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0);
+
+const RECENT_BEHAVIOUR_DAYS = 56; // ~8 weeks — "current habits" window for the drift signal
+const addDaysIso = (date: string, days: number) =>
+  new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
 
 // Exponentially-weighted mean over chronologically-ordered values: recent rides count
 // more, so the model adapts as the athlete changes and old data fades.
@@ -27,11 +32,16 @@ function trendOf(values: number[]): "up" | "down" | "flat" {
 
 export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
   const sorted = [...scores].sort((a, b) => a.date.localeCompare(b.date));
+
+  // Execution EWMA is computed from PLANNED rides only — "execution" means how well a
+  // prescription was carried out, and off-plan rides have no prescription to grade against.
+  // Off-plan riding feeds the behaviour summary instead (so the model still sees all riding).
+  const planned = sorted.filter((s) => s.planned);
   const byTypeMap = new Map<WorkoutType, RideScoreEntry[]>();
-  for (const s of sorted) {
-    const arr = byTypeMap.get(s.plannedType) ?? [];
+  for (const s of planned) {
+    const arr = byTypeMap.get(s.inferredType) ?? [];
     arr.push(s);
-    byTypeMap.set(s.plannedType, arr);
+    byTypeMap.set(s.inferredType, arr);
   }
 
   const byType: AthleteTypeStat[] = [];
@@ -48,12 +58,28 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
   }
   byType.sort((a, b) => b.n - a.n);
 
-  const allExecs = sorted.map((s) => s.executionScore);
+  // Behaviour reflects STRUCTURED training only — legacy (pre-first-block) rides are stored
+  // as history but excluded here, so they can't trigger the off-plan drift signal. It comes
+  // in two windows: a recent slice (last ~8 weeks, anchored to the most recent ride so it's
+  // deterministic and survives a layoff) that drives the drift signal, plus the full ledger
+  // (~6 months) retained for longer-range context.
+  const structured = sorted.filter((s) => !s.legacy);
+  const recentEntries = structured.length
+    ? (() => {
+        const latest = structured[structured.length - 1].date;
+        const cutoff = addDaysIso(latest, -(RECENT_BEHAVIOUR_DAYS - 1));
+        return structured.filter((s) => s.date >= cutoff);
+      })()
+    : structured;
+
+  const allExecs = planned.map((s) => s.executionScore);
   return {
     byType,
     overallExecEwma: round1(ewma(allExecs)),
     overallTrend: trendOf(allExecs),
-    sampleSize: sorted.length,
+    sampleSize: planned.length,
+    behaviour: summariseBehaviour(recentEntries),
+    behaviourAllTime: summariseBehaviour(structured),
   };
 }
 
@@ -108,6 +134,23 @@ export function deriveInsights(model: AthleteModel): Insight[] {
       title: "Execution trending down",
       evidence: `Overall quality ${model.overallExecEwma}/10 and falling.`,
       suggestion: "Likely accumulated fatigue — insert recovery before adding load.",
+    });
+  }
+
+  // Behaviour: a lot of recent off-plan riding means the plan isn't matching how the athlete
+  // trains now. Triggered on the recent ~8-week window; the 6-month figure is shown alongside
+  // so a new drift reads differently from a chronic one.
+  const b = model.behaviour;
+  const allTime = model.behaviourAllTime;
+  if (b.totalRides >= 8 && b.offPlanPct >= 40) {
+    const context =
+      allTime.totalRides > b.totalRides ? `; ${allTime.offPlanPct}% across the last 6 months` : "";
+    out.push({
+      dimension: "Structure",
+      severity: "watch",
+      title: "Training is drifting off-plan",
+      evidence: `${b.offPlanPct}% of your last ${b.totalRides} rides (≈8 wk) were off-plan${b.unplannedAvgQuality !== null ? ` (avg quality ${b.unplannedAvgQuality}/10)` : ""}${context}.`,
+      suggestion: "Tighten adherence, or generate a block that fits the volume and intensity you actually ride.",
     });
   }
 

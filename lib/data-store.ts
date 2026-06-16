@@ -2,7 +2,7 @@
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 import { promises as fs } from "fs";
 import path from "path";
-import type { AthleteProfile, BlockHistoryEntry, BlockSettings, ComplianceMemory, CurrentBlock, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, BlockHistoryEntry, BlockSettings, ComplianceMemory, CurrentBlock, InterventionLog, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { readMdPerformance } from "./kb-loader";
 import { readPhysiology } from "./physiology";
@@ -149,4 +149,14 @@ export async function readScoreLog(): Promise<ScoreLog> {
 
 export async function writeScoreLog(log: ScoreLog): Promise<void> {
   await writeJson("score-log.json", log);
+}
+
+const DEFAULT_INTERVENTION_LOG: InterventionLog = { records: [], updatedAt: new Date(0).toISOString() };
+
+export async function readInterventionLog(): Promise<InterventionLog> {
+  return readJson<InterventionLog>("intervention-log.json", DEFAULT_INTERVENTION_LOG);
+}
+
+export async function writeInterventionLog(log: InterventionLog): Promise<void> {
+  await writeJson("intervention-log.json", log);
 }

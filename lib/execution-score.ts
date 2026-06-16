@@ -11,12 +11,17 @@ export interface ExecutionScoreInput {
   variabilityIndex: number | null; // NP / avg power; ~1.0 = perfectly steady
   adherencePct?: number | null; // avg interval power vs prescribed target (interval days)
   rpe?: number | null; // perceived exertion 1-10
+  // Off-plan ride: the type was inferred FROM intensity, so scoring intensity against that
+  // type would be circular. When set, the intensity-vs-type branch is skipped and the score
+  // rests on the intent-independent signals (decoupling, pacing, RPE).
+  intrinsic?: boolean;
 }
 
 export function computeExecutionScore(input: ExecutionScoreInput): number | null {
   const { compliancePct, intensityFactor, plannedType, decoupling, variabilityIndex } = input;
   const adherencePct = input.adherencePct ?? null;
   const rpe = input.rpe ?? null;
+  const intrinsic = input.intrinsic ?? false;
 
   // Need at least one meaningful signal to produce a score.
   if (compliancePct === null && intensityFactor === null && decoupling === null && adherencePct === null) return null;
@@ -50,8 +55,8 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
     else score -= 2;
   }
 
-  // --- Intensity vs planned type (±2) ---
-  if (intensityFactor !== null && plannedType) {
+  // --- Intensity vs planned type (±2) --- skipped for off-plan rides (would be circular)
+  if (intensityFactor !== null && plannedType && !intrinsic) {
     const IF = intensityFactor;
     switch (plannedType) {
       case "Z2":

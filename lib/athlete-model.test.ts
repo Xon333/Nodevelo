@@ -7,9 +7,14 @@ const entry = (type: WorkoutType, executionScore: number, compliancePct: number 
   date: `2026-01-${String(++day).padStart(2, "0")}`,
   executionScore,
   plannedType: type,
+  inferredType: type,
+  planned: true,
+  legacy: false,
   compliancePct,
   intensityFactor: null,
   ftpUsed: 288,
+  durationMin: 60,
+  tss: null,
 });
 
 describe("buildAthleteModel", () => {
@@ -22,6 +27,34 @@ describe("buildAthleteModel", () => {
     expect(vo2.n).toBe(3);
     expect(vo2.execEwma).toBeLessThan(z2.execEwma);
     expect(m.sampleSize).toBe(5);
+  });
+
+  it("windows recent behaviour to ~8 weeks but keeps the full ledger in behaviourAllTime", () => {
+    // Old off-plan block (>8 weeks before the latest ride) + a recent on-plan block.
+    const old = (date: string): RideScoreEntry => ({ ...entry("Z2", 6), date, planned: false, plannedType: null });
+    const recent = (date: string): RideScoreEntry => ({ ...entry("Z2", 8), date, planned: true });
+    const scores = [
+      old("2026-01-05"), old("2026-01-08"), old("2026-01-12"),
+      recent("2026-05-01"), recent("2026-05-08"), recent("2026-05-15"),
+    ];
+    const m = buildAthleteModel(scores);
+    // Recent window (anchored to 2026-05-15) excludes January → 0% off-plan now…
+    expect(m.behaviour.offPlanPct).toBe(0);
+    expect(m.behaviour.totalRides).toBe(3);
+    // …but the 6-month view still sees the old off-plan riding.
+    expect(m.behaviourAllTime.offPlanPct).toBe(50);
+    expect(m.behaviourAllTime.totalRides).toBe(6);
+  });
+
+  it("excludes legacy (pre-first-block) rides from behaviour", () => {
+    const legacyRide = (date: string): RideScoreEntry => ({ ...entry("Z2", 6), date, planned: false, plannedType: null, legacy: true });
+    const live = (date: string): RideScoreEntry => ({ ...entry("Z2", 8), date, planned: true });
+    const m = buildAthleteModel([
+      legacyRide("2026-02-01"), legacyRide("2026-02-03"), // stored, but not counted
+      live("2026-02-10"), live("2026-02-12"),
+    ]);
+    expect(m.behaviourAllTime.totalRides).toBe(2); // only the non-legacy rides
+    expect(m.behaviourAllTime.offPlanPct).toBe(0);
   });
 });
 

@@ -6,11 +6,14 @@ import { matchPrescription } from "@/lib/interval-match";
 import { buildRideTrace } from "@/lib/trace";
 import {
   readAthleteProfile,
+  readBlockHistory,
   readBlockSettings,
   readComplianceMemory,
   readCurrentBlock,
+  readInterventionLog,
   readLastSync,
   readScoreLog,
+  writeInterventionLog,
   writeTodayAnalysis,
   writeComplianceMemory,
   writeCurrentBlock,
@@ -20,6 +23,8 @@ import {
   readTodayAnalysis,
 } from "@/lib/data-store";
 import { analyseRide, buildRideAnalysisInput, isAnthropicConfigured } from "@/lib/anthropic-api";
+import { buildAthleteModel } from "@/lib/athlete-model";
+import { validateInterventions } from "@/lib/intervention";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore } from "@/lib/execution-score";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
@@ -58,7 +63,9 @@ export async function GET() {
     loadRamp,
     acwr,
     polarization,
-    scores: scoreLog.entries,
+    // Legacy (pre-first-block) rides stay in the ledger but are excluded from the execution
+    // metrics the client renders (trend pulse, block calendar).
+    scores: scoreLog.entries.filter((e) => !e.legacy),
     autoSyncOnOpen: settings.autoSyncOnOpen,
   });
 }
@@ -98,23 +105,52 @@ export async function POST() {
     const fallbackFtp = (await readAthleteProfile()).performance.ftp;
     const ftpForDate = (date: string) => physiologyAsOf(physStore, date)?.ftp ?? fallbackFtp;
 
-    // Accumulate per-ride execution scores for the trends view. Deterministic and
-    // independent of Anthropic — covers every matched planned day of the active block. The
-    // log is immutable per date; new dates are scored against their as-of FTP, and legacy
-    // entries that predate this feature are backfilled once with a best-effort FTP.
+    // Accumulate per-ride execution scores for the trends view + the learning model.
+    // Deterministic and independent of Anthropic. Planned rides are scored on adherence;
+    // off-plan rides on intrinsic quality, but only once structured training has begun (on/
+    // after the first block's start) so the ledger starts fresh with the first block instead
+    // of pre-loading months of pre-app legacy rides. The log is immutable per date; new dates
+    // are scored against their as-of FTP, and legacy entries are backfilled once to the schema.
     {
       const block = await readCurrentBlock();
-      if (block) {
-        const log = await readScoreLog();
-        const backfilled = log.entries.map((e) =>
-          e.ftpUsed != null ? e : { ...e, ftpUsed: ftpForDate(e.date) }
-        );
-        const fresh = buildRideScores(block, lastSync.activities, ftpForDate);
-        await writeScoreLog({
-          entries: mergeScoreLog(backfilled, fresh),
-          updatedAt: new Date().toISOString(),
-        });
-      }
+      const blockHistory = await readBlockHistory();
+      const blockStarts = [block?.startDate, ...blockHistory.map((h) => h.startDate)].filter(
+        (d): d is string => !!d
+      );
+      const offPlanFloor = blockStarts.length ? blockStarts.sort()[0] : null;
+
+      const log = await readScoreLog();
+      const backfilled = log.entries.map((e) => {
+        const planned = e.planned ?? e.plannedType != null;
+        return {
+          ...e,
+          ftpUsed: e.ftpUsed ?? ftpForDate(e.date),
+          planned,
+          inferredType: e.inferredType ?? e.plannedType ?? "Z2",
+          durationMin: e.durationMin ?? 0,
+          tss: e.tss ?? null,
+          // Off-plan rides before structured training began are kept as history but flagged
+          // legacy so they're excluded from the execution metric + drift.
+          legacy: e.legacy ?? (!planned && (offPlanFloor === null || e.date < offPlanFloor)),
+        };
+      });
+      const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor);
+      await writeScoreLog({
+        entries: mergeScoreLog(backfilled, fresh),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    // Close the learning loop: re-evaluate any matured interventions against the freshly
+    // updated model + sync, marking whether acting on each past insight actually worked.
+    try {
+      const scoreLog = await readScoreLog();
+      const model = buildAthleteModel(scoreLog.entries);
+      const interventionLog = await readInterventionLog();
+      const { log: updatedInterventions, changed } = validateInterventions(interventionLog, model, lastSync, today);
+      if (changed) await writeInterventionLog(updatedInterventions);
+    } catch {
+      // Best-effort — never fail a sync on the validation pass.
     }
 
     if (isAnthropicConfigured()) {
@@ -280,7 +316,7 @@ export async function POST() {
     const acwr = computeAcwr(lastSync.activities);
     const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
     const scoreLog = await readScoreLog();
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries });
+    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy) });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

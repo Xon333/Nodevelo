@@ -7,10 +7,11 @@ import {
   generateTrainingBlock,
   isAnthropicConfigured,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readComplianceMemory, readLastSync, readScoreLog } from "@/lib/data-store";
+import { readAthleteProfile, readBlockSettings, readComplianceMemory, readInterventionLog, readLastSync, readScoreLog } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights, insightsToPromptBlock } from "@/lib/athlete-model";
+import { summariseValidation, validationToPromptBlock } from "@/lib/intervention";
 import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, complianceMemory, retroSeeds, scoreLog, physStore] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, complianceMemory, retroSeeds, scoreLog, physStore, interventionLog] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
       latestRetrospectiveSeeds(),
       readScoreLog(),
       readPhysiology(),
+      readInterventionLog(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -115,6 +117,10 @@ export async function POST(req: Request) {
     // directives (weak types, declining trends, ready-to-progress) for this block.
     const insightsContext = insightsToPromptBlock(deriveInsights(buildAthleteModel(scoreLog.entries)));
 
+    // Validation track record — which past coaching nudges actually moved the needle. Lets
+    // the model trust validated dimensions and reconsider refuted ones (closed loop).
+    const validationContext = validationToPromptBlock(summariseValidation(interventionLog));
+
     // Live training zones from the physiology store, rendered for the prompt (these used to
     // live in athlete_profile.md but are now synced from Intervals.icu).
     const fmtZoneRange = (z: Zone, unit: string) =>
@@ -133,7 +139,7 @@ export async function POST(req: Request) {
     }
 
     const system = buildSystemPrompt(
-      kbContext + complianceContext + seedsContext + insightsContext,
+      kbContext + complianceContext + seedsContext + insightsContext + validationContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );

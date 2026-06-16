@@ -295,10 +295,20 @@ export interface ComplianceMemory {
 export interface RideScoreEntry {
   date: string;
   executionScore: number;
-  plannedType: WorkoutType;
-  compliancePct: number | null;
+  // The prescribed type when this date had a planned session; null for off-plan rides.
+  plannedType: WorkoutType | null;
+  // The effort type used for grouping: plannedType when planned, otherwise inferred from
+  // intensity/duration. Always present so every ride can join the model.
+  inferredType: WorkoutType;
+  planned: boolean; // false = ridden off-plan (scored on intrinsic quality, not adherence)
+  // Pre-structure ride (before the first block): stored as history but excluded from the
+  // execution-quality metric and the drift signal — there was no plan for it to be "off."
+  legacy: boolean;
+  compliancePct: number | null; // null for off-plan rides (no prescription to compare against)
   intensityFactor: number | null;
   ftpUsed: number; // FTP this entry was scored against — frozen so history never re-shifts
+  durationMin: number; // feeds the behaviour/volume signal
+  tss: number | null;
 }
 
 // ---------- Athlete model (the learning "second brain") ----------
@@ -311,11 +321,24 @@ export interface AthleteTypeStat {
   complianceEwma: number; // EWMA of duration compliance %
   trend: "up" | "down" | "flat";
 }
+// Complete-riding-behaviour signal — derived from ALL logged rides (planned + off-plan),
+// so the model sees how the athlete actually trains, not just plan adherence.
+export interface BehaviourSummary {
+  totalRides: number;
+  plannedRides: number;
+  unplannedRides: number;
+  offPlanPct: number; // unplanned / total, 0-100
+  unplannedAvgQuality: number | null; // mean intrinsic execution score of off-plan rides
+  weeklyHours: number | null; // mean weekly ride hours across the logged window
+}
+
 export interface AthleteModel {
-  byType: AthleteTypeStat[];
+  byType: AthleteTypeStat[]; // execution EWMA from PLANNED rides only (adherence semantics)
   overallExecEwma: number;
   overallTrend: "up" | "down" | "flat";
-  sampleSize: number;
+  sampleSize: number; // planned-ride sample size
+  behaviour: BehaviourSummary; // recent ~8 weeks — reflects CURRENT habits, drives the drift signal
+  behaviourAllTime: BehaviourSummary; // full ledger (~6 months) — retained for longer-range context
 }
 // A derived coaching observation, surfaced to the athlete and fed into generation.
 export interface Insight {
@@ -329,6 +352,54 @@ export interface Insight {
 export interface ScoreLog {
   entries: RideScoreEntry[];
   updatedAt: string;
+}
+
+// ---------- Intervention / validation ledger (data/intervention-log.json) ----------
+// Closes the learning loop: when an insight drives a generated block it is recorded here
+// with a baseline snapshot, then re-evaluated after a horizon to mark whether acting on it
+// actually moved the needle — so insights become measured rather than merely asserted.
+
+export type InterventionVerdict = "validated" | "refuted" | "inconclusive";
+
+export interface InterventionOutcome {
+  evaluatedAt: string;
+  execNow: number | null;
+  physNow: number | null;
+  execDelta: number | null; // execNow - baselineExecEwma
+  physDelta: number | null; // physNow - baselinePhys (direction-normalised: + = improvement)
+  verdict: InterventionVerdict;
+}
+
+export interface InterventionRecord {
+  id: string;
+  firedAt: string; // YYYY-MM-DD the driving block was written
+  blockStartDate: string;
+  dimension: string; // a WorkoutType or "Overall"
+  severity: "alert" | "watch" | "good";
+  title: string;
+  horizonDays: number; // evaluate once this many days have elapsed
+  baselineExecEwma: number | null; // per-dimension execution EWMA at fire time
+  baselinePhys: number | null; // physiological marker at fire time
+  physMetric: string; // which marker (e.g. "5-min power", "Pw:HR")
+  outcome: InterventionOutcome | null; // null until matured + evaluated
+}
+
+export interface InterventionLog {
+  records: InterventionRecord[];
+  updatedAt: string;
+}
+
+// Per-dimension hit-rate roll-up, fed back into generation as insight confidence.
+export interface ValidationSummary {
+  byDimension: Array<{
+    dimension: string;
+    validated: number;
+    refuted: number;
+    inconclusive: number;
+    hitRate: number | null; // validated / (validated + refuted)
+  }>;
+  evaluated: number;
+  pending: number;
 }
 
 // ---------- Physiology store (data/physiology.json) ----------
