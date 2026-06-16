@@ -728,7 +728,12 @@ function CurrentBlockSection({
     0,
     Math.ceil((Date.parse(block.endDate) - Date.parse(today)) / 86_400_000)
   );
-  const upcoming = block.days.filter((d) => d.date >= today).length;
+  const weekOfBlock = Math.min(
+    block.lengthWeeks,
+    Math.max(1, Math.floor((Date.parse(today) - Date.parse(block.startDate)) / (7 * 86_400_000)) + 1)
+  );
+  // Real sessions still to come — exclude rest days (durationMin 0), which aren't "sessions".
+  const sessionsToGo = block.days.filter((d) => d.date >= today && d.durationMin > 0).length;
   return (
     <section className="relative rounded-none border-2 border-zinc-300 bg-white px-4 py-4 dark:border-[#00d4ff]/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]">
       <CyberFrame accent="cyan" />
@@ -744,7 +749,7 @@ function CurrentBlockSection({
             <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
               {block.startDate} → {block.endDate} ·{" "}
               {daysRemaining > 0
-                ? `${daysRemaining} days remaining · ${upcoming} sessions left`
+                ? `Week ${weekOfBlock} of ${block.lengthWeeks} · ${sessionsToGo} session${sessionsToGo === 1 ? "" : "s"} to go`
                 : "finished"}
             </p>
           </div>

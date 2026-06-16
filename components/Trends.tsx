@@ -186,7 +186,7 @@ function ScoreBars({ scores }: { scores: ScoreEntry[] }) {
 
 function baselineCards(b: RollingBaselines) {
   const cards: Array<{ label: string; value: string }> = [];
-  if (b.avgCtl90d != null) cards.push({ label: "Avg CTL", value: b.avgCtl90d.toFixed(1) });
+  // Avg CTL removed — redundant with the CTL graph + live CTL on the readiness card.
   if (b.avgTss90d != null) cards.push({ label: "Avg TSS / ride", value: String(Math.round(b.avgTss90d)) });
   if (b.avgDecoupling90d != null) cards.push({ label: "Avg decoupling", value: `${b.avgDecoupling90d.toFixed(1)}%` });
   if (b.avgCadence90d != null) cards.push({ label: "Avg cadence", value: `${Math.round(b.avgCadence90d)} rpm` });
@@ -412,6 +412,7 @@ export default function Trends() {
                 strokeClass="stroke-purple-400 dark:stroke-[#00d4ff]/70"
                 dotClass="fill-purple-500 dark:fill-[#00d4ff]"
                 tipTextClass="fill-zinc-800 dark:fill-[#00d4ff]"
+                tipAccentClass="stroke-zinc-300 dark:stroke-[#00d4ff]/40"
               />
             </Card>
           )}
