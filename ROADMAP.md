@@ -39,20 +39,18 @@ Ask-Coach already gets block+form; **add `today.execution` + `fuel`.**
 > confidently diagnose under-recovery/under-fuelling or prescribe a skip off one compromised data
 > point. Ask/condition, don't assert.
 
-### 3. Adaptive logic — session `disposition` + decision trees  ⭐
-Add a per-day **`disposition: completed | partial | missed | compromised(reason)`** the athlete
-can set — the objective fact telemetry can't infer. It gates how a session feeds the model.
-
+### 3. Adaptive logic — auto-reschedule of missed/compromised stimulus  ⭐ (remaining half)
+The **disposition flag is DONE** (see "Done recently") — a compromised session is now excluded
+from the model + flagged to Ask-Coach. What's left is the *plan-mutation* half:
 - **Sickness / extreme fatigue on a quality day:** flag/`fatigueAlert` on a Threshold/VO2/SIT day
-  → downgrade today to recovery, tag `missed: fatigue`, and **reschedule the stimulus** (shift
-  remaining quality days forward, preserve load) or carry it as a next-block seed if near the end.
-  Never silently delete prescribed work.
-- **Equipment malfunction (ghost-resistance case):** prescribed 2×20 threshold executed as
-  1×12 + 1×5 in Z5. Raw score stays honest (~1/10) — that's the truthful read of the file — but
-  `disposition: compromised(equipment)` **excludes it from the execution EWMA** (same mechanism as
-  `legacy` rides: kept as history, not taught from), the Z5 work is **not** logged as a VO2 stimulus,
-  and the threshold target is marked **not delivered** → feeds the reschedule logic. Principle:
-  *raw scoring is honest; attribution decides whether it teaches the model.*
+  → downgrade today to recovery and **reschedule the stimulus** (shift remaining quality days
+  forward, preserve weekly load) or carry it as a next-block seed if near the end. Never silently
+  delete prescribed work.
+- **Ghost-resistance / compromised:** the threshold target wasn't delivered → mark **not
+  delivered** and offer to reschedule it (same engine). The raw 1/10 already stays honest +
+  excluded from learning via the disposition flag; this step closes the *plan* side.
+- Riskier than the flag — it mutates the active block, so: preserve total load, respect
+  quality-day spacing, and keep it athlete-confirmed (suggest, don't silently rewrite).
 
 ### 4. Let the validation loop accrue, then auto-down-weight
 `intervention-log.json` records verdicts after a 28-day horizon but has none yet. Once data exists,
@@ -111,6 +109,10 @@ than producing a flawed number. Small, zero-hallucination-correct.
 ---
 
 ## Done recently (context)
+- Session **disposition flag + learning gate** (roadmap #3, first half): athlete marks
+  Completed/Partial/Compromised(reason) on the ride card; compromised rides are kept as history
+  but excluded from the execution EWMA + execution-quality metric, and surfaced to Ask-Coach so a
+  fluke (e.g. equipment) can't be misread as under-recovery. `data/dispositions.json`.
 - Quick UI wins: Sparkline tooltip border/guide now match the chart accent (cyan CTL / pink Pw:HR);
   removed Avg CTL from Recent Baselines; "Week W of N · N sessions to go" (also fixed rest-days
   being counted as sessions).
