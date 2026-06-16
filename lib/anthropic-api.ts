@@ -6,6 +6,9 @@ import { weightTrendFromWellness } from "./nutrition";
 
 // Non-negotiable: in-app generation always uses claude-sonnet-4-6.
 export const GENERATION_MODEL = "claude-sonnet-4-6";
+// Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
+// session + the question, never deep history, so a small model is the right cost/latency call.
+export const QUICK_MODEL = "claude-haiku-4-5";
 const MAX_TOKENS = 8000;
 const TEMPERATURE = 0.3;
 
@@ -543,4 +546,46 @@ export async function generateTrainingBlock(
     .map((block) => block.text)
     .join("\n");
   return { raw, truncated: response.stop_reason === "max_tokens" };
+}
+
+// ---------- Low-token "ask coach" spot-checks ----------
+
+export interface AskCoachSession {
+  name: string;
+  type: string;
+  durationMin: number;
+  intervals: string[]; // prescribed interval labels, e.g. ["2×20m @ 274W"]
+}
+
+// Pure prompt builder — injects ONLY today's session + the athlete's question (and any context
+// they typed, e.g. weather), never the historical ledger. Kept tiny on purpose so these
+// spot-checks stay cheap and fast. Deterministic so it's unit-testable.
+export function buildAskCoachPrompt(session: AskCoachSession | null, query: string): string {
+  const today = session
+    ? `Today's planned session: ${session.type} — "${session.name}" (${session.durationMin} min)` +
+      (session.intervals.length > 0 ? `\nPrescribed intervals: ${session.intervals.join(", ")}` : "")
+    : "No structured session is planned today.";
+  return [
+    "You are the athlete's cycling coach. Answer their question about today in 2–4 short, practical sentences — concrete and decisive, no preamble or caveats. Use only the session context and what they tell you in the question; do not ask for more data.",
+    "",
+    today,
+    "",
+    `Question: ${query.trim()}`,
+  ].join("\n");
+}
+
+export async function askCoach(session: AskCoachSession | null, query: string): Promise<string> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: QUICK_MODEL,
+    max_tokens: 320,
+    temperature: 0.4,
+    messages: [{ role: "user", content: buildAskCoachPrompt(session, query) }],
+  });
+  return response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
 }

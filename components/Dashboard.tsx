@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isStale, nextMonday } from "@/lib/client-api";
+import AskCoach from "./AskCoach";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type {
   AcwrResult,
@@ -1166,6 +1167,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
                   <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{state.todayAnalysis.coachNote}</p>
                 </Zone>
               )}
+              {state.anthropicConfigured && <AskCoach />}
             </div>
           </div>
         </>
