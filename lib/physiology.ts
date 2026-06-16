@@ -5,13 +5,11 @@
 //
 // Pure logic (parse / resolve / as-of / reconcile) is exported for testing; file IO lives
 // here too (like kb-loader) to avoid a data-store ↔ physiology import cycle.
-import { promises as fs } from "fs";
-import path from "path";
 import type { PhysiologySnapshot, PhysiologyStore } from "./types";
 import type { Zone } from "./zones";
 import { readMdHrZones, readMdPowerZones } from "./kb-loader";
+import { readJsonFile, writeJsonFile } from "./json-store";
 
-const DATA_DIR = path.join(process.cwd(), "data");
 const FILE = "physiology.json";
 
 // ---------- defensive helpers ----------
@@ -179,20 +177,12 @@ export function reconcile(
 // ---------- persistence ----------
 
 export async function readPhysiology(): Promise<PhysiologyStore | null> {
-  try {
-    const raw = await fs.readFile(path.join(DATA_DIR, FILE), "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    const r = asRecord(parsed);
-    if (!r.current) return null;
-    return parsed as PhysiologyStore;
-  } catch {
-    return null;
-  }
+  const store = await readJsonFile<PhysiologyStore | null>(FILE, null);
+  return store && asRecord(store).current ? store : null;
 }
 
 export async function writePhysiology(store: PhysiologyStore): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(path.join(DATA_DIR, FILE), JSON.stringify(store, null, 2) + "\n", "utf-8");
+  await writeJsonFile(FILE, store);
 }
 
 // ---------- snapshot-first zone reads (md is the fallback) ----------

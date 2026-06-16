@@ -1,13 +1,11 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
-import { promises as fs } from "fs";
-import path from "path";
+// Crash-safe atomic writes + backup/recovery live in ./json-store.
 import type { AthleteProfile, BlockHistoryEntry, BlockSettings, CurrentBlock, InterventionLog, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { readMdPerformance } from "./kb-loader";
 import { readPhysiology } from "./physiology";
-
-const DATA_DIR = path.join(process.cwd(), "data");
+import { readJsonFile as readJson, writeJsonFile as writeJson } from "./json-store";
 
 export const DEFAULT_PROFILE: AthleteProfile = {
   performance: {
@@ -29,25 +27,6 @@ export const DEFAULT_PROFILE: AthleteProfile = {
   updatedAt: new Date(0).toISOString(),
 };
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(path.join(DATA_DIR, file), "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || parsed === undefined) return fallback;
-    return parsed as T;
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeJson(file: string, value: unknown): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(
-    path.join(DATA_DIR, file),
-    JSON.stringify(value, null, 2) + "\n",
-    "utf-8"
-  );
-}
 
 export async function readAthleteProfile(): Promise<AthleteProfile> {
   const profile = await readJson<AthleteProfile>("athlete.json", DEFAULT_PROFILE);
