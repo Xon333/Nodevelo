@@ -2,6 +2,7 @@
 // Returns a "Build / Hold / Recover" level with a plain-English reason.
 
 import type { AcwrResult, FatigueAlert, FitnessMetrics, IntensityDistribution, LoadRampAlert, ReadinessSignal, WellnessEntry } from "./types";
+import { DEFAULT_ACWR_BANDS, type AcwrBands } from "./calibration";
 
 export function computeFatigueAlert(fitness: FitnessMetrics): FatigueAlert {
   const { ctl, atl, tsb } = fitness;
@@ -118,7 +119,8 @@ export function computeLoadRamp(
 // avg daily TSS over the last 28. The classic injury-risk signal: sweet spot ~0.8–1.3,
 // >1.5 = spike/danger. Returns null until there's enough chronic base to be meaningful.
 export function computeAcwr(
-  activities: Array<{ date: string; trainingLoad: number | null }>
+  activities: Array<{ date: string; trainingLoad: number | null }>,
+  bands: AcwrBands = DEFAULT_ACWR_BANDS
 ): AcwrResult | null {
   const today = new Date().toISOString().slice(0, 10);
   const dayMs = 86_400_000;
@@ -133,7 +135,8 @@ export function computeAcwr(
   if (chronic < 5) return null; // not enough chronic load to compute a stable ratio
 
   const ratio = Math.round((acute / chronic) * 100) / 100;
-  const level = ratio > 1.5 ? "danger" : ratio >= 1.3 ? "high" : ratio >= 0.8 ? "optimal" : "low";
+  const level =
+    ratio > bands.dangerHigh ? "danger" : ratio >= bands.optimalHigh ? "high" : ratio >= bands.optimalLow ? "optimal" : "low";
   return { acute: Math.round(acute), chronic: Math.round(chronic), ratio, level };
 }
 

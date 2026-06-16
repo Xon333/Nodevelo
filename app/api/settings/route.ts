@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readBlockSettings, writeBlockSettings } from "@/lib/data-store";
 import type { BlockSettings } from "@/lib/types";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
+import { isAcwrBandsOverridden, resolveAcwrBands, type AcwrBands } from "@/lib/calibration";
 
 export async function GET() {
   const settings = await readBlockSettings();
@@ -43,6 +44,14 @@ export async function PUT(req: Request) {
     autoPostCoachNote: typeof b.autoPostCoachNote === "boolean" ? b.autoPostCoachNote : current.autoPostCoachNote,
     updatedAt: new Date().toISOString(),
   };
+
+  // ACWR band override (the manual half of calibration): validate + clamp via the calibration
+  // resolver when present, otherwise preserve the existing override, otherwise leave it off.
+  if (isAcwrBandsOverridden(b.acwrBands as Partial<AcwrBands> | null)) {
+    updated.acwrBands = resolveAcwrBands(b.acwrBands as Partial<AcwrBands>);
+  } else if (current.acwrBands) {
+    updated.acwrBands = current.acwrBands;
+  }
 
   await writeBlockSettings(updated);
   return NextResponse.json(updated);

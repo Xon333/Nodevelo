@@ -29,6 +29,7 @@ import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore, resolveCompliance } from "@/lib/execution-score";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
+import { resolveAcwrBands } from "@/lib/calibration";
 import type { ComplianceMemory, ExecutedInterval, TodayAnalysis, WorkoutType } from "@/lib/types";
 
 function todayIso(): string {
@@ -50,7 +51,7 @@ export async function GET() {
     : null;
   const fatigueAlert = lastSync ? computeFatigueAlert(lastSync.fitness) : null;
   const loadRamp = lastSync ? computeLoadRamp(lastSync.activities) : null;
-  const acwr = lastSync ? computeAcwr(lastSync.activities) : null;
+  const acwr = lastSync ? computeAcwr(lastSync.activities, resolveAcwrBands(settings.acwrBands)) : null;
   const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp) : null;
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -336,7 +337,7 @@ export async function POST() {
     const readiness = computeReadiness(lastSync.fitness, lastSync.wellness);
     const fatigueAlert = computeFatigueAlert(lastSync.fitness);
     const loadRamp = computeLoadRamp(lastSync.activities);
-    const acwr = computeAcwr(lastSync.activities);
+    const acwr = computeAcwr(lastSync.activities, resolveAcwrBands((await readBlockSettings()).acwrBands));
     const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
     const scoreLog = await readScoreLog();
     return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy) });

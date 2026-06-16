@@ -60,7 +60,16 @@ async function icuFetch(pathname: string, init?: RequestInit): Promise<unknown> 
       res.status
     );
   }
-  return res.json();
+  // A 2xx with an empty or non-JSON body is an upstream anomaly — degrade to null rather than
+  // throwing a cryptic parse error mid-sync. Every caller guards with asRecord/Array.isArray,
+  // so null flows through as "no data" (graceful) instead of crashing the request.
+  const text = await res.text();
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function athletePath(suffix: string): string {

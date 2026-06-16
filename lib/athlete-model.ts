@@ -4,6 +4,7 @@
 
 import type { AthleteModel, AthleteTypeStat, Insight, RideScoreEntry, WorkoutType } from "./types";
 import { summariseBehaviour } from "./score-log";
+import { autoEwmaAlpha } from "./calibration";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0);
@@ -37,6 +38,9 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
   // prescription was carried out, and off-plan rides have no prescription to grade against.
   // Off-plan riding feeds the behaviour summary instead (so the model still sees all riding).
   const planned = sorted.filter((s) => s.planned);
+  // EWMA responsiveness adapts to how much history we have (replaces the fixed α = 0.35):
+  // early on, recent rides count more; as the ledger grows, smooth out noise.
+  const alpha = autoEwmaAlpha(planned.length);
   const byTypeMap = new Map<WorkoutType, RideScoreEntry[]>();
   for (const s of planned) {
     const arr = byTypeMap.get(s.inferredType) ?? [];
@@ -51,8 +55,8 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
     byType.push({
       type,
       n: entries.length,
-      execEwma: round1(ewma(execs)),
-      complianceEwma: comps.length ? Math.round(ewma(comps)) : 0,
+      execEwma: round1(ewma(execs, alpha)),
+      complianceEwma: comps.length ? Math.round(ewma(comps, alpha)) : 0,
       trend: trendOf(execs),
     });
   }
@@ -75,7 +79,7 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
   const allExecs = planned.map((s) => s.executionScore);
   return {
     byType,
-    overallExecEwma: round1(ewma(allExecs)),
+    overallExecEwma: round1(ewma(allExecs, alpha)),
     overallTrend: trendOf(allExecs),
     sampleSize: planned.length,
     behaviour: summariseBehaviour(recentEntries),

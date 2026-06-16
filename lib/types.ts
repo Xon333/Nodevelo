@@ -220,6 +220,9 @@ export interface BlockSettings {
   // Platform behaviour
   autoSyncOnOpen: boolean; // auto-sync the Today view when cached data is stale
   autoPostCoachNote: boolean; // auto-post the coach note to Intervals.icu on each sync
+  // Optional manual calibration override for the ACWR injury-risk bands. Absent = population
+  // defaults; set to personalise the optimal/danger thresholds (the hybrid calibration hook).
+  acwrBands?: { optimalLow: number; optimalHigh: number; dangerHigh: number };
   updatedAt: string;
 }
 
