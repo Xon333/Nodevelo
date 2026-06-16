@@ -9,6 +9,7 @@ import {
   readBlockHistory,
   readBlockSettings,
   readCurrentBlock,
+  readDispositions,
   readInterventionLog,
   readLastSync,
   readScoreLog,
@@ -26,6 +27,7 @@ import { validateInterventions } from "@/lib/intervention";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore, resolveCompliance } from "@/lib/execution-score";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
+import { applyDispositions } from "@/lib/disposition";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { resolveAcwrBands } from "@/lib/calibration";
 import type { ExecutedInterval, TodayAnalysis } from "@/lib/types";
@@ -62,9 +64,9 @@ export async function GET() {
     loadRamp,
     acwr,
     polarization,
-    // Legacy (pre-first-block) rides stay in the ledger but are excluded from the execution
-    // metrics the client renders (trend pulse, block calendar).
-    scores: scoreLog.entries.filter((e) => !e.legacy),
+    // Legacy (pre-first-block) and compromised (equipment/sickness) rides stay in the ledger
+    // but are excluded from the execution metrics the client renders (trend pulse, calendar).
+    scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised),
     autoSyncOnOpen: settings.autoSyncOnOpen,
   });
 }
@@ -134,8 +136,10 @@ export async function POST() {
         };
       });
       const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor);
+      // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
+      const dispositions = (await readDispositions()).entries;
       await writeScoreLog({
-        entries: mergeScoreLog(backfilled, fresh),
+        entries: applyDispositions(mergeScoreLog(backfilled, fresh), dispositions),
         updatedAt: new Date().toISOString(),
       });
     }
@@ -334,7 +338,7 @@ export async function POST() {
     const acwr = computeAcwr(lastSync.activities, resolveAcwrBands((await readBlockSettings()).acwrBands));
     const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
     const scoreLog = await readScoreLog();
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy) });
+    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised) });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

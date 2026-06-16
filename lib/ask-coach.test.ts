@@ -7,6 +7,7 @@ const ctx: AskCoachContext = {
   form: "TSB +3, ACWR optimal, readiness Build",
   ftp: 274,
   rideLogged: null,
+  disposition: null,
 };
 
 describe("buildAskCoachPrompt", () => {
@@ -24,8 +25,17 @@ describe("buildAskCoachPrompt", () => {
   });
 
   it("handles a rest / unplanned day and missing context cleanly", () => {
-    const p = buildAskCoachPrompt({ block: null, session: null, form: null, ftp: null, rideLogged: null }, "should I ride easy?");
+    const p = buildAskCoachPrompt({ block: null, session: null, form: null, ftp: null, rideLogged: null, disposition: null }, "should I ride easy?");
     expect(p).toContain("No structured session is planned today");
     expect(p).toContain("should I ride easy?");
+  });
+
+  it("surfaces a compromised disposition so the coach can't misread a fluke as fatigue", () => {
+    const p = buildAskCoachPrompt(
+      { ...ctx, rideLogged: "Today's ride is already logged — execution 1/10.", disposition: "IMPORTANT: the athlete marked today's session COMPROMISED (equipment). A low execution score reflects that, NOT under-recovery." },
+      "should I stay on plan tomorrow?"
+    );
+    expect(p).toContain("COMPROMISED");
+    expect(p).toContain("NOT under-recovery");
   });
 });

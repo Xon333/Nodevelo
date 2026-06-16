@@ -37,7 +37,9 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
   // Execution EWMA is computed from PLANNED rides only — "execution" means how well a
   // prescription was carried out, and off-plan rides have no prescription to grade against.
   // Off-plan riding feeds the behaviour summary instead (so the model still sees all riding).
-  const planned = sorted.filter((s) => s.planned);
+  // Compromised sessions (equipment/sickness) are excluded — the raw score stays honest but it
+  // must not teach the model.
+  const planned = sorted.filter((s) => s.planned && !s.compromised);
   // EWMA responsiveness adapts to how much history we have (replaces the fixed α = 0.35):
   // early on, recent rides count more; as the ledger grows, smooth out noise.
   const alpha = autoEwmaAlpha(planned.length);

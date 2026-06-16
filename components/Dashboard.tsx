@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isStale, nextMonday } from "@/lib/client-api";
 import AskCoach from "./AskCoach";
+import SessionDisposition from "./SessionDisposition";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type {
   AcwrResult,
@@ -505,6 +506,10 @@ function TodayRideCard({
           <p className="mt-0.5 text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">{analysis.activityDescription}</p>
         </div>
       )}
+
+      {/* Session disposition — the athlete attributes how it went (esp. "compromised") so a
+          fluke ride doesn't teach the model or get misdiagnosed by the coach. */}
+      <SessionDisposition date={analysis.activityDate} />
 
       {/* Coach note (only when shown inline, i.e. not relocated to its own card) */}
       {!hideCoachNote && (analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis) && (

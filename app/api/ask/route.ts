@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { askCoach, isAnthropicConfigured, type AskCoachContext } from "@/lib/anthropic-api";
-import { readCurrentBlock, readLastSync, readTodayAnalysis } from "@/lib/data-store";
+import { readCurrentBlock, readDispositions, readLastSync, readTodayAnalysis } from "@/lib/data-store";
 import { readPhysiology } from "@/lib/physiology";
 import { computeAcwr, computeReadiness } from "@/lib/readiness";
 
@@ -26,11 +26,12 @@ export async function POST(req: Request) {
   if (query.length > 600) return NextResponse.json({ error: "Question is too long (max 600 chars)." }, { status: 400 });
 
   const today = new Date().toISOString().slice(0, 10);
-  const [block, sync, physStore, todayAnalysis] = await Promise.all([
+  const [block, sync, physStore, todayAnalysis, dispositions] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),
     readPhysiology(),
     readTodayAnalysis(),
+    readDispositions(),
   ]);
 
   const blockCtx = block
@@ -67,12 +68,21 @@ export async function POST(req: Request) {
       ? `Today's ride is already logged${todayAnalysis.executionScore != null ? ` — execution ${todayAnalysis.executionScore}/10` : ""}.`
       : null;
 
+  const disp = dispositions.entries.find((e) => e.date === today);
+  const disposition =
+    disp?.disposition === "compromised"
+      ? `IMPORTANT: the athlete marked today's session COMPROMISED${disp.reason ? ` (${disp.reason})` : ""}. A low execution score reflects that, NOT under-recovery or under-fuelling — do not infer recovery debt or recommend skipping on the basis of it.`
+      : disp?.disposition === "partial"
+        ? "The athlete marked today's session partial (cut short)."
+        : null;
+
   const context: AskCoachContext = {
     block: blockCtx,
     session,
     form,
     ftp: physStore?.current.ftp ?? null,
     rideLogged,
+    disposition,
   };
 
   try {

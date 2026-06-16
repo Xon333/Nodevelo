@@ -558,6 +558,7 @@ export interface AskCoachContext {
   form: string | null; // pre-formatted current state, e.g. "TSB +3, ACWR optimal, readiness Build"
   ftp: number | null;
   rideLogged: string | null; // note if today's ride is already done
+  disposition: string | null; // athlete's attribution of today's session (esp. "compromised")
 }
 
 // Pure prompt builder — injects today's session, the block it sits in, and current form
@@ -583,6 +584,9 @@ export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string
   if (ctx.form) lines.push(`Current form: ${ctx.form}.`);
   if (ctx.ftp) lines.push(`FTP: ${ctx.ftp} W.`);
   if (ctx.rideLogged) lines.push(ctx.rideLogged);
+  // Disposition is the attribution guard — e.g. a compromised session must not be read as
+  // under-recovery/under-fuelling. Placed last so it overrides any inference from a low score.
+  if (ctx.disposition) lines.push(ctx.disposition);
   lines.push("", `Question: ${query.trim()}`);
   return lines.join("\n");
 }

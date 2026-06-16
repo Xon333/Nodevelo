@@ -298,6 +298,10 @@ export interface RideScoreEntry {
   // Pre-structure ride (before the first block): stored as history but excluded from the
   // execution-quality metric and the drift signal — there was no plan for it to be "off."
   legacy: boolean;
+  // Athlete-attributed: the session was compromised by something outside their control
+  // (equipment, sickness…). Kept as history but excluded from the execution metric + model —
+  // the raw score stays honest, but it must not *teach* the model. Derived from DispositionLog.
+  compromised?: boolean;
   compliancePct: number | null; // null for off-plan rides (no prescription to compare against)
   intensityFactor: number | null;
   ftpUsed: number; // FTP this entry was scored against — frozen so history never re-shifts
@@ -492,4 +496,24 @@ export interface WriteResult {
   ok: boolean;
   eventId: number | null;
   error?: string;
+}
+
+// ---------- Session disposition (data/dispositions.json) ----------
+// The one coaching fact telemetry can't infer: *why* a session went how it did. Athlete-set,
+// editable, and the objective gate for whether a ride teaches the model. Not in the immutable
+// ledger (it's mutable attribution); the `compromised` flag on RideScoreEntry is derived from it.
+
+export type SessionDisposition = "completed" | "partial" | "missed" | "compromised";
+export type CompromiseReason = "equipment" | "sickness" | "weather" | "other";
+
+export interface DispositionEntry {
+  date: string; // YYYY-MM-DD
+  disposition: SessionDisposition;
+  reason: CompromiseReason | null; // only meaningful when disposition = "compromised"
+  setAt: string;
+}
+
+export interface DispositionLog {
+  entries: DispositionEntry[];
+  updatedAt: string;
 }

@@ -26,6 +26,7 @@ const CRITICAL = new Set([
   "block-history.json",
   "athlete.json",
   "block-settings.json",
+  "dispositions.json",
 ]);
 
 export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {

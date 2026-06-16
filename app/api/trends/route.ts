@@ -166,9 +166,9 @@ export async function GET() {
     energy,
     blocks,
     baselines,
-    // Execution-quality metric excludes legacy (pre-first-block) rides — they remain stored
-    // in the ledger as history, they just don't count toward the metric or the drift signal.
-    scores: scoreLog.entries.filter((e) => !e.legacy),
+    // Execution-quality metric excludes legacy (pre-first-block) + compromised
+    // (equipment/sickness) rides — kept in the ledger as history, just not counted in the metric.
+    scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised),
     insights,
     recent,
     validation,
