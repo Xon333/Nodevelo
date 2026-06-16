@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isStale, nextMonday } from "@/lib/client-api";
 import AskCoach from "./AskCoach";
-import RideFeedbackForm from "./RideFeedback";
-import { feedbackDayType } from "@/lib/feedback";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type {
   AcwrResult,
@@ -507,9 +505,6 @@ function TodayRideCard({
           <p className="mt-0.5 text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">{analysis.activityDescription}</p>
         </div>
       )}
-
-      {/* Structured post-ride feedback — replaces free journalling, feeds the trend engine */}
-      <RideFeedbackForm date={analysis.activityDate} dayType={feedbackDayType(analysis.plannedType)} />
 
       {/* Coach note (only when shown inline, i.e. not relocated to its own card) */}
       {!hideCoachNote && (analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis) && (

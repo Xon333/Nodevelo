@@ -65,13 +65,6 @@ interface TrendsData {
   recent: RecentSnapshot | null;
   validation: ValidationData | null;
   recentInterventions: InterventionRow[];
-  feedback: {
-    count: number;
-    avgRpe: number | null;
-    avgLegs: number | null;
-    avgFuelComfort: number | null;
-    rpeTrend: Array<{ date: string; value: number }>;
-  } | null;
   syncedAt: string | null;
 }
 
@@ -430,24 +423,6 @@ export default function Trends() {
       {data.scores.length >= 2 && (
         <Card title="Execution quality" hint="per-ride completion score, accumulating">
           <ScoreBars scores={data.scores} />
-        </Card>
-      )}
-
-      {data.feedback && data.feedback.count > 0 && (
-        <Card title="Recent feel" hint={`${data.feedback.count} ride${data.feedback.count === 1 ? "" : "s"} · self-reported`}>
-          <div className="grid grid-cols-3 gap-2">
-            <StatTile label="Avg RPE" value={data.feedback.avgRpe != null ? `${data.feedback.avgRpe}/10` : "—"} />
-            <StatTile label="Legs" value={data.feedback.avgLegs != null ? `${data.feedback.avgLegs}/5` : "—"} />
-            <StatTile label="Gut comfort" value={data.feedback.avgFuelComfort != null ? `${data.feedback.avgFuelComfort}/5` : "—"} />
-          </div>
-          {data.feedback.rpeTrend.length >= 3 && (
-            <div className="mt-2">
-              <Sparkline points={data.feedback.rpeTrend} format={(v) => v.toFixed(0)} />
-            </div>
-          )}
-          <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            How rides have actually felt — the subjective signal the brain weighs against the objective load.
-          </p>
         </Card>
       )}
 
