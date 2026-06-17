@@ -65,12 +65,25 @@ generation/readiness. This is the heart of the goal.
 
 ---
 
-## UI refinements (from the Images 1–5 audit)
+## UI refinements
 
-Most of these shipped — see "Done recently". Remaining:
-- **Interval-execution completion % (Img 2):** the bracket header has a native `title` tooltip;
-  upgrading it to the styled `MetricTip` popup (to match the readiness hovers) is a minor nicety,
-  not yet done.
+Most of the Images 1–5 audit shipped — see "Done recently". Remaining:
+- **Nutrition availability metric on the Today card** ⭐: derive an energy-availability / fuelling
+  signal from the data we already have (weekly ride output kJ, weekly intake kcal, median weekly
+  weight) and surface it on Today. Goal: a glanceable "are you under-fuelled?" flag, so a bad
+  session can be attributed to fuelling rather than fitness. Overlaps with #6 (nutrition energy
+  balance) — build the derivation once, surface on Today + feed `CoachSnapshot.fuel`. Deterministic;
+  no AI. (Rough EA proxy: (intake − ride burn) per kg bodyweight; flag low.)
+- **Recent Baselines — decide the *useful* set:** current tiles (Avg TSS/ride, Weekly hours,
+  decoupling, cadence) are okay but not all high-value. Audit and replace with what actually informs
+  training: candidates — **w/kg at threshold** (20-min power ÷ weight), **weekly TSS**, **rides/week
+  consistency**, **CTL ramp rate**, **decoupling trend**. Pick ~4 that aren't redundant with the graphs.
+- **Page layout / open-state density (less scrolling):** each page should show its decision-critical
+  content above the fold on open. Audit Today/Plan/Trends/Profile for what's pushed below the fold,
+  tighten spacing + reorder so the first screen answers "what do I do now?" without scrolling.
+- **Popups where needed:** add styled `MetricTip` hovers to metrics that lack an explanation —
+  the interval completion % (Img 2), the new nutrition-availability metric, Recent Baselines tiles,
+  Trend Pulse tiles. Consistent hover affordance across the app.
 
 ---
 
