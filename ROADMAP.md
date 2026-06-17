@@ -48,6 +48,11 @@ session and suggests/applies a make-up on the next clear rest day in the **local
   The banner currently tells the athlete to mirror the move manually.
 - **Possible follow-up:** a *proactive* sickness/fatigue path (downgrade today + reschedule before
   the session is even missed, on a `fatigueAlert`), vs. the current reactive "you missed it" flow.
+- **Wider target slots:** today `suggestReschedule` only lands a make-up on a *rest* day. Let it
+  also use an **easy endurance day** (Z2/Recovery, e.g. a 90 min Z2) — swap the quality work onto
+  it and displace the easy ride (shorten, move, or drop it) rather than requiring a free rest day.
+  Keep the guardrails: preserve weekly load, no back-to-back hard days, athlete-confirmed. Widens
+  how often a make-up can actually be placed.
 
 ### 3b. Proactive reschedule — "not feeling it?" morning check-in  ⭐
 A button on Today (prominent when today is a quality day) you tap *before* the session — e.g. you
