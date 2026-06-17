@@ -39,18 +39,15 @@ Ask-Coach already gets block+form; **add `today.execution` + `fuel`.**
 > confidently diagnose under-recovery/under-fuelling or prescribe a skip off one compromised data
 > point. Ask/condition, don't assert.
 
-### 3. Adaptive logic — auto-reschedule of missed/compromised stimulus  ⭐ (remaining half)
-The **disposition flag is DONE** (see "Done recently") — a compromised session is now excluded
-from the model + flagged to Ask-Coach. What's left is the *plan-mutation* half:
-- **Sickness / extreme fatigue on a quality day:** flag/`fatigueAlert` on a Threshold/VO2/SIT day
-  → downgrade today to recovery and **reschedule the stimulus** (shift remaining quality days
-  forward, preserve weekly load) or carry it as a next-block seed if near the end. Never silently
-  delete prescribed work.
-- **Ghost-resistance / compromised:** the threshold target wasn't delivered → mark **not
-  delivered** and offer to reschedule it (same engine). The raw 1/10 already stays honest +
-  excluded from learning via the disposition flag; this step closes the *plan* side.
-- Riskier than the flag — it mutates the active block, so: preserve total load, respect
-  quality-day spacing, and keep it athlete-confirmed (suggest, don't silently rewrite).
+### 3. Adaptive logic — DONE (only the Intervals.icu calendar mirror remains)
+Both halves shipped: the disposition flag + learning gate, and the auto-reschedule engine
+(`lib/reschedule.ts` + `/api/reschedule` + RescheduleBanner) that detects a not-delivered quality
+session and suggests/applies a make-up on the next clear rest day in the **local** block.
+- **Remaining:** the reschedule rewrites the local block only — it doesn't yet move the event on
+  the **Intervals.icu calendar** (needs the event-mutation API; bundle with #7 bidirectional sync).
+  The banner currently tells the athlete to mirror the move manually.
+- **Possible follow-up:** a *proactive* sickness/fatigue path (downgrade today + reschedule before
+  the session is even missed, on a `fatigueAlert`), vs. the current reactive "you missed it" flow.
 
 ### 4. Let the validation loop accrue, then auto-down-weight
 `intervention-log.json` records verdicts after a 28-day horizon but has none yet. Once data exists,
@@ -112,6 +109,10 @@ than producing a flawed number. Small, zero-hallucination-correct.
 ---
 
 ## Done recently (context)
+- **Auto-reschedule** (roadmap #3, second half): `lib/reschedule.ts` detects the most recent
+  not-delivered quality session (missed / compromised / no ride) and suggests the next clear rest
+  day to make it up on (no back-to-back hard days); RescheduleBanner on the Plan page applies it to
+  the local block, athlete-confirmed. Intervals.icu calendar mirror still manual.
 - **UI refinements (Images 1–5):** readiness card trimmed to TSB/ACWR/Polarization; Trend Pulse
   reworked to CTL + weekly-volume bar + time-in-zones bar; Trends Execution-Quality + Recent-
   Baselines compacted into a 2-col pair, with Weekly hours replacing Avg CTL; Profile modernized
