@@ -86,6 +86,26 @@ Most of the Images 1–5 audit shipped — see "Done recently". Remaining:
 
 ## Larger / scoped features (when wanted)
 
+### 6a. Event-aware (race) block planning  ⭐
+Let the athlete name a target event and have block generation actually plan around it — taper,
+carb-load, race-day fuelling — instead of treating the race as just another goal string.
+- **Structured event:** date + priority (A/B/C) + expected duration/type. Today goals are
+  free-text (`athlete_profile.md` goal+target); add a parsed/structured race field (or a small
+  store) so generation knows the date deterministically.
+- **Periodization anchoring:** count down to the race; if it falls in the block, the final
+  ~1–2 weeks become a **taper** (KB `cycling_database.md` Taper/Event phase: reduced volume,
+  freshness), and the build peaks before it.
+- **Carb-load + 48h protocol:** the 36–48h-before days get elevated carb targets (KB
+  `nutrition_knowledge.md` Race Week: 8–12 g/kg) wired through `lib/nutrition.ts`; the day-before
+  + race morning get the **Race-Day 24h timeline** (pre-race meal T−4 to −3.5h, in-race g/h,
+  caffeine protocol) baked into the planned-ride descriptions.
+- **Race entry itself:** a planned event with its fuelling plan in the description.
+- **Contained AI:** the KB already *holds* all of this (carb-load tables, race-week, race-day
+  timeline, taper phase) + the nutrition engine computes the grams — the LLM only phrases the
+  hardwired protocol into each ride's description; it must not invent fuelling numbers.
+- This is the "Planned Event Framework" from the §2C audit (A/B/C races anchoring periodization),
+  which never made it in. Prereq for it to feel real: the structured event + taper logic.
+
 ### 6. Nutrition energy-balance wiring + expanded fueling
 - Feed the weekly graph's third axis (actual **weekly output kJ vs. weekly intake** + median weight
   trend) into a derived `fuelingState` that refines the buffer and lands in `CoachSnapshot.fuel`.
