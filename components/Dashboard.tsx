@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isStale, nextMonday } from "@/lib/client-api";
 import AskCoach from "./AskCoach";
 import SessionDisposition from "./SessionDisposition";
+import RescheduleBanner from "./RescheduleBanner";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type {
   AcwrResult,
@@ -1167,6 +1168,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
 
       {mode === "plan" && (
         <>
+      <RescheduleBanner />
       <RetroSection
         block={state.currentBlock}
         generating={retroGenerating}
