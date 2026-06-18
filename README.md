@@ -1,16 +1,57 @@
 # NodeVelo
 
-NodeVelo is a personal, single-user training "second brain" built on top of
-[Intervals.icu](https://intervals.icu). It pulls your physiology and activity history from
-Intervals.icu, layers a learning coaching model on top, generates structured training blocks
-with `claude-sonnet-4-6`, and writes the finished plan back to your Intervals.icu calendar.
+**A personal cycling coach that learns from how you actually train.** NodeVelo sits on top of
+[Intervals.icu](https://intervals.icu): it pulls your physiology and ride history, scores every
+session against what was prescribed, learns your strengths and weak points, and generates the next
+structured training block with `claude-sonnet-4-6` — then writes it back to your Intervals.icu
+calendar.
 
-Intervals.icu remains the system of record for day-to-day training; NodeVelo is the analytical
-and generative layer that decides **what to do next** and explains **how you executed**.
+Intervals.icu stays the **system of record** for day-to-day training. NodeVelo is the **thinking
+layer on top**: it decides *what to do next* and explains *how you executed* — the judgement a
+coach adds that a data platform doesn't.
 
-This document is an architectural manual: it describes how data flows, how the second brain
-separates owned intent from synced physiology, how the coach learns, and how the
-single-source-of-truth reconciliation keeps the model accurate over time.
+This README is the architectural manual. Start with **the core idea**; the numbered sections go
+deep on each pillar.
+
+---
+
+## The core idea
+
+Five design decisions define the whole app — everything else follows from them:
+
+1. **A layer, not a replacement.** NodeVelo never re-skins Intervals.icu's charts. It adds the
+   coaching judgement on top — analysis, learning, generation — and defers to Intervals.icu as the
+   source of truth for physiology. *(§1, §4)*
+
+2. **Deterministic core, generative shell.** All the math — scoring, zones, load, nutrition,
+   readiness — is plain, unit-tested TypeScript. The LLM only does language: it phrases plans and
+   analysis from numbers the code already computed. **The AI never owns arithmetic or physiological
+   limits**, so it cannot hallucinate your FTP or invent a calorie target. *(§3, "Nutrition is code")*
+
+3. **Two kinds of memory, treated oppositely.** *Owned intent* (goals, weak points, notes — what
+   only you know) is hand-written and never recomputed. *Synced physiology* (FTP, zones, weight,
+   fitness — what Intervals.icu measures) is a one-way pull and never hand-edited. Conflating the
+   two is the classic coaching-app bug; here the split is enforced structurally. *(§2)*
+
+4. **An immutable execution ledger.** Every ride is scored once, against the FTP that was live that
+   day, then frozen. The coach learns from this append-only history (recency-weighted), so trends
+   reflect *real adaptation* — not a moving FTP denominator quietly rewriting the past. *(§3, §4)*
+
+5. **Local-first, single-user.** Persistence is plain JSON (`data/`) and markdown
+   (`knowledge-base/`) on your machine — the filesystem *is* the database. No accounts, no cloud DB,
+   no multi-tenant surface. A deliberate constraint, not a missing feature (see ROADMAP "Decided
+   against"). *(§1)*
+
+## Documentation map
+
+| File | What it's for |
+|---|---|
+| `README.md` (this) | How the app works — the architectural manual |
+| [ROADMAP.md](ROADMAP.md) | Forward backlog: what's next, prioritized |
+| [ARCHIVE.md](ARCHIVE.md) | Completed work, grouped by theme |
+| [research.md](research.md) | Exploratory spikes — findings, not build commitments |
+| [todo.md](todo.md) | Lean live punch-list for incoming bugs / feedback |
+| `AGENTS.md` · `CLAUDE.md` | Operating constraints for AI coding agents |
 
 ---
 
@@ -406,7 +447,7 @@ and only phrases them in natural language — it never calculates nutrition.
 ## Development
 
 ```bash
-npm test       # vitest (169 tests across 22 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, parser, trends, PR detection, trace, …)
+npm test       # vitest (170 tests across 22 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, parser, trends, PR detection, trace, …)
 npm run lint
 npm run build
 ```

@@ -1,8 +1,11 @@
-# Nodevelo roadmap
+# NodeVelo roadmap
 
-A living backlog of unfinished / deferred work, so it's never lost between sessions. Ordered
-roughly by leverage. The main goal everything is measured against: **be a coaching *layer* that
-fuses signals into one coherent, self-correcting athlete model — not a re-skin of Intervals.icu.**
+The **forward backlog** — unfinished / deferred work, ordered roughly by leverage. The goal
+everything is measured against: **be a coaching *layer* that fuses signals into one coherent,
+self-correcting athlete model — not a re-skin of Intervals.icu.**
+
+Companion docs: live bugs → [todo.md](todo.md) · shipped work → [ARCHIVE.md](ARCHIVE.md) ·
+exploratory spikes → [research.md](research.md) · how it all works → [README.md](README.md).
 
 ---
 
@@ -120,7 +123,7 @@ triggered call and patches `today-analysis.json`.
 
 ## UI refinements
 
-Most of the Images 1–5 audit shipped — see "Done recently". Remaining:
+Most of the Images 1–5 audit shipped (see [ARCHIVE.md](ARCHIVE.md)). Remaining:
 - **Nutrition availability metric on the Today card** ⭐: derive an energy-availability / fuelling
   signal from the data we already have (weekly ride output kJ, weekly intake kcal, median weekly
   weight) and surface it on Today. Goal: a glanceable "are you under-fuelled?" flag, so a bad
@@ -184,69 +187,20 @@ than producing a flawed number. Small, zero-hallucination-correct.
 
 ---
 
-## Exploratory research (not committed) — the "Second Brain" vision
+## Exploratory research
 
-A research spike (deployment + libraries undecided) into evolving Nodevelo from a static store into a
-learning / reasoning / connected "second brain", framed as **Hippocampus** (memory) · **Cortex**
-(knowledge) · **Prefrontal** (orchestration). **Verdict: the capabilities mostly already exist in
-lean, deterministic form — the real gap is signal fusion (#5), not new frameworks. Findings only, no
-build commitment.** Most named libraries also conflict with the local-first / zero-bloat /
-deterministic-core mandates, and several overlap items already in "Decided against".
-
-Anatomy → what already plays each role today:
-- **Hippocampus / memory** → immutable `score-log` ledger + rolling baselines + `intervention-log`;
-  the EWMA (`α=0.35`) already *is* recency decay.
-- **Cortex / knowledge** → KB context-dump (small, intentional) + `synthesis.ts` directives.
-- **Prefrontal / orchestration** → the sync pipeline + synthesis + the intervention validation loop.
-
-Per-target findings:
-
-| Target | Capability | Verdict | Lean path if ever pursued |
-|---|---|---|---|
-| `langchain-ai/langgraph` | cyclic hypothesis→verify→refine | Skip the framework; chase the *outcome* | #5 signal fusion + the existing validation loop |
-| `mem0ai/mem0` | memory + decay + entity recall | Skip — opaque LLM memory vs. the deterministic core | ledger + EWMA + targeted queries over `score-log` |
-| `microsoft/graphrag` | KB correlation graph | Skip — heavy Python batch pipeline; ≈ the rejected Obsidian/Cytoscape graph | "knowledge connections (lean)" below |
-| `logseq` block-refs | live insight references | Skip — ≈ the rejected RxDB/sqlite rewrite | insights are already injected at generation; the ledger is the audit trail |
-| HRV / raw FIT (`garmin-fit`) | readiness beyond TSB | **Wanted but gated** — no HRV source today | when one exists, prefer synced `wellness.hrv` → rolling baseline in `readiness.ts` |
-
-Lean spin-offs worth keeping on the radar (the prioritised slices of the spike):
-- **Knowledge connections (lean):** surface simple correlations from the *structured* data we already
-  hold — e.g. compromised-reason (sickness/equipment) → next-session execution, or low-fuel weeks →
-  decoupling — computed deterministically and shown in Trends/insights. NOT a graph DB.
-- **HRV-based readiness (gated):** upgrade `readiness.ts` with an HRV rolling baseline once a data
-  source exists. Lightest path = the synced `wellness.hrv` field; FIT-file parsing is the heavy path.
-- **Signal fusion** is the genuine "reasoning loop" win and already lives at **#5** — that's where the
-  LangGraph/Mem0 *intent* should land, in lean deterministic form.
+Bigger architectural directions (the "Second Brain" spike: LangGraph / Mem0 / GraphRAG / Logseq /
+HRV) are evaluated in **[research.md](research.md)** — recorded as findings, not build commitments.
+The short version: the capabilities mostly already exist in lean form; the real gap is **signal
+fusion (§5)**, and the lean spin-offs worth pursuing are knowledge-connections and HRV-readiness.
 
 ---
 
-## Done recently (context)
-- **All-time power PRs** (#9): `fetchPowerCurveAllTime()` pulls Intervals.icu's `curves=all` best
-  efforts into `SyncData.powerCurveAllTime`; the Profile "Power PRs" card now shows all-time bests,
-  and PR detection (`lib/pr.ts`) uses the all-time curve as a monotonic baseline (prev-sync vs
-  current) — no window false-drops, true all-time deltas. Falls back to the 84-day curve if the
-  all-time fetch is unavailable.
-- **Auto-reschedule** (roadmap #3, second half): `lib/reschedule.ts` detects the most recent
-  not-delivered quality session (missed / compromised / no ride) and suggests the next clear rest
-  day to make it up on (no back-to-back hard days); RescheduleBanner on the Plan page applies it to
-  the local block, athlete-confirmed. Intervals.icu calendar mirror still manual.
-- **UI refinements (Images 1–5):** readiness card trimmed to TSB/ACWR/Polarization; Trend Pulse
-  reworked to CTL + weekly-volume bar + time-in-zones bar; Trends Execution-Quality + Recent-
-  Baselines compacted into a 2-col pair, with Weekly hours replacing Avg CTL; Profile modernized
-  (eyebrow headings, hairline dividers, looser spacing) to match the other pages.
-- Session **disposition flag + learning gate** (roadmap #3, first half): athlete marks
-  Completed/Partial/Compromised(reason) on the ride card; compromised rides are kept as history
-  but excluded from the execution EWMA + execution-quality metric, and surfaced to Ask-Coach so a
-  fluke (e.g. equipment) can't be misread as under-recovery. `data/dispositions.json`.
-- Quick UI wins: Sparkline tooltip border/guide now match the chart accent (cyan CTL / pink Pw:HR);
-  removed Avg CTL from Recent Baselines; "Week W of N · N sessions to go" (also fixed rest-days
-  being counted as sessions).
-- Atomic writes + ledger backup/recovery (`lib/json-store.ts`).
-- Synthesis: one coaching-directive block; dropped redundant `compliance-memory`.
-- Calibration v1: auto-α + ACWR bands (manual override).
-- Closed the learning loop: score all rides + intervention validation.
-- Compliance unified into the execution/completion index; duration-aware interval scoring;
-  time-in-zone polarization; physiology single-source-of-truth; Ask-Coach (block+form context).
+## Shipped
+
+Completed work has moved to **[ARCHIVE.md](ARCHIVE.md)** to keep this list forward-looking.
+
+---
 
 ## Decided against (don't re-propose without a real reason)
 - **Postgres/Supabase + RLS · blob storage for KB · auth middleware** — an external audit flagged
