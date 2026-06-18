@@ -244,8 +244,9 @@ export async function POST() {
           }
           const trace = buildRideTrace(powerStream, hrStream, executed, prescription[0]?.targetWatts ?? null);
 
-          // Power PRs set during this ride, vs the curve as it stood before this sync (DI-4/PW-10).
-          const powerPRs = detectPowerPRs(powerStream, prevSync?.powerCurve ?? []);
+          // Power PRs: durations where the freshly-synced curve beat the previous sync's curve
+          // (both Intervals.icu's own math, so the delta is honest — no stream-vs-curve noise).
+          const powerPRs = detectPowerPRs(lastSync.powerCurve, prevSync?.powerCurve ?? []);
 
           // Execution score: on interval days the power-target adherence is the primary
           // execution signal; duration compliance is used otherwise. RPE adds effort.

@@ -191,11 +191,13 @@ The interval matcher is deliberately defensive about detection noise:
 
 ### Breakthrough (power-PR) recognition (`lib/pr.ts`)
 
-On each sync, the ride's mean-max power for the standard durations (5/15/30 s, 1/5/20 min) is
-computed from its power stream and compared against the 84-day power curve **as it stood before
-this sync** — so a fresh best registers exactly once (the sync then absorbs it into the curve).
-New PRs are stored on `today-analysis.json`, fed to the coach note (which is told to call out a
-breakthrough first), and shown as a 🏆 banner on the Today card with the gain over the prior best.
+On each sync, the freshly-synced power curve is compared against the curve as it stood on the
+**previous sync**, per standard duration (5/15/30 s, 1/5/20 min). A duration that rose is a genuine
+new best — the only new data since last sync is the latest ride — and the delta is the true watts
+gained. Both sides use Intervals.icu's own curve math, so there's no stream-mean-max-vs-curve
+mismatch (that had manufactured fake "+1 W" PRs). New PRs are stored on `today-analysis.json`, fed
+to the coach note (told to call out a breakthrough first), and shown as a 🏆 banner on the Today
+card with the gain over the prior best.
 
 ### The athlete model (`lib/athlete-model.ts`)
 
@@ -377,7 +379,7 @@ deliberate cornering practice.
 | `score-log.ts` | Build + immutably merge the per-ride execution ledger |
 | `disposition.ts` | Apply athlete session attributions (compromised excluded from metrics) onto the ledger |
 | `ride-classify.ts` | Infer a ride's workout type from its intensity/structure |
-| `pr.ts` | Power-PR detection — ride mean-max vs the prior 84-day curve |
+| `pr.ts` | Power-PR detection — freshly-synced curve vs the previous sync's curve |
 | `athlete-model.ts` | EWMA model + trend detection + insight derivation |
 | `synthesis.ts` | Rank model insights into one coaching-directive block for generation |
 | `intervention.ts` | Snapshot directives at block-write, validate/refute them after maturity |

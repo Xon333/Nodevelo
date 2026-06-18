@@ -1,38 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { detectPowerPRs, meanMax, prDurationLabel } from "./pr";
+import { detectPowerPRs, prDurationLabel } from "./pr";
 import type { PowerCurvePoint } from "./types";
 
 const curve = (over: Record<number, number>): PowerCurvePoint[] =>
   Object.entries(over).map(([durationSec, watts]) => ({ durationSec: Number(durationSec), watts }));
 
-describe("meanMax", () => {
-  it("finds the best average over any window", () => {
-    expect(meanMax([100, 100, 400, 400, 100], 2)).toBe(400); // the 400,400 window
-    expect(meanMax([100, 200, 300], 3)).toBe(200);
-  });
-  it("returns null when the stream is shorter than the window", () => {
-    expect(meanMax([100, 200], 5)).toBeNull();
-  });
-});
-
 describe("detectPowerPRs", () => {
-  it("flags durations where this ride beat the prior best", () => {
-    // 30 samples at 350W → 5s/15s/30s mean-max = 350.
-    const stream = Array.from({ length: 30 }, () => 350);
-    const prs = detectPowerPRs(stream, curve({ 5: 300, 15: 320, 30: 360, 60: 400 }));
-    // 5s (350>300) and 15s (350>320) are PRs; 30s (350<360) is not; 60s has no data in stream.
-    expect(prs.map((p) => p.durationSec)).toEqual([5, 15]);
-    expect(prs[0]).toEqual({ durationSec: 5, watts: 350, prevWatts: 300 });
+  it("flags durations where the fresh curve beat the previous sync's curve, with the true delta", () => {
+    const prev = curve({ 5: 700, 30: 600, 60: 500, 300: 340 });
+    const cur = curve({ 5: 740, 30: 626, 60: 500, 300: 335 });
+    const prs = detectPowerPRs(prev.length ? cur : [], prev);
+    // 5s (+40) and 30s (+26) rose; 60s unchanged; 300s dropped → not PRs.
+    expect(prs).toEqual([
+      { durationSec: 5, watts: 740, prevWatts: 700 },
+      { durationSec: 30, watts: 626, prevWatts: 600 },
+    ]);
   });
 
-  it("returns nothing when there is no prior curve (first sync)", () => {
-    expect(detectPowerPRs(Array.from({ length: 30 }, () => 350), [])).toEqual([]);
+  it("does NOT flag an unchanged curve (re-sync) — no fake +1W PRs", () => {
+    const c = curve({ 5: 739, 30: 626, 60: 507 });
+    expect(detectPowerPRs(c, c)).toEqual([]);
   });
 
-  it("ignores durations longer than the ride and zero baselines", () => {
-    const stream = Array.from({ length: 10 }, () => 500);
-    const prs = detectPowerPRs(stream, curve({ 5: 0, 300: 250 }));
-    expect(prs).toEqual([]); // 5s baseline is 0 (skipped); 300s longer than the 10-sample ride
+  it("returns nothing when there's no prior curve (first sync) or no current curve", () => {
+    expect(detectPowerPRs(curve({ 5: 740 }), [])).toEqual([]);
+    expect(detectPowerPRs([], curve({ 5: 700 }))).toEqual([]);
+  });
+
+  it("ignores zero/absent baselines and durations missing from the current curve", () => {
+    const prs = detectPowerPRs(curve({ 5: 740 }), curve({ 5: 0, 30: 600 }));
+    expect(prs).toEqual([]); // 5s baseline is 0 (skipped); 30s absent from current curve
   });
 });
 
