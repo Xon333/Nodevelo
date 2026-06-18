@@ -65,7 +65,9 @@ export function physMarkerFor(dimension: string, sync: SyncData): { value: numbe
     case "Threshold":
       return { value: curveWatts(sync, 1200), metric: "20-min power" };
     case "SIT":
-      return { value: curveWatts(sync, 60), metric: "1-min power" };
+      // SIT is a 30s all-out protocol (KB §4), so its progress marker is 30-second power —
+      // not 1-min, which would track a different effort length than the session trains.
+      return { value: curveWatts(sync, 30), metric: "30-sec power" };
     default:
       return { value: currentPwHr(sync), metric: "Pw:HR" };
   }

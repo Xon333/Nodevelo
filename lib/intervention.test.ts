@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInterventions, summariseValidation, validateInterventions } from "./intervention";
+import { buildInterventions, physMarkerFor, summariseValidation, validateInterventions } from "./intervention";
 import type { AthleteModel, Insight, InterventionLog, InterventionRecord, SyncData } from "./types";
 
 const model = (vo2Exec: number, overall = 6): AthleteModel => ({
@@ -36,6 +36,31 @@ describe("buildInterventions", () => {
     expect(recs[0].baselinePhys).toBe(330);
     expect(recs[0].physMetric).toBe("5-min power");
     expect(recs[0].outcome).toBeNull();
+  });
+});
+
+describe("physMarkerFor", () => {
+  // PW-2: SIT is a 30s all-out protocol, so its progress marker must be 30-second power,
+  // not 1-min — otherwise validation tracks a different effort length than the session trains.
+  const curve: SyncData = {
+    syncedAt: "2026-01-01T00:00:00.000Z",
+    activities: [],
+    wellness: [],
+    powerCurve: [
+      { durationSec: 30, watts: 540 },
+      { durationSec: 60, watts: 450 },
+      { durationSec: 300, watts: 330 },
+      { durationSec: 1200, watts: 290 },
+    ],
+    fitness: { ctl: null, atl: null, tsb: null },
+  };
+
+  it("tracks SIT via 30-second power (not 1-min)", () => {
+    expect(physMarkerFor("SIT", curve)).toEqual({ value: 540, metric: "30-sec power" });
+  });
+  it("tracks VO2max via 5-min and Threshold via 20-min power", () => {
+    expect(physMarkerFor("VO2max", curve)).toEqual({ value: 330, metric: "5-min power" });
+    expect(physMarkerFor("Threshold", curve)).toEqual({ value: 290, metric: "20-min power" });
   });
 });
 

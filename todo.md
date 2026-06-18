@@ -19,6 +19,9 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | DI-1 | Matcher now flags `structuralMismatch` (plan rep-def ≠ ridden, power nailed) → scoring drops the bad duration penalty, coach note + Today-card caption explain it; bail vs mismatch separated by power. `lib/interval-match.ts` |
 | DI-2 | Interval power mis-read (540W vs 445W): split `filterPower` (NP-first, for work-band filtering) from `adherePower` (avgWatts-first, for adherence calc) in `lib/interval-match.ts` — NP overstates adherence on short/variable efforts |
 | PW-6 | Ask-Coach now sees the next planned session (`upcoming` in `AskCoachContext`): route finds the nearest future day with a prescription; prompt surfaces its exact reps + "do not invent durations" — kills the "4m for a 30s SIT day" hallucination |
+| PW-2 | SIT consistency: `physMarkerFor` tracked SIT progress via 1-min power; now 30-sec power to match the 30s all-out protocol (KB §4). All surfaces (KB, validator, prompt, Ask-Coach, marker) now agree on 30s. `lib/intervention.ts` |
+| TODAY-6 | ACWR tooltip completed: added the <0.8 detraining band to the existing what/why/safe-band/spike explanation (`components/Dashboard.tsx`) |
+| TODAY-8 | TSB (Form) tooltip added: definition (CTL−ATL), calc basis, and readiness bands (−10/−30 overload, ~0 balanced, +5/+25 race-fresh). `components/Dashboard.tsx` |
 
 ---
 
@@ -31,7 +34,6 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 ## Plan & workout structure
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
-| PW-2 | ☐ | P2 | bug | SIT listed as 30s in places but conflicts elsewhere (resolve via PW-7) |
 | PW-1 | ☐ | P2 | feat | Sprints: seated-only — add standing technique option + when/how guidance |
 | PW-3 | ☐ | P2 | feat | Race-sim rides as a real workout type (hill attacks, KOM hunts, block-fit logic) — today only a goal string |
 | PW-9 | ☐ | P2 | feat | Fluid/athlete-directed sessions (e.g. "find 2×20m climbs, push; Z2 else") — needs DB rules so AI treats them as structured-but-flexible |
@@ -54,8 +56,6 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 |----|---|-----|------|------|
 | TODAY-1 | ☐ | P2 | audit | Metric duplication: IF + TSS vs Intervals "Load" — keep only what moves the needle; cut data fatigue |
 | TODAY-7 | ☐ | P2 | audit | Verify completed/partial/compromised state logic + UI updates (→ ROADMAP §3) |
-| TODAY-6 | ☐ | P3 | edu | ACWR: add what it is, why it matters, good/concerning bands |
-| TODAY-8 | ☐ | P3 | edu | TSB (Form): add definition, calc basis, readiness meaning |
 
 ## Plan page
 | ID | S | Pri | Type | Item |

@@ -816,13 +816,22 @@ function RecentDataSummary({
   // rest on Trends.
   const tiles = (
     <div className="grid grid-cols-3 gap-2">
-      <StatTile label="TSB (form)" value={sync.fitness.tsb?.toFixed(1) ?? "—"} arrow={tsbArrow} accent="pink" />
+      <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+        <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-400">
+          <span className="cursor-help underline decoration-dotted underline-offset-2">TSB (form)</span>
+          <MetricTip text="Training Stress Balance = fitness (CTL, 42-day load) minus fatigue (ATL, 7-day load) — your 'form'. Negative means you're carrying training fatigue; positive means you're fresh/tapered. Rough guide: −10 to −30 is productive overload, around 0 is balanced, +5 to +25 is race-ready freshness, below −30 risks digging a hole." />
+        </p>
+        <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#ff49c8]">
+          {sync.fitness.tsb?.toFixed(1) ?? "—"}
+          {tsbArrow ? <span className="ml-0.5 text-[10px] font-normal text-cyan-600 dark:text-[#00d4ff]">{tsbArrow}</span> : null}
+        </p>
+      </div>
       {acwr && (
         <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-400">
             <span className="cursor-help underline decoration-dotted underline-offset-2">ACWR</span>
             <MetricTip
-              text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). 0.8–1.3 is the safe progression band; >1.5 is a spike with raised injury risk. You're at ${acwr.ratio.toFixed(2)} (${acwr.level}).`}
+              text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Below 0.8 you're detraining (losing fitness); 0.8–1.3 is the safe progression sweet spot; >1.5 is a spike with raised injury risk. You're at ${acwr.ratio.toFixed(2)} (${acwr.level}).`}
             />
           </p>
           <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-100">
