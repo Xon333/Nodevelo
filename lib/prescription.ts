@@ -48,8 +48,10 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
     const step = parseStep(line);
     if (!step || step.pct < WORK_THRESHOLD_PCT) continue;
     const targetWatts = ftp > 0 ? Math.round((step.pct / 100) * ftp) : 0;
-    const mins = Math.round(step.durationSec / 60);
-    const durLabel = mins >= 1 ? `${mins}m` : `${step.durationSec}s`;
+    // Label by real duration: sub-minute → "30s", exact minutes → "20m", mixed → "1m30s".
+    // (The old `Math.round(sec/60)` turned 30s into "1m" because 0.5 rounds up.)
+    const s = step.durationSec;
+    const durLabel = s < 60 ? `${s}s` : s % 60 === 0 ? `${s / 60}m` : `${Math.floor(s / 60)}m${s % 60}s`;
     out.push({
       reps: currentReps,
       durationSec: step.durationSec,

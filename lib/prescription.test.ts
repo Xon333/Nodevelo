@@ -30,6 +30,13 @@ describe("parsePrescription", () => {
     const wo = "Main Set 8x\n- 30s 150%\n- 30s 50%\n\n- 20m 95%";
     const p = parsePrescription(wo, FTP);
     expect(p[0]).toMatchObject({ reps: 8, durationSec: 30, targetWatts: 432 });
+    expect(p[0].label).toBe("8×30s @ 432W"); // 30s must NOT round up to "1m"
     expect(p[1]).toMatchObject({ reps: 1, durationSec: 1200 });
+  });
+
+  it("labels sub-minute, exact-minute and mixed durations correctly", () => {
+    expect(parsePrescription("Main Set 5x\n- 30s 150%", FTP)[0].label).toBe("5×30s @ 432W");
+    expect(parsePrescription("Main Set 4x\n- 4m 110%", FTP)[0].label).toBe("4×4m @ 317W");
+    expect(parsePrescription("Main Set 3x\n- 90s 120%", FTP)[0].label).toBe("3×1m30s @ 346W");
   });
 });

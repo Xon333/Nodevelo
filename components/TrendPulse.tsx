@@ -48,7 +48,7 @@ function VolumeTile({ weeks, onClick }: { weeks: TrendsResp["weeklyHours"]; onCl
           <div
             key={i}
             title={`Week of ${w.date}: ${w.hours} h`}
-            className="flex-1 cursor-help rounded-[1px] bg-zinc-300 dark:bg-[#00d4ff]/45"
+            className="flex-1 rounded-[1px] bg-zinc-300 dark:bg-[#00d4ff]/45"
             style={{ height: `${Math.max(6, (w.hours / max) * 100)}%` }}
           />
         ))}

@@ -33,7 +33,11 @@ describe("buildRideTrace", () => {
       { ...work(60, 80), type: "RECOVERY" }, // not WORK → dropped
     ];
     const trace = buildRideTrace(power, [], executed, 250)!;
-    expect(trace.bands).toEqual([{ start: 0.1, end: 0.3 }]);
+    // 100 samples (≤ cap) → drawn across pts-1=99 steps, so raw 10/30 map to 10/99 and 30/99
+    // (the alignment fix: bands share the power line's (pts-1) denominator).
+    expect(trace.bands).toHaveLength(1);
+    expect(trace.bands[0].start).toBeCloseTo(10 / 99, 5);
+    expect(trace.bands[0].end).toBeCloseTo(30 / 99, 5);
     expect(trace.targetWatts).toBe(250);
   });
 });

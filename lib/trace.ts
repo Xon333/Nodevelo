@@ -56,13 +56,20 @@ export function buildRideTrace(
 ): RideTrace | null {
   if (power.length < 2) return null;
   const len = power.length;
+  // 30 s smoothing before downsampling tames the spiky raw signal (UI-5).
+  const dsPower = downsample(smooth(power, 30), points);
+  const pts = dsPower.length;
+  // Map raw sample indices into the SAME coordinate space the power line is drawn in: the chart
+  // plots point i at x = i/(pts-1), so a raw index must scale by pts/((pts-1)·len), not 1/len —
+  // otherwise the work bands sit ~1px left of the line (worse toward the ride's end).
+  const scale = pts > 1 ? pts / ((pts - 1) * len) : 1 / len;
   const bands = executed
     .filter((e) => e.type === "WORK" && e.startIndex !== null && e.endIndex !== null)
-    .map((e) => ({ start: (e.startIndex as number) / len, end: (e.endIndex as number) / len }))
-    .filter((b) => b.end > b.start && b.start >= 0 && b.end <= 1);
+    .map((e) => ({ start: (e.startIndex as number) * scale, end: (e.endIndex as number) * scale }))
+    .filter((b) => b.end > b.start && b.start >= 0 && b.start < 1)
+    .map((b) => ({ start: b.start, end: Math.min(1, b.end) }));
   return {
-    // 30 s smoothing before downsampling tames the spiky raw signal (UI-5).
-    power: downsample(smooth(power, 30), points),
+    power: dsPower,
     hr: hr.length >= 2 ? downsample(hr, points) : [],
     bands,
     targetWatts,

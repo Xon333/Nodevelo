@@ -259,20 +259,25 @@ function ZoneBars({ times, label, secondary }: { times: number[]; label: string;
     "bg-red-600 dark:bg-red-700",
     "bg-red-900 dark:bg-red-900",
   ];
+  const fmtT = (s: number) =>
+    s >= 3600 ? `${Math.floor(s / 3600)}h${Math.round((s % 3600) / 60)}m` : `${Math.max(1, Math.round(s / 60))}m`;
+  // Visible segments only; track first/last so the bar keeps its rounded ends without the
+  // overflow-hidden that would otherwise clip each segment's hover tooltip.
+  const segs = pcts.map((pct, i) => ({ pct, i })).filter((s) => s.pct >= 1);
   return (
     <div className={secondary ? "opacity-90" : undefined}>
       <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">{label}</p>
-      <div className={`flex w-full overflow-hidden rounded gap-px ${secondary ? "h-2" : "h-4"}`}>
-        {pcts.map((pct, i) =>
-          pct >= 1 ? (
+      <div className={`flex w-full gap-px ${secondary ? "h-2" : "h-4"}`}>
+        {segs.map((s, k) => (
+          <div key={s.i} style={{ width: `${s.pct}%` }} className="group/zone relative shrink-0">
             <div
-              key={i}
-              style={{ width: `${pct}%` }}
-              title={`Z${i + 1} · ${pct}%`}
-              className={`${ZONE_COLORS[i] ?? "bg-zinc-400"} shrink-0 cursor-help`}
+              className={`h-full w-full ${k === 0 ? "rounded-l" : ""} ${k === segs.length - 1 ? "rounded-r" : ""} ${ZONE_COLORS[s.i] ?? "bg-zinc-400"}`}
             />
-          ) : null
-        )}
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1 -translate-x-1/2 whitespace-nowrap rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 opacity-0 shadow-md transition-opacity duration-100 group-hover/zone:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              Z{s.i + 1} · {s.pct}% · {fmtT(times[s.i])}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -340,7 +345,7 @@ function TodayRideCard({
               className="rounded-full bg-white px-2 py-0.5 font-mono text-[11px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
             >
               {prDurationLabel(pr.durationSec)} {pr.watts}W
-              <span className="ml-1 text-amber-500/80 dark:text-amber-400/70">+{pr.watts - pr.prevWatts}</span>
+              <span className="ml-1 text-amber-500/80 dark:text-amber-400/70">+{pr.watts - pr.prevWatts}W</span>
             </span>
           ))}
         </div>
@@ -874,7 +879,7 @@ function RecentDataSummary({
     <div className="grid grid-cols-3 gap-2">
       <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
         <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-400">
-          <span className="cursor-help underline decoration-dotted underline-offset-2">TSB (form)</span>
+          <span className="underline decoration-dotted underline-offset-2">TSB (form)</span>
           <MetricTip text="Training Stress Balance = fitness (CTL, 42-day load) minus fatigue (ATL, 7-day load) — your 'form'. Negative means you're carrying training fatigue; positive means you're fresh/tapered. Rough guide: −10 to −30 is productive overload, around 0 is balanced, +5 to +25 is race-ready freshness, below −30 risks digging a hole." />
         </p>
         <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#ff49c8]">
@@ -885,7 +890,7 @@ function RecentDataSummary({
       {acwr && (
         <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-400">
-            <span className="cursor-help underline decoration-dotted underline-offset-2">ACWR</span>
+            <span className="underline decoration-dotted underline-offset-2">ACWR</span>
             <MetricTip
               text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Below 0.8 you're detraining (losing fitness); 0.8–1.3 is the safe progression sweet spot; >1.5 is a spike with raised injury risk. You're at ${acwr.ratio.toFixed(2)} (${acwr.level}).`}
             />
@@ -899,7 +904,7 @@ function RecentDataSummary({
       {polarization && (
         <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-400">
-            <span className="cursor-help underline decoration-dotted underline-offset-2">Polarization</span>
+            <span className="underline decoration-dotted underline-offset-2">Polarization</span>
             <MetricTip
               align="right"
               text="Share of training time spent easy / moderate / hard (by ride power vs FTP) over the last 7 days. ~80% easy is the endurance-base target — most of your time should be in the first number."
