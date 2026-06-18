@@ -253,7 +253,7 @@ BLOCK OVERVIEW
 
 WEEK [N]: [Week theme]
 DAY [date]: [Session name]
-  TYPE: [Workout type: Z2 / Threshold / VO2max / SIT / Recovery / Strength / Rest]
+  TYPE: [Workout type: Z2 / Threshold / VO2max / SIT / RaceSim / Recovery / Strength / Rest]
   DURATION: [minutes]
   WORKOUT: [Intervals.icu workout syntax per the syntax guide; for Rest days write "Rest"]
   DESCRIPTION: [Nutrition and intent description — see format below]
@@ -275,11 +275,13 @@ ${nutritionTableMd}
 Hard rules:
 - Use ISO dates (YYYY-MM-DD) in every DAY line, exactly as listed above.
 - DURATION is an integer number of minutes.
-- TYPE must be one of: Z2, Threshold, VO2max, SIT, Recovery, Strength, Rest.
+- TYPE must be one of: Z2, Threshold, VO2max, SIT, RaceSim, Recovery, Strength, Rest.
 - **Interval protocols — match the knowledge base exactly:** SIT = 4–6 × 20–30s ALL-OUT efforts (maximal, 130–200% FTP) with 4 min easy recovery — never prescribe SIT as 1-minute or sub-130% efforts, and state the effort as "all-out / maximal" in the DESCRIPTION intent. VO2max = 3–8 min efforts at 106–120% FTP. Threshold = 88–105% FTP (sweet-spot 88–93%). Do not push a Threshold session above 105% or a VO2max session above 120%.
+- **RaceSim (KB §10) — a peaking/sharpening session, not a base-week one:** a structured-but-variable race rehearsal — 3–6 "race moves" (e.g. 2–4 min climbs at 100–115% with short 30–60s standing attacks layered on, 3–6 min easy between), optional finishing sprint; whole-session IF ~0.80–0.88. Use it in the back half of a build / event lead-in, as one of the week's quality sessions. Best fit for this athlete's hilly-KOM goals.
+- **Athlete-directed / terrain-flexible sessions (KB §11):** for outdoor quality you may prescribe a structured-but-flexible session instead of a fixed ladder — state target efforts as ranges (count · duration band · intensity band, e.g. "2–3 × ≥5 min @ threshold"), a placement rule ("on any sustained climb"), and a strict Z2 + HR-cap floor for the rest. Keep at least one fixed/ERG quality session per week as the controlled benchmark.
 - **Execution cues (DESCRIPTION "Execution" line — grounded in the KB + this athlete's weakpoints; one short clause, only when it genuinely helps):**
   - **Long / endurance Z2 (esp. on hilly routes):** govern by the HR ceiling (top of Z2), not just watts — grey-zone drift is this athlete's known outdoor leak. On climbs let power drift up briefly but keep HR capped; ease on descents instead of surging (amateurs surge climbs and coast descents — the opposite of optimal).
-  - **Sprints / SIT:** stay seated — standing recruits upper body and gives less consistent power.
+  - **SIT:** stay seated — standing recruits upper body and gives less consistent power for the 30s aerobic efforts. **Standing sprints** are a separate skill (KB): cue them only on dedicated neuromuscular / race-sprint work or RaceSim attacks (hands in drops, rock the bike under a quiet torso, bigger gear) — this athlete has flagged out-of-saddle technique as a weakpoint worth practising.
   - **Rides with descents:** treat descents as deliberate practice for descending and cornering (known weakpoints) — work line choice and braking, not just recovery.
   Omit the Execution line for Rest days and whenever no cue adds value; never repeat the Intent.
 - Workout step durations must sum approximately to DURATION.

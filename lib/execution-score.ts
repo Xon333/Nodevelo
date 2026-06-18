@@ -86,6 +86,12 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
         else if (IF >= 0.90) score += 1;
         else score -= 1;
         break;
+      case "RaceSim":
+        // Race-sim is hard + surgy — reward a genuinely high, variable effort; penalise a soft one.
+        if (IF >= 0.80 && IF <= 0.95) score += 2;
+        else if (IF >= 0.75 && IF <= 1.0) score += 1;
+        else if (IF < 0.70) score -= 2;
+        break;
     }
   }
 

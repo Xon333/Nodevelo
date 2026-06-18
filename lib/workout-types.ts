@@ -11,7 +11,7 @@ export interface TypeStyle {
 
 // Cyberpunk neon spectrum, cool→warm by intensity, each hue distinct:
 // Recovery cyan · Z2 emerald · Strength violet · Threshold amber · VO2max orange ·
-// SIT rose · Rest muted zinc. Reads as one palette but stays easy to tell apart.
+// SIT rose · RaceSim fuchsia · Rest muted zinc. Reads as one palette but stays easy to tell apart.
 export const TYPE_STYLES: Record<WorkoutType, TypeStyle> = {
   Z2: {
     badge: "bg-emerald-100 text-emerald-800 border-emerald-300",
@@ -37,6 +37,11 @@ export const TYPE_STYLES: Record<WorkoutType, TypeStyle> = {
     badge: "bg-rose-100 text-rose-800 border-rose-300",
     cell: "bg-rose-500",
     accent: "#f43f5e",
+  },
+  RaceSim: {
+    badge: "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300",
+    cell: "bg-fuchsia-600",
+    accent: "#c026d3",
   },
   Strength: {
     badge: "bg-violet-100 text-violet-800 border-violet-300",

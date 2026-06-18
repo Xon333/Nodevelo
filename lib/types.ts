@@ -5,6 +5,7 @@ export type WorkoutType =
   | "Threshold"
   | "VO2max"
   | "SIT"
+  | "RaceSim"
   | "Recovery"
   | "Strength"
   | "Rest";
@@ -14,6 +15,7 @@ export const WORKOUT_TYPES: WorkoutType[] = [
   "Threshold",
   "VO2max",
   "SIT",
+  "RaceSim",
   "Recovery",
   "Strength",
   "Rest",

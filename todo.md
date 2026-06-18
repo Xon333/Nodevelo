@@ -32,25 +32,17 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | PW-4 | Long-Z2-on-hills execution guidance added to generation prompt: govern by HR ceiling (top of Z2) not just watts, let power drift on climbs but cap HR, ease descents instead of surging — grounded in KB grey-zone-drift weakpoint. `lib/anthropic-api.ts` |
 | PW-5 | Contextual technique cues in ride descriptions: new optional `Execution:` line in DESCRIPTION format + grounded rule (sit-down sprints, descents as descending/cornering practice — the athlete's weakpoints). Parser passes it through as free-text. `lib/anthropic-api.ts` |
 | UI-5 | Ride-card power trace: 30s rolling-mean smoothing (`lib/trace.ts`) tames the jumpy line; short work-interval bands now have a min width + stronger amber/cyan fill+edge so 30s reps are visible (`components/RideTrace.tsx`); caption notes "30s smoothed". Clutter already cut via TODAY-1 (6→4 tiles). Smoothing applies on next sync (trace is computed at sync time). Open-ended full hierarchy redesign left as a future judgment call. |
-| DI-4 / PW-10 | Power-PR recognition: `lib/pr.ts` computes per-duration mean-max from the ride's power stream vs the curve as it stood BEFORE this sync (so a fresh best registers once). Stored on `todayAnalysis.powerPRs`; coach note now calls out breakthroughs first (DI-4); Today card shows a 🏆 trophy banner with each PR + delta (PW-10). Durations: 5/15/30s, 1/5/20 min. `lib/pr.ts`, `app/api/sync/route.ts`, `lib/anthropic-api.ts`, `components/Dashboard.tsx` |
+| DI-4 / PW-10 | Power-PR recognition: `lib/pr.ts` (now curve-to-curve, all-time baseline via ROADMAP #9). Coach note calls out breakthroughs first (DI-4); Today card shows a 🏆 trophy banner with each PR + delta (PW-10). `lib/pr.ts`, `app/api/sync/route.ts`, `lib/anthropic-api.ts`, `components/Dashboard.tsx` |
+| NUT-6 | Audit (pass, no change): weight is **live-synced** (`generate/route.ts` uses latest `wellness.weightKg`, profile fallback); buffer self-adjusts ±150 kcal vs the 7-day weight trend, clamped 0–600, deliberately not applied on rest days; carbs scale by body mass (glycogen), protein flat ~30g (MPS saturates — per-kg scaling isn't an improvement). The real enhancement (energy-availability / under-fuel signal) is already ROADMAP §6 + the Today nutrition-availability metric. |
+| PW-1 | Standing-sprint technique: KB §4 now distinguishes seated SIT (aerobic, consistent power) from standing sprints (neuromuscular/race skill) + technique cues; generation execution-cue updated to coach standing only on dedicated sprint/RaceSim work (the athlete's flagged weakpoint). `knowledge-base/training_knowledge.md`, `lib/anthropic-api.ts` |
+| PW-3 | Race-sim is a real workout type: added `RaceSim` to `WorkoutType` + styles, nutrition (factor 0.82, durations, hard-type), execution-score IF band, reschedule quality list, generation TYPE list + KB §10 protocol (variable race-moves, peaking/event-window use, scored on intensity not rep-match). |
+| PW-9 | Athlete-directed / terrain-flexible sessions: KB §11 + generation rule — prescribe target efforts as ranges + a terrain placement rule + strict-Z2/HR-cap floor; scored on intrinsic quality, not rep-match. Keep one fixed ERG benchmark session/week. `knowledge-base/training_knowledge.md`, `lib/anthropic-api.ts` |
 
 ---
 
-## Plan & workout structure
-| ID | S | Pri | Type | Item |
-|----|---|-----|------|------|
-| PW-1 | ☐ | P2 | feat | Sprints: seated-only — add standing technique option + when/how guidance |
-| PW-3 | ☐ | P2 | feat | Race-sim rides as a real workout type (hill attacks, KOM hunts, block-fit logic) — today only a goal string |
-| PW-9 | ☐ | P2 | feat | Fluid/athlete-directed sessions (e.g. "find 2×20m climbs, push; Z2 else") — needs DB rules so AI treats them as structured-but-flexible |
+🎉 **All feedback items cleared.** Forward/strategic backlog continues in [ROADMAP.md](ROADMAP.md).
 
-## Nutrition
-| ID | S | Pri | Type | Item |
-|----|---|-----|------|------|
-| NUT-6 | ☐ | P2 | audit | Verify & explain daily-intake logic (weight live? buffer removed?), then propose formula improvements (→ ROADMAP §6) |
-
----
-
-### Suggested order
+### Order completed
 1. ~~P1 cluster (DI-1, DI-2, PW-7, PW-8)~~ ✓ · ~~PW-6 Ask-Coach context~~ ✓ · ~~SIT + tooltips (PW-2, TODAY-6, TODAY-8)~~ ✓ · ~~Metric audits (TODAY-1, PLAN-3, TRENDS-3)~~ ✓ · ~~State-logic (TODAY-7, DI-3)~~ ✓ · ~~Trends data-quality (TRENDS-1, TRENDS-2)~~ ✓ · ~~Edu cues (PW-4, PW-5)~~ ✓ · ~~UI-5 ride-card trace~~ ✓ · ~~PR recognition (DI-4, PW-10)~~ ✓
-2. **NUT-6** nutrition-formula audit.
-3. Remaining feature work: PW-1 standing sprints, PW-3 race-sim, PW-9 fluid rides.
+2. ~~NUT-6 nutrition-formula audit~~ ✓
+3. ~~Workout features: PW-1 standing sprints, PW-3 race-sim, PW-9 flexible sessions~~ ✓

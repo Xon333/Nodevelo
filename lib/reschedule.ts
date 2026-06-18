@@ -6,7 +6,7 @@
 
 import type { CurrentBlock, WorkoutType } from "./types";
 
-const QUALITY: WorkoutType[] = ["Threshold", "VO2max", "SIT"];
+const QUALITY: WorkoutType[] = ["Threshold", "VO2max", "SIT", "RaceSim"];
 const isQuality = (t: WorkoutType, durationMin: number) => durationMin > 0 && QUALITY.includes(t);
 
 export type DispositionByDate = Record<string, "completed" | "partial" | "missed" | "compromised">;

@@ -36,7 +36,7 @@ const BUFFER_MIN_KCAL = 0;
 const BUFFER_MAX_KCAL = 600;
 const WEIGHT_TREND_THRESHOLD_KG = 0.3;
 
-const HARD_TYPES: ReadonlySet<WorkoutType> = new Set(["Threshold", "VO2max", "SIT"]);
+const HARD_TYPES: ReadonlySet<WorkoutType> = new Set(["Threshold", "VO2max", "SIT", "RaceSim"]);
 const NON_RIDE_TYPES: ReadonlySet<WorkoutType> = new Set(["Rest", "Strength"]);
 
 const roundTo = (value: number, step: number) => Math.round(value / step) * step;
@@ -89,6 +89,7 @@ const SESSION_INTENSITY_FACTOR: Record<Exclude<WorkoutType, "Rest" | "Strength">
   Threshold: 0.78,
   VO2max: 0.75,
   SIT: 0.68,
+  RaceSim: 0.82, // hard + surgy; whole-session average sits above threshold work
 };
 
 const STRENGTH_KCAL_PER_MIN = 5;
@@ -174,6 +175,7 @@ const REFERENCE_DURATIONS: Record<WorkoutType, number[]> = {
   Threshold: [60, 75, 90, 120],
   VO2max: [60, 75, 90],
   SIT: [45, 60, 75, 90],
+  RaceSim: [60, 90, 120],
   Strength: [45, 60],
 };
 

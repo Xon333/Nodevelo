@@ -14,6 +14,12 @@ describe("computeExecutionScore", () => {
     expect(computeExecutionScore(base)).toBeNull();
   });
 
+  it("rewards a hard, variable RaceSim and penalises a soft one", () => {
+    const hard = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.86, plannedType: "RaceSim", decoupling: 4 });
+    const soft = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.62, plannedType: "RaceSim", decoupling: 4 });
+    expect(hard!).toBeGreaterThan(soft!);
+  });
+
   it("scores a well-executed steady Z2 ride near the top", () => {
     const score = computeExecutionScore({
       ...base,
