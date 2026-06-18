@@ -485,7 +485,7 @@ function TodayRideCard({
                     </span>
                   );
                 })}
-                {analysis.intervalComparison.extras.map((x, i) => {
+                {(analysis.intervalComparison.extras ?? []).map((x, i) => {
                   const mins = Math.floor(x.durationSec / 60);
                   const secs = String(Math.round(x.durationSec % 60)).padStart(2, "0");
                   return (
