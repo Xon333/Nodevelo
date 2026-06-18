@@ -1,8 +1,9 @@
 // Anthropic API client + prompt assembly for training block generation.
 import Anthropic from "@anthropic-ai/sdk";
-import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, SyncData, TodayAnalysis } from "./types";
+import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, PowerPR, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
+import { prDurationLabel } from "./pr";
 
 // Non-negotiable: in-app generation always uses claude-sonnet-4-6.
 export const GENERATION_MODEL = "claude-sonnet-4-6";
@@ -317,6 +318,7 @@ export interface RideAnalysisInput {
   powerZoneTimes: number[] | null;
   hrZoneTimes: number[] | null;
   intervalComparison: IntervalComparison | null;
+  powerPRs?: PowerPR[]; // new power bests set during this ride — so the coach can acknowledge them
   plannedName: string | null;
   plannedType: string | null;
   plannedDurationMin: number | null;
@@ -396,16 +398,24 @@ export async function analyseRide(input: RideAnalysisInput): Promise<string> {
   const intervalLine = fmtIntervals(input.intervalComparison);
   const powerZoneLine = input.powerZoneTimes ? fmtZones(input.powerZoneTimes, "Power zones") : null;
   const hrZoneLine = input.hrZoneTimes ? fmtZones(input.hrZoneTimes, "HR zones") : null;
+  // Power PRs set during this ride — surfaced so the coach recognises the breakthrough.
+  const prLine =
+    input.powerPRs && input.powerPRs.length > 0
+      ? `New power PRs (84-day best): ${input.powerPRs
+          .map((pr) => `${prDurationLabel(pr.durationSec)} ${pr.watts}W (was ${pr.prevWatts}W)`)
+          .join(", ")}`
+      : null;
 
   const athleteNote = input.activityDescription?.trim()
     ? `Athlete note: "${input.activityDescription.trim().slice(0, 400)}"`
     : null;
 
   const prompt = [
-    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR and decoupling only to judge aerobic efficiency. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If the athlete left a note, factor it in. No greeting, no fluff, and do not restate the prescription verbatim.",
+    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR and decoupling only to judge aerobic efficiency. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. No greeting, no fluff, and do not restate the prescription verbatim.",
     "",
     planned,
     header,
+    prLine,
     intervalLine,
     powerLine,
     hrLine,

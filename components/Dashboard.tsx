@@ -24,6 +24,7 @@ import { executionScoreLabel } from "@/lib/execution-score";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import PlanPreview from "./PlanPreview";
 import RideTrace from "./RideTrace";
+import { prDurationLabel } from "@/lib/pr";
 import TrendPulse from "./TrendPulse";
 import { useSync } from "./SyncProvider";
 import { Card, StatTile, CyberFrame, Zone } from "./ui";
@@ -322,6 +323,26 @@ function TodayRideCard({
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Today's ride</h2>
           <span className="text-xs text-zinc-400 dark:text-zinc-500">{analysis.activityDate}</span>
+        </div>
+      )}
+
+      {/* Power PR celebration — a new best for a duration set during this ride (PW-10) */}
+      {analysis.powerPRs && analysis.powerPRs.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-500/40 dark:bg-amber-950/40">
+          <span className="text-sm" aria-hidden>🏆</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            New {analysis.powerPRs.length === 1 ? "PR" : "PRs"}
+          </span>
+          {analysis.powerPRs.map((pr) => (
+            <span
+              key={pr.durationSec}
+              title={`previous best ${pr.prevWatts}W`}
+              className="rounded-full bg-white px-2 py-0.5 font-mono text-[11px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
+            >
+              {prDurationLabel(pr.durationSec)} {pr.watts}W
+              <span className="ml-1 text-amber-500/80 dark:text-amber-400/70">+{pr.watts - pr.prevWatts}</span>
+            </span>
+          ))}
         </div>
       )}
 

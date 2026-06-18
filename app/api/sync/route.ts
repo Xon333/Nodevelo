@@ -26,6 +26,7 @@ import { buildAthleteModel } from "@/lib/athlete-model";
 import { validateInterventions } from "@/lib/intervention";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore, resolveCompliance } from "@/lib/execution-score";
+import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
@@ -89,6 +90,9 @@ export async function POST() {
   }
   try {
     const today = todayIso();
+    // The power curve as it stood BEFORE this sync — the baseline a new PR must beat (the fresh
+    // sync absorbs today's ride into the curve, so the comparison has to use the prior one).
+    const prevSync = await readLastSync();
     const lastSync = await runFullSync();
     await writeLastSync(lastSync);
 
@@ -240,6 +244,9 @@ export async function POST() {
           }
           const trace = buildRideTrace(powerStream, hrStream, executed, prescription[0]?.targetWatts ?? null);
 
+          // Power PRs set during this ride, vs the curve as it stood before this sync (DI-4/PW-10).
+          const powerPRs = detectPowerPRs(powerStream, prevSync?.powerCurve ?? []);
+
           // Execution score: on interval days the power-target adherence is the primary
           // execution signal; duration compliance is used otherwise. RPE adds effort.
           const executionScore = computeExecutionScore({
@@ -273,6 +280,7 @@ export async function POST() {
           input.powerZoneTimes = powerZoneTimes;
           input.hrZoneTimes = hrZoneTimes;
           input.intervalComparison = intervalComparison;
+          input.powerPRs = powerPRs;
           const coachNote = await analyseRide(input);
 
           todayAnalysis = {
@@ -305,6 +313,7 @@ export async function POST() {
             coachNote,
             intervalComparison,
             trace,
+            powerPRs,
           };
           await writeTodayAnalysis(todayAnalysis);
 

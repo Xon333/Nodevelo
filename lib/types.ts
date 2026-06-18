@@ -87,6 +87,13 @@ export interface PowerCurvePoint {
   watts: number;
 }
 
+// A power best set during a single ride, vs the 84-day curve as it stood before that ride.
+export interface PowerPR {
+  durationSec: number;
+  watts: number; // this ride's mean-max for the duration
+  prevWatts: number; // the previous best it beat
+}
+
 export interface FitnessMetrics {
   ctl: number | null;
   atl: number | null;
@@ -478,6 +485,7 @@ export interface TodayAnalysis {
   coachNote: string; // Claude 2-3 sentence narrative
   intervalComparison: IntervalComparison | null; // prescription vs execution
   trace: RideTrace | null; // downsampled streams + interval bands for the power chart
+  powerPRs?: PowerPR[]; // new power bests set during this ride (vs the prior 84-day curve)
 }
 
 // Downsampled streams + executed-interval bands powering the ride power-trace chart.
