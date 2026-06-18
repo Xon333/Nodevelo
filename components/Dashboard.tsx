@@ -487,7 +487,7 @@ function TodayRideCard({
             <div className="rounded-md border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900">
               <RideTrace trace={analysis.trace} />
               <p className="mt-1 px-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-                Power (cyan) · HR (grey){analysis.trace.targetWatts ? ` · dashed = ${analysis.trace.targetWatts}W target` : ""}
+                Power (cyan, 30s smoothed) · HR (grey){analysis.trace.targetWatts ? ` · dashed = ${analysis.trace.targetWatts}W target` : ""}
                 {analysis.trace.bands.length > 0 ? " · shaded = work intervals" : ""}
               </p>
             </div>

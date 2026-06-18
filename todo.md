@@ -31,6 +31,7 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | TRENDS-2 | Fueling/weight graph now shows **complete weeks only** — the in-progress week (always partial, misleadingly low totals) is dropped; day-level data untouched in the sync. Extracted to tested `lib/trends.ts` (`weeklyEnergy`). |
 | PW-4 | Long-Z2-on-hills execution guidance added to generation prompt: govern by HR ceiling (top of Z2) not just watts, let power drift on climbs but cap HR, ease descents instead of surging — grounded in KB grey-zone-drift weakpoint. `lib/anthropic-api.ts` |
 | PW-5 | Contextual technique cues in ride descriptions: new optional `Execution:` line in DESCRIPTION format + grounded rule (sit-down sprints, descents as descending/cornering practice — the athlete's weakpoints). Parser passes it through as free-text. `lib/anthropic-api.ts` |
+| UI-5 | Ride-card power trace: 30s rolling-mean smoothing (`lib/trace.ts`) tames the jumpy line; short work-interval bands now have a min width + stronger amber/cyan fill+edge so 30s reps are visible (`components/RideTrace.tsx`); caption notes "30s smoothed". Clutter already cut via TODAY-1 (6→4 tiles). Smoothing applies on next sync (trace is computed at sync time). Open-ended full hierarchy redesign left as a future judgment call. |
 
 ---
 
@@ -47,11 +48,6 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | PW-9 | ☐ | P2 | feat | Fluid/athlete-directed sessions (e.g. "find 2×20m climbs, push; Z2 else") — needs DB rules so AI treats them as structured-but-flexible |
 | PW-10 | ☐ | P2 | feat | PR highlighting: profile flag + trophy popup on Today when a new PR detected (→ DI-4) |
 
-## Ride card / UI
-| ID | S | Pri | Type | Item |
-|----|---|-----|------|------|
-| UI-5 | ☐ | P2 | ux | Ride card overcrowded: power trace jumpy (show 30s/1m smoothed avg), 30s interval bands barely visible — consider redesign for hierarchy |
-
 ## Nutrition
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
@@ -63,4 +59,4 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 1. ~~P1 cluster (DI-1, DI-2, PW-7, PW-8)~~ ✓ · ~~PW-6 Ask-Coach context~~ ✓ · ~~SIT + tooltips (PW-2, TODAY-6, TODAY-8)~~ ✓ · ~~Metric audits (TODAY-1, PLAN-3, TRENDS-3)~~ ✓ · ~~State-logic (TODAY-7, DI-3)~~ ✓ · ~~Trends data-quality (TRENDS-1, TRENDS-2)~~ ✓ · ~~Edu cues (PW-4, PW-5)~~ ✓
 2. **PR recognition** (DI-4 + PW-10) — detect PRs set during intervals → trophy on Today.
 3. **NUT-6** nutrition-formula audit.
-4. Remaining feature work: PW-1 standing sprints, PW-3 race-sim, PW-9 fluid rides, UI-5 ride-card redesign.
+4. Remaining feature work: PW-1 standing sprints, PW-3 race-sim, PW-9 fluid rides.

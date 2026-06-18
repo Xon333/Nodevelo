@@ -43,9 +43,25 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
   return (
     <div className="relative" onMouseMove={onMove} onMouseLeave={() => setIdx(null)}>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full touch-none" style={{ height: H }} preserveAspectRatio="none">
-        {bands.map((b, i) => (
-          <rect key={i} x={b.start * W} y={0} width={(b.end - b.start) * W} height={H} className="fill-zinc-200/70 dark:fill-[#00d4ff]/12" />
-        ))}
+        {bands.map((b, i) => {
+          // Short efforts (e.g. 30 s reps on a long ride) span <1% of the width — enforce a
+          // minimum so they stay visible, and use a stronger fill + edge than before (UI-5).
+          const rawW = (b.end - b.start) * W;
+          const w = Math.max(rawW, 2.5);
+          const x = Math.min(b.start * W, W - w);
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={0}
+              width={w}
+              height={H}
+              className="fill-amber-300/40 stroke-amber-400/50 dark:fill-[#00d4ff]/25 dark:stroke-[#00d4ff]/40"
+              strokeWidth={0.75}
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })}
         {targetY !== null && (
           <line x1={0} y1={targetY} x2={W} y2={targetY} strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" className="stroke-pink-500/70 dark:stroke-[#ff49c8]/70" />
         )}
