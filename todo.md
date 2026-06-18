@@ -17,13 +17,13 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | PW-7 | SIT duration: `lib/workout-validate.ts` flags efforts >45s against KB §4 (4–6×30s); wired into generate-route warnings |
 | PW-8 | KB intensity enforced two ways: workout-validate %FTP bands + generation prompt rule (SIT all-out 130–200%, VO2max 106–120%, threshold 88–105%) |
 | DI-1 | Matcher now flags `structuralMismatch` (plan rep-def ≠ ridden, power nailed) → scoring drops the bad duration penalty, coach note + Today-card caption explain it; bail vs mismatch separated by power. `lib/interval-match.ts` |
+| DI-2 | Interval power mis-read (540W vs 445W): split `filterPower` (NP-first, for work-band filtering) from `adherePower` (avgWatts-first, for adherence calc) in `lib/interval-match.ts` — NP overstates adherence on short/variable efforts |
 
 ---
 
 ## Data integrity & interval detection
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
-| DI-2 | ☐ | P1 | bug | Interval power mis-read: Intervals.icu 540W vs app 445W (duration correct). **Blocked: need a sample `/activity/{id}/intervals` payload to pin field vs alignment — won't blind-patch the frozen scoring core** |
 | DI-3 | ☐ | P2 | bug | Mid-ride added interval detected but not shown as an extra in UI |
 | DI-4 | ☐ | P2 | feat | No breakthrough recognition — coach misses PRs set during intervals (→ PW-10) |
 

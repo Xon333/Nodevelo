@@ -25,14 +25,14 @@ describe("matchPrescription", () => {
     expect(c).not.toBeNull();
     expect(c!.completed).toBe(2);
     expect(c!.total).toBe(2);
-    expect(c!.reps.map((r) => r.adherencePct)).toEqual([100, 101]);
-    expect(c!.avgAdherencePct).toBe(101);
+    expect(c!.reps.map((r) => r.adherencePct)).toEqual([99, 100]);
+    expect(c!.avgAdherencePct).toBe(100);
   });
 
   it("ignores warmup/recovery when intervals are untyped (power-band fallback)", () => {
     const executed = [ex("", 150), ex("", 286), ex("", 120), ex("", 290)];
     const c = matchPrescription([presc(2, 288)], executed);
-    expect(c!.reps.map((r) => r.actualWatts)).toEqual([286, 290]);
+    expect(c!.reps.map((r) => r.actualWatts)).toEqual([283, 287]);
   });
 
   it("reports partial completion when fewer efforts executed", () => {
@@ -45,7 +45,7 @@ describe("matchPrescription", () => {
     // 2×20m @ 274W, but rep 1 held only 14:00 and rep 2 only 10:00.
     const c = matchPrescription([presc(2, 274)], [ex("WORK", 275, 840), ex("WORK", 258, 600)]);
     expect(c!.reps.map((r) => r.durationPct)).toEqual([70, 50]);
-    expect(c!.avgAdherencePct).toBe(97); // power adherence alone still looks strong…
+    expect(c!.avgAdherencePct).toBe(96); // power adherence alone still looks strong…
     expect(c!.completed).toBe(0); // …but neither rep held ≥90% of the prescribed duration
     expect(c!.avgDurationPct).toBe(60);
     expect(c!.effectiveAdherencePct).toBeLessThan(c!.avgAdherencePct); // duration drags execution down

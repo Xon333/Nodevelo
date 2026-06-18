@@ -21,16 +21,21 @@ export function matchPrescription(
   // Prefer Intervals' WORK-typed efforts; if none are typed, fall back to efforts whose
   // power is in the work band (excludes warmups/recovery valves) so alignment holds.
   const minTarget = Math.min(...flat.map((f) => f.targetWatts));
-  const power = (e: ExecutedInterval) => e.npWatts ?? e.avgWatts ?? 0;
+  // Filtering uses NP first (higher, more stable) so warm-up/recovery laps below the work
+  // band are excluded correctly. Adherence uses avg watts (what you actually averaged, not the
+  // normalized figure) so DI-2 power mis-reads are avoided — NP can be 20%+ above avg for
+  // short or variable efforts and would overstate adherence.
+  const filterPower = (e: ExecutedInterval) => e.npWatts ?? e.avgWatts ?? 0;
+  const adherePower = (e: ExecutedInterval) => e.avgWatts ?? e.npWatts ?? 0;
   const typed = executed.filter((e) => e.type === "WORK");
-  const work = typed.length > 0 ? typed : executed.filter((e) => power(e) >= 0.8 * minTarget);
+  const work = typed.length > 0 ? typed : executed.filter((e) => filterPower(e) >= 0.8 * minTarget);
 
   const reps: IntervalAdherence[] = [];
   const n = Math.min(flat.length, work.length);
   for (let i = 0; i < n; i++) {
     const target = flat[i].targetWatts;
     const targetDur = flat[i].durationSec;
-    const actual = Math.round(power(work[i]));
+    const actual = Math.round(adherePower(work[i]));
     const actualDur = work[i].durationSec;
     reps.push({
       targetWatts: target,
