@@ -27,6 +27,8 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | TRENDS-3 | Replaced trivial 7-day avg RPE with **7-day load** (sum of TSS, last 7d) on the Trends "Last 7 days" card — an actionable "trained enough this week?" signal. `app/api/trends/route.ts`, `components/Trends.tsx` |
 | DI-3 | Mid-ride added intervals now surfaced: `matchPrescription` captures executed work efforts beyond the prescribed count as `extras` (not scored against a target); rendered as dashed "+extra" chips on the ride card. `lib/interval-match.ts`, `components/Dashboard.tsx` |
 | TODAY-7 | Session-state audit: fixed the calendar showing **compromised** rides as "Missed" (they're excluded from `scores`, so the calendar misread them) — threaded `compromisedDates`/`partialDates` through sync → state → calendar; compromised now shows "~" + "Compromised — ridden, excluded from scoring", partial shows "Partial · execution X/10". `missed` confirmed auto-derived (no athlete-set path needed). `app/api/sync/route.ts`, `components/SyncProvider.tsx`, `components/Dashboard.tsx` |
+| TRENDS-1 | Pw:HR now **excludes indoor rides** (outdoor `Ride` only — VirtualRide has distorted Pw:HR from cardiac drift / ERG-flat power); ≥45-min + endurance-band + Intervals.icu `efficiencyFactor` method confirmed. Extracted to tested `lib/trends.ts` (`efSeries`). |
+| TRENDS-2 | Fueling/weight graph now shows **complete weeks only** — the in-progress week (always partial, misleadingly low totals) is dropped; day-level data untouched in the sync. Extracted to tested `lib/trends.ts` (`weeklyEnergy`). |
 
 ---
 
@@ -55,16 +57,10 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 |----|---|-----|------|------|
 | NUT-6 | ☐ | P2 | audit | Verify & explain daily-intake logic (weight live? buffer removed?), then propose formula improvements (→ ROADMAP §6) |
 
-## Trends page
-| ID | S | Pri | Type | Item |
-|----|---|-----|------|------|
-| TRENDS-1 | ☐ | P2 | audit | Pw:HR — decide Intervals.icu method vs current; exclude indoor rides; apply only to rides >45 min |
-| TRENDS-2 | ☐ | P2 | ux | Fueling/weight graph: display complete weeks only (keep day-level granularity in backend/second-brain) |
-
 ---
 
 ### Suggested order
 1. ~~P1 data-integrity cluster (DI-1, DI-2, PW-7, PW-8)~~ ✓ · ~~PW-6 Ask-Coach context~~ ✓ · ~~SIT cleanup + edu tooltips (PW-2, TODAY-6, TODAY-8)~~ ✓ · ~~Metric audits (TODAY-1, PLAN-3, TRENDS-3)~~ ✓ · ~~State-logic audit (TODAY-7, DI-3)~~ ✓
 2. **PR recognition** (DI-4 + PW-10) — detect PRs set during intervals → trophy on Today.
-3. **Trends data-quality** (TRENDS-1 Pw:HR, TRENDS-2 complete-weeks) · **NUT-6** nutrition audit.
+3. **NUT-6** nutrition-formula audit.
 4. Feature work (PW-1 standing sprints, PW-3 race-sim, PW-9 fluid rides) + edu (PW-4, PW-5) + UI-5 ride-card redesign last.

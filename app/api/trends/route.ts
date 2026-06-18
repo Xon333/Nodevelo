@@ -10,6 +10,7 @@ import {
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { weightTrendFromWellness } from "@/lib/nutrition";
+import { efSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
 
 // GET assembles the long-term, second-brain-derived trends. It deliberately does
 // NOT reproduce intervals.icu's raw PMC/power-curve charts — only signals that
@@ -25,30 +26,9 @@ export async function GET() {
   ]);
 
   const ftp = profile.performance.ftp;
-  // Efficiency Factor = NP / avg HR — the standard aerobic-efficiency marker. Restrict
-  // to steady endurance rides (~0.56–0.85 FTP) of at least 45 min so the trend compares
-  // like-for-like; short rides and hard/easy days would make it noisy. NP (falling back
-  // to avg power) keeps variable-terrain rides comparable. If FTP is unknown the band is
-  // skipped and the duration floor still applies.
-  const MIN_SEC = 45 * 60;
-  const isEndurance = (w: number) => ftp <= 0 || (w / ftp >= 0.56 && w / ftp <= 0.85);
-
-  const ef = (sync?.activities ?? [])
-    .filter((a) => {
-      if (a.type !== "Ride" && a.type !== "VirtualRide") return false;
-      if (a.avgHr === null || a.avgHr <= 0) return false;
-      if (a.movingTimeSec < MIN_SEC) return false;
-      const power = a.normalizedPower ?? a.avgWatts;
-      return power !== null && isEndurance(power);
-    })
-    .map((a) => {
-      // Pull Pw:HR straight from Intervals.icu (icu_efficiency_factor); only fall back to
-      // computing NP/HR if the field is missing on an activity.
-      const power = (a.normalizedPower ?? a.avgWatts) as number;
-      const value = a.efficiencyFactor ?? Math.round((power / (a.avgHr as number)) * 100) / 100;
-      return { date: a.date, value: Math.round(value * 100) / 100 };
-    })
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const today = new Date().toISOString().slice(0, 10);
+  // Pw:HR efficiency-factor trend — outdoor, steady-endurance, ≥45-min rides only (lib/trends).
+  const ef = efSeries(sync?.activities ?? [], ftp);
 
   // CTL trajectory over the synced window.
   const ctl = (sync?.wellness ?? [])
@@ -56,58 +36,19 @@ export async function GET() {
     .map((w) => ({ date: w.date, value: Math.round((w.ctl as number) * 10) / 10 }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Energy balance & weight aggregated by week (Monday-anchored): total ride burn
-  // (≈kJ) and total intake for the week, against the week's MEDIAN bodyweight.
-  // Weekly buckets smooth out day-to-day logging gaps; this fills in over a few weeks.
-  const mondayOf = (dateStr: string): string => {
-    const d = new Date(`${dateStr}T00:00:00Z`);
-    const dow = d.getUTCDay();
-    d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
-    return d.toISOString().slice(0, 10);
-  };
-  const median = (xs: number[]): number => {
-    const s = [...xs].sort((a, b) => a - b);
-    const m = Math.floor(s.length / 2);
-    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-  };
-  const wk = new Map<string, { burn: number; burnN: number; intake: number; intakeN: number; weights: number[]; hoursSec: number }>();
-  const getW = (monday: string) => {
-    let e = wk.get(monday);
-    if (!e) {
-      e = { burn: 0, burnN: 0, intake: 0, intakeN: 0, weights: [], hoursSec: 0 };
-      wk.set(monday, e);
-    }
-    return e;
-  };
-  for (const a of sync?.activities ?? []) {
-    if (a.type !== "Ride" && a.type !== "VirtualRide") continue;
-    const e = getW(mondayOf(a.date));
-    e.hoursSec += a.movingTimeSec;
-    if (a.kj !== null) {
-      e.burn += a.kj;
-      e.burnN += 1;
-    }
-  }
-  for (const w of sync?.wellness ?? []) {
-    const e = getW(mondayOf(w.date));
-    if (w.kcalConsumed !== null) {
-      e.intake += w.kcalConsumed;
-      e.intakeN += 1;
-    }
-    if (w.weightKg !== null) e.weights.push(w.weightKg);
-  }
-  const energy = [...wk.entries()]
-    .map(([date, e]) => ({
-      date,
-      burnKcal: e.burnN > 0 ? Math.round(e.burn) : null,
-      intakeKcal: e.intakeN > 0 ? Math.round(e.intake) : null,
-      weightKg: e.weights.length > 0 ? Math.round(median(e.weights) * 10) / 10 : null,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  // Energy balance & weight by week (Monday-anchored), COMPLETE weeks only — the in-progress
+  // week's running totals are misleadingly low, so it's dropped (TRENDS-2). See lib/trends.
+  const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today);
 
   // Weekly training volume (hours) — for the Trend Pulse "are you building or slipping?" bar.
-  const weeklyHours = [...wk.entries()]
-    .map(([date, e]) => ({ date, hours: Math.round((e.hoursSec / 3600) * 10) / 10 }))
+  // Keeps the current (in-progress) week, which the Trend Pulse labels "this wk".
+  const hoursByWeek = new Map<string, number>();
+  for (const a of sync?.activities ?? []) {
+    if (a.type !== "Ride" && a.type !== "VirtualRide") continue;
+    hoursByWeek.set(mondayOf(a.date), (hoursByWeek.get(mondayOf(a.date)) ?? 0) + a.movingTimeSec);
+  }
+  const weeklyHours = [...hoursByWeek.entries()]
+    .map(([date, sec]) => ({ date, hours: Math.round((sec / 3600) * 10) / 10 }))
     .filter((w) => w.hours > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-12);

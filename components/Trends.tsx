@@ -390,7 +390,7 @@ export default function Trends() {
       {(data.ef.length >= 3 || data.ctl.length >= 3) && (
         <div className="grid gap-3 lg:grid-cols-2">
           {data.ef.length >= 3 && (
-            <Card title="Pw:HR — power-to-heart-rate" hint={`${data.ef.length} rides · ≥45 min`}>
+            <Card title="Pw:HR — power-to-heart-rate" hint={`${data.ef.length} outdoor rides · ≥45 min`}>
               <div className="mb-1 flex items-center justify-between">
                 <span className={`text-xs font-medium ${efTrend.cls}`}>{efTrend.label}</span>
                 <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
@@ -446,10 +446,10 @@ export default function Trends() {
 
       {/* Fueling & weight — kept wide; it carries three weekly series */}
       {energyHasData && (
-        <Card title="Fueling & weight" hint="weekly · tap to isolate">
+        <Card title="Fueling & weight" hint="complete weeks · tap to isolate">
           <MultiSparkline series={energySeries} />
           <p className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">
-            Per week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. Fills in over a few weeks. Tap a legend chip to show/hide; isolating one fills the area.
+            Per complete week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. The current in-progress week is excluded until it closes. Tap a legend chip to show/hide; isolating one fills the area.
           </p>
         </Card>
       )}
