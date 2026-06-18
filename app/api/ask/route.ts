@@ -51,6 +51,23 @@ export async function POST(req: Request) {
     ? { name: day.name, type: day.type, durationMin: day.durationMin, intervals: (day.prescription ?? []).map((p) => p.label) }
     : null;
 
+  // Next planned session after today — so forward-looking questions ("how should I do tomorrow's
+  // SIT?") are answered from the real prescription, not a guessed rep structure (PW-6).
+  const dayMs = 86_400_000;
+  const nextDay =
+    block?.days
+      .filter((d) => d.date > today && d.durationMin > 0)
+      .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  const upcoming = nextDay
+    ? {
+        inDays: Math.max(1, Math.round((Date.parse(nextDay.date) - Date.parse(today)) / dayMs)),
+        name: nextDay.name,
+        type: nextDay.type,
+        durationMin: nextDay.durationMin,
+        intervals: (nextDay.prescription ?? []).map((p) => p.label),
+      }
+    : null;
+
   let form: string | null = null;
   if (sync) {
     const parts: string[] = [];
@@ -79,6 +96,7 @@ export async function POST(req: Request) {
   const context: AskCoachContext = {
     block: blockCtx,
     session,
+    upcoming,
     form,
     ftp: physStore?.current.ftp ?? null,
     rideLogged,

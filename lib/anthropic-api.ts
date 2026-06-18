@@ -559,6 +559,9 @@ export interface AskCoachContext {
   block: { goal: string; weekOfBlock: number; totalWeeks: number; overview: string } | null;
   // Today's prescribed session (null on a rest/unplanned day).
   session: { name: string; type: string; durationMin: number; intervals: string[] } | null;
+  // The next planned session after today, so forward-looking questions ("how do I approach
+  // tomorrow's SIT?") see the real prescription instead of the coach inventing rep durations.
+  upcoming: { inDays: number; name: string; type: string; durationMin: number; intervals: string[] } | null;
   form: string | null; // pre-formatted current state, e.g. "TSB +3, ACWR optimal, readiness Build"
   ftp: number | null;
   rideLogged: string | null; // note if today's ride is already done
@@ -585,6 +588,17 @@ export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string
           (ctx.session.intervals.length > 0 ? `; intervals ${ctx.session.intervals.join(", ")}` : "")
       : "No structured session is planned today."
   );
+  // The next planned session, with its exact prescription, so the coach answers forward-looking
+  // questions from the real plan rather than guessing rep lengths/intensities.
+  if (ctx.upcoming) {
+    const when = ctx.upcoming.inDays === 1 ? "Tomorrow's session" : `Next session (in ${ctx.upcoming.inDays} days)`;
+    lines.push(
+      `${when}: ${ctx.upcoming.type} — "${ctx.upcoming.name}" (${ctx.upcoming.durationMin} min)` +
+        (ctx.upcoming.intervals.length > 0
+          ? `; intervals ${ctx.upcoming.intervals.join(", ")}. Use these exact reps/intensities — do not invent durations.`
+          : ".")
+    );
+  }
   if (ctx.form) lines.push(`Current form: ${ctx.form}.`);
   if (ctx.ftp) lines.push(`FTP: ${ctx.ftp} W.`);
   if (ctx.rideLogged) lines.push(ctx.rideLogged);

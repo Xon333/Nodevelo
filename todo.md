@@ -18,6 +18,7 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | PW-8 | KB intensity enforced two ways: workout-validate %FTP bands + generation prompt rule (SIT all-out 130–200%, VO2max 106–120%, threshold 88–105%) |
 | DI-1 | Matcher now flags `structuralMismatch` (plan rep-def ≠ ridden, power nailed) → scoring drops the bad duration penalty, coach note + Today-card caption explain it; bail vs mismatch separated by power. `lib/interval-match.ts` |
 | DI-2 | Interval power mis-read (540W vs 445W): split `filterPower` (NP-first, for work-band filtering) from `adherePower` (avgWatts-first, for adherence calc) in `lib/interval-match.ts` — NP overstates adherence on short/variable efforts |
+| PW-6 | Ask-Coach now sees the next planned session (`upcoming` in `AskCoachContext`): route finds the nearest future day with a prescription; prompt surfaces its exact reps + "do not invent durations" — kills the "4m for a 30s SIT day" hallucination |
 
 ---
 
@@ -30,7 +31,6 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 ## Plan & workout structure
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
-| PW-6 | ☐ | P1 | bug | "Ask Coach" lacks plan context — suggested 4m intervals for a 30s–1m SIT day (→ ROADMAP §2) |
 | PW-2 | ☐ | P2 | bug | SIT listed as 30s in places but conflicts elsewhere (resolve via PW-7) |
 | PW-1 | ☐ | P2 | feat | Sprints: seated-only — add standing technique option + when/how guidance |
 | PW-3 | ☐ | P2 | feat | Race-sim rides as a real workout type (hill attacks, KOM hunts, block-fit logic) — today only a goal string |

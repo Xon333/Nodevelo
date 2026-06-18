@@ -4,6 +4,7 @@ import { buildAskCoachPrompt, type AskCoachContext } from "./anthropic-api";
 const ctx: AskCoachContext = {
   block: { goal: "Build threshold", weekOfBlock: 2, totalWeeks: 4, overview: "Sweet-spot progression." },
   session: { name: "Threshold 2x20", type: "Threshold", durationMin: 75, intervals: ["2×20m @ 274W"] },
+  upcoming: null,
   form: "TSB +3, ACWR optimal, readiness Build",
   ftp: 274,
   rideLogged: null,
@@ -25,9 +26,32 @@ describe("buildAskCoachPrompt", () => {
   });
 
   it("handles a rest / unplanned day and missing context cleanly", () => {
-    const p = buildAskCoachPrompt({ block: null, session: null, form: null, ftp: null, rideLogged: null, disposition: null }, "should I ride easy?");
+    const p = buildAskCoachPrompt({ block: null, session: null, upcoming: null, form: null, ftp: null, rideLogged: null, disposition: null }, "should I ride easy?");
     expect(p).toContain("No structured session is planned today");
     expect(p).toContain("should I ride easy?");
+  });
+
+  it("surfaces tomorrow's SIT prescription so the coach can't invent rep durations (PW-6)", () => {
+    const p = buildAskCoachPrompt(
+      {
+        ...ctx,
+        session: null,
+        upcoming: { inDays: 1, name: "SIT 5x30s", type: "SIT", durationMin: 50, intervals: ["5×30s all-out @ 432W"] },
+      },
+      "how should I pace tomorrow's sprint session?"
+    );
+    expect(p).toContain("Tomorrow's session: SIT");
+    expect(p).toContain("5×30s all-out @ 432W");
+    expect(p).toContain("do not invent durations");
+  });
+
+  it("labels a multi-day-out session by its distance", () => {
+    const p = buildAskCoachPrompt(
+      { ...ctx, upcoming: { inDays: 3, name: "VO2 6x3", type: "VO2max", durationMin: 70, intervals: ["6×3m @ 320W"] } },
+      "what's coming up?"
+    );
+    expect(p).toContain("Next session (in 3 days): VO2max");
+    expect(p).toContain("6×3m @ 320W");
   });
 
   it("surfaces a compromised disposition so the coach can't misread a fluke as fatigue", () => {
