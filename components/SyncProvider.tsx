@@ -26,6 +26,8 @@ export interface AppState {
   acwr: AcwrResult | null;
   polarization: IntensityDistribution | null;
   scores: RideScoreEntry[];
+  compromisedDates: string[];
+  partialDates: string[];
   autoSyncOnOpen: boolean;
 }
 
@@ -67,6 +69,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         acwr: AcwrResult | null;
         polarization: IntensityDistribution | null;
         scores: RideScoreEntry[];
+        compromisedDates: string[];
+        partialDates: string[];
       }>("/api/sync", { method: "POST" });
       setState((s) =>
         s
@@ -80,6 +84,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               acwr: result.acwr,
               polarization: result.polarization,
               scores: result.scores,
+              compromisedDates: result.compromisedDates,
+              partialDates: result.partialDates,
             }
           : s
       );

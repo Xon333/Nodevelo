@@ -464,6 +464,21 @@ function TodayRideCard({
                     </span>
                   );
                 })}
+                {analysis.intervalComparison.extras.map((x, i) => {
+                  const mins = Math.floor(x.durationSec / 60);
+                  const secs = String(Math.round(x.durationSec % 60)).padStart(2, "0");
+                  return (
+                    <span
+                      key={`extra-${i}`}
+                      title="extra effort ridden on top of the plan — not scored against a target"
+                      className="rounded border border-dashed border-zinc-300 bg-white px-1.5 py-0.5 font-mono text-[11px] dark:border-zinc-600 dark:bg-zinc-800"
+                    >
+                      <span className="text-zinc-400 dark:text-zinc-500">+extra </span>
+                      <span className="text-zinc-700 dark:text-zinc-200">{x.actualWatts}W</span>{" "}
+                      <span className="text-zinc-500 dark:text-zinc-400">{mins}:{secs}</span>
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -610,7 +625,9 @@ function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
 
 // ---------- Current block card ----------
 
-function BlockCalendar({ block, scores }: { block: CurrentBlock; scores: RideScoreEntry[] }) {
+function BlockCalendar({ block, scores, compromisedDates, partialDates }: { block: CurrentBlock; scores: RideScoreEntry[]; compromisedDates: string[]; partialDates: string[] }) {
+  const compromisedSet = new Set(compromisedDates);
+  const partialSet = new Set(partialDates);
   const today = todayIso();
   const scoreByDate = new Map(scores.map((s) => [s.date, s.executionScore]));
   const scoreColor = (v: number) =>
@@ -639,7 +656,13 @@ function BlockCalendar({ block, scores }: { block: CurrentBlock; scores: RideSco
                   dayIdx <= 1 ? "left-0" : dayIdx >= week.length - 2 ? "right-0" : "left-1/2 -translate-x-1/2";
                 const score = scoreByDate.get(day.date);
                 const completed = score !== undefined;
-                const missed = !completed && day.date < today && day.type !== "Rest";
+                // A compromised session was ridden (then attributed) — it's excluded from
+                // `scores`, so guard it here or it would read as falsely "Missed".
+                const compromised = !completed && compromisedSet.has(day.date);
+                // A partial session is scored (so it's "completed" in the ledger sense) but the
+                // athlete attributed it as cut short — label it accordingly, not plain "Completed".
+                const partial = completed && partialSet.has(day.date);
+                const missed = !completed && !compromised && day.date < today && day.type !== "Rest";
                 return (
                   <div key={day.date} className="group relative flex-1">
                     <div
@@ -654,6 +677,8 @@ function BlockCalendar({ block, scores }: { block: CurrentBlock; scores: RideSco
                           <span className="text-[10px] font-bold leading-none">✓</span>
                           <span className="text-[10px]">{score}</span>
                         </span>
+                      ) : compromised ? (
+                        <span className="rounded-sm bg-black/35 px-1 text-[10px] font-bold leading-none text-white" title="Compromised">~</span>
                       ) : (
                         day.date.slice(8)
                       )}
@@ -679,9 +704,13 @@ function BlockCalendar({ block, scores }: { block: CurrentBlock; scores: RideSco
                         </div>
                         {completed ? (
                           <p className="mt-0.5 text-[10px] font-medium">
-                            <span className="text-zinc-500 dark:text-zinc-400">Completed · </span>
+                            <span className={partial ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"}>
+                              {partial ? "Partial · " : "Completed · "}
+                            </span>
                             <span className={scoreColor(score)}>execution {score}/10</span>
                           </p>
+                        ) : compromised ? (
+                          <p className="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">Compromised — ridden, excluded from scoring</p>
                         ) : missed ? (
                           <p className="mt-0.5 text-[10px] font-medium text-red-500">Missed</p>
                         ) : null}
@@ -714,10 +743,14 @@ function CurrentBlockSection({
   block,
   onDelete,
   scores,
+  compromisedDates,
+  partialDates,
 }: {
   block: CurrentBlock | null;
   onDelete?: () => void;
   scores: RideScoreEntry[];
+  compromisedDates: string[];
+  partialDates: string[];
 }) {
   if (!block) {
     return (
@@ -775,7 +808,7 @@ function CurrentBlockSection({
         {block.overview && (
           <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{block.overview}</p>
         )}
-        <BlockCalendar block={block} scores={scores} />
+        <BlockCalendar block={block} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
       </div>
     </section>
   );
@@ -1189,7 +1222,7 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
         onGenerate={generateRetro}
       />
 
-      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} />}
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} />}
 
       {/* Goals + this-week side by side, just under the active block */}
       {(athleteMd || state.lastSync) && (

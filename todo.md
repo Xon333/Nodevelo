@@ -25,13 +25,14 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 | TODAY-1 | Ride-card de-dup: merged NP + Avg power into one "NP / Avg" tile and dropped TSS (identical to Intervals' "Load"; execution score is the app's load-completion read). 6 → 4 metric tiles. `components/Dashboard.tsx` |
 | PLAN-3 | Audited — "This week" card Hours/TSS are NOT duplicated on the Plan page itself (Trend Pulse lives on Today, not Plan), so removing Hours would strip the page's only weekly-hours number. Left as-is. |
 | TRENDS-3 | Replaced trivial 7-day avg RPE with **7-day load** (sum of TSS, last 7d) on the Trends "Last 7 days" card — an actionable "trained enough this week?" signal. `app/api/trends/route.ts`, `components/Trends.tsx` |
+| DI-3 | Mid-ride added intervals now surfaced: `matchPrescription` captures executed work efforts beyond the prescribed count as `extras` (not scored against a target); rendered as dashed "+extra" chips on the ride card. `lib/interval-match.ts`, `components/Dashboard.tsx` |
+| TODAY-7 | Session-state audit: fixed the calendar showing **compromised** rides as "Missed" (they're excluded from `scores`, so the calendar misread them) — threaded `compromisedDates`/`partialDates` through sync → state → calendar; compromised now shows "~" + "Compromised — ridden, excluded from scoring", partial shows "Partial · execution X/10". `missed` confirmed auto-derived (no athlete-set path needed). `app/api/sync/route.ts`, `components/SyncProvider.tsx`, `components/Dashboard.tsx` |
 
 ---
 
 ## Data integrity & interval detection
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
-| DI-3 | ☐ | P2 | bug | Mid-ride added interval detected but not shown as an extra in UI |
 | DI-4 | ☐ | P2 | feat | No breakthrough recognition — coach misses PRs set during intervals (→ PW-10) |
 
 ## Plan & workout structure
@@ -54,11 +55,6 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 |----|---|-----|------|------|
 | NUT-6 | ☐ | P2 | audit | Verify & explain daily-intake logic (weight live? buffer removed?), then propose formula improvements (→ ROADMAP §6) |
 
-## Today page
-| ID | S | Pri | Type | Item |
-|----|---|-----|------|------|
-| TODAY-7 | ☐ | P2 | audit | Verify completed/partial/compromised state logic + UI updates (→ ROADMAP §3) |
-
 ## Trends page
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
@@ -68,8 +64,7 @@ Actionable tracker for the feedback dump. Strategic/forward backlog stays in [RO
 ---
 
 ### Suggested order
-1. ~~P1 data-integrity cluster (DI-1, DI-2, PW-7, PW-8)~~ ✓ · ~~PW-6 Ask-Coach context~~ ✓ · ~~SIT cleanup + edu tooltips (PW-2, TODAY-6, TODAY-8)~~ ✓ · ~~Metric audits (TODAY-1, PLAN-3, TRENDS-3)~~ ✓
+1. ~~P1 data-integrity cluster (DI-1, DI-2, PW-7, PW-8)~~ ✓ · ~~PW-6 Ask-Coach context~~ ✓ · ~~SIT cleanup + edu tooltips (PW-2, TODAY-6, TODAY-8)~~ ✓ · ~~Metric audits (TODAY-1, PLAN-3, TRENDS-3)~~ ✓ · ~~State-logic audit (TODAY-7, DI-3)~~ ✓
 2. **PR recognition** (DI-4 + PW-10) — detect PRs set during intervals → trophy on Today.
-3. **State-logic audit** (TODAY-7, DI-3) — verify session-state transitions + surface mid-ride extras.
-4. **Trends data-quality** (TRENDS-1 Pw:HR, TRENDS-2 complete-weeks) · **NUT-6** nutrition audit.
-5. Feature work (PW-1 standing sprints, PW-3 race-sim, PW-9 fluid rides) + edu (PW-4, PW-5) + UI-5 ride-card redesign last.
+3. **Trends data-quality** (TRENDS-1 Pw:HR, TRENDS-2 complete-weeks) · **NUT-6** nutrition audit.
+4. Feature work (PW-1 standing sprints, PW-3 race-sim, PW-9 fluid rides) + edu (PW-4, PW-5) + UI-5 ride-card redesign last.

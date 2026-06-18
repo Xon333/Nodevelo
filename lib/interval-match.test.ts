@@ -55,6 +55,21 @@ describe("matchPrescription", () => {
     expect(matchPrescription([], [ex("WORK", 290)])).toBeNull();
   });
 
+  describe("extras (mid-ride added intervals, DI-3)", () => {
+    it("surfaces work efforts beyond the prescribed rep count", () => {
+      // plan = 2 reps, but the athlete rode a 3rd work effort on top.
+      const c = matchPrescription([presc(2, 288)], [ex("WORK", 287), ex("WORK", 291), ex("WORK", 305, 600)])!;
+      expect(c.reps).toHaveLength(2);
+      expect(c.total).toBe(2);
+      expect(c.extras).toEqual([{ actualWatts: 302, durationSec: 600 }]); // avgWatts = np − 3
+    });
+
+    it("has no extras on an on-spec or partial session", () => {
+      expect(matchPrescription([presc(2, 288)], [ex("WORK", 287), ex("WORK", 291)])!.extras).toEqual([]);
+      expect(matchPrescription([presc(3, 288)], [ex("WORK", 287)])!.extras).toEqual([]);
+    });
+  });
+
   describe("structuralMismatch (plan-vs-detection, DI-1)", () => {
     const sit = (reps: number): PrescribedInterval => ({
       reps,

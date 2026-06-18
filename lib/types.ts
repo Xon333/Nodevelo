@@ -191,6 +191,9 @@ export interface IntervalComparison {
   // duration-based adherence is untrustworthy and execution scoring should fall back to the
   // intent-independent signals. Distinct from a genuine bail (short reps with weak power).
   structuralMismatch: boolean;
+  // Executed work efforts beyond the prescribed rep count — e.g. a mid-ride interval the athlete
+  // added on top of the plan. Surfaced as bonus context; they don't count toward completed/total.
+  extras: { actualWatts: number; durationSec: number }[];
 }
 
 export interface CurrentBlockDay {

@@ -74,6 +74,13 @@ export function matchPrescription(
   const powerNailed = median(reps.map((r) => r.adherencePct)) >= 95;
   const structuralMismatch = countMatches && allRepsHalvedOrLess && powerNailed;
 
+  // Work efforts beyond the prescribed count = mid-ride added intervals (DI-3). Surface them as
+  // extras (no target to score against) instead of dropping them at the min(flat, work) cut.
+  const extras = work.slice(flat.length).map((e) => ({
+    actualWatts: Math.round(adherePower(e)),
+    durationSec: e.durationSec,
+  }));
+
   return {
     prescribedLabels: prescription.map((p) => p.label),
     reps,
@@ -84,5 +91,6 @@ export function matchPrescription(
     avgDurationPct,
     effectiveAdherencePct,
     structuralMismatch,
+    extras,
   };
 }

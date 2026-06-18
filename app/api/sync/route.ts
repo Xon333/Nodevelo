@@ -27,7 +27,7 @@ import { validateInterventions } from "@/lib/intervention";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore, resolveCompliance } from "@/lib/execution-score";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
-import { applyDispositions } from "@/lib/disposition";
+import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { resolveAcwrBands } from "@/lib/calibration";
 import type { ExecutedInterval, TodayAnalysis } from "@/lib/types";
@@ -38,13 +38,14 @@ function todayIso(): string {
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
-  const [lastSync, currentBlock, todayAnalysis, scoreLog, profile, settings] = await Promise.all([
+  const [lastSync, currentBlock, todayAnalysis, scoreLog, profile, settings, dispositions] = await Promise.all([
     readLastSync(),
     readCurrentBlock(),
     readTodayAnalysis(),
     readScoreLog(),
     readAthleteProfile(),
     readBlockSettings(),
+    readDispositions(),
   ]);
   const readiness = lastSync
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
@@ -67,6 +68,12 @@ export async function GET() {
     // Legacy (pre-first-block) and compromised (equipment/sickness) rides stay in the ledger
     // but are excluded from the execution metrics the client renders (trend pulse, calendar).
     scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised),
+    // Compromised dates are sent separately so the calendar can mark them "Compromised" (the
+    // ride happened, attributed) rather than falsely "Missed" once they're out of `scores`.
+    compromisedDates: [...compromisedDates(dispositions.entries)],
+    // Partial dates let the calendar label a cut-short session "Partial" instead of "Completed"
+    // (it still has a score — the athlete attributed it as cut short).
+    partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date),
     autoSyncOnOpen: settings.autoSyncOnOpen,
   });
 }
@@ -345,7 +352,8 @@ export async function POST() {
     const acwr = computeAcwr(lastSync.activities, resolveAcwrBands((await readBlockSettings()).acwrBands));
     const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
     const scoreLog = await readScoreLog();
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised) });
+    const dispositions = await readDispositions();
+    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date) });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";
