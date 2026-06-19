@@ -968,7 +968,7 @@ function PlannedToday({ block }: { block: CurrentBlock | null }) {
 export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }) {
   // Sync state is shared via SyncProvider so the nav-rail sync control and the page
   // views stay in lock-step. Page-specific state (below) stays local.
-  const { state, setState, loadError, doSync } = useSync();
+  const { state, setState, loadError, analyzing, doSync } = useSync();
 
   const [lengthWeeks, setLengthWeeks] = useState<2 | 4>(4);
   const [goal, setGoal] = useState("");
@@ -1222,11 +1222,15 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
               <Zone rank={3} title="Trend pulse — am I improving?" hint="opens Trends">
                 <TrendPulse vertical />
               </Zone>
-              {state.todayAnalysis?.activityDate === todayIso() && state.todayAnalysis.coachNote && (
+              {state.todayAnalysis?.activityDate === todayIso() && state.todayAnalysis.coachNote ? (
                 <Zone title="Coach note" hero accent="pink" fill>
                   <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{state.todayAnalysis.coachNote}</p>
                 </Zone>
-              )}
+              ) : state.todayAnalysis?.activityDate === todayIso() && analyzing ? (
+                <Zone title="Coach note" hero accent="pink" fill>
+                  <p className="text-xs italic leading-5 text-zinc-400 dark:text-zinc-500">Analysing today&apos;s ride…</p>
+                </Zone>
+              ) : null}
               {state.anthropicConfigured && <AskCoach />}
             </div>
           </div>

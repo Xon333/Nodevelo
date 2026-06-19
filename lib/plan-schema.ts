@@ -32,7 +32,8 @@ export type PlanToolOutput = z.infer<typeof PlanToolSchema>;
 // JSON Schema for Claude's tool. Derived from the zod schema so the two never drift; `$schema`
 // is stripped because Anthropic's input_schema doesn't want the meta key.
 function toolInputSchema(): Anthropic.Tool["input_schema"] {
-  const { $schema: _drop, ...schema } = z.toJSONSchema(PlanToolSchema) as Record<string, unknown>;
+  const schema = z.toJSONSchema(PlanToolSchema) as Record<string, unknown>;
+  delete schema.$schema; // Anthropic's input_schema doesn't want the JSON-Schema meta key
   // z.toJSONSchema emits `type: "object"` at runtime for an object schema; the cast restores the
   // literal the SDK's InputSchema requires.
   return schema as Anthropic.Tool["input_schema"];

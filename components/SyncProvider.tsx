@@ -38,6 +38,11 @@ interface SyncContextValue {
   loadError: string | null;
   syncing: boolean;
   syncError: string | null;
+  // The deferred AI coach-note step (/api/analyze) is running after a fast sync.
+  analyzing: boolean;
+  // Non-fatal step failures surfaced from the last sync/analyze (e.g. intervention validation,
+  // coach-note generation) — shown rather than swallowed.
+  syncWarnings: string[];
   doSync: () => Promise<void>;
 }
 
@@ -56,14 +61,20 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [syncWarnings, setSyncWarnings] = useState<string[]>([]);
 
   const doSync = useCallback(async () => {
     setSyncing(true);
     setSyncError(null);
+    setSyncWarnings([]);
+    let analysisPending = false;
     try {
       const result = await api<{
         lastSync: SyncData;
         todayAnalysis: TodayAnalysis | null;
+        analysisPending: boolean;
+        warnings: string[];
         readiness: ReadinessSignal | null;
         fatigueAlert: FatigueAlert | null;
         loadRamp: LoadRampAlert | null;
@@ -92,10 +103,30 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             }
           : s
       );
+      if (result.warnings?.length) setSyncWarnings(result.warnings);
+      analysisPending = result.analysisPending;
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : "Sync failed");
-    } finally {
       setSyncing(false);
+      return;
+    }
+    // Fast path done — surface the data immediately, then fetch the deferred coach note so an
+    // Anthropic hiccup never blocks (or fails) the sync itself.
+    setSyncing(false);
+    if (analysisPending) {
+      setAnalyzing(true);
+      try {
+        const a = await api<{ todayAnalysis: TodayAnalysis | null; warnings: string[] }>(
+          "/api/analyze",
+          { method: "POST", body: JSON.stringify({ today: localToday() }) }
+        );
+        if (a.todayAnalysis) setState((s) => (s ? { ...s, todayAnalysis: a.todayAnalysis } : s));
+        if (a.warnings?.length) setSyncWarnings((w) => [...w, ...a.warnings]);
+      } catch (e) {
+        setSyncWarnings((w) => [...w, `Coach analysis failed: ${e instanceof Error ? e.message : "error"}`]);
+      } finally {
+        setAnalyzing(false);
+      }
     }
   }, []);
 
@@ -115,7 +146,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <SyncContext.Provider value={{ state, setState, loadError, syncing, syncError, doSync }}>
+    <SyncContext.Provider value={{ state, setState, loadError, syncing, syncError, analyzing, syncWarnings, doSync }}>
       {children}
     </SyncContext.Provider>
   );

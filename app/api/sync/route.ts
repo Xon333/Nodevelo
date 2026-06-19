@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createEvent, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
@@ -21,7 +21,7 @@ import {
   writeScoreLog,
   readTodayAnalysis,
 } from "@/lib/data-store";
-import { analyseRide, buildRideAnalysisInput, isAnthropicConfigured } from "@/lib/anthropic-api";
+import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { validateInterventions } from "@/lib/intervention";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
@@ -96,6 +96,9 @@ export async function POST(req: Request) {
   }
   try {
     const today = resolveToday((reqBody as { today?: unknown } | null)?.today);
+    // Non-fatal step failures are collected here and returned so they surface (a toast) instead of
+    // being swallowed by best-effort catches.
+    const warnings: string[] = [];
     // The power curve as it stood BEFORE this sync — the baseline a new PR must beat (the fresh
     // sync absorbs today's ride into the curve, so the comparison has to use the prior one).
     const prevSync = await readLastSync();
@@ -169,8 +172,9 @@ export async function POST(req: Request) {
       const interventionLog = await readInterventionLog();
       const { log: updatedInterventions, changed } = validateInterventions(interventionLog, model, lastSync, today);
       if (changed) await writeInterventionLog(updatedInterventions);
-    } catch {
-      // Best-effort — never fail a sync on the validation pass.
+    } catch (e) {
+      // Never fail a sync on the validation pass — but surface it instead of swallowing silently.
+      warnings.push(`Intervention validation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     if (isAnthropicConfigured()) {
@@ -185,8 +189,6 @@ export async function POST(req: Request) {
           readTodayAnalysis(),
         ]);
         const plannedDay = currentBlock?.days.find((d) => d.date === today) ?? null;
-        // Only auto-post once per day — true until today's note has already been analysed.
-        const firstAnalysisToday = priorAnalysis?.activityDate !== today;
 
         try {
           const actualMin = Math.round(todayActivity.movingTimeSec / 60);
@@ -282,17 +284,10 @@ export async function POST(req: Request) {
           // execution so it can never contradict a poor execution (the trust guarantee).
           const resolvedCompliancePct = resolveCompliance(compliancePct, executionScore);
 
-          const input = buildRideAnalysisInput(
-            todayActivity,
-            plannedDay ? { name: plannedDay.name, type: plannedDay.type, durationMin: plannedDay.durationMin } : null,
-            ftp,
-            profile.performance.thresholdHr
-          );
-          input.powerZoneTimes = powerZoneTimes;
-          input.hrZoneTimes = hrZoneTimes;
-          input.intervalComparison = intervalComparison;
-          input.powerPRs = powerPRs;
-          const coachNote = await analyseRide(input);
+          // The coach note (the slow LLM call) is deferred to /api/analyze so this sync returns
+          // fast. Preserve an already-generated note across a re-sync of the same day; a fresh ride
+          // starts empty and the client triggers the follow-up analysis to fill it.
+          const coachNote = priorAnalysis?.activityDate === today ? priorAnalysis.coachNote : "";
 
           todayAnalysis = {
             analysedAt: new Date().toISOString(),
@@ -345,23 +340,11 @@ export async function POST(req: Request) {
           } catch {
             // Best-effort — the ledger already has a coarse entry from buildRideScores.
           }
-
-          // Auto-post the coach note to Intervals.icu if the athlete opted in (once/day).
-          if (coachNote && firstAnalysisToday) {
-            const settings = await readBlockSettings();
-            if (settings.autoPostCoachNote) {
-              const scoreLine = executionScore !== null ? `\nExecution score: ${executionScore}/10` : "";
-              await createEvent({
-                category: "NOTE",
-                start_date_local: `${today}T00:00:00`,
-                name: "Coach analysis",
-                description: `[Nodevelo coach] ${todayActivity.name}${scoreLine}\n\n${coachNote.trim()}`,
-              }).catch(() => {}); // best-effort
-            }
-          }
-
-        } catch {
-          // Analysis is best-effort — don't fail the whole sync.
+          // The coach note + its Intervals.icu auto-post now happen in /api/analyze (the deferred
+          // LLM step), so this deterministic block returns without an AI call.
+        } catch (e) {
+          // Don't fail the whole sync on the deterministic analysis — but surface it.
+          warnings.push(`Ride analysis failed: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -373,7 +356,10 @@ export async function POST(req: Request) {
     const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
     const scoreLog = await readScoreLog();
     const dispositions = await readDispositions();
-    return NextResponse.json({ lastSync, todayAnalysis, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date) });
+    // A fresh ride has its deterministic analysis but no coach note yet — tell the client to
+    // trigger /api/analyze for the (slow) LLM note rather than blocking this response on it.
+    const analysisPending = todayAnalysis !== null && !todayAnalysis.coachNote;
+    return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date) });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

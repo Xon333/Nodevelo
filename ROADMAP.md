@@ -148,18 +148,6 @@ Deployment is **local-first, single-user** (confirmed). The hosted-SaaS migratio
 external audit (Postgres/RLS, blob storage, auth) are intentionally out of scope — see "Decided
 against". The items below are deployment-agnostic cost / robustness / UX wins.
 
-### P3. Decouple `/api/sync` from AI analysis
-`/api/sync` is a God function (fetch → reconcile → score → PR → AI → validate → post-back): a step-5
-crash leaves inconsistent state and users wait for the whole chain. Split it so the data fetch +
-deterministic metrics return fast (instant chart/calendar), then AI analysis runs as a separate
-triggered call and patches `today-analysis.json`.
-- [ ] **surface a `warnings[]` array** (cheap first slice — replaces the silent `// best-effort`
-  catches so a failed analysis/validation is visible; render as a toast in SyncProvider)
-- [ ] decompose into named steps returning Result types (a lean Result is fine; neverthrow optional)
-- [ ] return after data + deterministic metrics; move `analyseRide` to a follow-up call/endpoint
-- [ ] frontend: render the fast path, then fill in coach note / PRs when analysis lands
-- [ ] keep it local — a triggered second call, NOT a serverless queue / Trigger.dev
-
 ### P4. Observability + generation caching
 - [ ] Generate caching: skip the Claude call when the assembled prompt is byte-identical to a recent one
 - [ ] Stream `/api/ask` responses (token streaming) for snappier coach replies

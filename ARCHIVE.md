@@ -84,6 +84,15 @@ A full pass over a feedback dump (bugs + UX + features), worked P1 → P3.
 
 ## Foundations & earlier milestones
 
+- **Decoupled sync + surfaced warnings (ROADMAP P3).** `/api/sync` now returns fast with the
+  deterministic analysis (metrics, zones, intervals, PRs, execution score) and defers only the slow
+  LLM coach note to a follow-up `/api/analyze` (extracted `lib/sync-analysis.ts addCoachNote`,
+  idempotent — preserves a note across re-syncs, auto-posts once). PR detection stays in the fast
+  path (it needs the pre-sync curve). Non-fatal step failures (intervention validation, ride
+  analysis, coach note) now collect into a `warnings[]` array surfaced in the nav rail instead of
+  being swallowed by best-effort catches; the Today card shows "Analysing today's ride…" while the
+  note lands. `app/api/sync/route.ts`, `app/api/analyze/route.ts`, `lib/sync-analysis.ts`,
+  `components/SyncProvider.tsx`, `components/Nav.tsx`, `components/Dashboard.tsx`.
 - **Structured generation via tool-use (ROADMAP P2).** Generation no longer regex-parses Claude's
   markdown — it forces a `submit_training_block` tool whose `input_schema` is derived (via
   `z.toJSONSchema`) from one shared zod schema (`lib/plan-schema.ts`), which also validates the

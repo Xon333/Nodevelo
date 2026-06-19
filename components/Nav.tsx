@@ -106,7 +106,7 @@ function DarkToggle() {
 // Sync control, shared from SyncProvider so it can live in the nav (freeing page space).
 // `compact` is the mobile icon-only variant; the rail variant shows status + last-synced.
 function SyncControl({ compact }: { compact?: boolean }) {
-  const { state, syncing, syncError, doSync } = useSync();
+  const { state, syncing, syncError, analyzing, syncWarnings, doSync } = useSync();
   if (!state?.configured) return null;
 
   if (compact) {
@@ -134,9 +134,20 @@ function SyncControl({ compact }: { compact?: boolean }) {
         {syncing ? "Syncing…" : "Sync"}
       </button>
       <p className="mt-1 text-center text-[10px] text-zinc-400 dark:text-zinc-500">
-        {state.lastSync?.syncedAt ? `synced ${timeAgo(state.lastSync.syncedAt)}` : "never synced"}
+        {analyzing
+          ? "analysing today's ride…"
+          : state.lastSync?.syncedAt
+            ? `synced ${timeAgo(state.lastSync.syncedAt)}`
+            : "never synced"}
       </p>
       {syncError && <p className="mt-0.5 text-center text-[10px] text-red-500">{syncError}</p>}
+      {syncWarnings.length > 0 && (
+        <ul className="mt-0.5 space-y-0.5">
+          {syncWarnings.map((w, i) => (
+            <li key={i} className="text-center text-[10px] text-amber-600 dark:text-amber-400">⚠ {w}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

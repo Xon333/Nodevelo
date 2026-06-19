@@ -1,6 +1,6 @@
 // Anthropic API client + prompt assembly for training block generation.
 import Anthropic from "@anthropic-ai/sdk";
-import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, PowerPR, SyncData, TodayAnalysis } from "./types";
+import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, PowerPR, SyncData } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
 import { prDurationLabel } from "./pr";
