@@ -25,18 +25,14 @@ import { TYPE_STYLES } from "@/lib/workout-types";
 import PlanPreview from "./PlanPreview";
 import RideTrace from "./RideTrace";
 import { prDurationLabel } from "@/lib/pr";
+import { localToday } from "@/lib/date";
 import TrendPulse from "./TrendPulse";
 import { useSync } from "./SyncProvider";
 import { Card, StatTile, CyberFrame, Zone } from "./ui";
 
-function todayIso(): string {
-  const d = new Date();
-  return (
-    `${d.getFullYear()}-` +
-    `${String(d.getMonth() + 1).padStart(2, "0")}-` +
-    `${String(d.getDate()).padStart(2, "0")}`
-  );
-}
+// Local calendar date — matches what SyncProvider sends as "today", so the client's
+// "is this today's analysis?" check agrees with the server-stored activityDate.
+const todayIso = localToday;
 
 // ---------- Readiness badge ----------
 

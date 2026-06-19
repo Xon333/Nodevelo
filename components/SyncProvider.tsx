@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { api } from "@/lib/client-api";
+import { localToday } from "@/lib/date";
 import type {
   AcwrResult,
   CurrentBlock,
@@ -71,7 +72,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         scores: RideScoreEntry[];
         compromisedDates: string[];
         partialDates: string[];
-      }>("/api/sync", { method: "POST" });
+        // Send the browser's LOCAL date so the server matches today's ride on the same calendar
+        // day the athlete sees — not the server's UTC date.
+      }>("/api/sync", { method: "POST", body: JSON.stringify({ today: localToday() }) });
       setState((s) =>
         s
           ? {

@@ -31,11 +31,8 @@ import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { resolveAcwrBands } from "@/lib/calibration";
+import { resolveToday } from "@/lib/date";
 import type { ExecutedInterval, TodayAnalysis } from "@/lib/types";
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
@@ -81,15 +78,24 @@ export async function GET() {
 
 // POST pulls fresh data from Intervals.icu, then (if a ride happened today)
 // runs a short Claude analysis comparing actual vs planned.
-export async function POST() {
+export async function POST(req: Request) {
   if (!isIntervalsConfigured()) {
     return NextResponse.json(
       { error: "Intervals.icu is not configured. Set INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in .env.local." },
       { status: 400 }
     );
   }
+  // "today" is the CLIENT's local date (sent in the body) so client + server agree across the UTC
+  // day boundary — activities are matched on their local date, so a UTC "today" would miss an
+  // evening ride whose local date hasn't ticked over yet. Falls back to UTC when absent.
+  let reqBody: unknown = null;
   try {
-    const today = todayIso();
+    reqBody = await req.json();
+  } catch {
+    /* no body — UTC fallback */
+  }
+  try {
+    const today = resolveToday((reqBody as { today?: unknown } | null)?.today);
     // The power curve as it stood BEFORE this sync — the baseline a new PR must beat (the fresh
     // sync absorbs today's ride into the curve, so the comparison has to use the prior one).
     const prevSync = await readLastSync();
