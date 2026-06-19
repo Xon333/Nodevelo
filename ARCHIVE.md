@@ -84,6 +84,13 @@ A full pass over a feedback dump (bugs + UX + features), worked P1 → P3.
 
 ## Foundations & earlier milestones
 
+- **Structured generation via tool-use (ROADMAP P2).** Generation no longer regex-parses Claude's
+  markdown — it forces a `submit_training_block` tool whose `input_schema` is derived (via
+  `z.toJSONSchema`) from one shared zod schema (`lib/plan-schema.ts`), which also validates the
+  response. The route maps the typed output → `PlannedDay[]` and falls back to the regex parser
+  (`plan-parser.ts`, retained) only if the tool payload is absent/malformed. `workout-validate`
+  stays as the coaching-validity guard (tool-use is only *schema*-valid). Added `zod` v4. New
+  schema/mapping tests. `lib/plan-schema.ts`, `lib/anthropic-api.ts`, `app/api/generate/route.ts`.
 - **Prompt caching + singleton Anthropic client (ROADMAP P1).** One lazily-constructed `Anthropic`
   client reused across all calls (was `new Anthropic()` per call ×4) for connection pooling.
   Generation's system prompt is split into a cached prefix (persona + workout-syntax guide +

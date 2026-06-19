@@ -21,8 +21,9 @@ import {
   type AthleteNutritionConfig,
 } from "@/lib/nutrition";
 import { parsePlan } from "@/lib/plan-parser";
+import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { validatePlanProtocol } from "@/lib/workout-validate";
-import type { BlockParams, GeneratedPlan } from "@/lib/types";
+import type { BlockParams, GeneratedPlan, PlannedDay } from "@/lib/types";
 
 // Generation calls take 1–2 minutes for a 4-week block.
 export const maxDuration = 300;
@@ -138,8 +139,26 @@ export async function POST(req: Request) {
     );
     const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings);
 
-    const { raw, truncated } = await generateTrainingBlock(cached, dynamic, userMessage);
-    const { overview, days, warnings } = parsePlan(raw, weeks.flat());
+    const { toolInput, raw, truncated } = await generateTrainingBlock(cached, dynamic, userMessage);
+
+    // Structured-output path (P2): validate Claude's tool payload with the shared zod schema.
+    // Fall back to the regex parser on the text only if the tool output is absent/malformed.
+    let overview: string;
+    let days: PlannedDay[];
+    let warnings: string[];
+    const parsedTool = toolInput != null ? PlanToolSchema.safeParse(toolInput) : null;
+    if (parsedTool?.success) {
+      ({ overview, days } = structuredToPlannedDays(parsedTool.data));
+      warnings = [];
+      const expected = weeks.flat();
+      if (days.length !== expected.length) {
+        warnings.push(`Expected ${expected.length} days, got ${days.length}.`);
+      }
+    } else {
+      ({ overview, days, warnings } = parsePlan(raw, weeks.flat()));
+      if (toolInput != null) warnings.unshift("Structured tool output failed validation — fell back to text parsing.");
+    }
+
     // KB-grounded protocol check: flag any generated workout that contradicts the knowledge
     // base (e.g. SIT prescribed as 1-min efforts, threshold pushed into VO2max territory) so
     // the plan and the live session can't describe different things.
@@ -148,7 +167,9 @@ export async function POST(req: Request) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }
 
-    const plan: GeneratedPlan = { overview, days, warnings, raw, blockParams };
+    // Audit trail: store the structured tool JSON when present, else the raw text.
+    const rawForAudit = toolInput != null ? JSON.stringify(toolInput, null, 2) : raw;
+    const plan: GeneratedPlan = { overview, days, warnings, raw: rawForAudit, blockParams };
     return NextResponse.json({ plan });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed.";

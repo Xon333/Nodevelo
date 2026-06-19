@@ -4,6 +4,7 @@ import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, Inter
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
 import { prDurationLabel } from "./pr";
+import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 
 // Non-negotiable: in-app generation always uses claude-sonnet-4-6.
 export const GENERATION_MODEL = "claude-sonnet-4-6";
@@ -309,7 +310,8 @@ Hard rules:
 }
 
 export interface GenerationResult {
-  raw: string;
+  toolInput: unknown | null; // the structured tool-use payload (validate with PlanToolSchema); null if Claude didn't call the tool
+  raw: string; // any text content — the regex-parser fallback path
   truncated: boolean;
 }
 
@@ -584,13 +586,21 @@ export async function generateTrainingBlock(
       { type: "text", text: systemCached, cache_control: { type: "ephemeral" } },
       { type: "text", text: systemDynamic },
     ],
+    // Structured output (P2): force the plan tool so Claude returns typed JSON, not markdown to
+    // regex-parse. The route validates `toolInput` with PlanToolSchema and falls back to the regex
+    // parser on `raw` only if the tool output is absent/malformed.
+    tools: [TRAINING_BLOCK_TOOL],
+    tool_choice: { type: "tool", name: TRAINING_BLOCK_TOOL.name },
     messages: [{ role: "user", content: userMessage }],
   });
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+  );
   const raw = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("\n");
-  return { raw, truncated: response.stop_reason === "max_tokens" };
+  return { toolInput: toolUse?.input ?? null, raw, truncated: response.stop_reason === "max_tokens" };
 }
 
 // ---------- Low-token "ask coach" spot-checks ----------

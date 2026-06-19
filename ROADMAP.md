@@ -148,17 +148,6 @@ Deployment is **local-first, single-user** (confirmed). The hosted-SaaS migratio
 external audit (Postgres/RLS, blob storage, auth) are intentionally out of scope — see "Decided
 against". The items below are deployment-agnostic cost / robustness / UX wins.
 
-### P2. Structured outputs (parse robustness)
-Replace the regex plan parser (`lib/plan-parser.ts`) with Anthropic tool-use / structured JSON for
-the generated block — removes the regex as a failure surface; the model returns structured days.
-Tool-use guarantees *schema*-valid output, **not** *coaching*-valid (a SIT day can still come back as
-1-min reps), so the `workout-validate` guard stays — don't "delete the parser entirely".
-- [ ] define a `create_block` / day tool schema; switch generation to tool-use
-- [ ] one shared **zod** schema → both `safeParse(body)` (API request validation) and the tool
-  `input_schema` (single source of truth for what the app expects + what the AI may output)
-- [ ] keep `workout-validate.ts` + KB protocol rules as the post-generation guard
-- [ ] keep the regex parser as a fallback for one release in case of malformed tool output
-
 ### P3. Decouple `/api/sync` from AI analysis
 `/api/sync` is a God function (fetch → reconcile → score → PR → AI → validate → post-back): a step-5
 crash leaves inconsistent state and users wait for the whole chain. Split it so the data fetch +
