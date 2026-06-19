@@ -82,9 +82,36 @@ A full pass over a feedback dump (bugs + UX + features), worked P1 → P3.
 
 ---
 
-## Foundations & earlier milestones
+## Platform & performance (P-series)
 
-- **Token/cost tracker (ROADMAP P4, item 1).** `lib/ai-usage.ts` folds every Anthropic call's
+The local-first cost / robustness / observability hardening, in order. Forward items live under
+ROADMAP "Platform & performance"; P4 is partially done (1 of 4 items shipped).
+
+- **P1 — Prompt caching + singleton Anthropic client.** One lazily-constructed `Anthropic`
+  client reused across all calls (was `new Anthropic()` per call ×4) for connection pooling.
+  Generation's system prompt is split into a cached prefix (persona + workout-syntax guide +
+  reference KB, marked `cache_control: ephemeral`) and a dynamic tail (carry-forward seeds +
+  directives + athlete data + block params), so a repeat generation within the cache TTL re-reads
+  the bulk at ~0.1× input cost. A test locks the invariant that per-block dynamic content never
+  leaks into the cached prefix (which would defeat the cache). `lib/anthropic-api.ts`,
+  `app/api/generate/route.ts`.
+- **P2 — Structured generation via tool-use.** Generation no longer regex-parses Claude's
+  markdown — it forces a `submit_training_block` tool whose `input_schema` is derived (via
+  `z.toJSONSchema`) from one shared zod schema (`lib/plan-schema.ts`), which also validates the
+  response. The route maps the typed output → `PlannedDay[]` and falls back to the regex parser
+  (`plan-parser.ts`, retained) only if the tool payload is absent/malformed. `workout-validate`
+  stays as the coaching-validity guard (tool-use is only *schema*-valid). Added `zod` v4. New
+  schema/mapping tests. `lib/plan-schema.ts`, `lib/anthropic-api.ts`, `app/api/generate/route.ts`.
+- **P3 — Decoupled sync + surfaced warnings.** `/api/sync` now returns fast with the
+  deterministic analysis (metrics, zones, intervals, PRs, execution score) and defers only the slow
+  LLM coach note to a follow-up `/api/analyze` (extracted `lib/sync-analysis.ts addCoachNote`,
+  idempotent — preserves a note across re-syncs, auto-posts once). PR detection stays in the fast
+  path (it needs the pre-sync curve). Non-fatal step failures (intervention validation, ride
+  analysis, coach note) now collect into a `warnings[]` array surfaced in the nav rail instead of
+  being swallowed by best-effort catches; the Today card shows "Analysing today's ride…" while the
+  note lands. `app/api/sync/route.ts`, `app/api/analyze/route.ts`, `lib/sync-analysis.ts`,
+  `components/SyncProvider.tsx`, `components/Nav.tsx`, `components/Dashboard.tsx`.
+- **P4 (item 1 of 4) — Token/cost tracker.** `lib/ai-usage.ts` folds every Anthropic call's
   `usage` into `data/ai-usage.json` (best-effort, fire-and-forget — never blocks the request; a
   serialized read-modify-write chain prevents lost increments under concurrency). Cost is estimated
   from a per-model price table (sonnet-4-6 $3/$15, haiku-4-5 $1/$5 per 1M) with the cache-write
@@ -92,9 +119,19 @@ A full pass over a feedback dump (bugs + UX + features), worked P1 → P3.
   all four call sites (generate, ride analysis, retrospective, ask-coach); `AiUsageCard` shows total
   + per-model spend on the (now dynamic) Settings page. Pure `estimateCostUsd` unit-tested.
   `lib/ai-usage.ts`, `lib/anthropic-api.ts`, `components/AiUsageCard.tsx`, `app/settings/page.tsx`.
-  Remaining P4: generation caching (open product question — see ROADMAP), stream `/api/ask`,
+  _Still open in P4:_ generation caching (open product question — see ROADMAP), stream `/api/ask`,
   coach-accuracy % on the dashboard.
-- **Reliability & resilience quick-wins (ROADMAP P6).** Five independent hardening wins:
+- **P5 — Deterministic schedule validator.** Generation was *instructed* to space quality
+  sessions ("avoid back-to-back hard days") and cap them at the weekly budget, but nothing enforced
+  placement — `workout-validate.ts` checks each session's protocol bands in isolation. New
+  `lib/schedule-validate.ts validateSchedule(days, settings)` does a post-generation pass over the
+  block's day sequence and flags (a) two hard/quality days on consecutive calendar dates (by date
+  adjacency, so it spans the week boundary and never false-pairs across a gap) and (b) any week over
+  the `qualitySessionsPerLoadingWeek` budget. Quality set = Threshold/VO2max/SIT/**RaceSim** (RaceSim
+  counts toward the budget + spacing). Folded into the generate route's `warnings[]` next to the
+  protocol checks — warns only, never reorders. 11 new tests. `lib/schedule-validate.ts`,
+  `app/api/generate/route.ts`.
+- **P6 — Reliability & resilience quick-wins.** Five independent hardening wins:
   - **Error boundaries** — `app/error.tsx` (route-segment fallback; the nav rail above it stays
     mounted) + `app/global-error.tsx` (root-shell fallback). Use Next 16's `unstable_retry` prop
     (not `reset` — verified against `node_modules/next/dist/docs`).
@@ -116,40 +153,9 @@ A full pass over a feedback dump (bugs + UX + features), worked P1 → P3.
     exposes `reAnalyse`; the Today coach-note card shows a re-analyse / "generate note" button so an
     Anthropic hiccup is recoverable without a full re-sync. The sync route already preserves a good
     note + its stamp across a re-sync (never overwrites with empty).
-- **Deterministic schedule validator (ROADMAP P5).** Generation was *instructed* to space quality
-  sessions ("avoid back-to-back hard days") and cap them at the weekly budget, but nothing enforced
-  placement — `workout-validate.ts` checks each session's protocol bands in isolation. New
-  `lib/schedule-validate.ts validateSchedule(days, settings)` does a post-generation pass over the
-  block's day sequence and flags (a) two hard/quality days on consecutive calendar dates (by date
-  adjacency, so it spans the week boundary and never false-pairs across a gap) and (b) any week over
-  the `qualitySessionsPerLoadingWeek` budget. Quality set = Threshold/VO2max/SIT/**RaceSim** (RaceSim
-  counts toward the budget + spacing). Folded into the generate route's `warnings[]` next to the
-  protocol checks — warns only, never reorders. 11 new tests. `lib/schedule-validate.ts`,
-  `app/api/generate/route.ts`.
-- **Decoupled sync + surfaced warnings (ROADMAP P3).** `/api/sync` now returns fast with the
-  deterministic analysis (metrics, zones, intervals, PRs, execution score) and defers only the slow
-  LLM coach note to a follow-up `/api/analyze` (extracted `lib/sync-analysis.ts addCoachNote`,
-  idempotent — preserves a note across re-syncs, auto-posts once). PR detection stays in the fast
-  path (it needs the pre-sync curve). Non-fatal step failures (intervention validation, ride
-  analysis, coach note) now collect into a `warnings[]` array surfaced in the nav rail instead of
-  being swallowed by best-effort catches; the Today card shows "Analysing today's ride…" while the
-  note lands. `app/api/sync/route.ts`, `app/api/analyze/route.ts`, `lib/sync-analysis.ts`,
-  `components/SyncProvider.tsx`, `components/Nav.tsx`, `components/Dashboard.tsx`.
-- **Structured generation via tool-use (ROADMAP P2).** Generation no longer regex-parses Claude's
-  markdown — it forces a `submit_training_block` tool whose `input_schema` is derived (via
-  `z.toJSONSchema`) from one shared zod schema (`lib/plan-schema.ts`), which also validates the
-  response. The route maps the typed output → `PlannedDay[]` and falls back to the regex parser
-  (`plan-parser.ts`, retained) only if the tool payload is absent/malformed. `workout-validate`
-  stays as the coaching-validity guard (tool-use is only *schema*-valid). Added `zod` v4. New
-  schema/mapping tests. `lib/plan-schema.ts`, `lib/anthropic-api.ts`, `app/api/generate/route.ts`.
-- **Prompt caching + singleton Anthropic client (ROADMAP P1).** One lazily-constructed `Anthropic`
-  client reused across all calls (was `new Anthropic()` per call ×4) for connection pooling.
-  Generation's system prompt is split into a cached prefix (persona + workout-syntax guide +
-  reference KB, marked `cache_control: ephemeral`) and a dynamic tail (carry-forward seeds +
-  directives + athlete data + block params), so a repeat generation within the cache TTL re-reads
-  the bulk at ~0.1× input cost. A test locks the invariant that per-block dynamic content never
-  leaks into the cached prefix (which would defeat the cache). `lib/anthropic-api.ts`,
-  `app/api/generate/route.ts`.
+
+## Foundations & earlier milestones
+
 - **Timezone-correct "today" (code-audit fix).** The server matched today's ride on a UTC date
   while activities carry their *local* date, so an evening ride could be missed entirely (no
   analysis/PR). `lib/date.ts` now makes the client's local date the single source of "today"
