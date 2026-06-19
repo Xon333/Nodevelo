@@ -24,12 +24,34 @@ Make them personal via `lib/calibration.ts` (the hybrid auto + manual pattern us
 - **Caution:** touches the frozen scoring core. Immutable ledger means changes only affect *new*
   entries. Needs careful tests + a manual-override hook; auto-derive with population fallback.
 
+**Generalise into one calibration framework (absorbs the external "per-athlete threshold learning"
+spec + the confidence-weighted-modeling sub-item below).** Today `lib/calibration.ts` only holds α +
+ACWR bands. Promote it to a uniform per-parameter record so every learned value carries its own
+provenance and a guard against chasing noise:
+`{ current_value, confidence (sample-size/variance), data_points_count, last_updated, lock_threshold,
+manual_override? }` — auto-derive once enough data, then **lock** and require manual override.
+Parameters to bring under it: **per-type IF cutoffs** (from `physiology.json` zones), **decoupling /
+Pw:HR "good" threshold** (from `avgDecoupling90d`), **ACWR band** (narrow if load-tolerant, widen if
+fragile), **EWMA α / fitness-decay rate** (lengthen if the athlete retains fitness, shorten if rapid
+decay), **TSB adaptation window** (the range that actually produced adaptation), and **optimal carbs
+g/h per ride type** (owned by the fueling engine — see "Fueling intelligence"). The `confidence` +
+`lock_threshold` layer is the additive uncertainty model the second-brain item already calls for —
+build it once here, not twice.
+
 ### 2. CoachSnapshot + Ask-Coach context (the "objective telemetry lens")
 Build one pre-computed `CoachSnapshot` that generation and Ask-Coach read, so the LLM is handed
 resolved numbers and can't invent them. Shape: `today.execution {score, completed/total,
 effective%, power%, duration%}` · `form {tsb, acwr, readiness, loadRamp}` · `fuel {todayTargetKcal,
 intakeVsNeed, fuelingState, weightTrend7d}` · `block {goal, week/total}` · `directives[]`.
 Ask-Coach already gets block+form; **add `today.execution` + `fuel`.**
+
+**TSB as an actionable modifier, not a raw number (from the external spec).** A bare "TSB −12" is
+useless to the athlete. The snapshot's `form` must resolve TSB *against today's prescription*: is the
+athlete in a range where the prescribed stimulus still produces adaptation, or too fatigued to
+benefit? Surface it as a conditional modifier tied to the session — e.g. *"Form −12: today's VO2
+still adapts, but drop a rep if RPE > 8 by set 3."* The window that counts as "adaptive" is itself a
+calibrated parameter (TSB adaptation window in §1's framework), not a fixed −10…+5. The LLM phrases
+it; the band + decision are deterministic.
 
 > **⚠️ Ask-Coach anti-pattern (from a real test — this is what must NOT happen).**
 > Prompt: *"should I stay on plan tomorrow although I only managed 41% of the prescribed intervals?"*
@@ -74,6 +96,11 @@ motivation 1–5, illness none/mild/sick. Stored as structured JSON (a `morning-
 `intervention-log.json` records verdicts after a 28-day horizon but has none yet. Once data exists,
 make a low hit-rate in `lib/synthesis.ts` actually **demote** that directive (today it only
 annotates). Revisit ~4 weeks after the next block is written.
+- **Prescription-accuracy → baseline nudge (from the external spec).** Beyond demoting *directives*,
+  surface planned-vs-actual per session type on the Plan page and act on a consistent gap — e.g.
+  *"3 of your last 4 threshold sessions landed below prescribed power → suggest FTP/baseline −3 W."*
+  Deterministic, athlete-confirmed (never silently rewrites `physiology.json` FTP, the zone SoT).
+  Ties to the durability-template scoring loop (below) and §1 calibration.
 
 ### 5. Signal fusion → one coherent athlete state  ⭐ (biggest gap to a "true" second brain)
 The brain *surfaces* parallel signals (execution, behaviour, validation, readiness, RPE); it
@@ -114,6 +141,30 @@ schedule validator) so they don't interfere with the fixed-ERG benchmark + inter
 point is to keep intervals primary while breaking indoor-ladder monotony with structured-but-flexible
 outdoor quality the athlete will actually ride. (Foundation: PW-3/PW-9, shipped — see ARCHIVE.)
 
+### Durability prescription taxonomy  ⭐ (durability is a category, not one workout)
+From the external spec. The system today treats "durability" as a single long-Z2 template; it must
+treat it as a **stimulus category with rotating templates**, each training a different
+fatigue-resistance mechanism. Encode the templates and a *placement* rule (the intensity sits inside
+the duration target, never replaces it):
+- **A — Pure accumulation:** long Z2 (volume → fatigue resistance).
+- **B — Fatigue-then-threshold:** ~3 h Z2 → threshold climb(s) late → Z1/Z2 to fill (threshold power
+  *after* accumulated fatigue).
+- **C — Fatigue-then-VO2:** Z2 → VO2 efforts placed late → fill (high-end aerobic under fatigue).
+- **D — Fatigue-then-neuromuscular:** Z2 → late sprints → fill (recruitment when glycogen-depleted).
+- **E — Mixed density:** micro-doses (surges / under-overs) woven through the Z2, not back-loaded.
+
+Selection (deterministic; the LLM only phrases the chosen template):
+- **Limiter-driven** when the athlete model flags one (threshold-under-fatigue → B; VO2 repeatability
+  → C; explosive finish → D; low volume tolerance → A).
+- **Rotate** even with no clear limiter — stacking one template breeds one-dimensional adaptation.
+- **Duration-respecting + terrain/time-adaptive:** 3 h instead of 4 h → shorter Z2 block, same
+  late-ride placement, adjusted target. Must respect P5 spacing + the quality budget.
+- **Future scoring loop (compat, not now):** score each ride against its template's expected
+  adaptation signal (did a B session raise threshold-under-fatigue vs the prior B?) → a per-template
+  **prescription-accuracy** weight per athlete. Build the classification so this can bolt on later
+  (ties to §4 + the fueling correlation engine).
+Extends Goal-driven session selection (shared selection/spacing machinery) — build the two together.
+
 ### Second-brain learning upgrades  ⭐ (semantic memory + confidence — additive to the deterministic core)
 Make the brain reason about *why*, not just track scalars — **without** surrendering the
 deterministic guarantees (the AI only ever writes the language; the math + validation stay in TS).
@@ -139,6 +190,27 @@ then discarded — these turn them into durable, queryable memory.
   bands (#1) and letting low-confidence signals be down-weighted. **Additive, not a rip-out:** keep
   EWMA's gradation (don't binarise 1–10 → pass/fail and lose the 6-vs-9 distinction). Pure TS
   (`simple-statistics` or hand-rolled conjugate update).
+
+### Fueling intelligence: correlation engine + pre-ride loading loop  ⭐ (data already synced)
+From the external spec; the highest-value new insight because the inputs already exist (intervals.icu
+syncs intra-ride carbs g/h, and `lib/nutrition.ts` already computes pre/in-ride targets). Turn
+fueling from a static formula into a learned, per-athlete signal:
+- **Correlation engine.** Per ride type, correlate the synced **carbs g/h** against the outcome
+  signals we already compute: **Pw:HR decoupling** (fueling-adequacy proxy), **RPE-vs-IF divergence**
+  (high RPE for low IF = under-fuelled), **interval completion rate**, and **next-day TSB**. Over
+  successive same-type rides, **converge on the athlete's own optimal g/h** — stored as a calibrated
+  parameter in §1's framework (with confidence + lock), not a generic guideline.
+- **Contextual post-ride prompts** (deterministic thresholds, LLM phrases): *"65 g/h on a 3 h ride —
+  decoupling 8% worse than your best-fuelled 4 h (90 g/h); raise intake next time"* · *"matched your
+  best VO2 fuelling (80 g/h) — locking as reference"* · *"40 g/h, below your learned 70 g/h floor for
+  >90 min; decoupling confirms it."*
+- **Pre-ride loading loop.** Day-before carb bump before long durability (3 h+), scaled by
+  duration/intensity (reuse `preRideCarbTarget`); races already use the KB race-nutrition logic
+  (§6a — reference, don't rebuild); <90 min quality needs no load (flag over/under-fuelling). Then
+  **learn whether loading actually helped** (loaded vs baseline decoupling) — if it doesn't move the
+  signal for *this* athlete at *this* duration, stop prescribing it.
+This is the concrete build-out of §6 (nutrition energy-balance) — do them as one workstream; §6's
+`fuelingState` + the Today "nutrition availability" flag are the surfacing layer for this engine.
 
 ---
 
@@ -209,6 +281,13 @@ Most of the Images 1–5 audit shipped (see [ARCHIVE.md](ARCHIVE.md)). Remaining
   decoupling, cadence) are okay but not all high-value. Audit and replace with what actually informs
   training: candidates — **w/kg at threshold** (20-min power ÷ weight), **weekly TSS**, **rides/week
   consistency**, **CTL ramp rate**, **decoupling trend**. Pick ~4 that aren't redundant with the graphs.
+- **Pw:HR-drift × fueling overlay on Trends (from the external spec):** the **filtering is already
+  shipped** — `lib/trends.ts efSeries` uses Intervals' `icu_efficiency_factor`, outdoor-only,
+  endurance band (0.56–0.85 FTP), ≥45 min, as a *trajectory* not single-ride snapshots. The new ask
+  is the **carb-intake (g/h) overlay on the same chart** so the fuelling → drift relationship is
+  visible. Build with the fueling correlation engine (shared filtered series). _Already-resolved
+  metric SoT to keep, not redo:_ TSS is dropped (= Intervals' Load); Pw:HR is synced not recomputed;
+  Today card already shows IF · NP/Avg · Decoupling · RPE with per-metric context.
 - **Page layout / open-state density (less scrolling):** each page should show its decision-critical
   content above the fold on open. Audit Today/Plan/Trends/Profile for what's pushed below the fold,
   tighten spacing + reorder so the first screen answers "what do I do now?" without scrolling.
