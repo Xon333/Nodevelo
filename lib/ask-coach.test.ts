@@ -6,6 +6,7 @@ const ctx: AskCoachContext = {
   session: { name: "Threshold 2x20", type: "Threshold", durationMin: 75, intervals: ["2×20m @ 274W"] },
   upcoming: null,
   form: "TSB +3, ACWR optimal, readiness Build",
+  state: null,
   ftp: 274,
   rideLogged: null,
   disposition: null,
@@ -26,7 +27,7 @@ describe("buildAskCoachPrompt", () => {
   });
 
   it("handles a rest / unplanned day and missing context cleanly", () => {
-    const p = buildAskCoachPrompt({ block: null, session: null, upcoming: null, form: null, ftp: null, rideLogged: null, disposition: null }, "should I ride easy?");
+    const p = buildAskCoachPrompt({ block: null, session: null, upcoming: null, form: null, state: null, ftp: null, rideLogged: null, disposition: null }, "should I ride easy?");
     expect(p).toContain("No structured session is planned today");
     expect(p).toContain("should I ride easy?");
   });

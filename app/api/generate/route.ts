@@ -9,12 +9,15 @@ import {
   isAnthropicConfigured,
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readInterventionLog, readLastSync, readScoreLog } from "@/lib/data-store";
+import { readAthleteProfile, readBlockSettings, readInterventionLog, readLastSync, readRollingBaselines, readScoreLog } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
+import { computeAcwr } from "@/lib/readiness";
+import { resolveAcwrBands } from "@/lib/calibration";
+import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
@@ -70,7 +73,7 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog, baselines] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
@@ -79,6 +82,7 @@ export async function POST(req: Request) {
       readScoreLog(),
       readPhysiology(),
       readInterventionLog(),
+      readRollingBaselines(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -110,10 +114,19 @@ export async function POST(req: Request) {
     // ONE synthesised coaching block: the athlete model's ranked insights (weak/under-
     // delivering/trending types, off-plan drift) folded together with each dimension's
     // validation track record — instead of three overlapping context blocks.
+    const athleteModel = buildAthleteModel(scoreLog.entries);
     const directivesContext = synthesizeCoachingDirectives(
-      deriveInsights(buildAthleteModel(scoreLog.entries)),
+      deriveInsights(athleteModel),
       summariseValidation(interventionLog)
     );
+
+    // Signal fusion (§5): hand the generator the one fused-state read so the block respects current
+    // systemic state, not just per-dimension execution history.
+    const acwr = sync ? computeAcwr(sync.activities, resolveAcwrBands(blockSettings.acwrBands)) : null;
+    const athleteState = computeAthleteState(athleteStateInputsFrom(sync, athleteModel, baselines, acwr));
+    const stateContext = athleteState
+      ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${athleteState.headline} — state ${athleteState.score}/100, recommendation: ${athleteState.recommendation}.`
+      : "";
 
     // Live training zones from the physiology store, rendered for the prompt (these used to
     // live in athlete_profile.md but are now synced from Intervals.icu).
@@ -137,7 +150,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + directivesContext,
+      seedsContext + stateContext + directivesContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );

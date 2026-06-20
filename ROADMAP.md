@@ -117,11 +117,17 @@ annotates). Revisit ~4 weeks after the next block is written.
   an "effective FTP" shadow or a confirmed local override, to keep one source of truth.) Ties to the
   durability-template scoring loop (below) and §1 calibration.
 
-### 5. Signal fusion → one coherent athlete state  ⭐ (biggest gap to a "true" second brain)
-The brain *surfaces* parallel signals (execution, behaviour, validation, readiness, RPE); it
-doesn't *fuse* them. e.g. RPE-high + execution-down + decoupling-up → one "systemic fatigue →
-recover" conclusion, not three lines. Design a single `athleteState` synthesis before
-generation/readiness. This is the heart of the goal.
+### 5. Signal fusion → one coherent athlete state  ⭐ — v1 foundations SHIPPED (see ARCHIVE + spec)
+`lib/athlete-state.ts computeAthleteState` fuses the parallel signals (TSB/ACWR + execution/
+decoupling/RPE + behaviour) into one glanceable **0–100 score** (band on hover) with the drivers
+behind it + a **lived-signal override** (corroborated fatigue beats a fresh TSB). Surfaced on Today
+(`AthleteStateCard`) and fed into generation + Ask-Coach. Deterministic; AI only phrases. Design:
+[docs/specs/athlete-state.md](docs/specs/athlete-state.md).
+- **Long-term — expect tuning** (the weights are conservative population defaults in one constants
+  block). Remaining: add the **energy-availability evaluator** (its hook is left; blocked on the
+  fueling engine); **per-athlete calibrated weights** (via §1's calibration framework instead of the
+  population defaults); tune the score→band thresholds + the headline phrasing against real use; and a
+  possible **score-over-time trend**. Keep the math in TS; the AI never computes the state.
 
 ### Weak-Point Optimizer & rider-type ID  ⭐ (the proprietary edge)
 The distinct value over Intervals.icu / TrainerRoad / TrainingPeaks: translate the raw power curve

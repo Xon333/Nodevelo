@@ -6,6 +6,7 @@ import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type {
   AcwrResult,
+  AthleteState,
   CurrentBlock,
   FatigueAlert,
   IntensityDistribution,
@@ -34,6 +35,8 @@ export interface AppState {
   // Validation-loop self-assessment: how often acting on the coach's matured directives proved
   // right. hitRatePct is null until the 28-day horizon produces a decisive outcome.
   coachAccuracy?: { hitRatePct: number | null; evaluated: number; pending: number };
+  // Signal fusion (§5): the glanceable "second brain's read on you now". Null with too little data.
+  athleteState?: AthleteState | null;
 }
 
 interface SyncContextValue {
@@ -133,6 +136,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         scores: RideScoreEntry[];
         compromisedDates: string[];
         partialDates: string[];
+        athleteState: AthleteState | null;
         // Send the browser's LOCAL date so the server matches today's ride on the same calendar
         // day the athlete sees — not the server's UTC date.
       }>("/api/sync", { method: "POST", body: JSON.stringify({ today: localToday() }) });
@@ -150,6 +154,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               scores: result.scores,
               compromisedDates: result.compromisedDates,
               partialDates: result.partialDates,
+              athleteState: result.athleteState,
             }
           : s
       );

@@ -12,6 +12,7 @@ import {
   readDispositions,
   readInterventionLog,
   readLastSync,
+  readRollingBaselines,
   readScoreLog,
   writeInterventionLog,
   writeTodayAnalysis,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/data-store";
 import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
+import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import { computeExecutionScore, resolveCompliance } from "@/lib/execution-score";
@@ -36,7 +38,7 @@ import type { ExecutedInterval, TodayAnalysis } from "@/lib/types";
 
 // GET returns the cached app state; it never hits Intervals.icu.
 export async function GET() {
-  const [lastSync, currentBlock, todayAnalysis, scoreLog, profile, settings, dispositions, interventionLog] =
+  const [lastSync, currentBlock, todayAnalysis, scoreLog, profile, settings, dispositions, interventionLog, baselines] =
     await Promise.all([
       readLastSync(),
       readCurrentBlock(),
@@ -46,6 +48,7 @@ export async function GET() {
       readBlockSettings(),
       readDispositions(),
       readInterventionLog(),
+      readRollingBaselines(),
     ]);
   const readiness = lastSync
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
@@ -54,6 +57,10 @@ export async function GET() {
   const loadRamp = lastSync ? computeLoadRamp(lastSync.activities) : null;
   const acwr = lastSync ? computeAcwr(lastSync.activities, resolveAcwrBands(settings.acwrBands)) : null;
   const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp) : null;
+  // Signal fusion (§5): one glanceable state from the fused signals.
+  const athleteState = computeAthleteState(
+    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr)
+  );
   return NextResponse.json({
     configured: isIntervalsConfigured(),
     anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
@@ -78,6 +85,8 @@ export async function GET() {
     // How often acting on the coach's matured directives proved right (validation loop). Null until
     // the 28-day horizon yields a decisive outcome; `pending` shows how many are still accruing.
     coachAccuracy: overallCoachAccuracy(interventionLog),
+    // Signal fusion (§5): the glanceable "second brain's read on you now".
+    athleteState,
   });
 }
 
@@ -369,7 +378,11 @@ export async function POST(req: Request) {
     // A fresh ride has its deterministic analysis but no coach note yet — tell the client to
     // trigger /api/analyze for the (slow) LLM note rather than blocking this response on it.
     const analysisPending = todayAnalysis !== null && !todayAnalysis.coachNote;
-    return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date) });
+    // Signal fusion (§5) recomputed on the fresh data so the glanceable state updates after a sync.
+    const athleteState = computeAthleteState(
+      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr)
+    );
+    return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), athleteState });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

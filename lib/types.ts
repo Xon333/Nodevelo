@@ -465,6 +465,28 @@ export interface RollingBaselines {
   updatedAt: string;
 }
 
+// ---------- Athlete state (ROADMAP §5 signal fusion — see docs/specs/athlete-state.md) ----------
+
+// One signal's contribution to the fused score; also the hover detail ("what moved it").
+export interface SignalContribution {
+  key: string; // "tsb" | "acwr" | "execution" | "decoupling" | "rpe" | "behaviour" | …
+  label: string;
+  dir: "up" | "down" | "flat"; // the signal's own movement (e.g. decoupling "up" = worse)
+  effect: number; // signed points added to the score (− = worse state)
+  note: string; // one-line plain-English reason
+}
+
+// The glanceable "what the second brain thinks of you right now" metric — a 0–100 score that fuses
+// the parallel signals into one reconciled read. Deterministic; the AI only phrases the headline.
+export interface AthleteState {
+  score: number; // 0–100
+  band: "primed" | "ready" | "steady" | "strained" | "depleted";
+  recommendation: "push" | "proceed" | "soften" | "recover";
+  confidence: "low" | "medium" | "high";
+  drivers: SignalContribution[]; // sorted by |effect| desc
+  headline: string;
+}
+
 // ---------- Today's ride analysis (data/today-analysis.json) ----------
 
 export interface TodayAnalysis {

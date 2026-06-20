@@ -625,6 +625,7 @@ export interface AskCoachContext {
   // tomorrow's SIT?") see the real prescription instead of the coach inventing rep durations.
   upcoming: { inDays: number; name: string; type: string; durationMin: number; intervals: string[] } | null;
   form: string | null; // pre-formatted current state, e.g. "TSB +3, ACWR optimal, readiness Build"
+  state: string | null; // §5 fused athlete-state read, e.g. "Strained — RPE up… (38/100, soften)"
   ftp: number | null;
   rideLogged: string | null; // note if today's ride is already done
   disposition: string | null; // athlete's attribution of today's session (esp. "compromised")
@@ -662,6 +663,7 @@ export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string
     );
   }
   if (ctx.form) lines.push(`Current form: ${ctx.form}.`);
+  if (ctx.state) lines.push(`Fused athlete state: ${ctx.state}.`);
   if (ctx.ftp) lines.push(`FTP: ${ctx.ftp} W.`);
   if (ctx.rideLogged) lines.push(ctx.rideLogged);
   // Disposition is the attribution guard — e.g. a compromised session must not be read as

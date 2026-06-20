@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
-import { readCurrentBlock, readDispositions, readLastSync, readTodayAnalysis } from "@/lib/data-store";
+import { readCurrentBlock, readDispositions, readLastSync, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
 import { readPhysiology } from "@/lib/physiology";
 import { computeAcwr, computeReadiness } from "@/lib/readiness";
+import { buildAthleteModel } from "@/lib/athlete-model";
+import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 
 export const maxDuration = 60;
 
@@ -26,12 +28,14 @@ export async function POST(req: Request) {
   if (query.length > 600) return NextResponse.json({ error: "Question is too long (max 600 chars)." }, { status: 400 });
 
   const today = new Date().toISOString().slice(0, 10);
-  const [block, sync, physStore, todayAnalysis, dispositions] = await Promise.all([
+  const [block, sync, physStore, todayAnalysis, dispositions, scoreLog, baselines] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),
     readPhysiology(),
     readTodayAnalysis(),
     readDispositions(),
+    readScoreLog(),
+    readRollingBaselines(),
   ]);
 
   const blockCtx = block
@@ -93,11 +97,21 @@ export async function POST(req: Request) {
         ? "The athlete marked today's session partial (cut short)."
         : null;
 
+  // §5 fused athlete-state read, so the coach answers grounded in the one reconciled state.
+  let state: string | null = null;
+  if (sync) {
+    const st = computeAthleteState(
+      athleteStateInputsFrom(sync, buildAthleteModel(scoreLog.entries), baselines, computeAcwr(sync.activities))
+    );
+    if (st) state = `${st.headline} (${st.score}/100, ${st.recommendation})`;
+  }
+
   const context: AskCoachContext = {
     block: blockCtx,
     session,
     upcoming,
     form,
+    state,
     ftp: physStore?.current.ftp ?? null,
     rideLogged,
     disposition,

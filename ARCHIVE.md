@@ -193,6 +193,27 @@ ROADMAP "Platform & performance"; P4 is partially done (1 of 4 items shipped).
   (`@tanstack/react-query`). _Deferred:_ `doSync`→`useMutation` + optimistic updates (not needed for
   the win).
 
+## Signal fusion — Athlete State v1 (ROADMAP §5)
+
+- **`computeAthleteState` (the fused glance).** `lib/athlete-state.ts` collapses the parallel signals
+  the brain otherwise surfaces (and lets contradict) — TSB, ACWR, execution-trend (EWMA), decoupling
+  vs the 90d baseline, RPE recent-vs-baseline, off-plan behaviour — into one **0–100 score** + band
+  (`primed/ready/steady/strained/depleted`) + recommendation + `drivers[]` + confidence. Built as a
+  **list of signal evaluators** (add energy-availability later = one evaluator); score = base + Σ
+  effects, clamped, then a **lived-signal override** (≥2 of execution-down / decoupling-up / RPE-up
+  cap the score even when TSB looks fresh — corroborated fatigue beats a fresh load model). All
+  weights/thresholds are named constants in one block (foundations — built to be tuned). Deterministic;
+  the AI only phrases the headline. 8 directional tests (not pinned to exact numbers). Design spec:
+  `docs/specs/athlete-state.md`.
+- **Surfaced + consumed (all three).** `AthleteStateCard` on Today — the 0–100 score is the glance,
+  band + drivers reveal on hover (above the individual signals, not replacing them). Computed in the
+  `/api/sync` GET **and** POST (so it refreshes after a sync), carried on `AppState.athleteState`.
+  Folded into **generation** (a fused-state directive line) and **Ask-Coach** (context), both via the
+  pure `athleteStateInputsFrom` adapter. `lib/athlete-state.ts`, `app/api/sync/route.ts`,
+  `app/api/generate/route.ts`, `app/api/ask/route.ts`, `lib/anthropic-api.ts`,
+  `components/AthleteStateCard.tsx`, `components/SyncProvider.tsx`, `components/Dashboard.tsx`,
+  `lib/types.ts`. (v1 foundations; tuning + energy-availability + per-athlete weights remain — ROADMAP §5.)
+
 ## Metric-consistency + Today/Trends UX (feedback batch)
 
 A batch of real-use feedback, routed through todo.md (MR/UX/RC) and cleared:
