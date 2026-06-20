@@ -193,6 +193,33 @@ ROADMAP "Platform & performance"; P4 is partially done (1 of 4 items shipped).
   (`@tanstack/react-query`). _Deferred:_ `doSync`→`useMutation` + optimistic updates (not needed for
   the win).
 
+## Metric-consistency + Today/Trends UX (feedback batch)
+
+A batch of real-use feedback, routed through todo.md (MR/UX/RC) and cleared:
+- **MR-1 — IF basis consistency.** The coach-note prompt (`analyseRide`) computed IF from *avg*
+  watts while the Today card + `score-log` use NP (`normalizedPower ?? avgWatts`). Made the note
+  NP-based too (and ftp>0-guarded), so the note's IF can't disagree with the card; fixed the stale
+  `// avg watts / FTP` comment on `TodayAnalysis.intensityFactor`. (NP was already synced from
+  `icu_normalized_power`.) `lib/anthropic-api.ts`, `lib/types.ts`.
+- **MR-2 — Weekly-hours window.** Recent-Baselines "Weekly hours" was an all-logged-window mean
+  while its sibling tiles are 90-day rolling. Added `avgWeeklyHours90d` to `RollingBaselines`
+  (computed in `computeRollingBaselines` as total hours ÷ 90/7 over the same 90d window); the card
+  now reads it, so all four tiles share one horizon. Populates on the next sync. `lib/readiness.ts`,
+  `lib/types.ts`, `lib/data-store.ts`, `components/Trends.tsx`.
+- **RC-1 — Avg speed on the Today ride card.** Threaded `activityDistanceMeters` onto `TodayAnalysis`
+  (sync route) and added an "Avg speed" tile (distance ÷ moving time). Populates on the next sync.
+  `lib/types.ts`, `app/api/sync/route.ts`, `components/Dashboard.tsx`.
+- **UX-1 — Power bar horizontal overflow.** `ZoneBars` segments had `shrink-0` + `gap-px`, so widths
+  summed past 100% and the bar overflowed on narrow cards. Switched to `min-w-0` (let flex absorb the
+  gap). `components/Dashboard.tsx`.
+- **UX-2 — Trend-pulse "Weekly volume" tile dead-end.** The tile pushed to /trends, which had no
+  weekly-volume view. Added a "Weekly volume" card (`WeeklyVolumeBars` over the existing
+  `data.weeklyHours`) so the click lands somewhere. `components/Trends.tsx`.
+- **UX-3 — Execution-quality card compression + hover.** `ScoreBars` (capped at 24) used
+  `min-w-[4px]` + `gap-[3px]` (~165px min → overflowed narrow cards); reduced to `min-w-[2px]` +
+  `gap-px` (~71px) and added a `hover:opacity` affordance on top of the existing per-bar title.
+  `components/Trends.tsx`.
+
 ## Foundations & earlier milestones
 
 - **Timezone-correct "today" (code-audit fix).** The server matched today's ride on a UTC date

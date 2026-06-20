@@ -461,6 +461,7 @@ export interface RollingBaselines {
   avgDecoupling90d: number | null;
   avgCadence90d: number | null;
   avgTss90d: number | null;
+  avgWeeklyHours90d: number | null; // rolling 90-day mean weekly ride hours (window-consistent with the others)
   updatedAt: string;
 }
 
@@ -480,12 +481,13 @@ export interface TodayAnalysis {
   activityTrainingLoad: number | null;
   activityRpe: number | null;
   activityDecoupling: number | null;
+  activityDistanceMeters: number | null; // for avg-speed on the Today ride card
   plannedName: string | null;
   plannedType: string | null;
   plannedDurationMin: number | null;
   // Computed metrics
   compliancePct: number | null; // actual / planned duration %
-  intensityFactor: number | null; // avg watts / FTP
+  intensityFactor: number | null; // NP / FTP (falls back to avg watts when NP is absent)
   // Advised daily intake (deterministic, same formula as block generation)
   advisedIntakeKcal: number | null;
   advisedBaseKcal: number | null;

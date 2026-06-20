@@ -170,12 +170,14 @@ function ScoreBars({ scores }: { scores: ScoreEntry[] }) {
     v >= 7 ? "bg-green-400 dark:bg-emerald-500/70" : v >= 5 ? "bg-amber-400 dark:bg-amber-500" : "bg-red-400 dark:bg-red-500";
   return (
     <div>
-      <div className="flex items-end gap-[3px]" style={{ height: 56 }}>
+      {/* gap-px + min-w-[2px] so up to 24 bars stay within a narrow card without horizontal scroll
+          (UX-3); hover:opacity surfaces the per-bar tooltip affordance. */}
+      <div className="flex items-end gap-px" style={{ height: 56 }}>
         {recent.map((e, i) => (
           <div
             key={i}
             title={`${e.date} · ${e.plannedType ?? e.inferredType}${e.planned ? "" : " (off-plan)"} · ${e.executionScore}/10`}
-            className={`min-w-[4px] flex-1 rounded-sm ${barColor(e.executionScore)}`}
+            className={`min-w-[2px] flex-1 rounded-sm transition-opacity hover:opacity-70 ${barColor(e.executionScore)}`}
             style={{ height: `${(e.executionScore / 10) * 100}%` }}
           />
         ))}
@@ -187,12 +189,39 @@ function ScoreBars({ scores }: { scores: ScoreEntry[] }) {
   );
 }
 
-function baselineCards(b: RollingBaselines, behaviour: TrendsData["behaviour"]) {
+// Weekly ride-hours bars — the expanded view the Today "Weekly volume" trend-pulse tile links to
+// (UX-2: the tile used to push to /trends with nothing to land on).
+function WeeklyVolumeBars({ weeks }: { weeks: TrendsData["weeklyHours"] }) {
+  const recent = weeks.slice(-16);
+  if (recent.length < 2) return null;
+  const max = Math.max(...recent.map((w) => w.hours), 1);
+  const avg = Math.round((recent.reduce((s, w) => s + w.hours, 0) / recent.length) * 10) / 10;
+  return (
+    <div>
+      <div className="flex items-end gap-px" style={{ height: 56 }}>
+        {recent.map((w) => (
+          <div
+            key={w.date}
+            title={`Week of ${w.date} · ${w.hours.toFixed(1)} h`}
+            className="min-w-[2px] flex-1 rounded-sm bg-sky-400 transition-opacity hover:opacity-70 dark:bg-[#00d4ff]/60"
+            style={{ height: `${Math.max(4, (w.hours / max) * 100)}%` }}
+          />
+        ))}
+      </div>
+      <p className="mt-1.5 text-[10px] text-zinc-400 dark:text-zinc-500">
+        Avg {avg} h/week over last {recent.length} complete weeks
+      </p>
+    </div>
+  );
+}
+
+function baselineCards(b: RollingBaselines) {
   const cards: Array<{ label: string; value: string }> = [];
   // Avg CTL removed — redundant with the CTL graph. Replaced with weekly volume: a higher-value,
-  // training-behaviour metric Intervals doesn't foreground the same way.
+  // training-behaviour metric Intervals doesn't foreground the same way. All four tiles are now
+  // 90-day rolling so the card reads on one consistent horizon (MR-2).
   if (b.avgTss90d != null) cards.push({ label: "Avg TSS / ride", value: String(Math.round(b.avgTss90d)) });
-  if (behaviour?.avgWeeklyHours != null) cards.push({ label: "Weekly hours", value: `${behaviour.avgWeeklyHours.toFixed(1)} h` });
+  if (b.avgWeeklyHours90d != null) cards.push({ label: "Weekly hours", value: `${b.avgWeeklyHours90d.toFixed(1)} h` });
   if (b.avgDecoupling90d != null) cards.push({ label: "Avg decoupling", value: `${b.avgDecoupling90d.toFixed(1)}%` });
   if (b.avgCadence90d != null) cards.push({ label: "Avg cadence", value: `${Math.round(b.avgCadence90d)} rpm` });
   return cards;
@@ -223,7 +252,7 @@ export default function Trends() {
   const noData = !data.syncedAt;
   const efTrend = trendDir(data.ef, true);
   const ctlTrend = trendDir(data.ctl, true);
-  const cards = baselineCards(data.baselines, data.behaviour);
+  const cards = baselineCards(data.baselines);
 
   const kcal = (v: number) => `${Math.round(v).toLocaleString()} kcal`;
   const energySeries: MultiSeries[] = [
@@ -430,6 +459,13 @@ export default function Trends() {
             </Card>
           )}
         </div>
+      )}
+
+      {/* Weekly volume — the landing view for the Today trend-pulse "Weekly volume" tile (UX-2). */}
+      {data.weeklyHours.length >= 2 && (
+        <Card title="Weekly volume" hint="ride hours · complete weeks">
+          <WeeklyVolumeBars weeks={data.weeklyHours} />
+        </Card>
       )}
 
       {/* Fueling & weight — kept wide; it carries three weekly series */}

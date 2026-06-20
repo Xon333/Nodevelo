@@ -398,7 +398,10 @@ export async function analyseRide(input: RideAnalysisInput): Promise<string> {
   let powerLine: string | null = null;
   if (input.activityAvgWatts !== null) {
     const np = input.activityNormalizedPower ?? Math.round(input.activityAvgWatts * 1.05);
-    const ifVal = (input.activityAvgWatts / input.athleteFtp).toFixed(2);
+    // IF is NP/FTP (fall back to raw avg when NP is absent) — same basis as the Today card and
+    // score-log, so the note's IF can't disagree with what the athlete sees on the card (MR-1).
+    const ifBasis = input.activityNormalizedPower ?? input.activityAvgWatts;
+    const ifVal = input.athleteFtp > 0 ? (ifBasis / input.athleteFtp).toFixed(2) : "—";
     const maxW = input.activityMaxWatts ? ` · Max ${input.activityMaxWatts}W` : "";
     const dec = input.activityDecoupling != null ? ` · Decoupling ${input.activityDecoupling.toFixed(1)}%` : "";
     const npLabel = input.activityNormalizedPower ? "NP" : "NP ~";

@@ -100,6 +100,7 @@ const DEFAULT_BASELINES: RollingBaselines = {
   avgDecoupling90d: null,
   avgCadence90d: null,
   avgTss90d: null,
+  avgWeeklyHours90d: null,
   updatedAt: new Date(0).toISOString(),
 };
 

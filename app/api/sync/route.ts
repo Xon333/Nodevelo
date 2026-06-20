@@ -310,6 +310,7 @@ export async function POST(req: Request) {
             activityTrainingLoad: todayActivity.trainingLoad,
             activityRpe: todayActivity.rpe,
             activityDecoupling: todayActivity.decoupling,
+            activityDistanceMeters: todayActivity.distanceMeters,
             plannedName: plannedDay?.name ?? null,
             plannedType: plannedDay?.type ?? null,
             plannedDurationMin: plannedDay?.durationMin ?? null,

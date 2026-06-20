@@ -265,7 +265,7 @@ function ZoneBars({ times, label, secondary }: { times: number[]; label: string;
       <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">{label}</p>
       <div className={`flex w-full gap-px ${secondary ? "h-2" : "h-4"}`}>
         {segs.map((s, k) => (
-          <div key={s.i} style={{ width: `${s.pct}%` }} className="group/zone relative shrink-0">
+          <div key={s.i} style={{ width: `${s.pct}%` }} className="group/zone relative min-w-0">
             <div
               className={`h-full w-full ${k === 0 ? "rounded-l" : ""} ${k === segs.length - 1 ? "rounded-r" : ""} ${ZONE_COLORS[s.i] ?? "bg-zinc-400"}`}
             />
@@ -313,6 +313,11 @@ function TodayRideCard({
   if (np != null && avgW != null) metrics.push({ label: "NP / Avg", value: `${np} / ${avgW}W` });
   else if (np != null) metrics.push({ label: "NP", value: `${np}W` });
   else if (avgW != null) metrics.push({ label: "Avg power", value: `${avgW}W` });
+  // Avg speed from the synced distance + moving time (RC-1).
+  if (analysis.activityDistanceMeters != null && analysis.activityDurationMin > 0) {
+    const kmh = analysis.activityDistanceMeters / 1000 / (analysis.activityDurationMin / 60);
+    metrics.push({ label: "Avg speed", value: `${kmh.toFixed(1)} km/h` });
+  }
   if (analysis.activityDecoupling != null)
     metrics.push({ label: "Decoupling", value: `${analysis.activityDecoupling.toFixed(1)}%` });
   if (analysis.activityRpe != null)

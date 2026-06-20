@@ -188,6 +188,7 @@ export function computeRollingBaselines(
     trainingLoad: number | null;
     decoupling: number | null;
     avgCadence: number | null;
+    movingTimeSec: number;
   }>,
   wellness: WellnessEntry[]
 ): {
@@ -195,6 +196,7 @@ export function computeRollingBaselines(
   avgDecoupling90d: number | null;
   avgCadence90d: number | null;
   avgCtl90d: number | null;
+  avgWeeklyHours90d: number | null;
 } {
   const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
 
@@ -210,10 +212,16 @@ export function computeRollingBaselines(
     .filter((w) => w.date >= cutoff && w.ctl !== null)
     .map((w) => w.ctl as number);
 
+  // Mean weekly ride hours over the SAME 90-day window as the other baselines (total hours ÷ 90/7
+  // weeks), so the Recent-Baselines card doesn't mix a 90d-rolling tile with an all-time one (MR-2).
+  const totalHours90d = recent.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
+  const avgWeeklyHours90d = recent.length ? Math.round((totalHours90d / (90 / 7)) * 10) / 10 : null;
+
   return {
     avgTss90d: avg(tssList),
     avgDecoupling90d: avg(decoupList),
     avgCadence90d: avg(cadList),
     avgCtl90d: avg(ctlList),
+    avgWeeklyHours90d,
   };
 }
