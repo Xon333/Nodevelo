@@ -38,6 +38,19 @@ g/h per ride type** (owned by the fueling engine — see "Fueling intelligence")
 `lock_threshold` layer is the additive uncertainty model the second-brain item already calls for —
 build it once here, not twice.
 
+**Two execution-accuracy gaps surfaced in real use (route here — they touch the scoring core):**
+- **Z2 "dialed-in" is overstated.** Z2 execution scores on avg IF + decoupling, *not time above
+  zone* — so a long Z2 ride with efforts above Z2 still scores well and the coach note says "Z2
+  dialed in / execution improved." Add a deterministic **Z2-discipline signal** (% time above the Z2
+  cap, from the already-synced `powerZoneTimes`) into the execution score + the CoachSnapshot, so the
+  coach grades on actual zone adherence and stops inflating it (AI-containment: phrase the number,
+  don't overstate it). Ties to #5 fusion + #2.
+- **Power-zone source of truth.** Zones come from Intervals.icu sport-settings (`lib/physiology.ts`,
+  effective-dated + reconciled) — there's no sanctioned *local* tweak, so a hand-edited Z2 would be
+  reconciled away on the next sync. **Decide:** keep zones strictly Intervals.icu (consistent — do
+  any tweak there) vs. add a sanctioned per-athlete override living in this calibration framework
+  with override semantics. Lean strict-consistency unless there's a real reason to diverge.
+
 ### 2. CoachSnapshot + Ask-Coach context (the "objective telemetry lens")
 Build one pre-computed `CoachSnapshot` that generation and Ask-Coach read, so the LLM is handed
 resolved numbers and can't invent them. Shape: `today.execution {score, completed/total,
@@ -290,6 +303,10 @@ Most of the Images 1–5 audit shipped (see [ARCHIVE.md](ARCHIVE.md)). Remaining
   decoupling, cadence) are okay but not all high-value. Audit and replace with what actually informs
   training: candidates — **w/kg at threshold** (20-min power ÷ weight), **weekly TSS**, **rides/week
   consistency**, **CTL ramp rate**, **decoupling trend**. Pick ~4 that aren't redundant with the graphs.
+  _From real-use feedback:_ also resolve the **TSS-vs-Load naming** ("Avg TSS / ride" is Intervals'
+  Load — name it consistently), fix the **Weekly-hours window** (it uses the logged-window mean, not
+  the 90d rolling its sibling tiles use — see todo `MR-2`), and reconsider the Today card's **"NP /
+  Avg" two-value tile + IF** for clarity (NP + NP-based IF are the signal; raw Avg is secondary).
 - **Pw:HR-drift × fueling overlay on Trends (from the external spec):** the **filtering is already
   shipped** — `lib/trends.ts efSeries` uses Intervals' `icu_efficiency_factor`, outdoor-only,
   endurance band (0.56–0.85 FTP), ≥45 min, as a *trajectory* not single-ride snapshots. The new ask
