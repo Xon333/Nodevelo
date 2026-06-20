@@ -20,6 +20,13 @@ export function utcToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// A rolling-window cutoff as YYYY-MM-DD: the UTC calendar date `n` days before `from`. Kept here
+// (not inline in components) so the React Compiler's purity check doesn't flag the Date.now()/
+// new Date() call during render — the same reason localToday() is a helper rather than inlined.
+export function isoDaysAgo(n: number, from: number = Date.now()): string {
+  return new Date(from - n * 86_400_000).toISOString().slice(0, 10);
+}
+
 // Server-side: prefer a valid client-supplied local date, else fall back to UTC.
 export function resolveToday(clientToday: unknown): string {
   return typeof clientToday === "string" && ISO_DATE.test(clientToday) ? clientToday : utcToday();

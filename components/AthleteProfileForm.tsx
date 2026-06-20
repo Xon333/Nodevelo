@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type { PowerCurvePoint } from "@/lib/types";
@@ -95,23 +95,31 @@ export default function AthleteProfileForm() {
   const [nut, setNut] = useState({ baseCalories: "", restDayTarget: "", buffer: "", targetWeightKg: "" });
   const [saveState, setSaveState] = useState<SaveState>({ state: "idle" });
 
-  const load = useCallback(async () => {
-    try {
-      const response = await api<ProfileResponse>("/api/profile");
-      setData(response);
-      const n = response.nutrition;
-      setNut({
-        baseCalories: String(n.baseCalories),
-        restDayTarget: String(n.restDayTarget),
-        buffer: String(n.buffer),
-        targetWeightKg: String(n.targetWeightKg),
-      });
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load profile");
-    }
+  // Mount-load the profile + nutrition fields. Inline async IIFE (setState lands after the await,
+  // guarded by a cancelled flag) so it reads as a fetch-on-mount, not a synchronous setState in
+  // the effect body.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await api<ProfileResponse>("/api/profile");
+        if (cancelled) return;
+        setData(response);
+        const n = response.nutrition;
+        setNut({
+          baseCalories: String(n.baseCalories),
+          restDayTarget: String(n.restDayTarget),
+          buffer: String(n.buffer),
+          targetWeightKg: String(n.targetWeightKg),
+        });
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load profile");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   const saveNutrition = async () => {
     const parsed: Record<string, number> = {};

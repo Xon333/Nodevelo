@@ -93,12 +93,6 @@ function str(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
-function numArr(value: unknown): number[] | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
-  const arr = value.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0));
-  return arr.some((v) => v > 0) ? arr : null;
-}
-
 // Zone-time arrays from Intervals come in two shapes depending on endpoint/version: a raw
 // seconds array, or an array of objects ({ secs } | { time } | { seconds }). Parse both so
 // time-in-zone (polarization, trend-pulse zones) doesn't silently fall back to average power.

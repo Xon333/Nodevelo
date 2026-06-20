@@ -29,7 +29,7 @@ export function autoEwmaAlpha(plannedSampleSize: number): number {
 export function resolveAcwrBands(override?: Partial<AcwrBands> | null): AcwrBands {
   const o = override ?? {};
   const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
-  let optimalLow = clamp(pick(o.optimalLow, DEFAULT_ACWR_BANDS.optimalLow), 0.1, 2);
+  const optimalLow = clamp(pick(o.optimalLow, DEFAULT_ACWR_BANDS.optimalLow), 0.1, 2);
   let optimalHigh = clamp(pick(o.optimalHigh, DEFAULT_ACWR_BANDS.optimalHigh), 0.2, 3);
   let dangerHigh = clamp(pick(o.dangerHigh, DEFAULT_ACWR_BANDS.dangerHigh), 0.3, 4);
   // Enforce strict ordering; nudge up if an override collapses the bands.

@@ -25,12 +25,11 @@ import {
   weightTrendFromWellness,
   type AthleteNutritionConfig,
 } from "@/lib/nutrition";
-import { parsePlan } from "@/lib/plan-parser";
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { validatePlanProtocol } from "@/lib/workout-validate";
 import { validateSchedule } from "@/lib/schedule-validate";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import type { BlockParams, GeneratedPlan, PlannedDay } from "@/lib/types";
+import type { BlockParams, GeneratedPlan } from "@/lib/types";
 
 // Generation calls take 1–2 minutes for a 4-week block.
 export const maxDuration = 300;
@@ -165,22 +164,23 @@ export async function POST(req: Request) {
     );
     const { toolInput, raw, truncated } = genResult;
 
-    // Structured-output path (P2): validate Claude's tool payload with the shared zod schema.
-    // Fall back to the regex parser on the text only if the tool output is absent/malformed.
-    let overview: string;
-    let days: PlannedDay[];
-    let warnings: string[];
+    // Structured-output path (P2): the generator runs on tool-use, so the plan must arrive as a
+    // tool payload validated by the shared zod schema. The legacy regex text-parser fallback was
+    // retired once structured output became the proven, sole path — a malformed/absent payload
+    // now surfaces as a retryable error instead of silently degrading to text parsing.
     const parsedTool = toolInput != null ? PlanToolSchema.safeParse(toolInput) : null;
-    if (parsedTool?.success) {
-      ({ overview, days } = structuredToPlannedDays(parsedTool.data));
-      warnings = [];
-      const expected = weeks.flat();
-      if (days.length !== expected.length) {
-        warnings.push(`Expected ${expected.length} days, got ${days.length}.`);
-      }
-    } else {
-      ({ overview, days, warnings } = parsePlan(raw, weeks.flat()));
-      if (toolInput != null) warnings.unshift("Structured tool output failed validation — fell back to text parsing.");
+    if (!parsedTool?.success) {
+      throw new Error(
+        toolInput != null
+          ? "The generated plan failed structured validation. Please retry."
+          : "The model did not return a structured plan. Please retry."
+      );
+    }
+    const { overview, days } = structuredToPlannedDays(parsedTool.data);
+    const warnings: string[] = [];
+    const expected = weeks.flat();
+    if (days.length !== expected.length) {
+      warnings.push(`Expected ${expected.length} days, got ${days.length}.`);
     }
 
     // KB-grounded protocol check: flag any generated workout that contradicts the knowledge

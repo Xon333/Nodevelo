@@ -30,20 +30,6 @@ export default function KnowledgeBaseEditor() {
 
   const dirty = content !== original;
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { files, retrospectives } = await api<{ files: string[]; retrospectives: string[] }>("/api/knowledge");
-        setFiles(files);
-        setRetros(retrospectives ?? []);
-        if (files.length > 0) void open({ name: files[0], kind: "kb" }, true);
-      } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Failed to list files");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const open = async (sel: Selection, force = false) => {
     if (!force && dirty && !window.confirm("Discard unsaved changes?")) return;
     try {
@@ -57,6 +43,22 @@ export default function KnowledgeBaseEditor() {
       setLoadError(err instanceof Error ? err.message : "Failed to read file");
     }
   };
+
+  // Mount: list KB files + retrospectives, then open the first file. `open` is declared above so
+  // the effect doesn't reference it before its declaration.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { files, retrospectives } = await api<{ files: string[]; retrospectives: string[] }>("/api/knowledge");
+        setFiles(files);
+        setRetros(retrospectives ?? []);
+        if (files.length > 0) void open({ name: files[0], kind: "kb" }, true);
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : "Failed to list files");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const save = async () => {
     if (!selected) return;
