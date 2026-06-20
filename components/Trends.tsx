@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, timeAgo } from "@/lib/client-api";
 import type { Insight, RollingBaselines, WorkoutType } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
@@ -201,32 +201,20 @@ function baselineCards(b: RollingBaselines, behaviour: TrendsData["behaviour"]) 
 // ---------- main ----------
 
 export default function Trends() {
-  const [data, setData] = useState<TrendsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Re-fetch whenever a sync completes so execution quality + compliance-by-type reflect the
-  // latest scores rather than going stale after the page first mounted.
+  // Keyed on the last sync time so it re-fetches whenever a sync completes (execution quality +
+  // compliance-by-type reflect the latest scores). TanStack Query also refetches on tab focus /
+  // reconnect and dedups/retries — same data layer as the main sync state.
   const { state } = useSync();
   const syncedAt = state?.lastSync?.syncedAt ?? null;
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const d = await api<TrendsData>("/api/trends");
-        if (!cancelled) setData(d);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load trends");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [syncedAt]);
+  const { data, error } = useQuery({
+    queryKey: ["trends", syncedAt],
+    queryFn: () => api<TrendsData>("/api/trends"),
+  });
 
   if (error) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-        {error}
+        {error instanceof Error ? error.message : "Failed to load trends"}
       </div>
     );
   }

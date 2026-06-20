@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createContext, useCallback, useContext, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type {
@@ -54,21 +55,46 @@ interface SyncContextValue {
 
 const SyncContext = createContext<SyncContextValue | null>(null);
 
+// The synced app state lives under this key in the TanStack Query cache. Exported so other code
+// could invalidate/read it directly if needed.
+export const SYNC_QUERY_KEY = ["sync"] as const;
+
 export function useSync(): SyncContextValue {
   const ctx = useContext(SyncContext);
   if (!ctx) throw new Error("useSync must be used within <SyncProvider>");
   return ctx;
 }
 
-// Owns the synced app state so both the nav-rail sync control and the page views
-// share one source of truth. Page-specific data (profile, history, plan) stays local.
+// Owns the synced app state so both the nav-rail sync control and the page views share one source of
+// truth. The GET load is a TanStack Query (`['sync']`) — so it dedups, retries, and refetches on tab
+// focus / network reconnect (fixing the "stale after an overnight tab" UX). `doSync` (the POST that
+// actually hits Intervals.icu) and the deferred coach-note step stay explicit actions that write
+// their results back into the same query cache via `setState`. Page-specific data (profile, history,
+// plan) stays local.
 export function SyncProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data, error } = useQuery({ queryKey: SYNC_QUERY_KEY, queryFn: () => api<AppState>("/api/sync") });
+  const state = data ?? null;
+  const loadError = error ? (error instanceof Error ? error.message : "Failed to load") : null;
+
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [syncWarnings, setSyncWarnings] = useState<string[]>([]);
+
+  // Write through to the query cache so every consumer (and any background refetch) sees one source
+  // of truth. Keeps the React-style `setState(value | updater)` signature callers already use.
+  const setState = useCallback<Dispatch<SetStateAction<AppState | null>>>(
+    (action) => {
+      queryClient.setQueryData<AppState | null>(SYNC_QUERY_KEY, (prev) => {
+        const current = prev ?? null;
+        return typeof action === "function"
+          ? (action as (p: AppState | null) => AppState | null)(current)
+          : action;
+      });
+    },
+    [queryClient]
+  );
 
   // The deferred AI coach-note step. Shared by the post-sync auto-run (force=false, idempotent) and
   // the manual re-analyse action (force=true, regenerates).
@@ -86,7 +112,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } finally {
       setAnalyzing(false);
     }
-  }, []);
+  }, [setState]);
 
   const doSync = useCallback(async () => {
     setSyncing(true);
@@ -138,25 +164,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     // Anthropic hiccup never blocks (or fails) the sync itself.
     setSyncing(false);
     if (analysisPending) await runAnalysis(false);
-  }, [runAnalysis]);
+  }, [runAnalysis, setState]);
 
   // Manual re-analyse — force a fresh coach note (e.g. after the auto-run failed).
   const reAnalyse = useCallback(() => runAnalysis(true), [runAnalysis]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const appState = await api<AppState>("/api/sync");
-        if (!cancelled) setState(appState);
-      } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   return (
     <SyncContext.Provider value={{ state, setState, loadError, syncing, syncError, analyzing, syncWarnings, doSync, reAnalyse }}>

@@ -177,6 +177,22 @@ ROADMAP "Platform & performance"; P4 is partially done (1 of 4 items shipped).
     Anthropic hiccup is recoverable without a full re-sync. The sync route already preserves a good
     note + its stamp across a re-sync (never overwrites with empty).
 
+- **P7 — TanStack Query data layer.** Replaced the hand-rolled cache (`SyncProvider`'s
+  fetch-on-mount `useEffect` + a separate `useEffect` fetch in Trends) with `@tanstack/react-query`
+  v5. New `QueryProvider` (one `QueryClient`, `staleTime` 30 s, `refetchOnWindowFocus` +
+  `refetchOnReconnect` + retry) wraps the app above `SyncProvider`. The `['sync']` GET is now a
+  `useQuery`; Trends uses `useQuery(['trends', syncedAt])` (re-fetches when a sync completes, plus
+  focus/reconnect/dedup/retry). Crucially the **`useSync()` context API is unchanged** — `state`
+  comes from the query, and `setState` writes through to the query cache via `setQueryData`, so
+  every existing `setState(...)` call in `doSync`/`runAnalysis`/`RescheduleBanner` keeps working and
+  Nav/Dashboard/RescheduleBanner needed no changes. `doSync` (the POST that hits Intervals.icu) and
+  the deferred `/api/analyze` step stay explicit actions that write results back into the cache.
+  Fixes the "stale after an overnight tab" UX. Verified: tsc/build/lint clean, 211 tests, dev server
+  boots and Today/Trends render with the new provider wiring. `components/QueryProvider.tsx`,
+  `components/SyncProvider.tsx`, `components/Trends.tsx`, `app/layout.tsx`, `package.json`
+  (`@tanstack/react-query`). _Deferred:_ `doSync`→`useMutation` + optimistic updates (not needed for
+  the win).
+
 ## Foundations & earlier milestones
 
 - **Timezone-correct "today" (code-audit fix).** The server matched today's ride on a UTC date

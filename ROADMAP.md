@@ -252,12 +252,13 @@ All five shipped: `error.tsx`/`global-error.tsx` boundaries; model+`promptVersio
 `lib/json-store.ts`; and manual re-analyse (`addCoachNote(force)` + Today button, with the
 note-preserved-across-resync guard).
 
-### P7. TanStack Query client
-`SyncProvider` + `lib/client-api.ts` are a hand-rolled cache (fetch-on-mount, manual refetch, no
-refetch-on-focus/reconnect, no dedup, no retry; Trends does a second manual fetch keyed on
-`syncedAt`). Move the data layer to TanStack Query (`useQuery(['sync'])` + `useMutation` with
-invalidation) for focus/reconnect refetch, dedup, retry, optimistic updates — keep the sync-button
-UI as a thin wrapper. Fixes the "stale after an overnight tab" UX. ~2-day refactor.
+### P7. TanStack Query client — DONE (see ARCHIVE)
+The `['sync']` GET load is a TanStack Query now (focus/reconnect refetch, dedup, retry — fixes the
+"stale after an overnight tab" UX); Trends fetches via `useQuery(['trends', syncedAt])`. `useSync()`'s
+public API is unchanged (`setState` writes through to the query cache), so Nav/Dashboard/
+RescheduleBanner are untouched; `doSync` stays an explicit POST action that writes its result into
+the cache. _Deferred (not needed for the win):_ converting `doSync` itself to `useMutation` +
+optimistic updates.
 
 ### P8. Logging + AI-route rate-limit
 - [ ] **Structured logging** — replace silent `catch`/`console` with a small logger (pino or a lean
