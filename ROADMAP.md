@@ -233,8 +233,11 @@ against". The items below are deployment-agnostic cost / robustness / UX wins.
 - [x] **Coach-accuracy % on the dashboard** — DONE (see ARCHIVE). `overallCoachAccuracy` rolls the
   validation loop into one hit-rate %; surfaced in the Trend-pulse zone, hidden until a decisive
   outcome or pending interventions exist.
-- [ ] Stream `/api/ask` responses (token streaming) for snappier coach replies (most UX-coupled —
-  the last open P4 item besides the generation-caching product question).
+- [x] **Stream `/api/ask` responses** — DONE (see ARCHIVE). `streamAskCoach` async-generator → the
+  route returns a plain-text `ReadableStream`; `AskCoach` reads the body incrementally so tokens
+  render as they arrive.
+- [ ] Generate caching — **the only remaining P4 item, and it's blocked on the product question
+  above** (regenerate-for-variation vs cache reuse). Decide before building.
 
 ### P5. Deterministic schedule validator — DONE (see ARCHIVE)
 `lib/schedule-validate.ts validateSchedule` flags adjacent hard days + quality sessions over the

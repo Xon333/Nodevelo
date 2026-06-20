@@ -111,6 +111,14 @@ ROADMAP "Platform & performance"; P4 is partially done (1 of 4 items shipped).
   being swallowed by best-effort catches; the Today card shows "Analysing today's ride…" while the
   note lands. `app/api/sync/route.ts`, `app/api/analyze/route.ts`, `lib/sync-analysis.ts`,
   `components/SyncProvider.tsx`, `components/Nav.tsx`, `components/Dashboard.tsx`.
+- **P4 (item 3 of 4) — Stream `/api/ask`.** `streamAskCoach` (async generator) yields Anthropic text
+  deltas as they arrive and records usage from the final message; `/api/ask` wraps it in a plain-text
+  `ReadableStream` (validation still returns JSON errors *before* the 200 stream; a mid-stream failure
+  surfaces as the stream erroring); `AskCoach` reads `res.body` incrementally and renders the reply as
+  it streams ("thinking…" only until the first token). `lib/anthropic-api.ts`, `app/api/ask/route.ts`,
+  `components/AskCoach.tsx`. Type-checked + build-verified; live token path needs a real Anthropic key
+  to exercise. _P4 now has only generation caching left — blocked on the regenerate-vs-cache product
+  question (ROADMAP)._
 - **P4 (item 2 of 4) — Coach-accuracy % on the dashboard.** `overallCoachAccuracy(log)` rolls the
   intervention validation loop into one headline hit-rate (validated / decisive across all
   dimensions; null until the 28-day horizon produces a decisive outcome). Computed in the `/api/sync`

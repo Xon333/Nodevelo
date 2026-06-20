@@ -684,3 +684,24 @@ export async function askCoach(ctx: AskCoachContext, query: string): Promise<str
     .join("\n")
     .trim();
 }
+
+// Streaming variant: yields text deltas as they arrive so the UI can render the reply
+// progressively instead of waiting for the whole message. Usage telemetry is recorded from the
+// final message once the stream completes.
+export async function* streamAskCoach(ctx: AskCoachContext, query: string): AsyncGenerator<string> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+  const client = getClient();
+  const stream = client.messages.stream({
+    model: QUICK_MODEL,
+    max_tokens: 320,
+    temperature: 0.4,
+    messages: [{ role: "user", content: buildAskCoachPrompt(ctx, query) }],
+  });
+  for await (const event of stream) {
+    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+      yield event.delta.text;
+    }
+  }
+  const final = await stream.finalMessage();
+  void recordUsage(QUICK_MODEL, final.usage); // fire-and-forget telemetry
+}

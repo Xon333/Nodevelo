@@ -4,7 +4,7 @@ A living "resume here" note. Point a fresh session at this file: _"read CONTINUE
 The canonical backlog is [ROADMAP.md](ROADMAP.md); completed work is in [ARCHIVE.md](ARCHIVE.md);
 how the app works is [README.md](README.md). Update or clear this file as work moves.
 
-_Last updated: after P4 coach-accuracy % shipped (2/4 P4 items done)._
+_Last updated: after P4 streaming shipped (3/4 P4 items done; only generation caching left, blocked)._
 
 ---
 
@@ -37,8 +37,12 @@ the Platform & performance (P-series) + correctness items over the coaching-feat
   FTP gap → *flag-only, suggest a re-test* (never write `physiology.json` FTP); durability template
   selection → *limiter-driven, else rotate*. User wants the **rest of P4 finished before** the new
   spec items.
-- **Still open in P4:** (a) stream `/api/ask` (last buildable item); (b) generation caching — blocked
-  on the regenerate-for-variation product question (decide before building).
+- **P4 streaming** (this commit) — `streamAskCoach` async generator → route returns a plain-text
+  `ReadableStream`; `AskCoach` reads `res.body` incrementally. tsc/build/lint clean; live token path
+  unexercised (needs a real Anthropic key — would be a billed call).
+- **Only generation caching left in P4** — blocked on the regenerate-for-variation product question.
+  Once resolved (or skipped), **P4 is done** → next is the spec work (user wants P4 finished first):
+  start with the **fueling correlation engine** or the **calibration framework** (see ROADMAP).
 
 ## State of the tree
 - **205 tests pass** (`npm test`), **`npx tsc --noEmit` clean**, **`npm run build` clean**.

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { askCoach, isAnthropicConfigured, type AskCoachContext } from "@/lib/anthropic-api";
+import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
 import { readCurrentBlock, readDispositions, readLastSync, readTodayAnalysis } from "@/lib/data-store";
 import { readPhysiology } from "@/lib/physiology";
 import { computeAcwr, computeReadiness } from "@/lib/readiness";
@@ -103,10 +103,30 @@ export async function POST(req: Request) {
     disposition,
   };
 
-  try {
-    const answer = await askCoach(context, query);
-    return NextResponse.json({ answer });
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Ask failed." }, { status: 502 });
-  }
+  // Stream the reply as plain-text chunks so the UI renders tokens as they arrive. All the
+  // validation above already returned JSON errors with proper status codes; once we start the
+  // stream the response is 200 and a mid-stream failure surfaces as the stream erroring (the client
+  // reader throws and shows the error). The athlete-facing answer is short, so plain text — not SSE.
+  const encoder = new TextEncoder();
+  const gen = streamAskCoach(context, query);
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const chunk of gen) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+    async cancel() {
+      await gen.return(undefined); // client disconnected — stop pulling from Anthropic
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no", // don't let a proxy buffer the stream
+    },
+  });
 }

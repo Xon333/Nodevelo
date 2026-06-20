@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/client-api";
 import { Zone } from "./ui";
 
 const EXAMPLES = [
@@ -27,10 +26,30 @@ export default function AskCoach() {
     setAsked(question);
     setAnswer(null);
     try {
-      const res = await api<{ answer: string }>("/api/ask", { method: "POST", body: JSON.stringify({ query: question }) });
-      setAnswer(res.answer);
+      // Stream the reply so tokens render as they arrive (snappier than waiting for the full
+      // message). Errors come back before the stream as JSON; a mid-stream failure throws on read.
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: question }),
+      });
+      if (!res.ok || !res.body) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || `Ask failed (${res.status})`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setAnswer(acc);
+      }
+      if (!acc.trim()) throw new Error("No response — try again.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ask failed");
+      setAnswer(null);
     } finally {
       setLoading(false);
     }
@@ -84,7 +103,7 @@ export default function AskCoach() {
         <div>
           <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{asked}</p>
           <div className="mt-1.5 min-h-[2rem] max-h-44 overflow-y-auto rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-            {loading && <p className="text-xs italic text-zinc-400 dark:text-zinc-500">thinking…</p>}
+            {loading && !answer && <p className="text-xs italic text-zinc-400 dark:text-zinc-500">thinking…</p>}
             {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
             {answer && <p className="whitespace-pre-line text-xs leading-5 text-zinc-700 dark:text-zinc-300">{answer}</p>}
           </div>
