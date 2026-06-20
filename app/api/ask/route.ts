@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
-import { readCurrentBlock, readDispositions, readLastSync, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
+import { readCurrentBlock, readDispositions, readInterventionLog, readLastSync, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
 import { readPhysiology } from "@/lib/physiology";
-import { computeAcwr, computeReadiness } from "@/lib/readiness";
-import { buildAthleteModel } from "@/lib/athlete-model";
+import { computeAcwr, computeLoadRamp, computeReadiness } from "@/lib/readiness";
+import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
+import { summariseValidation } from "@/lib/intervention";
+import { synthesizeCoachingDirectives } from "@/lib/synthesis";
+import { weightTrendFromWellness } from "@/lib/nutrition";
+import { buildCoachSnapshot } from "@/lib/coach-snapshot";
 
 export const maxDuration = 60;
 
@@ -28,7 +32,7 @@ export async function POST(req: Request) {
   if (query.length > 600) return NextResponse.json({ error: "Question is too long (max 600 chars)." }, { status: 400 });
 
   const today = new Date().toISOString().slice(0, 10);
-  const [block, sync, physStore, todayAnalysis, dispositions, scoreLog, baselines] = await Promise.all([
+  const [block, sync, physStore, todayAnalysis, dispositions, scoreLog, baselines, interventionLog] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),
     readPhysiology(),
@@ -36,27 +40,15 @@ export async function POST(req: Request) {
     readDispositions(),
     readScoreLog(),
     readRollingBaselines(),
+    readInterventionLog(),
   ]);
 
-  const blockCtx = block
-    ? {
-        goal: block.goal,
-        weekOfBlock: Math.min(
-          block.lengthWeeks,
-          Math.max(1, Math.floor((Date.parse(today) - Date.parse(block.startDate)) / (7 * 86_400_000)) + 1)
-        ),
-        totalWeeks: block.lengthWeeks,
-        overview: (block.overview ?? "").slice(0, 160),
-      }
-    : null;
-
+  // Today's + next prescribed sessions — the exact rep detail the snapshot only names by type, so
+  // forward-looking questions ("how should I do tomorrow's SIT?") use the real plan, not guesses (PW-6).
   const day = block?.days.find((d) => d.date === today && d.durationMin > 0) ?? null;
   const session = day
     ? { name: day.name, type: day.type, durationMin: day.durationMin, intervals: (day.prescription ?? []).map((p) => p.label) }
     : null;
-
-  // Next planned session after today — so forward-looking questions ("how should I do tomorrow's
-  // SIT?") are answered from the real prescription, not a guessed rep structure (PW-6).
   const dayMs = 86_400_000;
   const nextDay =
     block?.days
@@ -72,50 +64,27 @@ export async function POST(req: Request) {
       }
     : null;
 
-  let form: string | null = null;
-  if (sync) {
-    const parts: string[] = [];
-    const tsb = sync.fitness.tsb;
-    if (tsb !== null) parts.push(`TSB ${tsb > 0 ? "+" : ""}${tsb}`);
-    const acwr = computeAcwr(sync.activities)?.level;
-    if (acwr) parts.push(`ACWR ${acwr}`);
-    const readiness = computeReadiness(sync.fitness, sync.wellness)?.level;
-    if (readiness) parts.push(`readiness ${readiness}`);
-    form = parts.length > 0 ? parts.join(", ") : null;
-  }
-
-  const rideLogged =
-    todayAnalysis && todayAnalysis.activityDate === today
-      ? `Today's ride is already logged${todayAnalysis.executionScore != null ? ` — execution ${todayAnalysis.executionScore}/10` : ""}.`
-      : null;
-
-  const disp = dispositions.entries.find((e) => e.date === today);
-  const disposition =
-    disp?.disposition === "compromised"
-      ? `IMPORTANT: the athlete marked today's session COMPROMISED${disp.reason ? ` (${disp.reason})` : ""}. A low execution score reflects that, NOT under-recovery or under-fuelling — do not infer recovery debt or recommend skipping on the basis of it.`
-      : disp?.disposition === "partial"
-        ? "The athlete marked today's session partial (cut short)."
-        : null;
-
-  // §5 fused athlete-state read, so the coach answers grounded in the one reconciled state.
-  let state: string | null = null;
-  if (sync) {
-    const st = computeAthleteState(
-      athleteStateInputsFrom(sync, buildAthleteModel(scoreLog.entries), baselines, computeAcwr(sync.activities))
-    );
-    if (st) state = `${st.headline} (${st.score}/100, ${st.recommendation})`;
-  }
-
-  const context: AskCoachContext = {
-    block: blockCtx,
-    session,
-    upcoming,
-    form,
-    state,
+  // Resolve the situational signals (all deterministic) and fold them into the one CoachSnapshot
+  // the prompt reads — so the coach answers from resolved numbers it can't invent or override.
+  const athleteModel = buildAthleteModel(scoreLog.entries);
+  const acwr = sync ? computeAcwr(sync.activities) : null;
+  const snapshot = buildCoachSnapshot({
+    date: today,
     ftp: physStore?.current.ftp ?? null,
-    rideLogged,
-    disposition,
-  };
+    block,
+    todaySessionType: day?.type ?? null,
+    fitness: sync?.fitness ?? null,
+    readiness: sync ? computeReadiness(sync.fitness, sync.wellness) : null,
+    acwr,
+    loadRamp: sync ? computeLoadRamp(sync.activities) : null,
+    athleteState: sync ? computeAthleteState(athleteStateInputsFrom(sync, athleteModel, baselines, acwr)) : null,
+    todayAnalysis,
+    weightTrend7dKg: sync ? weightTrendFromWellness(sync.wellness) : null,
+    directives: synthesizeCoachingDirectives(deriveInsights(athleteModel), summariseValidation(interventionLog)),
+    disposition: dispositions.entries.find((e) => e.date === today) ?? null,
+  });
+
+  const context: AskCoachContext = { snapshot, session, upcoming };
 
   // Stream the reply as plain-text chunks so the UI renders tokens as they arrive. All the
   // validation above already returned JSON errors with proper status codes; once we start the

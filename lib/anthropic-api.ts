@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, PowerPR, SyncData } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
+import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { recordUsage } from "./ai-usage";
@@ -617,34 +618,26 @@ export async function generateTrainingBlock(
 // ---------- Low-token "ask coach" spot-checks ----------
 
 export interface AskCoachContext {
-  // Current block position — so answers respect where the athlete is in their periodization.
-  block: { goal: string; weekOfBlock: number; totalWeeks: number; overview: string } | null;
-  // Today's prescribed session (null on a rest/unplanned day).
+  // Pre-computed resolved-numbers snapshot (block position, today's execution, form + TSB modifier,
+  // fuel, fused state, directives, disposition guard). The LLM reads facts, not guesses — see
+  // lib/coach-snapshot.ts.
+  snapshot: CoachSnapshot;
+  // Today's prescribed session (null on a rest/unplanned day) — the detailed prescription the
+  // snapshot's `today.sessionType` only names.
   session: { name: string; type: string; durationMin: number; intervals: string[] } | null;
   // The next planned session after today, so forward-looking questions ("how do I approach
   // tomorrow's SIT?") see the real prescription instead of the coach inventing rep durations.
   upcoming: { inDays: number; name: string; type: string; durationMin: number; intervals: string[] } | null;
-  form: string | null; // pre-formatted current state, e.g. "TSB +3, ACWR optimal, readiness Build"
-  state: string | null; // §5 fused athlete-state read, e.g. "Strained — RPE up… (38/100, soften)"
-  ftp: number | null;
-  rideLogged: string | null; // note if today's ride is already done
-  disposition: string | null; // athlete's attribution of today's session (esp. "compromised")
 }
 
-// Pure prompt builder — injects today's session, the block it sits in, and current form
-// (the same situational data the ride analysis uses), but NOT the full historical ledger, so
-// spot-checks stay cheap. Deterministic + unit-testable.
+// Pure prompt builder — injects the resolved CoachSnapshot plus the exact session prescriptions,
+// but NOT the full historical ledger, so spot-checks stay cheap. Deterministic + unit-testable.
 export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string {
   const lines: string[] = [
     "You are the athlete's cycling coach. Answer their question in 2–4 short, practical, decisive sentences. Use the situation below plus whatever they tell you in the question (e.g. weather, how they feel) — don't ask for more data.",
     "",
+    formatCoachSnapshot(ctx.snapshot),
   ];
-  if (ctx.block) {
-    lines.push(
-      `Block: "${ctx.block.goal}" — week ${ctx.block.weekOfBlock} of ${ctx.block.totalWeeks}.` +
-        (ctx.block.overview ? ` ${ctx.block.overview}` : "")
-    );
-  }
   lines.push(
     ctx.session
       ? `Today's session: ${ctx.session.type} — "${ctx.session.name}" (${ctx.session.durationMin} min)` +
@@ -662,13 +655,6 @@ export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string
           : ".")
     );
   }
-  if (ctx.form) lines.push(`Current form: ${ctx.form}.`);
-  if (ctx.state) lines.push(`Fused athlete state: ${ctx.state}.`);
-  if (ctx.ftp) lines.push(`FTP: ${ctx.ftp} W.`);
-  if (ctx.rideLogged) lines.push(ctx.rideLogged);
-  // Disposition is the attribution guard — e.g. a compromised session must not be read as
-  // under-recovery/under-fuelling. Placed last so it overrides any inference from a low score.
-  if (ctx.disposition) lines.push(ctx.disposition);
   lines.push("", `Question: ${query.trim()}`);
   return lines.join("\n");
 }

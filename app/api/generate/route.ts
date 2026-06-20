@@ -15,8 +15,9 @@ import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiol
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
-import { computeAcwr } from "@/lib/readiness";
+import { computeAcwr, computeLoadRamp, computeReadiness } from "@/lib/readiness";
 import { resolveAcwrBands } from "@/lib/calibration";
+import { buildCoachSnapshot, formatFormFuelLine } from "@/lib/coach-snapshot";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import type { Zone } from "@/lib/zones";
 import {
@@ -127,6 +128,28 @@ export async function POST(req: Request) {
       ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${athleteState.headline} — state ${athleteState.score}/100, recommendation: ${athleteState.recommendation}.`
       : "";
 
+    // Shared CoachSnapshot (ROADMAP #1): hand the planner the same resolved form + fuel numbers
+    // Ask-Coach reads, so it can't invent current TSB/ACWR/readiness/fuel. State + directives are
+    // already injected above; this adds only the compact resolved form/fuel line (today's single-ride
+    // execution is intentionally omitted — generation plans forward).
+    const snapshot = buildCoachSnapshot({
+      date: new Date().toISOString().slice(0, 10),
+      ftp: profile.performance.ftp,
+      block: null,
+      todaySessionType: null,
+      fitness: sync?.fitness ?? null,
+      readiness: sync ? computeReadiness(sync.fitness, sync.wellness) : null,
+      acwr,
+      loadRamp: sync ? computeLoadRamp(sync.activities) : null,
+      athleteState,
+      todayAnalysis: null,
+      weightTrend7dKg: sync ? weightTrendFromWellness(sync.wellness) : null,
+      directives: directivesContext,
+      disposition: null,
+    });
+    const formFuelLine = formatFormFuelLine(snapshot);
+    const formFuelContext = formFuelLine ? `\n${formFuelLine}` : "";
+
     // Live training zones from the physiology store, rendered for the prompt (these used to
     // live in athlete_profile.md but are now synced from Intervals.icu).
     const fmtZoneRange = (z: Zone, unit: string) =>
@@ -149,7 +172,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + stateContext + directivesContext,
+      seedsContext + stateContext + directivesContext + formFuelContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );

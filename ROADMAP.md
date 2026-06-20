@@ -16,24 +16,36 @@ machinery they share (so the "build the two together" overlaps are explicit). Do
 
 ## Next up (prioritized)
 
-### 1. CoachSnapshot + Ask-Coach context (the "objective telemetry lens")  ⭐ — next
-Build one pre-computed `CoachSnapshot` that generation and Ask-Coach read, so the LLM is handed
-resolved numbers and can't invent them. Shape: `today.execution {score, completed/total,
-effective%, power%, duration%}` · `form {tsb, acwr, readiness, loadRamp}` · `fuel {todayTargetKcal,
-intakeVsNeed, fuelingState, weightTrend7d}` · `block {goal, week/total}` · `directives[]`.
-Ask-Coach already gets block+form; **add `today.execution` + `fuel`.** Natural capstone on the
-just-shipped Athlete State (§5) — the snapshot is where the fused score + its drivers get handed to
-the LLM as resolved facts.
+### 1. CoachSnapshot + Ask-Coach context (the "objective telemetry lens")  ⭐ — foundations SHIPPED
+Built `lib/coach-snapshot.ts`: one deterministic `CoachSnapshot` (`buildCoachSnapshot` +
+`formatCoachSnapshot` + `formatFormFuelLine`) that **Ask-Coach** (`/api/ask`, fully wired) and **block
+generation** (`/api/generate`, compact form+fuel line) read, so the LLM gets resolved numbers it can't
+invent. Shipped shape: `today.execution {score, completed/total, effective%, power%, duration%}` ·
+`form {tsb, acwr, readiness, loadRamp, tsbModifier}` · `fuel {todayTargetKcal, rideBurnKj, weightTrend7d}`
+· `block {goal, week/total}` · `state {…}` · `directives` · `disposition`. Capstone on the §5 Athlete
+State — the fused score + its drivers are now handed to the LLM as resolved facts.
 
-**TSB as an actionable modifier, not a raw number (from the external spec).** A bare "TSB −12" is
-useless to the athlete. The snapshot's `form` must resolve TSB *against today's prescription*: is the
+**Remaining (foundations left extensible — these wire in without reshaping the type):**
+- **`fuel.intakeVsNeed` + `fuel.fuelingState` are reserved (`null`)** — populate when **Track C / §6**
+  land (no intake logging yet; needs the fueling engine + the energy-availability evaluator).
+- **`form.tsbModifier` band edges are population defaults** (`resolveTsbModifier`) — make per-athlete
+  via **#2** (the TSB adaptation window parameter). The modifier text is deterministic; only the edges
+  need calibrating.
+- **Also surface on Today — WIP (the immediate next step):** persist `coachSnapshot` on `AppState`
+  (sync GET) + a compact resolved-numbers card on Today, so the athlete sees the same numbers the LLM
+  does. The deterministic builder already exists (`buildCoachSnapshot`); this is just the surfacing
+  layer — add the field to `AppState` / `SyncProvider`, build the snapshot in the sync GET handler, and
+  render a card. (Today it's LLM-only — built on-demand in `/api/ask` + `/api/generate`.)
+
+**TSB as an actionable modifier, not a raw number (from the external spec) — SHIPPED v1.** A bare
+"TSB −12" is useless to the athlete, so `resolveTsbModifier` resolves TSB *against today's prescription*: is the
 athlete in a range where the prescribed stimulus still produces adaptation, or too fatigued to
 benefit? Surface it as a conditional modifier tied to the session — e.g. *"Form −12: today's VO2
 still adapts, but drop a rep if RPE > 8 by set 3."* The window that counts as "adaptive" is itself a
 calibrated parameter (TSB adaptation window in #2's framework), not a fixed −10…+5. The LLM phrases
 it; the band + decision are deterministic.
 
-> **⚠️ Ask-Coach anti-pattern (from a real test — this is what must NOT happen).**
+> **⚠️ Ask-Coach anti-pattern (from a real test — now guarded by the snapshot's `disposition` line, which Ask-Coach reads; kept as the regression spec).**
 > Prompt: *"should I stay on plan tomorrow although I only managed 41% of the prescribed intervals?"*
 > A response like *"No — skip tomorrow, you're under-recovered or under-fuelled (execution 1/10)…"*
 > is **wrong**: it hallucinates a physiological cause and prescribes a skip from a single low
