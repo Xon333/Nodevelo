@@ -9,8 +9,10 @@ import {
   isAnthropicConfigured,
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readRollingBaselines, readScoreLog } from "@/lib/data-store";
+import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
+import { formatReflectionsForPrompt } from "@/lib/retrospective-schema";
+import { formatQuirksForPrompt } from "@/lib/quirks";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
@@ -72,7 +74,7 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog, baselines, currentBlock] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog, baselines, currentBlock, blockHistory, quirks] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
@@ -83,6 +85,8 @@ export async function POST(req: Request) {
       readInterventionLog(),
       readRollingBaselines(),
       readCurrentBlock(),
+      readBlockHistory(),
+      readQuirks(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -110,6 +114,12 @@ export async function POST(req: Request) {
     const seedsContext = retroSeeds.length
       ? `\nPREVIOUS BLOCK PRIORITIES (carry forward into planning)\n${retroSeeds.map((s) => `- ${s}`).join("\n")}`
       : "";
+
+    // Track D: the last block's structured reflections (the coach's own hypothesis→outcome notes,
+    // typed on block-history) + recurring quirks mined from ride notes. Both are language-only hints;
+    // the math/decisions stay deterministic above.
+    const reflectionsContext = formatReflectionsForPrompt(blockHistory[0]?.structuredReflections ?? []);
+    const quirkContext = formatQuirksForPrompt(quirks.entries);
 
     // ONE synthesised coaching block: the athlete model's ranked insights (weak/under-
     // delivering/trending types, off-plan drift) folded together with each dimension's
@@ -181,7 +191,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + stateContext + directivesContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext,
+      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );

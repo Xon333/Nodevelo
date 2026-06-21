@@ -16,6 +16,7 @@ import {
   readRollingBaselines,
   readScoreLog,
   writeInterventionLog,
+  writeQuirks,
   writeTodayAnalysis,
   writeCurrentBlock,
   writeLastSync,
@@ -23,6 +24,7 @@ import {
   writeScoreLog,
   readTodayAnalysis,
 } from "@/lib/data-store";
+import { extractQuirks } from "@/lib/quirks";
 import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
@@ -157,6 +159,14 @@ export async function POST(req: Request) {
     // Always update rolling baselines on sync (deterministic, no AI needed).
     const baselines = computeRollingBaselines(lastSync.activities, lastSync.wellness);
     await writeRollingBaselines({ ...baselines, updatedAt: new Date().toISOString() });
+
+    // Track D: mine ride notes for recurring quirks (deterministic, no AI). Regenerated in full each
+    // sync. Best-effort — extraction must never break a sync.
+    try {
+      await writeQuirks(extractQuirks(lastSync.activities));
+    } catch (e) {
+      warnings.push(`Quirk extraction failed: ${e instanceof Error ? e.message : "unknown error"}`);
+    }
 
     // FTP in effect on a given ride date — falls back to the current profile FTP when the
     // physiology history doesn't reach that far back.

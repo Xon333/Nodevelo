@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, BlockHistoryEntry, BlockSettings, CurrentBlock, DispositionLog, InterventionLog, MorningCheckLog, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CurrentBlock, DispositionLog, InterventionLog, MorningCheckLog, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { readMdPerformance } from "./kb-loader";
 import { readPhysiology } from "./physiology";
@@ -110,6 +110,18 @@ export async function readRollingBaselines(): Promise<RollingBaselines> {
 
 export async function writeRollingBaselines(baselines: RollingBaselines): Promise<void> {
   await writeJson("rolling-baselines.json", baselines);
+}
+
+const DEFAULT_QUIRKS: AthleteQuirkStore = { entries: [], extractedAt: new Date(0).toISOString(), engine: "" };
+
+// Derived store (Track D): mined from ride notes, regenerated in full each sync — like rolling
+// baselines, it carries no backup/ledger semantics.
+export async function readQuirks(): Promise<AthleteQuirkStore> {
+  return readJson<AthleteQuirkStore>("athlete-quirks.json", DEFAULT_QUIRKS);
+}
+
+export async function writeQuirks(store: AthleteQuirkStore): Promise<void> {
+  await writeJson("athlete-quirks.json", store);
 }
 
 const DEFAULT_SCORE_LOG: ScoreLog = { entries: [], updatedAt: new Date(0).toISOString() };

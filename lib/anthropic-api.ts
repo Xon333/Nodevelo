@@ -1,11 +1,12 @@
 // Anthropic API client + prompt assembly for training block generation.
 import Anthropic from "@anthropic-ai/sdk";
-import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, PowerPR, SyncData } from "./types";
+import type { ActivitySummary, AthleteProfile, BlockParams, BlockSettings, IntervalComparison, PowerPR, StructuredReflection, SyncData } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
+import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
 import { recordUsage } from "./ai-usage";
 
 // Non-negotiable: in-app generation always uses claude-sonnet-4-6.
@@ -13,7 +14,7 @@ export const GENERATION_MODEL = "claude-sonnet-4-6";
 // Bump whenever the generation/analysis prompt structure or rules change. Stamped (with the model
 // id) onto every AI-produced artifact — GeneratedPlan, TodayAnalysis, BlockHistoryEntry — so a past
 // output stays reproducible/auditable when the model or prompt later changes.
-export const PROMPT_VERSION = 1;
+export const PROMPT_VERSION = 2;
 // Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
 // session + the question, never deep history, so a small model is the right cost/latency call.
 export const QUICK_MODEL = "claude-haiku-4-5";
@@ -575,6 +576,77 @@ export async function generateRetrospective(input: RetrospectiveInput): Promise<
     .map((b) => b.text)
     .join("\n")
     .trim();
+}
+
+// One matured intervention (a hypothesis the last block acted on) + the outcome it produced — the
+// raw material the model turns into a StructuredReflection. Deterministic data in; phrasing out.
+export interface ReflectionInterventionInput {
+  dimension: string;
+  severity: "alert" | "watch" | "good";
+  title: string;
+  physMetric: string;
+  baselineExecEwma: number | null;
+  baselinePhys: number | null;
+  outcome: {
+    execNow: number | null;
+    physNow: number | null;
+    execDelta: number | null;
+    physDelta: number | null;
+    verdict: "validated" | "refuted" | "inconclusive";
+  };
+}
+
+// Track D — structured retrospective reflection. Feeds the block's matured intervention hypotheses +
+// their outcomes to the model via native tool-use, returning one StructuredReflection each. Additive
+// to the prose retrospective; one extra call per ~4-week block. Degrades to [] on any failure so the
+// block always completes. The model only phrases — every number is supplied, never invented.
+export async function generateStructuredRetrospective(
+  input: RetrospectiveInput & { interventions: ReflectionInterventionInput[] }
+): Promise<StructuredReflection[]> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+  if (input.interventions.length === 0) return [];
+
+  const fmtDelta = (d: number | null) => (d === null ? "n/a" : `${d >= 0 ? "+" : ""}${d.toFixed(1)}`);
+  const interventionLines = input.interventions
+    .map((iv, idx) => {
+      const o = iv.outcome;
+      return [
+        `${idx + 1}. [${iv.dimension}] (${iv.severity}) ${iv.title}`,
+        `   hypothesis baseline — execution EWMA ${iv.baselineExecEwma ?? "n/a"}, ${iv.physMetric} ${iv.baselinePhys ?? "n/a"}`,
+        `   matured outcome — verdict ${o.verdict}; execution ${iv.baselineExecEwma ?? "n/a"} → ${o.execNow ?? "n/a"} (Δ ${fmtDelta(o.execDelta)}); ${iv.physMetric} Δ ${fmtDelta(o.physDelta)} (+ = improvement)`,
+      ].join("\n");
+    })
+    .join("\n");
+
+  const prompt = [
+    `Completed block: "${input.goal}" — ${input.lengthWeeks} weeks (${input.startDate} → ${input.endDate}).`,
+    `Volume ${input.plannedHours.toFixed(1)}h planned → ${input.actualHours.toFixed(1)}h actual (${input.overallCompliancePct}% compliance).`,
+    "",
+    "The block acted on these hypotheses (interventions). Each has now matured and been scored:",
+    interventionLines,
+    "",
+    "For EACH numbered intervention above, return one reflection. Ground `hypothesis` and " +
+      "`observation` strictly in the supplied baselines/outcomes — do not invent any metric, date, or " +
+      "number. Keep `root_cause` and `adjusted_strategy` concrete and actionable for the next block.",
+  ].join("\n");
+
+  const client = getClient();
+  const response = await client.messages.create({
+    model: GENERATION_MODEL,
+    max_tokens: 700,
+    temperature: TEMPERATURE,
+    tools: [RETROSPECTIVE_TOOL],
+    tool_choice: { type: "tool", name: RETROSPECTIVE_TOOL.name },
+    messages: [{ role: "user", content: prompt }],
+  });
+  void recordUsage(GENERATION_MODEL, response.usage); // fire-and-forget telemetry
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+  );
+  if (!toolUse) return [];
+  const parsed = RetrospectiveToolSchema.safeParse(toolUse.input);
+  return parsed.success ? parsed.data.reflections : [];
 }
 
 export async function generateTrainingBlock(

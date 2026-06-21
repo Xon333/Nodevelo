@@ -275,6 +275,17 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
 
 // ---------- Block history (data/block-history.json) ----------
 
+// Track D: one structured clinical reflection tying a prior-block hypothesis to its matured outcome.
+// AI-authored language (the model phrases it); the underlying hypothesis/outcome data is deterministic.
+// Shape mirrors retrospective-schema.ts's ReflectionSchema (keep the two aligned).
+export interface StructuredReflection {
+  dimension: string; // a WorkoutType or "Overall"
+  hypothesis: string;
+  observation: string;
+  root_cause: string;
+  adjusted_strategy: string;
+}
+
 export interface BlockHistoryEntry {
   id: string;
   goal: string;
@@ -290,6 +301,7 @@ export interface BlockHistoryEntry {
   ctlGain?: number | null;
   nextBlockSeeds?: string[];
   retrospective?: string; // Claude narrative
+  structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome notes, fed into the next block's prompt
   // Provenance of the block this entry archives (see GeneratedPlan).
   model?: string;
   promptVersion?: number;
@@ -471,6 +483,29 @@ export interface RollingBaselines {
   avgTss90d: number | null;
   avgWeeklyHours90d: number | null; // rolling 90-day mean weekly ride hours (window-consistent with the others)
   updatedAt: string;
+}
+
+// ---------- Athlete quirks (data/athlete-quirks.json — Track D) ----------
+// A DERIVED store, not owned intent: recurring patterns mined deterministically from the athlete's
+// own ride notes (activityDescription). Kept separate from athlete_profile.md (which stays
+// authoritative). Tags are HINTS injected into generation, not facts — pattern-matching is noisy.
+// Regenerated in full on every sync, so no backup/ledger semantics (like rolling-baselines).
+
+export type QuirkCategory = "symptom" | "equipment" | "psyche" | "condition";
+
+export interface QuirkEntry {
+  pattern: string; // canonical tag, e.g. "cramp", "ghost resistance", "indoor aversion"
+  category: QuirkCategory;
+  frequency: number; // how many distinct rides mentioned it (only ≥2 are kept)
+  firstSeen: string; // YYYY-MM-DD of the earliest mention
+  lastSeen: string; // YYYY-MM-DD of the most recent mention
+  evidence: string; // a short snippet from the most recent mention (for transparency)
+}
+
+export interface AthleteQuirkStore {
+  entries: QuirkEntry[]; // sorted by frequency desc
+  extractedAt: string;
+  engine: string; // extractor provenance, e.g. "compromise@<version>+lexicon"
 }
 
 // ---------- Athlete state (ROADMAP §5 signal fusion — see docs/specs/athlete-state.md) ----------

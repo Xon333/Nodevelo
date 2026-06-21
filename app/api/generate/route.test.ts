@@ -46,10 +46,12 @@ vi.mock("@/lib/physiology", () => ({
 }));
 vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(),
+  readBlockHistory: vi.fn(),
   readBlockSettings: vi.fn(),
   readCurrentBlock: vi.fn(),
   readInterventionLog: vi.fn(),
   readLastSync: vi.fn(),
+  readQuirks: vi.fn(),
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
 }));
@@ -68,10 +70,12 @@ const sync = { syncedAt: "", activities: [], wellness: [], powerCurve: [], fitne
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(store.readAthleteProfile).mockResolvedValue(profile as never);
+  vi.mocked(store.readBlockHistory).mockResolvedValue([]);
   vi.mocked(store.readBlockSettings).mockResolvedValue(DEFAULT_BLOCK_SETTINGS);
   vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
   vi.mocked(store.readInterventionLog).mockResolvedValue({ records: [], updatedAt: "" });
   vi.mocked(store.readLastSync).mockResolvedValue(sync as never);
+  vi.mocked(store.readQuirks).mockResolvedValue({ entries: [], extractedAt: "", engine: "" });
   vi.mocked(store.readRollingBaselines).mockResolvedValue({} as never);
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
 });

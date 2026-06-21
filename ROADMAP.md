@@ -230,23 +230,29 @@ This is the concrete build-out of §6 (nutrition energy-balance) — do them as 
 ### Track D — Second-brain learning upgrades  ⭐ (semantic memory + confidence — additive to the deterministic core)
 Make the brain reason about *why*, not just track scalars — **without** surrendering the
 deterministic guarantees (the AI only ever writes the language; the math + validation stay in TS).
-Shared theme: ride notes (athlete `activityDescription` + `coachNote`) are currently generated, shown,
-then discarded — these turn them into durable, queryable memory.
+Shared theme: ride notes (athlete `activityDescription` + `coachNote`) and block outcomes were
+generated, shown, then discarded as reasoning — these turn them into durable, queryable memory.
 
-- **Structured retrospective reflection.** `generateRetrospective` emits prose and the forward
-  "learnings" are deterministic seeds. Instead, feed the previous block's `intervention-log`
-  (hypothesis) + actual outcomes to the model and have it return **structured JSON** via Anthropic
-  native tool-use + `zod` — `{hypothesis, observation, root_cause, adjusted_strategy}` — stored on
-  `BlockHistoryEntry` and injected into the next block's system prompt, so the AI reads its own past
-  clinical notes, not just seeds. (Ties to #4 validation loop + P2 structured outputs; one extra
-  call per ~4-week block — negligible. Use native tool-use, **not** the Vercel AI SDK.)
-- **Athlete-quirk extraction (lean).** A small local NER (`compromise`, ~200kb pure JS) over
-  accumulated `activityDescription` notes on sync → recurring symptoms / equipment / psych states
-  (e.g. "left-leg cramp in heat", "indoor aversion") as tags in a **derived** store — *not*
-  `athlete_profile.md` (owned-intent stays authoritative; auto-derived stays separate). Inject the
-  tags into generation so the coach recalls history without RAG-ing it. Tags are hints, not facts
-  (pattern-matching is noisy). This is the lean slice of the semantic-memory spike (research.md).
-- **Confidence-weighted modeling.** EWMA gives a point estimate with no sense of sample size. Add an
+- **Structured retrospective reflection — SHIPPED.** `generateStructuredRetrospective`
+  (`lib/anthropic-api.ts`) feeds the completed block's matured `intervention-log` records (hypothesis
+  + scored outcome) to the model via native tool-use + `zod` (`lib/retrospective-schema.ts`, sharing
+  the `lib/tool-schema.ts` bridge with the plan tool) and returns
+  `{dimension, hypothesis, observation, root_cause, adjusted_strategy}[]`. Stored on
+  `BlockHistoryEntry.structuredReflections` (+ a *Coach reflections* markdown section) and injected
+  into the next block's dynamic prompt (`formatReflectionsForPrompt`). Additive to the prose
+  retrospective (one extra call/block); degrades to `[]` when there are no matured interventions or
+  the call fails. The model only phrases — every number is supplied.
+- **Athlete-quirk extraction (lean) — SHIPPED.** `lib/quirks.ts` mines the synced
+  `activityDescription` notes on each sync (`extractQuirks`, after `writeRollingBaselines`) using
+  `compromise` (sentence segmentation + a curated, negation-aware cycling lexicon across symptom /
+  equipment / psyche / condition). Recurring patterns (≥2 distinct rides) land in a **derived** store
+  `data/athlete-quirks.json` (regenerated each sync, no backup — like rolling-baselines; kept separate
+  from the authoritative `athlete_profile.md`) and are injected into generation as explicit
+  *hints, not facts* (`formatQuirksForPrompt`). Deterministic; no AI.
+- **Confidence-weighted modeling — deferred to #2.** The `confidence` + `lock_threshold` machinery is
+  shared with the per-athlete calibration keystone (#2), which says "build it once"; doing it
+  standalone risks duplicate/throwaway work and touches the frozen scoring core. Spec retained below;
+  build it inside #2's framework. EWMA gives a point estimate with no sense of sample size. Add an
   **uncertainty layer alongside** EWMA (sample-size / variance, or a Beta/Normal conjugate posterior)
   so the model distinguishes "45% after 1 session, wide" from "tight after 10" — feeding per-athlete
   bands (#2) and letting low-confidence signals be down-weighted. **Additive, not a rip-out:** keep

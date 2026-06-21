@@ -3,12 +3,18 @@ import {
   appendBlockHistory,
   readBlockHistory,
   readCurrentBlock,
+  readInterventionLog,
   readLastSync,
   writeCurrentBlock,
 } from "@/lib/data-store";
 import { writeRetrospective } from "@/lib/kb-loader";
-import { generateRetrospective, isAnthropicConfigured } from "@/lib/anthropic-api";
-import type { BlockHistoryEntry, WorkoutType } from "@/lib/types";
+import {
+  generateRetrospective,
+  generateStructuredRetrospective,
+  isAnthropicConfigured,
+  type ReflectionInterventionInput,
+} from "@/lib/anthropic-api";
+import type { BlockHistoryEntry, StructuredReflection, WorkoutType } from "@/lib/types";
 
 function slugify(str: string): string {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
@@ -30,7 +36,11 @@ export async function POST() {
     return NextResponse.json({ error: "Anthropic API is not configured." }, { status: 400 });
   }
 
-  const [block, sync] = await Promise.all([readCurrentBlock(), readLastSync()]);
+  const [block, sync, interventionLog] = await Promise.all([
+    readCurrentBlock(),
+    readLastSync(),
+    readInterventionLog(),
+  ]);
 
   if (!block) {
     return NextResponse.json({ error: "No active block found." }, { status: 404 });
@@ -110,6 +120,50 @@ export async function POST() {
     avgDecoupling,
   });
 
+  // Track D: structured reflections. Feed the model the hypotheses this block acted on (the matured
+  // interventions) + their scored outcomes, and let it phrase one clinical reflection each. Additive
+  // to the prose above; degrades to [] when there are no matured interventions or the call fails.
+  const maturedInterventions: ReflectionInterventionInput[] = interventionLog.records
+    .filter((r) => r.blockStartDate === block.startDate && r.outcome !== null)
+    .map((r) => ({
+      dimension: r.dimension,
+      severity: r.severity,
+      title: r.title,
+      physMetric: r.physMetric,
+      baselineExecEwma: r.baselineExecEwma,
+      baselinePhys: r.baselinePhys,
+      outcome: {
+        execNow: r.outcome!.execNow,
+        physNow: r.outcome!.physNow,
+        execDelta: r.outcome!.execDelta,
+        physDelta: r.outcome!.physDelta,
+        verdict: r.outcome!.verdict,
+      },
+    }));
+
+  let structuredReflections: StructuredReflection[] = [];
+  if (maturedInterventions.length > 0) {
+    try {
+      structuredReflections = await generateStructuredRetrospective({
+        goal: block.goal,
+        lengthWeeks: block.lengthWeeks,
+        startDate: block.startDate,
+        endDate: block.endDate,
+        plannedHours,
+        actualHours,
+        overallCompliancePct,
+        ctlStart,
+        ctlEnd,
+        complianceByType: complianceMap,
+        topSessions,
+        avgDecoupling,
+        interventions: maturedInterventions,
+      });
+    } catch {
+      structuredReflections = []; // never block the retrospective on the structured call
+    }
+  }
+
   // Build deterministic next-block seeds from compliance data.
   const seeds: string[] = [];
   for (const [type, pct] of Object.entries(complianceMap)) {
@@ -147,6 +201,18 @@ export async function POST() {
     "## Retrospective",
     "",
     retrospective,
+    ...(structuredReflections.length
+      ? [
+          "",
+          "## Coach reflections",
+          "",
+          ...structuredReflections.map(
+            (r) =>
+              `- **${r.dimension}** — _hypothesis:_ ${r.hypothesis} _observed:_ ${r.observation} ` +
+              `_root cause:_ ${r.root_cause} _next:_ ${r.adjusted_strategy}`
+          ),
+        ]
+      : []),
   ].join("\n");
 
   await writeRetrospective(`${fileId}.md`, frontmatter);
@@ -166,13 +232,14 @@ export async function POST() {
     ctlGain: ctlStart !== null && ctlEnd !== null ? Math.round((ctlEnd - ctlStart) * 10) / 10 : null,
     nextBlockSeeds: seeds,
     retrospective,
+    structuredReflections,
     model: block.model,
     promptVersion: block.promptVersion,
   };
   await appendBlockHistory(historyEntry);
   await writeCurrentBlock(null);
 
-  return NextResponse.json({ retrospective, seeds, fileId, complianceByType: complianceMap });
+  return NextResponse.json({ retrospective, seeds, structuredReflections, fileId, complianceByType: complianceMap });
 }
 
 // GET — return the most recent completed block retrospective (from history).

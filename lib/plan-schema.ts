@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import { WORKOUT_TYPES, type PlannedDay, type WorkoutType } from "./types";
+import { zodToToolInputSchema } from "./tool-schema";
 
 const DaySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
@@ -29,23 +30,15 @@ export const PlanToolSchema = z.object({
 
 export type PlanToolOutput = z.infer<typeof PlanToolSchema>;
 
-// JSON Schema for Claude's tool. Derived from the zod schema so the two never drift; `$schema`
-// is stripped because Anthropic's input_schema doesn't want the meta key.
-function toolInputSchema(): Anthropic.Tool["input_schema"] {
-  const schema = z.toJSONSchema(PlanToolSchema) as Record<string, unknown>;
-  delete schema.$schema; // Anthropic's input_schema doesn't want the JSON-Schema meta key
-  // z.toJSONSchema emits `type: "object"` at runtime for an object schema; the cast restores the
-  // literal the SDK's InputSchema requires.
-  return schema as Anthropic.Tool["input_schema"];
-}
-
+// JSON Schema for Claude's tool, derived from the zod schema (via the shared bridge) so the two
+// never drift.
 export const TRAINING_BLOCK_TOOL: Anthropic.Tool = {
   name: "submit_training_block",
   description:
     "Submit the finished structured training block. Call this exactly once with every day of the " +
     "block. Put the Intervals.icu workout step syntax in `workout` (or \"Rest\" on rest days); put " +
     "the intent + nutrition text in `description`.",
-  input_schema: toolInputSchema(),
+  input_schema: zodToToolInputSchema(PlanToolSchema),
 };
 
 // Flatten the validated tool output into the app's PlannedDay[] (week number/theme propagated to
