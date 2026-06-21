@@ -30,11 +30,11 @@ directives · disposition · morning check) so the LLM can't invent figures.
 - **`form.tsbModifier` band edges are population defaults** (`resolveTsbModifier`) — make per-athlete
   via **#2** (the TSB adaptation window parameter). The modifier text is deterministic; only the edges
   need calibrating.
-- **Also surface on Today — WIP (the immediate next step):** persist `coachSnapshot` on `AppState`
-  (sync GET) + a compact resolved-numbers card on Today, so the athlete sees the same numbers the LLM
-  does. The deterministic builder already exists (`buildCoachSnapshot`); this is just the surfacing
-  layer — add the field to `AppState` / `SyncProvider`, build the snapshot in the sync GET handler, and
-  render a card. (Today it's LLM-only — built on-demand in `/api/ask` + `/api/generate`.)
+- **Also surface on Today — SHIPPED.** `buildCoachSnapshotFromSources` (`lib/coach-snapshot.ts`) is the
+  one shared assembler the sync GET and `/api/ask` both call, so the Today card shows the *identical*
+  snapshot the LLM reads (no drift). `coachSnapshot` rides on `AppState` (GET takes `?today=`; POST
+  rebuilds it on fresh data) and `CoachSnapshotCard` renders the resolved form (TSB-as-actionable-
+  modifier) + fuel on Today. Full record in [ARCHIVE.md](ARCHIVE.md).
 
 **TSB-as-actionable-modifier (SHIPPED v1):** `resolveTsbModifier` resolves TSB against today's
 prescription (e.g. *"Form −12: today's VO2 still adapts, but drop a rep if RPE > 8"*) — population band

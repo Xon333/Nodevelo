@@ -78,6 +78,12 @@ A run of ROADMAP "Next up" + Track B items. Remaining slivers for each stay in [
   (`/api/ask`, fully wired) and generation (`/api/generate`, compact form+fuel line) so the LLM is
   handed resolved numbers instead of inventing them. `buildCoachSnapshot` + `formatCoachSnapshot` +
   `formatFormFuelLine` + `resolveTsbModifier`; the compromised-disposition guard rides in the snapshot.
+- **Surfaced on Today (the remaining sliver).** `buildCoachSnapshotFromSources` is now the one shared
+  assembler (model → signals → directives → snapshot) the sync GET and `/api/ask` both call, so the
+  Today card shows the *identical* snapshot the LLM reads — `/api/ask`'s parallel assembly was removed.
+  `coachSnapshot` rides on `AppState` (GET takes `?today=` for the client-local date; POST rebuilds it
+  on fresh data so the card updates after a sync), and `components/CoachSnapshotCard.tsx` renders the
+  resolved form (TSB-as-actionable-modifier) + fuel in the Today readiness zone, hiding when empty.
 
 ### Proactive reschedule — "not feeling it?" morning check-in (ROADMAP #3)
 - `lib/morning-check.ts` + `app/api/morning-check` + `components/MorningCheckIn.tsx`: a pre-session
