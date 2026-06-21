@@ -9,7 +9,7 @@ import {
   isAnthropicConfigured,
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readInterventionLog, readLastSync, readRollingBaselines, readScoreLog } from "@/lib/data-store";
+import { readAthleteProfile, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readRollingBaselines, readScoreLog } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
@@ -29,6 +29,8 @@ import {
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { validatePlanProtocol } from "@/lib/workout-validate";
 import { validateSchedule } from "@/lib/schedule-validate";
+import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
+import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
 import type { BlockParams, GeneratedPlan } from "@/lib/types";
 
@@ -73,7 +75,7 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog, baselines] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog, baselines, currentBlock] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
@@ -83,6 +85,7 @@ export async function POST(req: Request) {
       readPhysiology(),
       readInterventionLog(),
       readRollingBaselines(),
+      readCurrentBlock(),
     ]);
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
@@ -115,10 +118,8 @@ export async function POST(req: Request) {
     // delivering/trending types, off-plan drift) folded together with each dimension's
     // validation track record — instead of three overlapping context blocks.
     const athleteModel = buildAthleteModel(scoreLog.entries);
-    const directivesContext = synthesizeCoachingDirectives(
-      deriveInsights(athleteModel),
-      summariseValidation(interventionLog)
-    );
+    const insights = deriveInsights(athleteModel); // shared by directives + Track B durability selection
+    const directivesContext = synthesizeCoachingDirectives(insights, summariseValidation(interventionLog));
 
     // Signal fusion (§5): hand the generator the one fused-state read so the block respects current
     // systemic state, not just per-dimension execution history.
@@ -151,6 +152,16 @@ export async function POST(req: Request) {
     const formFuelLine = formatFormFuelLine(snapshot);
     const formFuelContext = formFuelLine ? `\n${formFuelLine}` : "";
 
+    // Track B — deterministic session selection. A terrain/race goal requires ≥1 RaceSim (the line is
+    // injected here and the floor is validated post-generation); durability rotates through templates
+    // (limiter-driven from the athlete model, else rotated from the last block's stamp) so the long
+    // ride trains a fresh fatigue-resistance mechanism each block.
+    const requirements = deriveSessionRequirements(blockParams.goal, blockParams.weakpoints);
+    const sessionReqLine = formatSessionRequirements(requirements);
+    const sessionReqContext = sessionReqLine ? `\n${sessionReqLine}` : "";
+    const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null);
+    const durabilityContext = `\n${formatDurabilityForPrompt(durability)}`;
+
     // Live training zones from the physiology store, rendered for the prompt (these used to
     // live in athlete_profile.md but are now synced from Intervals.icu).
     const fmtZoneRange = (z: Zone, unit: string) =>
@@ -173,7 +184,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + stateContext + directivesContext + formFuelContext,
+      seedsContext + stateContext + directivesContext + formFuelContext + sessionReqContext + durabilityContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );
@@ -214,6 +225,8 @@ export async function POST(req: Request) {
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
     warnings.push(...validateSchedule(days, blockSettings));
+    // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
+    warnings.push(...validateSessionRequirements(days, requirements));
     if (truncated) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }
@@ -228,6 +241,7 @@ export async function POST(req: Request) {
       blockParams,
       model: GENERATION_MODEL,
       promptVersion: PROMPT_VERSION,
+      durabilityTemplate: durability.id, // Track B: stamp the template for rotation + future scoring
     };
     return NextResponse.json({ plan });
   } catch (err) {

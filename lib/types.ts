@@ -141,6 +141,9 @@ export interface GeneratedPlan {
   // Optional so plans persisted before stamping landed still parse.
   model?: string;
   promptVersion?: number;
+  // Track B: the durability template (A–E) the long ride was built around — drives rotation across
+  // blocks and lets the future per-template scoring loop attribute outcomes.
+  durabilityTemplate?: string;
 }
 
 // ---------- Active block (data/current-block.json) ----------
@@ -230,6 +233,7 @@ export interface CurrentBlock {
   // Provenance carried from the GeneratedPlan that produced this block (see GeneratedPlan).
   model?: string;
   promptVersion?: number;
+  durabilityTemplate?: string; // Track B: the durability template (A–E) this block's long ride uses
 }
 
 // ---------- Block generation settings (data/block-settings.json) ----------
@@ -286,6 +290,7 @@ export interface BlockHistoryEntry {
   // Provenance of the block this entry archives (see GeneratedPlan).
   model?: string;
   promptVersion?: number;
+  durabilityTemplate?: string; // Track B: durability template (A–E) used — for rotation + scoring
 }
 
 // ---------- Readiness / fatigue signals (computed at sync time) ----------

@@ -83,6 +83,7 @@ export async function POST(req: Request) {
         createdAt: existing.createdAt,
         model: existing.model,
         promptVersion: existing.promptVersion,
+        durabilityTemplate: existing.durabilityTemplate,
       });
     }
 
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
       createdAt: new Date().toISOString(),
       model: plan.model,
       promptVersion: plan.promptVersion,
+      durabilityTemplate: plan.durabilityTemplate,
       days: plan.days.map((d) => {
         // Capture the coach's prescription structurally so execution can be compared.
         const prescription = parsePrescription(d.workoutText, ftp);

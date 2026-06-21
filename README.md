@@ -47,6 +47,7 @@ Five design decisions define the whole app — everything else follows from them
 | File | What it's for |
 |---|---|
 | `README.md` (this) | How the app works — the architectural manual |
+| [FEATURES.md](FEATURES.md) | Capability catalogue — what the app can do, by area |
 | [ROADMAP.md](ROADMAP.md) | Forward backlog: what's next, prioritized |
 | [ARCHIVE.md](ARCHIVE.md) | Completed work, grouped by theme |
 | [research.md](research.md) | Exploratory spikes — findings, not build commitments |
@@ -352,9 +353,10 @@ a minimal, utilitarian loop with no manual markdown step.
 ```
 1. Sync        POST /api/sync → fresh activities + reconciled physiology + re-scored ledger
 2. Configure   /plan → length (2/4 wk), start date, goal, weakpoints (pre-filled from profile)
-3. Generate    POST /api/generate → assembles: knowledge base + live physiology zones
-                 + athlete model insights + retrospective seeds + deterministic nutrition table
-                 → claude-sonnet-4-6 → parsePlan() → structured days
+3. Generate    POST /api/generate → assembles: knowledge base + live physiology zones + athlete-model
+                 insights + retrospective seeds + CoachSnapshot form/fuel + Track-B session
+                 requirements & durability template + deterministic nutrition table
+                 → claude-sonnet-4-6 (structured tool-use) → validated PlannedDay[]
 4. Preview     PlanPreview renders every day (workout steps + nutrition). Nothing is written yet.
 5. Write       POST /api/write → each day POSTed to Intervals.icu; prescriptions parsed and
                  frozen into current-block.json (with the FTP used) as the active block.
@@ -382,7 +384,7 @@ deliberate cornering practice.
 
 | Page | Purpose |
 |---|---|
-| `/today` (default) | Readiness tiles (CTL/ATL/TSB, ACWR, polarization), today's session & fuel, smoothed power trace, PR trophy banner, trend pulse, coach note, ask-coach spot-check |
+| `/today` (default) | Fused athlete-state + readiness tiles (CTL/ATL/TSB, ACWR, polarization), proactive morning check-in, today's session & fuel, smoothed power trace, PR trophy banner, trend pulse, coach note, ask-coach spot-check |
 | `/plan` | Active block calendar, collapsible block generator + preview, goals vs. this week, history |
 | `/trends` | Last-7-day snapshot, learned insights, paired graphs (Pw:HR ‖ CTL, execution ‖ compliance), fueling & weight, block history |
 | `/profile` | Synced performance (FTP, threshold/max HR), all-time PRs, goals, weakpoints, nutrition settings |
@@ -398,8 +400,9 @@ deliberate cornering practice.
 | `/api/profile` | GET / PUT | Profile snapshot (physiology projected) / save nutrition settings |
 | `/api/knowledge` | GET / PUT | List & edit knowledge-base / retrospective files |
 | `/api/settings` | GET / PUT | Block-generation settings + platform toggles |
-| `/api/ask` | POST | Low-token "ask coach" spot-check — sees block position, today's + the next planned session, current form, FTP (not the full ledger) |
+| `/api/ask` | POST | Low-token "ask coach" spot-check — reads the resolved CoachSnapshot (block, today's execution, form + TSB modifier, fuel, directives, morning check, disposition) + the next planned session; not the full ledger |
 | `/api/disposition` | GET / POST | Read/set a session's athlete attribution (completed/partial/compromised); re-stamps the ledger immediately |
+| `/api/morning-check` | GET / POST / PUT | Proactive check-in: UI state / submit + deterministic decision / apply the downgrade + reschedule |
 | `/api/retrospective`, `/api/history`, `/api/note`, `/api/reschedule` | — | Block retro generation, block history, manual note write-back, auto-reschedule |
 
 ---
@@ -412,7 +415,8 @@ deliberate cornering practice.
 | `physiology.ts` | Physiology store: parse sport-settings, resolve zones, effective-dating, reconcile |
 | `data-store.ts` | All other JSON persistence; overlays physiology onto the profile |
 | `anthropic-api.ts` | Prompt assembly + Claude calls (always `claude-sonnet-4-6`) |
-| `plan-parser.ts` | Claude output → structured `PlannedDay[]` → Intervals.icu events |
+| `plan-schema.ts` | Structured tool-use schema → validated `PlannedDay[]` |
+| `plan-parser.ts` | `planDayToEvent`: a `PlannedDay` → an Intervals.icu event payload |
 | `prescription.ts` | Parse workout syntax into structured target intervals |
 | `workout-validate.ts` | KB-grounded protocol validation of generated workouts (SIT/VO2max/threshold bands) |
 | `interval-match.ts` | Prescription vs. executed-interval adherence (avg-watts, duration-aware, structural-mismatch + extras) |
@@ -426,7 +430,12 @@ deliberate cornering practice.
 | `intervention.ts` | Snapshot directives at block-write, validate/refute them after maturity |
 | `calibration.ts` | Auto-tuned EWMA alpha + ACWR bands |
 | `readiness.ts` | ACWR, intensity distribution, fatigue/load-ramp signals |
-| `reschedule.ts` | Auto-reschedule missed/compromised quality sessions within the block |
+| `reschedule.ts` | Reschedule missed/compromised quality sessions (reactive) + proactive downgrade/swap onto a rest-or-easy day |
+| `athlete-state.ts` | §5 signal fusion: one 0–100 athlete-state score + drivers from the fused signals |
+| `coach-snapshot.ts` | Resolved-numbers bundle fed to Ask-Coach + generation so the LLM can't invent figures (#1) |
+| `morning-check.ts` | Proactive check-in decision — subjective strain + objective form → proceed/downgrade (#3) |
+| `session-requirements.ts` | Goal/weakpoint → required session types (terrain/race ⇒ RaceSim), injected + validated (Track B) |
+| `durability.ts` | Durability template taxonomy (A–E) + deterministic, limiter-driven/rotated selection (Track B) |
 | `zones.ts` | Re-bucket power/HR streams into the athlete's own zones |
 | `nutrition.ts` | Deterministic calorie/carb/protein formula |
 | `kb-loader.ts` | Knowledge-base + retrospective IO and parsing |
@@ -447,7 +456,7 @@ and only phrases them in natural language — it never calculates nutrition.
 ## Development
 
 ```bash
-npm test       # vitest (170 tests across 22 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, parser, trends, PR detection, trace, …)
+npm test       # vitest (252 tests across 33 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, …)
 npm run lint
 npm run build
 ```

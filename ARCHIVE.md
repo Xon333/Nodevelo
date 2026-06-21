@@ -12,6 +12,41 @@ exact commits.
 
 ---
 
+## Coaching depth — CoachSnapshot, proactive reschedule, session variety
+
+A run of ROADMAP "Next up" + Track B items. Remaining slivers for each stay in [ROADMAP.md](ROADMAP.md).
+
+### CoachSnapshot — resolved-numbers lens (ROADMAP #1)
+- `lib/coach-snapshot.ts`: one deterministic snapshot (today execution · form + TSB-as-actionable-
+  modifier · fuel · fused state · directives · disposition · morning check) read by Ask-Coach
+  (`/api/ask`, fully wired) and generation (`/api/generate`, compact form+fuel line) so the LLM is
+  handed resolved numbers instead of inventing them. `buildCoachSnapshot` + `formatCoachSnapshot` +
+  `formatFormFuelLine` + `resolveTsbModifier`; the compromised-disposition guard rides in the snapshot.
+
+### Proactive reschedule — "not feeling it?" morning check-in (ROADMAP #3)
+- `lib/morning-check.ts` + `app/api/morning-check` + `components/MorningCheckIn.tsx`: a pre-session
+  check (fatigue/sleep/soreness/motivation + illness) → deterministic proceed/downgrade
+  (`decideMorningCheck`: subjective strain + objective TSB/readiness/ACWR). Applying it downgrades today
+  and moves the quality stimulus to the next rest day, else a load-preserving swap with the next easy
+  day (`suggestProactiveReschedule` / `applyProactiveReschedule` in `lib/reschedule.ts`). Stored in
+  `morning-check.json`; feeds the CoachSnapshot. Also shipped the §3 "wider target slots" sliver.
+
+### Session selection & prescription variety (Track B)
+- **Goal-driven selection** — `lib/session-requirements.ts`: terrain/race goal tags → a RaceSim
+  requirement injected into the prompt and enforced by `validateSessionRequirements` (warns if the block
+  ships none); RaceSim already counts toward the quality budget + spacing.
+- **Durability taxonomy** — KB §12 + `lib/durability.ts`: 5 rotating templates (A–E),
+  `selectDurabilityTemplate` limiter-driven (Threshold→B, VO2max→C, SIT→D, systemic fatigue→A) else
+  rotated; the long ride stays TYPE Z2 with intensity inside the duration. The chosen template is
+  stamped on the block (`durabilityTemplate` through generate→write→history) for rotation + scoring.
+
+### Structural debt paydown
+- Split `components/Dashboard.tsx` (1453→516 LOC) into `components/dashboard/{shared,today,plan}.tsx`;
+  cleared all 11 ESLint problems; deleted the legacy `parsePlan` regex text-parser fallback (structured
+  tool-use is now the sole generation path) — `plan-parser.ts` keeps only `planDayToEvent`.
+
+---
+
 ## Trends & Today card polish (TR batch)
 
 From a real-use feedback pass on the Trends and Today pages.

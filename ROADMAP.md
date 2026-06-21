@@ -17,13 +17,9 @@ machinery they share (so the "build the two together" overlaps are explicit). Do
 ## Next up (prioritized)
 
 ### 1. CoachSnapshot + Ask-Coach context (the "objective telemetry lens")  ⭐ — foundations SHIPPED
-Built `lib/coach-snapshot.ts`: one deterministic `CoachSnapshot` (`buildCoachSnapshot` +
-`formatCoachSnapshot` + `formatFormFuelLine`) that **Ask-Coach** (`/api/ask`, fully wired) and **block
-generation** (`/api/generate`, compact form+fuel line) read, so the LLM gets resolved numbers it can't
-invent. Shipped shape: `today.execution {score, completed/total, effective%, power%, duration%}` ·
-`form {tsb, acwr, readiness, loadRamp, tsbModifier}` · `fuel {todayTargetKcal, rideBurnKj, weightTrend7d}`
-· `block {goal, week/total}` · `state {…}` · `directives` · `disposition`. Capstone on the §5 Athlete
-State — the fused score + its drivers are now handed to the LLM as resolved facts.
+Foundations shipped — full record in [ARCHIVE.md](ARCHIVE.md). `lib/coach-snapshot.ts` hands Ask-Coach
++ generation one deterministic resolved-numbers snapshot (execution · form+TSB-modifier · fuel · state ·
+directives · disposition · morning check) so the LLM can't invent figures.
 
 **Remaining (foundations left extensible — these wire in without reshaping the type):**
 - **`fuel.intakeVsNeed` + `fuel.fuelingState` are reserved (`null`)** — populate when **Track C / §6**
@@ -37,13 +33,9 @@ State — the fused score + its drivers are now handed to the LLM as resolved fa
   layer — add the field to `AppState` / `SyncProvider`, build the snapshot in the sync GET handler, and
   render a card. (Today it's LLM-only — built on-demand in `/api/ask` + `/api/generate`.)
 
-**TSB as an actionable modifier, not a raw number (from the external spec) — SHIPPED v1.** A bare
-"TSB −12" is useless to the athlete, so `resolveTsbModifier` resolves TSB *against today's prescription*: is the
-athlete in a range where the prescribed stimulus still produces adaptation, or too fatigued to
-benefit? Surface it as a conditional modifier tied to the session — e.g. *"Form −12: today's VO2
-still adapts, but drop a rep if RPE > 8 by set 3."* The window that counts as "adaptive" is itself a
-calibrated parameter (TSB adaptation window in #2's framework), not a fixed −10…+5. The LLM phrases
-it; the band + decision are deterministic.
+**TSB-as-actionable-modifier (SHIPPED v1):** `resolveTsbModifier` resolves TSB against today's
+prescription (e.g. *"Form −12: today's VO2 still adapts, but drop a rep if RPE > 8"*) — population band
+edges, per-athlete calibration via #2. The LLM phrases it; the band + decision stay deterministic.
 
 > **⚠️ Ask-Coach anti-pattern (from a real test — now guarded by the snapshot's `disposition` line, which Ask-Coach reads; kept as the regression spec).**
 > Prompt: *"should I stay on plan tomorrow although I only managed 41% of the prescribed intervals?"*
@@ -97,7 +89,7 @@ second-brain item (Track D) also calls for — build it once here, not twice.
   with override semantics. Lean strict-consistency unless there's a real reason to diverge.
 
 ### 3. Proactive reschedule — "not feeling it?" morning check-in  ⭐ — SHIPPED
-`MorningCheckIn` on Today (rank-1 readiness zone, shown before a quality session is ridden) →
+Full record in [ARCHIVE.md](ARCHIVE.md). `MorningCheckIn` on Today (rank-1 readiness zone, shown before a quality session is ridden) →
 standardised chips (fatigue / sleep / soreness / motivation 1–5 + illness none/mild/sick) → a
 **deterministic** decision (`lib/morning-check.ts decideMorningCheck`: subjective strain + objective
 TSB/readiness/ACWR) → "proceed" or "downgrade + reschedule". Apply (athlete-confirmed) downgrades today
@@ -176,43 +168,27 @@ the curve-shape analysis once.**
   auto-identified weak point), so they generalise to any rider instead of baking one athlete's
   limiters into the prompt.
 
-### Track B — Session selection & prescription variety  ⭐
-Make the brain reliably *use* the session types it already knows, and treat durability as a category.
-**Shared selection/spacing machinery (respect P5 spacing + the quality budget) — build the two together.**
+### Track B — Session selection & prescription variety  ⭐ — SHIPPED
+Both sub-items shipped (full record in [ARCHIVE.md](ARCHIVE.md)); selection is now deterministic (the LLM only phrases the chosen prescription):
 
-- **Goal-driven session selection (high priority — make the brain actually use the new types).** The
-  building blocks already ship — **RaceSim** (KB §10: attack hills / KOM-hunt rehearsal) and
-  **athlete-directed / terrain-flexible** sessions (KB §11: *"find 2×20m climbs, push; Z2 otherwise"*
-  · *"5 short climbs 2–8 min, stay in VO2max"* · *"Z2 but sprint ≤6 short hills"*). The gap is
-  *selection*: the generator only reaches for them when the prompt happens to nudge it. Make it
-  **goal-driven and reliable** — when the macro-goal implies terrain/race demands (hill-KOM hunting),
-  the block must include race-sim + flexible-climb sessions as *key quality work*, not optional
-  flavour. Prefer a deterministic nudge (goal tags → require ≥1 such quality session per loading week)
-  over hoping the LLM picks them. They count toward the quality budget and respect spacing so they
-  don't interfere with the fixed-ERG benchmark + interval priority — keep intervals primary while
-  breaking indoor-ladder monotony with structured-but-flexible outdoor quality the athlete will
-  actually ride. (Foundation: PW-3/PW-9, shipped — see ARCHIVE.)
-- **Durability prescription taxonomy (durability is a category, not one workout).** From the external
-  spec. The system today treats "durability" as a single long-Z2 template; it must treat it as a
-  **stimulus category with rotating templates**, each training a different fatigue-resistance
-  mechanism. Encode the templates and a *placement* rule (the intensity sits inside the duration
-  target, never replaces it):
-  - **A — Pure accumulation:** long Z2 (volume → fatigue resistance).
-  - **B — Fatigue-then-threshold:** ~3 h Z2 → threshold climb(s) late → Z1/Z2 to fill (threshold
-    power *after* accumulated fatigue).
-  - **C — Fatigue-then-VO2:** Z2 → VO2 efforts placed late → fill (high-end aerobic under fatigue).
-  - **D — Fatigue-then-neuromuscular:** Z2 → late sprints → fill (recruitment when glycogen-depleted).
-  - **E — Mixed density:** micro-doses (surges / under-overs) woven through the Z2, not back-loaded.
+- **Goal-driven session selection — DONE.** `lib/session-requirements.ts deriveSessionRequirements`
+  tags the goal + weakpoints (climbing / racing / punchy / gravel); a terrain/race goal injects a
+  RaceSim requirement into the prompt and `validateSessionRequirements` warns if the block ships none.
+  RaceSim already counts toward the quality budget + spacing (`schedule-validate.ts`), so intervals stay
+  primary. (Foundation: PW-3/PW-9 + KB §10/§11.)
+- **Durability taxonomy — DONE.** KB **§12** + `lib/durability.ts`: 5 templates (A pure accumulation …
+  E mixed density), `selectDurabilityTemplate` picks limiter-driven from `deriveInsights` (Threshold→B,
+  VO2max→C, SIT→D, systemic fatigue→A) else rotates from the last block's stamp; the long ride stays
+  TYPE Z2 with the intensity placed inside the duration. The chosen template is stamped on the block
+  (`durabilityTemplate` on GeneratedPlan/CurrentBlock/BlockHistoryEntry).
 
-  Selection (deterministic; the LLM only phrases the chosen template): **limiter-driven** when the
-  athlete model flags one (threshold-under-fatigue → B; VO2 repeatability → C; explosive finish → D;
-  low volume tolerance → A); **rotate** even with no clear limiter (stacking one template breeds
-  one-dimensional adaptation); **duration-respecting + terrain/time-adaptive** (3 h instead of 4 h →
-  shorter Z2 block, same late-ride placement, adjusted target).
-  - **Future scoring loop (compat, not now):** score each ride against its template's expected
-    adaptation signal (did a B session raise threshold-under-fatigue vs the prior B?) → a per-template
-    **prescription-accuracy** weight per athlete. Build the classification so this can bolt on later
-    (ties to #4 + Track C's correlation engine).
+**Remaining:**
+- **Future per-template scoring loop (compat, not now):** grade each long ride against its template's
+  expected signal (did a B raise threshold-under-fatigue vs the prior B?) → a per-template
+  prescription-accuracy weight (ties #4 + Track C). The `durabilityTemplate` stamp is in place for it.
+- Per-loading-week RaceSim is **prompt-level**; the validator enforces only ≥1/block (loading-vs-recovery
+  week detection is fuzzy). Terrain-flexible (KB §11) sessions stay prompt-encouraged — not cleanly
+  type-detectable for a deterministic check. Tighten either if real use shows the LLM under-delivering.
 
 ### Track C — Fueling intelligence  ⭐ (data already synced)
 From the external spec; the highest-value new insight because the inputs already exist (intervals.icu
