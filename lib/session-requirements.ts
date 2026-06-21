@@ -27,13 +27,32 @@ const TAG_PATTERNS: Array<{ tag: string; re: RegExp }> = [
 // Negation words that flip a nearby tag keyword ("avoid hills", "no racing", "without climbs").
 const NEGATION = /\b(?:no|not|avoid|without|skip|minimal|less|few|fewer)\b/;
 
-// A tag counts only if it appears at least once *not* immediately preceded (within ~15 chars) by a
-// negation word — so "avoid hills" / "no racing this block" don't wrongly require a RaceSim.
+// Clause boundaries. Negation only carries within the clause it sits in, so a negation in an *earlier*
+// clause doesn't reach across and flip a later tag. Boundaries: punctuation, newlines, dashes, and
+// contrastive conjunctions ("but"/"however"/"yet") — "no rest, hilly race" and "no sprints but big
+// climbs" both leave the later tag standing (RR-4).
+const CLAUSE_BREAK = /[,.;:\n—–]|\s-\s|\bbut\b|\bhowever\b|\byet\b/g;
+
+// Start index of the clause containing `index` — the char after the last clause break before it.
+function clauseStart(haystack: string, index: number): number {
+  const scan = new RegExp(CLAUSE_BREAK.source, "g");
+  let start = 0;
+  let b: RegExpExecArray | null;
+  while ((b = scan.exec(haystack)) !== null) {
+    if (b.index >= index) break;
+    start = b.index + b[0].length;
+  }
+  return start;
+}
+
+// A tag counts only if it appears at least once *not* preceded by a negation word within the same
+// clause — so "avoid hills" / "no racing this block" don't wrongly require a RaceSim, but a negation
+// in a separate clause ("no rest weeks — hilly KOM race") leaves the tag standing.
 function tagPresent(haystack: string, re: RegExp): boolean {
   const scan = new RegExp(re.source, "g");
   let m: RegExpExecArray | null;
   while ((m = scan.exec(haystack)) !== null) {
-    if (!NEGATION.test(haystack.slice(Math.max(0, m.index - 15), m.index))) return true;
+    if (!NEGATION.test(haystack.slice(clauseStart(haystack, m.index), m.index))) return true;
   }
   return false;
 }

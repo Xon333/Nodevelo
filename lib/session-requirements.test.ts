@@ -40,6 +40,15 @@ describe("deriveSessionRequirements", () => {
     // a genuine mention still counts even with a negation elsewhere
     expect(deriveSessionRequirements("No rest weeks — peak for the hilly KOM race", []).requireRaceSim).toBe(true);
   });
+
+  it("scopes negation to its own clause — doesn't reach across into a later tag (RR-4)", () => {
+    // "no" negates gym/sprints, not the climbing/racing in the next clause. The old 15-char back-scan
+    // wrongly negated these; clause-scoping leaves the tags standing.
+    expect(deriveSessionRequirements("no gym, hilly race", []).requireRaceSim).toBe(true);
+    expect(deriveSessionRequirements("no sprints but big climbs", []).tags).toContain("climbing");
+    // …while a same-clause negation still flips the tag.
+    expect(deriveSessionRequirements("no climbing this block", []).tags).not.toContain("climbing");
+  });
 });
 
 describe("formatSessionRequirements", () => {
