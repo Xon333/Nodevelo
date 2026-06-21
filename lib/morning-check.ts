@@ -48,9 +48,14 @@ export function decideMorningCheck(a: MorningCheckAnswers, o: MorningCheckObject
   const objectivePoor = (o.tsb !== null && o.tsb <= TSB_DEEP) || o.readiness === "Recover" || o.acwr === "high" || o.acwr === "danger";
 
   let downgrade = false;
-  if (a.illness !== "none") {
+  // Sickness always downgrades a quality day; mild illness only when strain or the objective signals
+  // also say so — otherwise a faint sniffle on fresh legs shouldn't nuke a key session (CR-13).
+  if (a.illness === "sick") {
     downgrade = true;
-    reasons.push(a.illness === "sick" ? "Reported illness (sick)." : "Reported illness (mild) before a quality day.");
+    reasons.push("Reported illness (sick).");
+  } else if (a.illness === "mild" && (strain >= STRAIN_MED || objectivePoor)) {
+    downgrade = true;
+    reasons.push("Mild illness alongside elevated strain/fatigue — don't push a quality day.");
   }
   if (strain >= STRAIN_HIGH) {
     downgrade = true;

@@ -2,14 +2,11 @@ import { NextResponse } from "next/server";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
 import { readBlockSettings, readCurrentBlock, readDispositions, readInterventionLog, readLastSync, readMorningChecks, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
 import { readPhysiology } from "@/lib/physiology";
-import { computeAcwr, computeLoadRamp, computeReadiness } from "@/lib/readiness";
 import { resolveAcwrBands } from "@/lib/calibration";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
-import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
-import { weightTrendFromWellness } from "@/lib/nutrition";
-import { buildCoachSnapshot } from "@/lib/coach-snapshot";
+import { buildCoachSnapshot, resolveCoachSignals } from "@/lib/coach-snapshot";
 import { resolveToday } from "@/lib/date";
 
 export const maxDuration = 60;
@@ -71,20 +68,16 @@ export async function POST(req: Request) {
   // Resolve the situational signals (all deterministic) and fold them into the one CoachSnapshot
   // the prompt reads — so the coach answers from resolved numbers it can't invent or override.
   const athleteModel = buildAthleteModel(scoreLog.entries);
-  // Calibrated ACWR bands (same as Today + generation) so Ask-Coach can't contradict the readiness strip (CR-5).
-  const acwr = sync ? computeAcwr(sync.activities, resolveAcwrBands(settings.acwrBands)) : null;
+  // Form/fuel/state signals (incl. calibrated ACWR bands — CR-5) resolved by the shared helper so
+  // Ask-Coach + generation can't drift (CR-9).
+  const signals = resolveCoachSignals(sync, athleteModel, baselines, resolveAcwrBands(settings.acwrBands));
   const snapshot = buildCoachSnapshot({
     date: today,
     ftp: physStore?.current.ftp ?? null,
     block,
     todaySessionType: day?.type ?? null,
-    fitness: sync?.fitness ?? null,
-    readiness: sync ? computeReadiness(sync.fitness, sync.wellness) : null,
-    acwr,
-    loadRamp: sync ? computeLoadRamp(sync.activities) : null,
-    athleteState: sync ? computeAthleteState(athleteStateInputsFrom(sync, athleteModel, baselines, acwr)) : null,
+    ...signals,
     todayAnalysis,
-    weightTrend7dKg: sync ? weightTrendFromWellness(sync.wellness) : null,
     directives: synthesizeCoachingDirectives(deriveInsights(athleteModel), summariseValidation(interventionLog)),
     disposition: dispositions.entries.find((e) => e.date === today) ?? null,
     morningCheck: morningChecks.entries.find((e) => e.date === today) ?? null,

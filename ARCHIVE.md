@@ -12,6 +12,41 @@ exact commits.
 
 ---
 
+## Code-review hardening pass (CR-1..16)
+
+A self-review of the §5/#1/#3/Track B work, worked as a gated pre-feature pass. All 16 items resolved.
+
+- **CR-1 — durability intensity made visible.** `carriesEmbeddedIntensity` (`lib/prescription.ts`): a
+  ride carrying ≥5 min of ≥88%-FTP work counts as hard. `validateSchedule` (now takes `ftp`) treats
+  such a Z2 ride as a hard day for back-to-back spacing; `validateWorkoutProtocol` checks the embedded
+  inserts against a threshold∪VO2 envelope (≤122%, ≤20 min). Budget stays type-based.
+- **CR-2 — guarded the proactive apply.** `proactiveApplyBlock`: `PUT /api/morning-check` refuses
+  unless today's stored check recommended `downgrade` and no ride is logged.
+- **CR-3 — client-local dates.** `/api/ask` + `/api/morning-check` resolve the client date
+  (`resolveToday`); `AskCoach` + `MorningCheckIn` send `localToday()`. UTC-boundary disagreement gone.
+- **CR-4 — KB resilience + skeleton.** `knowledge-base-defaults/` (committed schema + cited §-anchors);
+  `kb-loader.ts` reads local-else-default and never `readdir`-throws on a fresh clone.
+- **CR-5 — one ACWR.** `/api/ask` uses calibrated `resolveAcwrBands(settings)` like Today/generation.
+- **CR-6 — carry-forward is real.** A no-make-up-slot downgrade records the dropped session on
+  `CurrentBlock.deferredQuality`; generation re-prioritises it. No longer silently lost.
+- **CR-7 — negation-aware goal matching.** "avoid hills" / "no racing" stop forcing a RaceSim.
+- **CR-8 — route/integration tests.** vitest `@/` alias + IO/LLM-mocked tests for morning-check
+  (incl. the CR-2 guard), ask (snapshot assembly), generate (Track-B requirement + durability stamp).
+- **CR-9 — one signal resolver.** `resolveCoachSignals` removes the snapshot-assembly duplication
+  across `/api/ask` + `/api/generate`.
+- **CR-10 — honest deload.** Recovery downgrade capped at `min(45, original)`; docs corrected (only the
+  easy-day swap preserves load; the rest-day path is a deload).
+- **CR-11 — calibration debt catalogued.** ROADMAP #2 now lists the recent population magic-numbers to
+  fold in.
+- **CR-12 — per-loading-week RaceSim** enforcement (≥2 quality + no RaceSim flags the week).
+- **CR-13 — mild-illness nuance** (sickness always downgrades; mild only with strain/objective).
+- **CR-14/15/16** — accepted as designed / deferred to §7 / monitor (rotation cadence, calendar
+  mutation, ask-coach cost). See todo history.
+
+Tests grew to 281 across 37 files over the pass.
+
+---
+
 ## Coaching depth — CoachSnapshot, proactive reschedule, session variety
 
 A run of ROADMAP "Next up" + Track B items. Remaining slivers for each stay in [ROADMAP.md](ROADMAP.md).
@@ -27,8 +62,8 @@ A run of ROADMAP "Next up" + Track B items. Remaining slivers for each stay in [
 - `lib/morning-check.ts` + `app/api/morning-check` + `components/MorningCheckIn.tsx`: a pre-session
   check (fatigue/sleep/soreness/motivation + illness) → deterministic proceed/downgrade
   (`decideMorningCheck`: subjective strain + objective TSB/readiness/ACWR). Applying it downgrades today
-  and moves the quality stimulus to the next rest day, else a load-preserving swap with the next easy
-  day (`suggestProactiveReschedule` / `applyProactiveReschedule` in `lib/reschedule.ts`). Stored in
+  and moves the quality stimulus to the next rest day (a deload) — else a load-preserving swap with the
+  next easy day (`suggestProactiveReschedule` / `applyProactiveReschedule` in `lib/reschedule.ts`). Stored in
   `morning-check.json`; feeds the CoachSnapshot. Also shipped the §3 "wider target slots" sliver.
 
 ### Session selection & prescription variety (Track B)

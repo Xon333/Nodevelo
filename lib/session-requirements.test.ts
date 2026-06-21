@@ -65,4 +65,12 @@ describe("validateSessionRequirements", () => {
   it("never warns when no requirement applies", () => {
     expect(validateSessionRequirements([day("Z2")], deriveSessionRequirements("flat TT", []))).toEqual([]);
   });
+
+  it("flags a loading week (≥2 quality, no RaceSim) but not one that has a RaceSim (CR-12)", () => {
+    const d = (type: PlannedDay["type"], weekNumber: number): PlannedDay => ({ date: "2026-06-15", weekNumber, weekTheme: "", name: type, type, durationMin: type === "Rest" ? 0 : 90, workoutText: "", description: "" });
+    const days = [d("Threshold", 1), d("VO2max", 1), d("RaceSim", 2), d("Threshold", 2)];
+    const w = validateSessionRequirements(days, terrain);
+    expect(w.some((m) => /week 1/.test(m))).toBe(true);
+    expect(w.some((m) => /week 2/.test(m))).toBe(false);
+  });
 });

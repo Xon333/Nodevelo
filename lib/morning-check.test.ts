@@ -28,9 +28,11 @@ describe("decideMorningCheck", () => {
     expect(r.reasons.join(" ")).toMatch(/strain/i);
   });
 
-  it("downgrades on any illness before a quality day", () => {
-    expect(decideMorningCheck({ ...fresh, illness: "mild" }, goodObjective).decision).toBe("downgrade");
+  it("always downgrades on sickness; mild illness only with elevated strain/fatigue (CR-13)", () => {
     expect(decideMorningCheck({ ...fresh, illness: "sick" }, goodObjective).decision).toBe("downgrade");
+    expect(decideMorningCheck({ ...fresh, illness: "mild" }, goodObjective).decision).toBe("proceed"); // fresh + mild → ride easy
+    expect(decideMorningCheck({ ...moderate, illness: "mild" }, goodObjective).decision).toBe("downgrade"); // mild + strain 12
+    expect(decideMorningCheck({ ...fresh, illness: "mild" }, poorObjective).decision).toBe("downgrade"); // mild + poor objective
   });
 
   it("lets the objective signals tip the medium-strain band", () => {

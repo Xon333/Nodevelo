@@ -16,10 +16,8 @@ machinery they share (so the "build the two together" overlaps are explicit). Do
 
 ## Next up (prioritized)
 
-> **⛔ Hardening gate first.** A self-review of the §5/#1/#3/Track B work opened a pre-feature
-> hardening pass in [todo.md](todo.md) (`CR-1..15`). Clear it — at minimum the `CR-1..3`
-> merge-blockers — **before** starting any item below (including #2 and the CoachSnapshot
-> Today-surfacing WIP).
+> **✅ Hardening gate cleared.** The pre-feature self-review pass (`CR-1..16`, full record in
+> [ARCHIVE.md](ARCHIVE.md)) is done — the features below are unblocked.
 
 ### 1. CoachSnapshot + Ask-Coach context (the "objective telemetry lens")  ⭐ — foundations SHIPPED
 Foundations shipped — full record in [ARCHIVE.md](ARCHIVE.md). `lib/coach-snapshot.ts` hands Ask-Coach
@@ -80,6 +78,14 @@ actually produced adaptation — consumed by #1), and **optimal carbs g/h per ri
 Track C). The `confidence` + `lock_threshold` layer is the additive uncertainty model the
 second-brain item (Track D) also calls for — build it once here, not twice.
 
+**Population magic-numbers added by recent features (CR-11) — fold these in too, don't keep scattering
+more:** the morning-check **strain bands** (`STRAIN_HIGH=15`, `STRAIN_MED=12`) + **TSB-deep cutoff**
+(`-25`) in `lib/morning-check.ts`; the **TSB-modifier band edges** in `lib/coach-snapshot.ts`
+(`resolveTsbModifier`); the **durability limiter→template map** + the **embedded-intensity floor**
+(`88%`, `lib/prescription.ts`/`lib/durability.ts`); and the **durability-insert envelope** (`≤122%`,
+`≤20 min`, `lib/workout-validate.ts`). All are uncalibrated population defaults today — each new
+deterministic feature adds a few, so #2 should absorb them rather than let them drift per-module.
+
 **Two execution-accuracy gaps surfaced in real use (route here — they touch the scoring core):**
 - **Z2 "dialed-in" is overstated.** Z2 execution scores on avg IF + decoupling, *not time above
   zone* — so a long Z2 ride with efforts above Z2 still scores well and the coach note says "Z2
@@ -98,8 +104,9 @@ Full record in [ARCHIVE.md](ARCHIVE.md). `MorningCheckIn` on Today (rank-1 readi
 standardised chips (fatigue / sleep / soreness / motivation 1–5 + illness none/mild/sick) → a
 **deterministic** decision (`lib/morning-check.ts decideMorningCheck`: subjective strain + objective
 TSB/readiness/ACWR) → "proceed" or "downgrade + reschedule". Apply (athlete-confirmed) downgrades today
-to recovery and moves the quality stimulus to the next rest day, **else swaps with the next easy day
-(load-preserving)** — `suggestProactiveReschedule` / `applyProactiveReschedule` in `lib/reschedule.ts`.
+to recovery and moves the quality stimulus to the next rest day (a deload — today becomes a short
+recovery spin, the rest day takes the quality), **else a load-preserving swap with the next easy day**
+(the two days trade) — `suggestProactiveReschedule` / `applyProactiveReschedule` in `lib/reschedule.ts`.
 Stored in `morning-check.json`; today's check also feeds the **CoachSnapshot** (Ask-Coach reads it). No
 AI in the decision — it only phrases the result.
 - **Also shipped the §3 "wider target slots" sliver** (rest *or* easy-day targeting via a shared
@@ -131,8 +138,8 @@ The bulk of these shipped — full records in [ARCHIVE.md](ARCHIVE.md). Only wha
   - **Possible follow-up:** a *proactive* sickness/fatigue path (downgrade today + reschedule before
     the session is even missed, on a `fatigueAlert`) — overlaps with #3's morning check-in.
   - **Wider target slots — DONE for the proactive path (#3):** `findMakeUpSlot` in `lib/reschedule.ts`
-    now lands a make-up on a rest day *or* an **easy endurance day** (Z2/Recovery) via a load-preserving
-    swap, with the no-back-to-back-hard-days guard. Remaining: let the **reactive** `suggestReschedule`
+    now lands a make-up on a rest day (a deload) *or* an **easy endurance day** (Z2/Recovery) via a
+    load-preserving swap, with the no-back-to-back-hard-days guard. Remaining: let the **reactive** `suggestReschedule`
     use the same finder (it's still rest-only).
 - **Signal fusion → one coherent athlete state (§5 — v1 foundations SHIPPED).**
   `lib/athlete-state.ts computeAthleteState` fuses TSB/ACWR + execution/decoupling/RPE + behaviour

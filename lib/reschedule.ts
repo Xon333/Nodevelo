@@ -126,7 +126,7 @@ export function applyProactiveReschedule(
   const todayReplacement =
     targetDay && !sug.toWasRest
       ? carry(targetDay)
-      : { name: `Recovery (downgraded from ${todayDay.type})`, type: "Recovery" as WorkoutType, durationMin: RECOVERY_DOWNGRADE_MIN };
+      : { name: `Recovery (downgraded from ${todayDay.type})`, type: "Recovery" as WorkoutType, durationMin: Math.min(RECOVERY_DOWNGRADE_MIN, todayDay.durationMin) };
 
   const quality = carry(todayDay);
   const days = block.days.map((d) => {

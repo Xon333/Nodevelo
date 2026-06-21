@@ -15,10 +15,8 @@ import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiol
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
-import { computeAcwr, computeLoadRamp, computeReadiness } from "@/lib/readiness";
 import { resolveAcwrBands } from "@/lib/calibration";
-import { buildCoachSnapshot, formatFormFuelLine } from "@/lib/coach-snapshot";
-import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
+import { buildCoachSnapshot, formatFormFuelLine, resolveCoachSignals } from "@/lib/coach-snapshot";
 import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
@@ -123,10 +121,10 @@ export async function POST(req: Request) {
 
     // Signal fusion (§5): hand the generator the one fused-state read so the block respects current
     // systemic state, not just per-dimension execution history.
-    const acwr = sync ? computeAcwr(sync.activities, resolveAcwrBands(blockSettings.acwrBands)) : null;
-    const athleteState = computeAthleteState(athleteStateInputsFrom(sync, athleteModel, baselines, acwr));
-    const stateContext = athleteState
-      ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${athleteState.headline} — state ${athleteState.score}/100, recommendation: ${athleteState.recommendation}.`
+    // Form/fuel/state signals via the shared resolver, so generation + Ask-Coach can't drift (CR-9).
+    const signals = resolveCoachSignals(sync, athleteModel, baselines, resolveAcwrBands(blockSettings.acwrBands));
+    const stateContext = signals.athleteState
+      ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${signals.athleteState.headline} — state ${signals.athleteState.score}/100, recommendation: ${signals.athleteState.recommendation}.`
       : "";
 
     // Shared CoachSnapshot (ROADMAP #1): hand the planner the same resolved form + fuel numbers
@@ -138,13 +136,8 @@ export async function POST(req: Request) {
       ftp: profile.performance.ftp,
       block: null,
       todaySessionType: null,
-      fitness: sync?.fitness ?? null,
-      readiness: sync ? computeReadiness(sync.fitness, sync.wellness) : null,
-      acwr,
-      loadRamp: sync ? computeLoadRamp(sync.activities) : null,
-      athleteState,
+      ...signals,
       todayAnalysis: null,
-      weightTrend7dKg: sync ? weightTrendFromWellness(sync.wellness) : null,
       directives: directivesContext,
       disposition: null,
       morningCheck: null,

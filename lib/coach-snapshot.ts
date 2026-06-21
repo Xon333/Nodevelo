@@ -7,6 +7,7 @@
 // own their data land — see the WIP markers and ROADMAP #1.
 import type {
   AcwrResult,
+  AthleteModel,
   AthleteState,
   CurrentBlock,
   DispositionEntry,
@@ -14,9 +15,14 @@ import type {
   LoadRampAlert,
   MorningCheckEntry,
   ReadinessSignal,
+  RollingBaselines,
+  SyncData,
   TodayAnalysis,
   WorkoutType,
 } from "./types";
+import { computeAcwr, computeLoadRamp, computeReadiness } from "./readiness";
+import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
+import { weightTrendFromWellness } from "./nutrition";
 
 export interface CoachSnapshot {
   date: string;
@@ -82,6 +88,36 @@ export interface CoachSnapshotInput {
   directives: string | null;
   disposition: DispositionEntry | null;
   morningCheck: MorningCheckEntry | null;
+}
+
+// The form/fuel/state half of the snapshot input — the signals both /api/ask and /api/generate
+// resolve identically from the loaded stores. Extracted so the two routes can't drift (CR-9). Keys
+// match CoachSnapshotInput so the caller can spread it in. Deterministic; the route does the IO.
+export interface CoachSignals {
+  fitness: FitnessMetrics | null;
+  readiness: ReadinessSignal | null;
+  acwr: AcwrResult | null;
+  loadRamp: LoadRampAlert | null;
+  athleteState: AthleteState | null;
+  weightTrend7dKg: number | null;
+}
+
+export function resolveCoachSignals(
+  sync: SyncData | null,
+  athleteModel: AthleteModel,
+  baselines: RollingBaselines,
+  acwrBands: Parameters<typeof computeAcwr>[1]
+): CoachSignals {
+  if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null };
+  const acwr = computeAcwr(sync.activities, acwrBands);
+  return {
+    fitness: sync.fitness,
+    readiness: computeReadiness(sync.fitness, sync.wellness),
+    acwr,
+    loadRamp: computeLoadRamp(sync.activities),
+    athleteState: computeAthleteState(athleteStateInputsFrom(sync, athleteModel, baselines, acwr)),
+    weightTrend7dKg: weightTrendFromWellness(sync.wellness),
+  };
 }
 
 // Quality session types — TSB carries more decision weight before these than before easy work.
