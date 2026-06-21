@@ -47,7 +47,7 @@ export default function MorningCheckIn() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await api<CheckState>("/api/morning-check");
+        const r = await api<CheckState>(`/api/morning-check?today=${localToday()}`);
         if (!cancelled) setData(r);
       } catch {
         // best-effort — the check-in is optional
@@ -65,7 +65,7 @@ export default function MorningCheckIn() {
   const submit = async () => {
     setBusy(true);
     try {
-      const r = await api<SubmitResult>("/api/morning-check", { method: "POST", body: JSON.stringify(answers) });
+      const r = await api<SubmitResult>("/api/morning-check", { method: "POST", body: JSON.stringify({ ...answers, today: localToday() }) });
       setResult(r);
       setOpen(false);
     } catch {
@@ -78,7 +78,7 @@ export default function MorningCheckIn() {
   const apply = async () => {
     setBusy(true);
     try {
-      await api("/api/morning-check", { method: "PUT" });
+      await api("/api/morning-check", { method: "PUT", body: JSON.stringify({ today: localToday() }) });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);
       setDismissed(true);

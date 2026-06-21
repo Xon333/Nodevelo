@@ -9,6 +9,7 @@ import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
 import { weightTrendFromWellness } from "@/lib/nutrition";
 import { buildCoachSnapshot } from "@/lib/coach-snapshot";
+import { resolveToday } from "@/lib/date";
 
 export const maxDuration = 60;
 
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
   if (!query) return NextResponse.json({ error: "Ask a question first." }, { status: 400 });
   if (query.length > 600) return NextResponse.json({ error: "Question is too long (max 600 chars)." }, { status: 400 });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = resolveToday((body as Record<string, unknown>)?.today);
   const [block, sync, physStore, todayAnalysis, dispositions, scoreLog, baselines, interventionLog, morningChecks] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),

@@ -14,15 +14,15 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## ⛔ Hardening gate — clear before new ROADMAP features
 
-From a self-review of the §5 / #1 / #3 / Track B work. **No new ROADMAP feature (#2, the
-CoachSnapshot Today-surfacing WIP, etc.) until this clears.** `CR-1..3` are merge-blockers (real
-bugs); the rest is the connective tissue that keeps the deterministic core honest.
+From a self-review of the §5 / #1 / #3 / Track B work. **The P1 merge-blockers `CR-1..3` are cleared
+(✅ shipped, verified). No new ROADMAP feature (#2, the CoachSnapshot Today-surfacing WIP, etc.) until
+the P2/P3 connective tissue below also clears.**
 
 | ID | S | Pri | Type | Item |
 |----|---|-----|------|------|
-| CR-1 | ☐ | P1 | bug | **Durability intensity is invisible to every guard.** Templates B/C/D ride as `TYPE Z2`, so `validateWorkoutProtocol` skips them ([`workout-validate.ts:24`](lib/workout-validate.ts)), `validateSchedule`'s quality-budget/spacing never counts them ([`schedule-validate.ts:19`](lib/schedule-validate.ts)), and the ledger scores them on duration only — the embedded threshold/VO2/sprint work is unchecked + unscored. Fix: type durability rides distinctly, or make both validators + the matcher look inside Z2. [`durability.ts`](lib/durability.ts) |
-| CR-2 | ☐ | P1 | bug | **`PUT /api/morning-check` is unguarded.** It applies the downgrade without checking today's stored decision was `downgrade` or that the ride isn't already logged → can rewrite a cleared/ridden quality day. Refuse unless `decision==="downgrade"` and no `todayAnalysis` for today. [`app/api/morning-check/route.ts`](app/api/morning-check/route.ts) |
-| CR-3 | ☐ | P1 | bug | **UTC `today` in routes breaks the `localToday` invariant.** `/api/ask` + `/api/morning-check` use `new Date().toISOString().slice(0,10)`; `MorningCheckIn` uses `localToday()` → client/server disagree across the UTC day boundary. Thread the client local date like `/api/sync` does (`resolveToday`). [`ask/route.ts`](app/api/ask/route.ts), [`morning-check/route.ts`](app/api/morning-check/route.ts) |
+| CR-1 | ☑ | P1 | bug | **DONE.** Durability intensity is no longer invisible: `carriesEmbeddedIntensity` ([`prescription.ts`](lib/prescription.ts)) flags an endurance ride carrying ≥5 min of ≥88%-FTP work; `validateSchedule` (now takes `ftp`) treats such a Z2 ride as a hard day for back-to-back spacing, and `validateWorkoutProtocol` validates the embedded inserts against a threshold∪VO2 envelope (≤122%, ≤20 min). Budget stays type-based (durability complements). Ledger-scoring of inserts remains the deferred future scoring loop. |
+| CR-2 | ☑ | P1 | bug | **DONE.** `PUT /api/morning-check` now guards via `proactiveApplyBlock` ([`morning-check.ts`](lib/morning-check.ts)) — refuses unless today's stored check recommended `downgrade` and no ride is logged. |
+| CR-3 | ☑ | P1 | bug | **DONE.** `/api/ask` + `/api/morning-check` resolve the client's local date (`resolveToday`); `AskCoach` + `MorningCheckIn` thread `localToday()` on every call. UTC-boundary disagreement closed. |
 | CR-4 | ☐ | P2 | audit | **Reference KB is gitignored + unseeded.** A fresh clone generates against an empty KB and the durability prompt cites a "§12" that lives on one machine. Version the 3 reference files (keep `athlete_profile.md` + retrospectives local) or ship `.example` seeds. [`.gitignore:45`](.gitignore) |
 | CR-5 | ☐ | P2 | bug | **ACWR computed two ways.** `/api/ask` uses bare `computeAcwr` (population bands) while Today/generate use `resolveAcwrBands(settings)` → Ask-Coach can contradict the readiness strip. Use calibrated bands wherever the snapshot is built. [`ask/route.ts`](app/api/ask/route.ts) |
 | CR-6 | ☐ | P2 | bug | **No make-up slot ⇒ stimulus evaporates.** When no rest/easy day is free, the proactive path downgrades today and "carry to next block" is a comment, not code — the quality work is just lost. Persist it (retro seed / flag) or warn. [`reschedule.ts applyProactiveReschedule`](lib/reschedule.ts) |

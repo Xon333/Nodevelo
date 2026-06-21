@@ -29,6 +29,18 @@ const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
   Threshold: { minIntensityPct: 80, maxIntensityPct: 115, cite: "KB database Z4: threshold/sweet-spot is 88–105% FTP" },
 };
 
+// Durability templates (KB §12) embed threshold/VO2 efforts inside an otherwise-easy ride (TYPE
+// Z2/Recovery). Those inserts are invisible to the per-type rules above, so validate the genuinely-
+// hard ones (≥88% FTP) against the threshold∪VO2 envelope — a supra-VO2 (>~120%) or marathon insert
+// is malformed, but intended threshold/VO2 work passes.
+const ENDURANCE_TYPES = new Set<WorkoutType>(["Z2", "Recovery"]);
+const EMBEDDED_HARD_PCT = 88;
+const DURABILITY_INSERT: ProtocolRule = {
+  maxEffortSec: 20 * 60,
+  maxIntensityPct: 122,
+  cite: "KB training §12: durability inserts are threshold/VO2 efforts (≤~120% FTP, ≤~20 min)",
+};
+
 function fmtDur(sec: number): string {
   return sec >= 60 ? `${Math.round(sec / 60)}m` : `${sec}s`;
 }
@@ -36,12 +48,18 @@ function fmtDur(sec: number): string {
 // Validate one planned day's work efforts against its type's KB protocol. Returns a (possibly
 // empty) list of human-readable warnings — never throws, never mutates.
 export function validateWorkoutProtocol(day: PlannedDay, ftp: number): string[] {
-  const rule = PROTOCOL[day.type];
-  if (!rule || !day.workoutText) return [];
+  if (!day.workoutText) return [];
   // parsePrescription returns only the deliberate work efforts (≥80% FTP); warmups, recovery
   // valves and endurance steps are already excluded, so we never flag those.
-  const steps = parsePrescription(day.workoutText, ftp);
-  if (steps.length === 0) return [];
+  let steps = parsePrescription(day.workoutText, ftp);
+  let rule = PROTOCOL[day.type];
+  if (!rule && ENDURANCE_TYPES.has(day.type)) {
+    // Endurance ride: only the hard inserts (≥88%) are "intensity" worth validating; a tempo block
+    // or pure Z2 isn't a durability insert and shouldn't trip the per-type quality rules.
+    steps = steps.filter((s) => s.targetPctFtp >= EMBEDDED_HARD_PCT);
+    rule = DURABILITY_INSERT;
+  }
+  if (!rule || steps.length === 0) return [];
 
   const warnings: string[] = [];
   for (const s of steps) {

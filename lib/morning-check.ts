@@ -69,6 +69,17 @@ export function decideMorningCheck(a: MorningCheckAnswers, o: MorningCheckObject
   return { decision: downgrade ? "downgrade" : "proceed", strain, reasons };
 }
 
+// Guard for the proactive apply (the downgrade + reschedule). The apply must only fire when the
+// athlete actually checked in *and* got a downgrade, and the day hasn't already been ridden — the
+// route is the real contract, so this can't live only in the component. Returns an error reason, or
+// null when the apply may proceed.
+export function proactiveApplyBlock(check: MorningCheckEntry | null, rideLoggedToday: boolean): string | null {
+  if (rideLoggedToday) return "Today's ride is already logged — nothing to downgrade.";
+  if (!check) return "Do a morning check-in first.";
+  if (check.decision !== "downgrade") return "Today's check-in didn't recommend a downgrade.";
+  return null;
+}
+
 // One entry per date; a re-submission replaces it (the check is editable, like a disposition).
 export function mergeMorningCheck(existing: MorningCheckEntry[], entry: MorningCheckEntry): MorningCheckEntry[] {
   const byDate = new Map(existing.map((e) => [e.date, e]));

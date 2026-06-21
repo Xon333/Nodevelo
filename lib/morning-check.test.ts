@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideMorningCheck, mergeMorningCheck, strainScore, type MorningCheckAnswers, type MorningCheckObjective } from "./morning-check";
+import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, strainScore, type MorningCheckAnswers, type MorningCheckObjective } from "./morning-check";
 import type { MorningCheckEntry } from "./types";
 
 const fresh: MorningCheckAnswers = { fatigue: 1, sleep: 5, soreness: 1, motivation: 5, illness: "none" };
@@ -42,6 +42,23 @@ describe("decideMorningCheck", () => {
 
   it("always proceeds on a non-quality day (nothing to downgrade)", () => {
     expect(decideMorningCheck(wrecked, { ...poorObjective, isQualityDay: false }).decision).toBe("proceed");
+  });
+});
+
+describe("proactiveApplyBlock", () => {
+  const downgrade: MorningCheckEntry = { date: "2026-06-20", fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none", strain: 19, decision: "downgrade", setAt: "" };
+
+  it("allows when the athlete checked in with a downgrade and hasn't ridden", () => {
+    expect(proactiveApplyBlock(downgrade, false)).toBeNull();
+  });
+  it("blocks when today's ride is already logged", () => {
+    expect(proactiveApplyBlock(downgrade, true)).toMatch(/already logged/);
+  });
+  it("blocks when there's no check-in", () => {
+    expect(proactiveApplyBlock(null, false)).toMatch(/check-in first/);
+  });
+  it("blocks when the check-in said proceed", () => {
+    expect(proactiveApplyBlock({ ...downgrade, decision: "proceed" }, false)).toMatch(/didn't recommend/);
   });
 });
 

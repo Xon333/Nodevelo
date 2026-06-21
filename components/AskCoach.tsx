@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { localToday } from "@/lib/date";
 import { Zone } from "./ui";
 
 const EXAMPLES = [
@@ -31,7 +32,7 @@ export default function AskCoach() {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: question }),
+        body: JSON.stringify({ query: question, today: localToday() }),
       });
       if (!res.ok || !res.body) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;

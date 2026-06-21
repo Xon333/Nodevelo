@@ -224,7 +224,7 @@ export async function POST(req: Request) {
     warnings.push(...validatePlanProtocol(days, profile.performance.ftp));
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
-    warnings.push(...validateSchedule(days, blockSettings));
+    warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp));
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
     if (truncated) {

@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
-import { readCurrentBlock, readLastSync, readMorningChecks, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
-import { decideMorningCheck, mergeMorningCheck, type MorningCheckAnswers } from "@/lib/morning-check";
+import { readCurrentBlock, readLastSync, readMorningChecks, readTodayAnalysis, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
+import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, type MorningCheckAnswers } from "@/lib/morning-check";
 import { applyProactiveReschedule, suggestProactiveReschedule } from "@/lib/reschedule";
 import { computeAcwr, computeReadiness } from "@/lib/readiness";
+import { resolveToday } from "@/lib/date";
 import type { IllnessLevel, MorningCheckEntry, WorkoutType } from "@/lib/types";
 
 const QUALITY = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
 const ILLNESS: IllnessLevel[] = ["none", "mild", "sick"];
 
-const today = () => new Date().toISOString().slice(0, 10);
+// "today" is the CLIENT's local date (query param on GET, body field otherwise) so client + server
+// agree across the UTC day boundary — same discipline as /api/sync (resolveToday falls back to UTC).
 
 // GET → the UI's state: today's stored check (if any), whether today is a quality day, and the
 // proactive reschedule target (so the form can preview the move before the athlete applies it).
-export async function GET() {
-  const date = today();
+export async function GET(req: Request) {
+  const date = resolveToday(new URL(req.url).searchParams.get("today"));
   const [block, checks] = await Promise.all([readCurrentBlock(), readMorningChecks()]);
   const todayDay = block?.days.find((d) => d.date === date) ?? null;
   const isQualityDay = !!todayDay && todayDay.durationMin > 0 && QUALITY.has(todayDay.type);
@@ -49,10 +51,11 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const answers = parseAnswers((body ?? {}) as Record<string, unknown>);
+  const b = (body ?? {}) as Record<string, unknown>;
+  const answers = parseAnswers(b);
   if (typeof answers === "string") return NextResponse.json({ error: answers }, { status: 400 });
 
-  const date = today();
+  const date = resolveToday(b.today);
   const [block, sync] = await Promise.all([readCurrentBlock(), readLastSync()]);
   const todayDay = block?.days.find((d) => d.date === date) ?? null;
   const isQualityDay = !!todayDay && todayDay.durationMin > 0 && QUALITY.has(todayDay.type);
@@ -77,11 +80,25 @@ export async function POST(req: Request) {
 
 // PUT → athlete-confirmed apply: downgrade today + move/swap the quality stimulus. Local block only
 // (the Intervals.icu calendar mutation is a separate, larger step — so the note tells the athlete to
-// mirror it), matching the reactive /api/reschedule POST.
-export async function PUT() {
-  const block = await readCurrentBlock();
+// mirror it), matching the reactive /api/reschedule POST. Guarded: only applies when today's stored
+// check-in recommended a downgrade and the ride hasn't already been logged (the route is the contract,
+// not just the UI).
+export async function PUT(req: Request) {
+  let body: unknown = null;
+  try {
+    body = await req.json();
+  } catch {
+    /* no body — fall back to UTC today */
+  }
+  const date = resolveToday((body as Record<string, unknown> | null)?.today);
+  const [block, checks, todayAnalysis] = await Promise.all([readCurrentBlock(), readMorningChecks(), readTodayAnalysis()]);
   if (!block) return NextResponse.json({ error: "No active block." }, { status: 400 });
-  const applied = applyProactiveReschedule(block, today());
+
+  const check = checks.entries.find((e) => e.date === date) ?? null;
+  const blocked = proactiveApplyBlock(check, todayAnalysis?.activityDate === date);
+  if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+
+  const applied = applyProactiveReschedule(block, date);
   if (!applied) return NextResponse.json({ error: "Today isn't a quality day to downgrade." }, { status: 400 });
   await writeCurrentBlock({ ...block, days: applied.days });
   return NextResponse.json({

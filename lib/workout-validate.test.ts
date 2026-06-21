@@ -17,6 +17,23 @@ function day(type: WorkoutType, workoutText: string): PlannedDay {
   };
 }
 
+describe("validateWorkoutProtocol — durability inserts in Z2/Recovery (CR-1)", () => {
+  it("passes a Z2 ride whose embedded efforts are valid threshold work", () => {
+    expect(validateWorkoutProtocol(day("Z2", "Main Set 3x\n- 12m 95%\n- 6m 60%"), FTP)).toEqual([]);
+  });
+  it("flags an embedded effort above the durability ceiling (supra-VO2)", () => {
+    const w = validateWorkoutProtocol(day("Z2", "- 5m 140%"), FTP);
+    expect(w.some((m) => /exceeds the 122% ceiling/.test(m))).toBe(true);
+  });
+  it("flags an absurdly long embedded effort", () => {
+    expect(validateWorkoutProtocol(day("Z2", "- 35m 95%"), FTP).some((m) => /longer than protocol/.test(m))).toBe(true);
+  });
+  it("ignores pure endurance / tempo (no hard inserts)", () => {
+    expect(validateWorkoutProtocol(day("Z2", "- 180m 70%"), FTP)).toEqual([]);
+    expect(validateWorkoutProtocol(day("Recovery", "- 60m 84%"), FTP)).toEqual([]);
+  });
+});
+
 describe("validateWorkoutProtocol — SIT", () => {
   it("flags a SIT effort longer than the 30s protocol (the reported 1-min bug)", () => {
     const w = validateWorkoutProtocol(day("SIT", "Main Set 5x\n- 1m 150%\n- 4m 40%"), FTP);

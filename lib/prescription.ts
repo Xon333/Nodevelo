@@ -29,6 +29,22 @@ function parseStep(line: string): { durationSec: number; pct: number } | null {
   return { durationSec, pct };
 }
 
+// Threshold-and-above work, distinctly past sweet-spot/tempo — what a durability template embeds
+// (B threshold, C VO2) inside an otherwise-easy ride. 88% is the threshold floor.
+const EMBEDDED_HARD_PCT = 88;
+const EMBEDDED_MIN_SEC = 5 * 60;
+
+// True when a ride carries a meaningful dose of threshold-or-harder work — e.g. a durability Z2 ride
+// with late threshold/VO2 efforts. Lets the spacing + protocol checks stop treating such a ride as
+// "easy". Sweet-spot/tempo steady rides (80–87%) and pure endurance don't trip it.
+export function carriesEmbeddedIntensity(workoutText: string | undefined, ftp: number): boolean {
+  if (!workoutText) return false;
+  const hardSec = parsePrescription(workoutText, ftp)
+    .filter((w) => w.targetPctFtp >= EMBEDDED_HARD_PCT)
+    .reduce((sum, w) => sum + w.reps * w.durationSec, 0);
+  return hardSec >= EMBEDDED_MIN_SEC;
+}
+
 export function parsePrescription(workoutText: string, ftp: number): PrescribedInterval[] {
   if (!workoutText) return [];
   const out: PrescribedInterval[] = [];

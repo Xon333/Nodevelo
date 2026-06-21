@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { parsePrescription } from "./prescription";
+import { carriesEmbeddedIntensity, parsePrescription } from "./prescription";
 
 const FTP = 288;
+
+describe("carriesEmbeddedIntensity", () => {
+  it("flags a durability ride with a real dose of threshold/VO2 work", () => {
+    expect(carriesEmbeddedIntensity("Main Set 3x\n- 12m 95%\n- 6m 60%", FTP)).toBe(true);
+  });
+  it("ignores pure endurance and sweet-spot/tempo (below the threshold floor)", () => {
+    expect(carriesEmbeddedIntensity("- 180m 70%", FTP)).toBe(false);
+    expect(carriesEmbeddedIntensity("- 60m 84%", FTP)).toBe(false);
+  });
+  it("ignores a token hard surge below the dose floor", () => {
+    expect(carriesEmbeddedIntensity("- 2m 110%", FTP)).toBe(false); // 2 min < 5 min dose
+  });
+  it("returns false with no workout", () => {
+    expect(carriesEmbeddedIntensity(undefined, FTP)).toBe(false);
+  });
+});
 
 describe("parsePrescription", () => {
   it("captures a repeated work set with reps, duration and resolved watts", () => {
