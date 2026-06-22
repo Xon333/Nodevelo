@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
@@ -153,6 +153,18 @@ export async function POST(req: Request) {
     // sync absorbs today's ride into the curve, so the comparison has to use the prior one).
     const prevSync = await readLastSync();
     const lastSync = await runFullSync();
+    // CR-C: never let a garbage/empty upstream response overwrite a healthy store. A sync that comes
+    // back with no activities AND no wellness when we had data before is an upstream problem, not a
+    // reset — refuse loudly (the client shows the error) and keep the previous data intact.
+    if (isSuspectEmptySync(prevSync, lastSync)) {
+      return NextResponse.json(
+        {
+          error:
+            "Intervals.icu returned no activities or wellness — likely a temporary upstream issue. Your previous data was kept; please retry shortly.",
+        },
+        { status: 502 }
+      );
+    }
     await writeLastSync(lastSync);
 
     // Reconcile the physiology store against Intervals.icu's current sport-settings (FTP,

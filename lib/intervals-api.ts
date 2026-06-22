@@ -361,6 +361,18 @@ export async function runFullSync(): Promise<SyncData> {
   };
 }
 
+// A sync that returns NO activities AND NO wellness when the previous sync had data is almost always
+// an upstream hiccup (auth blip, response-shape change, partial outage) — not a real account reset.
+// Persisting it would blank the dashboard and recompute the 90-day rolling baselines from an empty
+// list, and the silent empty would be indistinguishable from a legitimately empty account (CR-C).
+// Callers use this to refuse the overwrite and surface a real error instead of quietly wiping data.
+export function isSuspectEmptySync(prev: SyncData | null, fresh: SyncData): boolean {
+  if (!prev) return false; // first sync — an empty result is just an empty/new account, nothing to guard
+  const prevHadData = prev.activities.length > 0 || prev.wellness.length > 0;
+  const freshEmpty = fresh.activities.length === 0 && fresh.wellness.length === 0;
+  return prevHadData && freshEmpty;
+}
+
 // ---------- writes ----------
 
 export async function createEvent(event: IntervalsEventPayload): Promise<number | null> {

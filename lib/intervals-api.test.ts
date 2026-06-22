@@ -1,5 +1,44 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchActivities, IntervalsApiError } from "./intervals-api";
+import { fetchActivities, IntervalsApiError, isSuspectEmptySync } from "./intervals-api";
+import type { SyncData } from "./types";
+
+const mkSync = (over: Partial<SyncData> = {}): SyncData => ({
+  syncedAt: "2026-06-22T00:00:00.000Z",
+  activities: [],
+  wellness: [],
+  powerCurve: [],
+  powerCurveAllTime: [],
+  fitness: { ctl: null, atl: null, tsb: null },
+  ...over,
+});
+
+describe("isSuspectEmptySync (CR-C don't wipe good data)", () => {
+  const withData = mkSync({
+    activities: [{ date: "2026-06-20" } as SyncData["activities"][number]],
+  });
+
+  it("flags an empty result when the previous sync had data", () => {
+    expect(isSuspectEmptySync(withData, mkSync())).toBe(true);
+  });
+
+  it("allows an empty result on the first sync (no prior to protect)", () => {
+    expect(isSuspectEmptySync(null, mkSync())).toBe(false);
+  });
+
+  it("allows an empty result when the previous sync was also empty (genuinely empty account)", () => {
+    expect(isSuspectEmptySync(mkSync(), mkSync())).toBe(false);
+  });
+
+  it("allows a normal non-empty sync", () => {
+    expect(isSuspectEmptySync(withData, withData)).toBe(false);
+  });
+
+  it("treats wellness-only data on either side as data (not a wipe)", () => {
+    const wellnessOnly = mkSync({ wellness: [{ date: "2026-06-20" } as SyncData["wellness"][number]] });
+    expect(isSuspectEmptySync(wellnessOnly, mkSync())).toBe(true); // had wellness, now nothing → suspect
+    expect(isSuspectEmptySync(withData, wellnessOnly)).toBe(false); // still has wellness → fine
+  });
+});
 
 // These exercise the network-failure mapping in icuFetch (CR-B): a stalled or failed request must
 // surface as a clean IntervalsApiError, not a raw DOMException/TypeError leaking out of the client.
