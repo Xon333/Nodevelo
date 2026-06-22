@@ -517,6 +517,28 @@ export interface RollingBaselines {
   updatedAt: string;
 }
 
+// ---------- Per-athlete calibration (data/calibration.json — ROADMAP #2) ----------
+
+// One learned parameter with its provenance + a guard against chasing noise. Auto-derived from the
+// athlete's own data once there's enough of it, then locked; a manual override always wins. The
+// effective value is resolved (not read raw) — see resolveCalibratedValue in lib/calibration.ts.
+export interface CalibratedParameter {
+  value: number; // the auto-derived value (a population default lives at the call site as fallback)
+  source: "default" | "derived" | "manual";
+  confidence: "low" | "medium" | "high"; // from sample size (and later variance)
+  dataPoints: number; // how many observations the derivation rests on
+  lastUpdated: string; // ISO
+  locked: boolean; // once high-confidence, stop chasing new data unless manually overridden
+  manualOverride: number | null; // athlete/coach pin; takes precedence over any derived value
+}
+
+// The calibration store. Derived (regenerated on sync), one field per calibrated parameter; grows as
+// parameters are brought under the framework (Phase 1 ships `decouplingGood`).
+export interface CalibrationStore {
+  decouplingGood: CalibratedParameter;
+  updatedAt: string;
+}
+
 // ---------- Athlete quirks (data/athlete-quirks.json — Track D) ----------
 // A DERIVED store, not owned intent: recurring patterns mined deterministically from the athlete's
 // own ride notes (activityDescription). Kept separate from athlete_profile.md (which stays
