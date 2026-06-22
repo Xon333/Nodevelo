@@ -28,6 +28,7 @@ import {
 } from "@/lib/nutrition";
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { validatePlanProtocol } from "@/lib/workout-validate";
+import { validateNutrition } from "@/lib/nutrition-validate";
 import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
@@ -240,6 +241,9 @@ export async function POST(req: Request) {
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
     warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp));
+    // Nutrition check (CR-F): the daily-intake kcal in each description must match the deterministic
+    // reference table the model was told to copy — flag any figure it invented instead.
+    warnings.push(...validateNutrition(days, nutritionConfig, profile.performance.ftp, weightTrend));
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
     if (truncated) {
