@@ -47,6 +47,47 @@ export function isAcwrBandsOverridden(override?: Partial<AcwrBands> | null): boo
   );
 }
 
+// ---------- TSB adaptation-window edges (ROADMAP #2, closes #1's tsbModifier sliver) ----------
+// The band edges resolveTsbModifier classifies today's form against (deep fatigue / productive overload
+// / balanced / fresh). Like the ACWR bands above — and UNLIKE the decoupling cutoff — these are NOT
+// auto-derived: the honest per-athlete signal (where THIS athlete stops adapting to a quality stimulus
+// under fatigue) is measured nowhere. Recentering on the athlete's own TSB distribution would calibrate
+// to where they TRAIN, not where they ADAPT — the same "don't pretend to derive what we lack data for"
+// trap the ACWR injury-band note calls out. So they stay population-validated defaults with a manual
+// override, brought under the framework's resolve-with-fallback machinery (population fallback).
+
+export interface TsbModifierEdges {
+  deepFatigue: number; // tsb ≤ this → "deep fatigue"
+  productiveOverload: number; // tsb ≤ this (and > deepFatigue) → "productive overload"
+  balanced: number; // tsb ≤ this (and > productiveOverload) → "balanced"; above → "fresh"
+}
+
+// Population defaults — the literal edges resolveTsbModifier shipped with, so an un-overridden athlete
+// is classified byte-identically.
+export const DEFAULT_TSB_MODIFIER_EDGES: TsbModifierEdges = { deepFatigue: -25, productiveOverload: -10, balanced: 5 };
+
+// Merge a manual override onto the population defaults, defensively: ignore non-finite values, clamp to
+// a sane TSB range, and enforce strict ascending order (deep < productive < balanced) so a bad override
+// can't invert the bands. Mirrors resolveAcwrBands.
+export function resolveTsbModifierEdges(override?: Partial<TsbModifierEdges> | null): TsbModifierEdges {
+  const o = override ?? {};
+  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  const deepFatigue = clamp(pick(o.deepFatigue, DEFAULT_TSB_MODIFIER_EDGES.deepFatigue), -60, -5);
+  let productiveOverload = clamp(pick(o.productiveOverload, DEFAULT_TSB_MODIFIER_EDGES.productiveOverload), -50, 0);
+  let balanced = clamp(pick(o.balanced, DEFAULT_TSB_MODIFIER_EDGES.balanced), -5, 30);
+  // Enforce strict ordering; nudge up if an override (or a clamp) collapses the bands.
+  if (productiveOverload <= deepFatigue) productiveOverload = deepFatigue + 1;
+  if (balanced <= productiveOverload) balanced = productiveOverload + 1;
+  return { deepFatigue, productiveOverload, balanced };
+}
+
+export function isTsbModifierEdgesOverridden(override?: Partial<TsbModifierEdges> | null): boolean {
+  if (!override) return false;
+  return (["deepFatigue", "productiveOverload", "balanced"] as const).some(
+    (k) => typeof override[k] === "number" && Number.isFinite(override[k] as number)
+  );
+}
+
 // ---------- Per-parameter calibration framework (ROADMAP #2) ----------
 // A uniform record so every learned value carries provenance + a confidence/lock guard against
 // chasing noise. The confidence layer here is the one Track D deferred into #2 — built once, shared.

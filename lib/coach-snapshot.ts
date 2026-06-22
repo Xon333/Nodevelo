@@ -26,7 +26,7 @@ import { computeAcwr, computeLoadRamp, computeReadiness } from "./readiness";
 import { timeAboveZ2Fraction } from "./execution-score";
 import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
 import { weightTrendFromWellness } from "./nutrition";
-import { resolveAcwrBands, type AcwrBands } from "./calibration";
+import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveTsbModifierEdges, type AcwrBands, type TsbModifierEdges } from "./calibration";
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import { synthesizeCoachingDirectives } from "./synthesis";
 import { summariseValidation } from "./intervention";
@@ -106,6 +106,9 @@ export interface CoachSnapshotInput extends CoachSignals {
   directives: string | null;
   disposition: DispositionEntry | null;
   morningCheck: MorningCheckEntry | null;
+  // Raw per-athlete override for the TSB adaptation-window edges (settings.tsbModifierEdges); resolved
+  // here so callers don't each repeat resolveTsbModifierEdges(). Absent → population defaults (ROADMAP #2).
+  tsbModifierEdgesOverride?: Partial<TsbModifierEdges> | null;
 }
 
 // `acwrBandsOverride` is the raw per-athlete override (settings.acwrBands); resolution to the full
@@ -132,15 +135,17 @@ export function resolveCoachSignals(
 const QUALITY_TYPES = new Set<string>(["Threshold", "VO2max", "SIT", "RaceSim"]);
 
 // Resolve TSB against today's prescription: not just "−12" but what it means for executing today.
-// Population-default band edges; per-athlete calibration is #2's TSB adaptation window. Deterministic
-// — the LLM only phrases the chosen guidance.
+// Band edges are the per-athlete TSB adaptation window (ROADMAP #2): population-validated defaults,
+// optionally manually overridden, resolved by resolveTsbModifierEdges. Deterministic — the LLM only
+// phrases the chosen guidance.
 export function resolveTsbModifier(
   tsb: number | null,
-  todayType: WorkoutType | null
+  todayType: WorkoutType | null,
+  edges: TsbModifierEdges = DEFAULT_TSB_MODIFIER_EDGES
 ): { band: string; guidance: string } | null {
   if (tsb === null) return null;
   const quality = todayType != null && QUALITY_TYPES.has(todayType);
-  if (tsb <= -25) {
+  if (tsb <= edges.deepFatigue) {
     return {
       band: "deep fatigue",
       guidance: quality
@@ -148,7 +153,7 @@ export function resolveTsbModifier(
         : "deeply fatigued — keep it easy and prioritise recovery.",
     };
   }
-  if (tsb <= -10) {
+  if (tsb <= edges.productiveOverload) {
     return {
       band: "productive overload",
       guidance: quality
@@ -156,7 +161,7 @@ export function resolveTsbModifier(
         : "carrying productive fatigue — fine for easy volume.",
     };
   }
-  if (tsb <= 5) {
+  if (tsb <= edges.balanced) {
     return {
       band: "balanced",
       guidance: quality ? "balanced form — good to execute the session as prescribed." : "balanced form.",
@@ -229,7 +234,11 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
       acwr: input.acwr?.level ?? null,
       readiness: input.readiness?.level ?? null,
       loadRamp: input.loadRamp?.triggered ? input.loadRamp.level : null,
-      tsbModifier: resolveTsbModifier(input.fitness?.tsb ?? null, input.todaySessionType),
+      tsbModifier: resolveTsbModifier(
+        input.fitness?.tsb ?? null,
+        input.todaySessionType,
+        resolveTsbModifierEdges(input.tsbModifierEdgesOverride)
+      ),
     },
     fuel: {
       todayTargetKcal: ride?.advisedIntakeKcal ?? null,
@@ -268,6 +277,7 @@ export interface CoachSnapshotSources {
   interventionLog: InterventionLog;
   morningChecks: MorningCheckEntry[];
   acwrBandsOverride?: Partial<AcwrBands> | null;
+  tsbModifierEdgesOverride?: Partial<TsbModifierEdges> | null;
 }
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
@@ -285,6 +295,7 @@ export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSna
     directives: synthesizeCoachingDirectives(deriveInsights(athleteModel), summariseValidation(s.interventionLog)),
     disposition: s.dispositions.find((e) => e.date === s.date) ?? null,
     morningCheck: s.morningChecks.find((e) => e.date === s.date) ?? null,
+    tsbModifierEdgesOverride: s.tsbModifierEdgesOverride,
   });
 }
 

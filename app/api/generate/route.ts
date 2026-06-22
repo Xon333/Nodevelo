@@ -160,6 +160,7 @@ export async function POST(req: Request) {
       directives: directivesContext,
       disposition: null,
       morningCheck: null,
+      tsbModifierEdgesOverride: blockSettings.tsbModifierEdges,
     });
     const formFuelLine = formatFormFuelLine(snapshot);
     const formFuelContext = formFuelLine ? `\n${formFuelLine}` : "";

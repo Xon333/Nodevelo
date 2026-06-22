@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_POWER_ZONE_TOPS_PCT, deriveDecouplingGood, deriveIfBandOffsets, emptyCalibration, isAcwrBandsOverridden, resolveAcwrBands, resolveCalibratedValue } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, emptyCalibration, isAcwrBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveCalibratedValue, resolveTsbModifierEdges } from "./calibration";
 import type { CalibratedParameter } from "./types";
 
 describe("autoEwmaAlpha", () => {
@@ -44,6 +44,38 @@ describe("isAcwrBandsOverridden", () => {
     expect(isAcwrBandsOverridden(null)).toBe(false);
     expect(isAcwrBandsOverridden({})).toBe(false);
     expect(isAcwrBandsOverridden({ dangerHigh: 1.4 })).toBe(true);
+  });
+});
+
+describe("resolveTsbModifierEdges (ROADMAP #2 — TSB adaptation window)", () => {
+  it("returns population defaults with no override", () => {
+    expect(resolveTsbModifierEdges()).toEqual(DEFAULT_TSB_MODIFIER_EDGES);
+    expect(resolveTsbModifierEdges(null)).toEqual(DEFAULT_TSB_MODIFIER_EDGES);
+    expect(resolveTsbModifierEdges({})).toEqual(DEFAULT_TSB_MODIFIER_EDGES);
+  });
+
+  it("merges a partial override onto the defaults", () => {
+    expect(resolveTsbModifierEdges({ deepFatigue: -30 })).toEqual({ deepFatigue: -30, productiveOverload: -10, balanced: 5 });
+  });
+
+  it("enforces strict ascending order when an override collapses the bands", () => {
+    const e = resolveTsbModifierEdges({ deepFatigue: -5, productiveOverload: -20, balanced: -30 });
+    expect(e.productiveOverload).toBeGreaterThan(e.deepFatigue);
+    expect(e.balanced).toBeGreaterThan(e.productiveOverload);
+  });
+
+  it("ignores non-finite values and clamps to a sane TSB range", () => {
+    const e = resolveTsbModifierEdges({ deepFatigue: Number.NaN, balanced: 999 });
+    expect(e.deepFatigue).toBe(DEFAULT_TSB_MODIFIER_EDGES.deepFatigue);
+    expect(e.balanced).toBeLessThanOrEqual(30);
+  });
+});
+
+describe("isTsbModifierEdgesOverridden", () => {
+  it("detects a real override vs none", () => {
+    expect(isTsbModifierEdgesOverridden(null)).toBe(false);
+    expect(isTsbModifierEdgesOverridden({})).toBe(false);
+    expect(isTsbModifierEdgesOverridden({ deepFatigue: -30 })).toBe(true);
   });
 });
 

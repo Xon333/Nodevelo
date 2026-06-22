@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCoachSnapshot, buildCoachSnapshotFromSources, formatCoachSnapshot, formatFormFuelLine, resolveTsbModifier, type CoachSnapshotInput } from "./coach-snapshot";
+import { resolveTsbModifierEdges } from "./calibration";
 import type { AthleteState, CurrentBlock, DispositionEntry, InterventionLog, MorningCheckEntry, RollingBaselines, SyncData, TodayAnalysis } from "./types";
 
 const TODAY = "2026-06-20";
@@ -81,6 +82,22 @@ describe("resolveTsbModifier", () => {
     expect(easy).toMatchObject({ band: "productive overload" });
     expect(easy!.guidance).toContain("easy volume");
     expect(easy!.guidance).not.toContain("drop a rep");
+  });
+
+  // ROADMAP #2 — the band edges are now a calibrated parameter (population default + manual override).
+  it("classifies identically with the default edges passed explicitly (fresh-athlete guarantee)", () => {
+    for (const tsb of [-40, -25, -24, -11, -10, -9, 0, 5, 6, 20]) {
+      for (const type of ["VO2max", "Z2", null] as const) {
+        expect(resolveTsbModifier(tsb, type, resolveTsbModifierEdges())).toEqual(resolveTsbModifier(tsb, type));
+      }
+    }
+  });
+
+  it("shifts the bands when the athlete's adaptation window is overridden", () => {
+    // A rider who tolerates deeper fatigue: −27 reads "productive overload", not "deep fatigue".
+    const edges = resolveTsbModifierEdges({ deepFatigue: -30, productiveOverload: -12 });
+    expect(resolveTsbModifier(-27, "VO2max", edges)).toMatchObject({ band: "productive overload" });
+    expect(resolveTsbModifier(-27, "VO2max")).toMatchObject({ band: "deep fatigue" }); // default edges
   });
 });
 

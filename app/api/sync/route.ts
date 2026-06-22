@@ -94,6 +94,7 @@ export async function GET(req: Request) {
     interventionLog,
     morningChecks: morningChecks.entries,
     acwrBandsOverride: settings.acwrBands,
+    tsbModifierEdgesOverride: settings.tsbModifierEdges,
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -402,6 +403,7 @@ export async function POST(req: Request) {
       interventionLog: interventionLogForSnap,
       morningChecks: morningChecks.entries,
       acwrBandsOverride: settingsForSnap.acwrBands,
+      tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
     });
     return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), athleteState, coachSnapshot, calibration });
   } catch (err) {

@@ -75,6 +75,7 @@ export async function POST(req: Request) {
     interventionLog,
     morningChecks: morningChecks.entries,
     acwrBandsOverride: settings.acwrBands,
+    tsbModifierEdgesOverride: settings.tsbModifierEdges,
   });
 
   const context: AskCoachContext = { snapshot, session, upcoming };

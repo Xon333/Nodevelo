@@ -58,6 +58,21 @@ The keystone framework + its first calibrated parameter. Three commits; tests gr
   entries). The sync route's live-today re-score reuses `calStampFor` so today's entry stamps the same
   shape. Tested (planned stamp, type-scoping, deadband, off-plan omission); full suite green.
 
+- **TSB adaptation-window edges under the framework (ROADMAP #2, closes #1's `form.tsbModifier` sliver).**
+  `resolveTsbModifier`'s literal band edges (`-25 / -10 / 5`) are now a calibrated parameter:
+  `TsbModifierEdges` + `DEFAULT_TSB_MODIFIER_EDGES` + `resolveTsbModifierEdges(override)` /
+  `isTsbModifierEdgesOverridden` in `lib/calibration.ts`, mirroring `resolveAcwrBands` (defensive merge:
+  ignore non-finite, clamp to a sane TSB range, enforce strict ascending order). **Deliberately the
+  ACWR-bands pattern, NOT auto-derived** — the honest per-athlete signal (where THIS athlete stops
+  adapting under fatigue) is measured nowhere; recentering on their TSB *distribution* would calibrate to
+  where they train, not where they adapt (the framework header's "don't pretend to derive what we lack
+  data for" rule). So: population-validated defaults + a manual override (`BlockSettings.tsbModifierEdges`,
+  persisted/clamped in `/api/settings` like `acwrBands`). `resolveTsbModifier` gained an
+  `edges = DEFAULT_TSB_MODIFIER_EDGES` param; `buildCoachSnapshot` resolves from a new
+  `tsbModifierEdgesOverride` input, threaded through `CoachSnapshotSources` + all four snapshot build
+  sites (sync ×2, ask, generate). Absent override → byte-identical classification (the fresh-athlete
+  guarantee, tested across a TSB sweep). Tested (resolver clamp/order, override band shift); full suite green.
+
 ---
 
 ## Scoring-core — Z2 "dialed-in" discipline signal

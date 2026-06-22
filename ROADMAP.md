@@ -23,8 +23,9 @@ record is in [ARCHIVE.md](ARCHIVE.md). Ordered roughly by leverage. `← X` = bl
   **stamped onto each ledger entry** for provenance (ARCHIVE). _Open slivers:_ surface on Settings
   (derived live from zones, not yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
 - **Fold in the CR-11 constants** (population fallback, opportunistic): morning-check strain bands +
-  TSB-deep cutoff; `resolveTsbModifier` edges (the TSB adaptation window `← #1`); durability `88%`
-  floor + `≤122%/≤20m` insert envelope; athlete-state fusion weights (§5).
+  TSB-deep cutoff; durability `88%` floor + `≤122%/≤20m` insert envelope; athlete-state fusion weights
+  (§5). _`resolveTsbModifier` edges (the TSB adaptation window) — shipped (ARCHIVE): population-validated
+  defaults + manual override, the ACWR-bands pattern (not auto-derived — no honest per-athlete signal)._
 - **Pattern (follow per param):** default = today's literal value; derive with confidence-gated
   fallback; stamp on any ledger entry it scores; test that a fresh athlete scores identically.
 - *Owned elsewhere:* optimal carbs g/h `→ Track C`; ACWR band + EWMA α stay on their current path.
@@ -44,8 +45,8 @@ planned-vs-actual per session type and, on a consistent gap, **flag an FTP re-te
 (never write FTP locally — `physiology.json` stays the synced SoT). Ties Track B template-scoring + #2.
 
 ### #1 · CoachSnapshot — fill the reserved slots
-*Foundations + Today card shipped (ARCHIVE).* Open: `fuel.intakeVsNeed` + `fuel.fuelingState` are
-reserved `null` `← Track C / §6`; `form.tsbModifier` band edges → per-athlete `← #2`.
+*Foundations + Today card + per-athlete `form.tsbModifier` band edges shipped (ARCHIVE).* Open:
+`fuel.intakeVsNeed` + `fuel.fuelingState` are reserved `null` `← Track C / §6`.
 
 ### #3 · Proactive reschedule — slivers
 *Shipped (ARCHIVE).* Open: decision thresholds → per-athlete `← #2`; let the **reactive**

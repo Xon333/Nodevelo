@@ -288,6 +288,9 @@ export interface BlockSettings {
   // Optional manual calibration override for the ACWR injury-risk bands. Absent = population
   // defaults; set to personalise the optimal/danger thresholds (the hybrid calibration hook).
   acwrBands?: { optimalLow: number; optimalHigh: number; dangerHigh: number };
+  // Optional manual override for the TSB adaptation-window edges resolveTsbModifier classifies form
+  // against (ROADMAP #2). Absent = population defaults; set to personalise the fatigue-tolerance bands.
+  tsbModifierEdges?: { deepFatigue: number; productiveOverload: number; balanced: number };
   updatedAt: string;
 }
 

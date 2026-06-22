@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readBlockSettings, writeBlockSettings } from "@/lib/data-store";
 import type { BlockSettings } from "@/lib/types";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import { isAcwrBandsOverridden, resolveAcwrBands, type AcwrBands } from "@/lib/calibration";
+import { isAcwrBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveTsbModifierEdges, type AcwrBands, type TsbModifierEdges } from "@/lib/calibration";
 
 export async function GET() {
   const settings = await readBlockSettings();
@@ -51,6 +51,14 @@ export async function PUT(req: Request) {
     updated.acwrBands = resolveAcwrBands(b.acwrBands as Partial<AcwrBands>);
   } else if (current.acwrBands) {
     updated.acwrBands = current.acwrBands;
+  }
+
+  // TSB adaptation-window override (same manual-calibration pattern, ROADMAP #2): clamp + order via the
+  // resolver when present, else preserve the existing override, else leave it on population defaults.
+  if (isTsbModifierEdgesOverridden(b.tsbModifierEdges as Partial<TsbModifierEdges> | null)) {
+    updated.tsbModifierEdges = resolveTsbModifierEdges(b.tsbModifierEdges as Partial<TsbModifierEdges>);
+  } else if (current.tsbModifierEdges) {
+    updated.tsbModifierEdges = current.tsbModifierEdges;
   }
 
   await writeBlockSettings(updated);
