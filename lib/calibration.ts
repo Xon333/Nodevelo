@@ -79,3 +79,32 @@ export function resolveCalibratedValue(param: CalibratedParameter | undefined | 
 export function emptyCalibration(): CalibrationStore {
   return { decouplingGood: defaultParameter(), updatedAt: new Date(0).toISOString() };
 }
+
+// Derive the decoupling "good" threshold from the athlete's own 90-day mean decoupling (ROADMAP #2):
+// their typical decoupling becomes the +1/0 boundary, so a structurally-drifty rider isn't punished
+// to the floor and a flat-TT rider is graded tightly — instead of a fixed 4%. `n` is how many rides
+// in the window carried a decoupling reading (drives confidence). Preserves a prior manual override,
+// and once locked (high confidence) the value freezes — only a manual override moves it after that.
+export function deriveDecouplingGood(
+  prior: CalibratedParameter | undefined | null,
+  avgDecoupling90d: number | null,
+  n: number
+): CalibratedParameter {
+  const now = new Date().toISOString();
+  const manualOverride = prior?.manualOverride ?? null;
+  // Locked derived value freezes — stop chasing new data (the manual override still wins at resolve).
+  if (prior?.locked && prior.source === "derived") return { ...prior, manualOverride, lastUpdated: now };
+  if (avgDecoupling90d === null || !Number.isFinite(avgDecoupling90d) || n <= 0) {
+    return { ...defaultParameter(), manualOverride, lastUpdated: now };
+  }
+  const confidence = confidenceFromN(n);
+  return {
+    value: clamp(avgDecoupling90d, 2.5, 8), // sanity-bounded so one weird window can't produce a silly cutoff
+    source: "derived",
+    confidence,
+    dataPoints: n,
+    lastUpdated: now,
+    locked: confidence === "high",
+    manualOverride,
+  };
+}

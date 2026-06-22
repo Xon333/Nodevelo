@@ -388,6 +388,10 @@ export interface RideScoreEntry {
   ftpUsed: number; // FTP this entry was scored against — frozen so history never re-shifts
   durationMin: number; // feeds the behaviour/volume signal
   tss: number | null;
+  // The per-athlete calibration this entry was scored against (ROADMAP #2) — frozen alongside ftpUsed
+  // so the immutable ledger stays reproducible. Absent on entries scored before calibration shipped
+  // (those used population defaults).
+  calibration?: { decouplingGood: number };
 }
 
 // ---------- Athlete model (the learning "second brain") ----------

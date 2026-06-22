@@ -79,6 +79,13 @@ describe("buildRideScores", () => {
     const scores = buildRideScores(b, acts, ftp200, "2026-01-10");
     expect(scores).toHaveLength(0);
   });
+
+  it("freezes the calibration used onto each entry, absent when uncalibrated (ROADMAP #2)", () => {
+    const b = block([{ date: "2026-01-01", type: "Z2", durationMin: 60 }]);
+    const acts = [activity({ date: "2026-01-01", avgWatts: 135, normalizedPower: 138 })];
+    expect(buildRideScores(b, acts, ftp200, "2026-01-10", null, { decouplingGood: 6 })[0].calibration).toEqual({ decouplingGood: 6 });
+    expect(buildRideScores(b, acts, ftp200, "2026-01-10")[0].calibration).toBeUndefined(); // pre-calibration entries
+  });
 });
 
 describe("mergeScoreLog", () => {

@@ -3,6 +3,10 @@
 // duration compliance, intensity appropriateness, effort (RPE vs intensity), aerobic
 // decoupling, and pacing smoothness (variability index). No AI.
 
+// Population default for the decoupling "good" cutoff. At this value the bands are the historical
+// absolute cutoffs [2, 4, 7, 10], so an uncalibrated score is byte-identical to before.
+export const DEFAULT_DECOUPLING_GOOD = 4;
+
 export interface ExecutionScoreInput {
   compliancePct: number | null;
   intensityFactor: number | null;
@@ -15,6 +19,9 @@ export interface ExecutionScoreInput {
   // type would be circular. When set, the intensity-vs-type branch is skipped and the score
   // rests on the intent-independent signals (decoupling, pacing, RPE).
   intrinsic?: boolean;
+  // Per-athlete calibration (ROADMAP #2). `decouplingGood` recenters the decoupling bands on the
+  // athlete's own typical drift. Absent → DEFAULT_DECOUPLING_GOOD, i.e. unchanged scoring.
+  calibration?: { decouplingGood?: number } | null;
 }
 
 export function computeExecutionScore(input: ExecutionScoreInput): number | null {
@@ -47,11 +54,15 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
   }
 
   // --- Aerobic execution via decoupling (±2) ---
+  // Bands scale off the athlete's "good" cutoff G (calibrated, ROADMAP #2). At the default G=4 the
+  // cutoffs are exactly [2, 4, 7, 10] — unchanged. A higher G (a structurally-drifty rider) widens
+  // them so a typical ride isn't over-penalised; a lower G grades a steady rider more tightly.
   if (decoupling !== null) {
-    if (decoupling < 2) score += 2;
-    else if (decoupling < 4) score += 1;
-    else if (decoupling < 7) score += 0;
-    else if (decoupling < 10) score -= 1;
+    const G = input.calibration?.decouplingGood ?? DEFAULT_DECOUPLING_GOOD;
+    if (decoupling < G * 0.5) score += 2;
+    else if (decoupling < G) score += 1;
+    else if (decoupling < G * 1.75) score += 0;
+    else if (decoupling < G * 2.5) score -= 1;
     else score -= 2;
   }
 

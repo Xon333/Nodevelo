@@ -14,6 +14,15 @@ describe("computeExecutionScore", () => {
     expect(computeExecutionScore(base)).toBeNull();
   });
 
+  it("recenters the decoupling band on the calibrated 'good' cutoff, unchanged at the default (ROADMAP #2)", () => {
+    const ride: ExecutionScoreInput = { ...base, compliancePct: 100, intensityFactor: 0.7, plannedType: "Z2", decoupling: 6 };
+    const uncalibrated = computeExecutionScore(ride)!; // G=4 → 6 ∈ [4,7) → +0
+    const drifty = computeExecutionScore({ ...ride, calibration: { decouplingGood: 8 } })!; // G=8 → 6 < 8 → +1
+    expect(drifty).toBeGreaterThan(uncalibrated);
+    // An explicit default cutoff must score identically to passing no calibration at all.
+    expect(computeExecutionScore({ ...ride, calibration: { decouplingGood: 4 } })).toBe(uncalibrated);
+  });
+
   it("rewards a hard, variable RaceSim and penalises a soft one", () => {
     const hard = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.86, plannedType: "RaceSim", decoupling: 4 });
     const soft = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.62, plannedType: "RaceSim", decoupling: 4 });

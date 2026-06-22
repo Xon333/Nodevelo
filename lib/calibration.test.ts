@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, emptyCalibration, isAcwrBandsOverridden, resolveAcwrBands, resolveCalibratedValue } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, deriveDecouplingGood, emptyCalibration, isAcwrBandsOverridden, resolveAcwrBands, resolveCalibratedValue } from "./calibration";
 import type { CalibratedParameter } from "./types";
 
 describe("autoEwmaAlpha", () => {
@@ -85,5 +85,34 @@ describe("emptyCalibration", () => {
     const cal = emptyCalibration();
     expect(cal.decouplingGood.source).toBe("default");
     expect(resolveCalibratedValue(cal.decouplingGood, 4)).toBe(4);
+  });
+});
+
+describe("deriveDecouplingGood", () => {
+  it("stays a population default with no data", () => {
+    const p = deriveDecouplingGood(undefined, null, 0);
+    expect(p.source).toBe("default");
+    expect(resolveCalibratedValue(p, 4)).toBe(4);
+  });
+
+  it("derives from the 90-day mean with sample-size confidence", () => {
+    const p = deriveDecouplingGood(undefined, 6, 25);
+    expect(p).toMatchObject({ source: "derived", value: 6, confidence: "high", locked: true, dataPoints: 25 });
+    expect(resolveCalibratedValue(p, 4)).toBe(6);
+
+    const low = deriveDecouplingGood(undefined, 6, 5);
+    expect(low.confidence).toBe("low");
+    expect(resolveCalibratedValue(low, 4)).toBe(4); // not enough data yet → population default
+  });
+
+  it("clamps a silly window to a sane cutoff", () => {
+    expect(deriveDecouplingGood(undefined, 0.2, 30).value).toBe(2.5);
+    expect(deriveDecouplingGood(undefined, 99, 30).value).toBe(8);
+  });
+
+  it("freezes once locked and preserves a manual override", () => {
+    const locked = deriveDecouplingGood(undefined, 6, 25); // locked at 6
+    expect(deriveDecouplingGood(locked, 3, 40).value).toBe(6); // new data ignored once locked
+    expect(deriveDecouplingGood({ ...locked, manualOverride: 5 }, 3, 40).manualOverride).toBe(5);
   });
 });

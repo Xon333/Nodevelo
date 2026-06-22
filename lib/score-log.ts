@@ -26,11 +26,20 @@ export function buildRideScores(
   // it are still stored as history, but flagged `legacy` so they're excluded from the
   // execution-quality metric and the drift signal — there was no plan for them to be "off."
   // null = no block has ever existed, so every off-plan ride is legacy.
-  offPlanFloor: string | null = null
+  offPlanFloor: string | null = null,
+  // Per-athlete calibration (ROADMAP #2): the resolved values to score against. Each new entry is
+  // stamped with what it used (frozen, like ftpUsed). Omitted → population defaults, no stamp.
+  calibration?: { decouplingGood?: number } | null
 ): RideScoreEntry[] {
   // Prescribed sessions, by date (only days that actually plan a ride).
   const plannedByDate = new Map<string, CurrentBlockDay>();
   if (block) for (const d of block.days) if (d.durationMin > 0) plannedByDate.set(d.date, d);
+
+  // The calibration stamp frozen onto every entry scored this run (absent when uncalibrated).
+  const calStamp =
+    calibration?.decouplingGood != null && Number.isFinite(calibration.decouplingGood)
+      ? { calibration: { decouplingGood: calibration.decouplingGood } }
+      : {};
 
   // One entry per date; if a date has two rides, keep the longer (the key session).
   const byDate = new Map<string, RideScoreEntry>();
@@ -59,6 +68,7 @@ export function buildRideScores(
         plannedType: planned.type,
         decoupling: act.decoupling,
         variabilityIndex,
+        calibration,
       });
       if (executionScore !== null) {
         entry = {
@@ -74,6 +84,7 @@ export function buildRideScores(
           ftpUsed: ftp,
           durationMin: actualMin,
           tss: act.trainingLoad,
+          ...calStamp,
         };
       }
     } else {
@@ -88,6 +99,7 @@ export function buildRideScores(
         decoupling: act.decoupling,
         variabilityIndex,
         intrinsic: true,
+        calibration,
       });
       if (executionScore !== null) {
         entry = {
@@ -102,6 +114,7 @@ export function buildRideScores(
           ftpUsed: ftp,
           durationMin: actualMin,
           tss: act.trainingLoad,
+          ...calStamp,
         };
       }
     }
