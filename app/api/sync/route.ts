@@ -31,8 +31,10 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
-import { computeExecutionScore, DEFAULT_DECOUPLING_GOOD, resolveCompliance } from "@/lib/execution-score";
+import { weightTrendFromWellness } from "@/lib/nutrition";
+import { DEFAULT_DECOUPLING_GOOD } from "@/lib/execution-score";
+import { buildTodayAnalysis } from "@/lib/ride-analysis";
+import { backfillLedgerEntries } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
@@ -229,24 +231,11 @@ export async function POST(req: Request) {
       // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
       const dispositions = (await readDispositions()).entries;
       // Transactional (CR-A): the backfill is computed from the ledger read INSIDE the lock, so a
-      // concurrent disposition POST (or the deferred analyze patch) can't clobber these scores.
-      await updateScoreLog((entries) => {
-        const backfilled = entries.map((e) => {
-          const planned = e.planned ?? e.plannedType != null;
-          return {
-            ...e,
-            ftpUsed: e.ftpUsed ?? ftpForDate(e.date),
-            planned,
-            inferredType: e.inferredType ?? e.plannedType ?? "Z2",
-            durationMin: e.durationMin ?? 0,
-            tss: e.tss ?? null,
-            // Off-plan rides before structured training began are kept as history but flagged
-            // legacy so they're excluded from the execution metric + drift.
-            legacy: e.legacy ?? (!planned && (offPlanFloor === null || e.date < offPlanFloor)),
-          };
-        });
-        return applyDispositions(mergeScoreLog(backfilled, fresh), dispositions);
-      });
+      // concurrent disposition POST (or the deferred analyze patch) can't clobber these scores. The
+      // backfill itself is the pure, unit-tested backfillLedgerEntries (CR-G).
+      await updateScoreLog((entries) =>
+        applyDispositions(mergeScoreLog(backfillLedgerEntries(entries, ftpForDate, offPlanFloor), fresh), dispositions)
+      );
     }
 
     // Close the learning loop: re-evaluate any matured interventions against the freshly
@@ -276,39 +265,10 @@ export async function POST(req: Request) {
         const plannedDay = currentBlock?.days.find((d) => d.date === today) ?? null;
 
         try {
-          const actualMin = Math.round(todayActivity.movingTimeSec / 60);
-          const ftp = profile.performance.ftp;
-          const compliancePct =
-            plannedDay && plannedDay.durationMin > 0
-              ? Math.round((actualMin / plannedDay.durationMin) * 100)
-              : null;
-          // Intensity Factor is NP/FTP by definition; fall back to avg power
-          // only when normalized power is unavailable.
-          const ifBasis = todayActivity.normalizedPower ?? todayActivity.avgWatts;
-          const intensityFactor =
-            ifBasis !== null && ftp > 0
-              ? Math.round((ifBasis / ftp) * 100) / 100
-              : null;
-          // Variability index = NP / avg power; ~1.0 = steady, higher = surgy.
-          const variabilityIndex =
-            todayActivity.normalizedPower !== null &&
-            todayActivity.avgWatts !== null &&
-            todayActivity.avgWatts > 0
-              ? Math.round((todayActivity.normalizedPower / todayActivity.avgWatts) * 100) / 100
-              : null;
-
-
-          // Advised daily intake using real ride kJ (1 kJ ≈ 1 kcal for cyclists)
-          const weightTrend = weightTrendFromWellness(lastSync.wellness) ?? 0;
-          const { bufferApplied } = adjustBuffer(profile.nutrition.buffer, weightTrend);
-          const rideFuelKcal = todayActivity.kj ?? 0;
-          const advisedBaseKcal = profile.nutrition.baseCalories;
-          const advisedIntakeKcal = Math.round(advisedBaseKcal + rideFuelKcal + bufferApplied);
-
-          // Re-bucket power & HR into the athlete's OWN zones (from athlete_profile.md).
-          // Intervals' power zones are often null and its HR boundaries can differ, so we
-          // compute time-in-zone from the raw streams. Best-effort: fall back to whatever
-          // Intervals provided if a stream or the md zones are unavailable.
+          // --- I/O: re-bucket power & HR into the athlete's OWN zones (from the physiology store).
+          // Intervals' power zones are often null and its HR boundaries can differ, so we compute
+          // time-in-zone from the raw streams. Best-effort: fall back to whatever Intervals provided
+          // if a stream or the zone definitions are unavailable.
           let powerZoneTimes = todayActivity.powerZoneTimes;
           let hrZoneTimes = todayActivity.hrZoneTimes;
           const [powerZones, hrZones, powerStream, hrStream] = await Promise.all([
@@ -326,8 +286,8 @@ export async function POST(req: Request) {
             if (b.some((t) => t > 0)) hrZoneTimes = b;
           }
 
-          // Compare the coach's prescription against the intervals curated in
-          // Intervals.icu, and build the power-trace (downsampled streams + work bands).
+          // --- I/O: compare the coach's prescription against the intervals curated in Intervals.icu,
+          // and build the power-trace (downsampled streams + work bands).
           const prescription = plannedDay?.prescription ?? [];
           let intervalComparison = null;
           let executed: ExecutedInterval[] = [];
@@ -345,73 +305,24 @@ export async function POST(req: Request) {
             prevSync?.powerCurveAllTime ?? []
           );
 
-          // Execution score: on interval days the power-target adherence is the primary
-          // execution signal; duration compliance is used otherwise. RPE adds effort.
-          const executionScore = computeExecutionScore({
-            compliancePct,
-            intensityFactor,
-            plannedType: plannedDay?.type ?? null,
-            decoupling: todayActivity.decoupling,
-            variabilityIndex,
-            // Duration-aware: a rep nailed on watts but cut short scores lower than a full one.
-            // But when the plan's rep-duration definition disagrees with what was ridden
-            // (structuralMismatch), the duration-discounted adherence is untrustworthy — drop it
-            // so execution falls back to duration-compliance + intensity + decoupling instead of
-            // confidently mis-scoring a correct session.
-            adherencePct:
-              intervalComparison && !intervalComparison.structuralMismatch
-                ? intervalComparison.effectiveAdherencePct
-                : null,
-            rpe: todayActivity.rpe,
-            calibration: resolvedCal,
-          });
-
-          // Compliance is the macro "did you complete the session" number, but capped by
-          // execution so it can never contradict a poor execution (the trust guarantee).
-          const resolvedCompliancePct = resolveCompliance(compliancePct, executionScore);
-
-          // The coach note (the slow LLM call) is deferred to /api/analyze so this sync returns
-          // fast. Preserve an already-generated note (and its provenance stamp) across a re-sync of
-          // the same day so an Anthropic hiccup during re-analysis can't wipe a good note; a fresh
-          // ride starts empty and the client triggers the follow-up analysis to fill it.
-          const preserved = priorAnalysis?.activityDate === today ? priorAnalysis : null;
-          const coachNote = preserved?.coachNote ?? "";
-
-          todayAnalysis = {
-            analysedAt: new Date().toISOString(),
-            activityDate: today,
-            activityName: todayActivity.name,
-            activityDurationMin: actualMin,
-            activityAvgWatts: todayActivity.avgWatts,
-            activityNormalizedPower: todayActivity.normalizedPower,
-            activityMaxWatts: todayActivity.maxWatts,
-            activityAvgHr: todayActivity.avgHr,
-            activityMaxHr: todayActivity.maxHr,
-            activityKj: todayActivity.kj,
-            activityTrainingLoad: todayActivity.trainingLoad,
-            activityRpe: todayActivity.rpe,
-            activityDecoupling: todayActivity.decoupling,
-            activityDistanceMeters: todayActivity.distanceMeters,
-            plannedName: plannedDay?.name ?? null,
-            plannedType: plannedDay?.type ?? null,
-            plannedDurationMin: plannedDay?.durationMin ?? null,
-            compliancePct: resolvedCompliancePct,
-            intensityFactor,
-            advisedIntakeKcal,
-            advisedBaseKcal,
-            advisedBufferKcal: bufferApplied,
-            advisedRideFuelKcal: rideFuelKcal,
-            activityDescription: todayActivity.description,
+          // --- Pure: assemble the deterministic analysis (metrics, execution score, capped
+          // compliance, advised intake, coach-note preservation) — extracted + unit-tested (CR-G).
+          const { todayAnalysis: built, executionScore, resolvedCompliancePct } = buildTodayAnalysis({
+            today,
+            activity: todayActivity,
+            plannedDay,
+            ftp: profile.performance.ftp,
+            nutrition: { baseCalories: profile.nutrition.baseCalories, buffer: profile.nutrition.buffer },
+            weightTrend7Day: weightTrendFromWellness(lastSync.wellness) ?? 0,
             powerZoneTimes,
             hrZoneTimes,
-            executionScore,
-            coachNote,
             intervalComparison,
             trace,
             powerPRs,
-            ...(preserved?.model ? { model: preserved.model } : {}),
-            ...(preserved?.promptVersion ? { promptVersion: preserved.promptVersion } : {}),
-          };
+            preserved: priorAnalysis,
+            resolvedCal,
+          });
+          todayAnalysis = built;
           await writeTodayAnalysis(todayAnalysis);
 
           // Keep the ledger's entry for today consistent with this richer, interval-aware
