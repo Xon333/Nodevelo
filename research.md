@@ -91,3 +91,49 @@ these (Part 1 used API `voyage-3`, Part 2 used local `sqlite-vec`) — pick one;
 shared vector store worthwhile (swap the local embedder/DB for an API + Pinecone/Weaviate; the
 application logic is identical). Until then, ship the quirk-tags and structured reflection first.
 
+---
+
+## Third-party UI/UX design skills — evaluation
+
+**Context:** surveyed five public "design skill" repos for whether they'd help *refine* NodeVelo's UI
+(explicit goal: upgrade the existing cyberpunk-dark / utilitarian-light language + Chakra Petch /
+JetBrains Mono / pink `#ff49c8` + cyan `#00d4ff` system — **not** restyle it). Most of these are
+*generative* (produce new UIs/design systems); only a couple fit "polish what exists."
+
+- **[pbakaus/impeccable](https://github.com/pbakaus/impeccable)** — design-quality skill for coding
+  agents: `audit`/`critique`/`polish` commands + **44 deterministic anti-pattern detectors**
+  (gray-on-color, overused fonts, card nesting, bad easing) + persistent `DESIGN.md`/`PRODUCT.md`
+  context. **Best fit:** refines *existing code*, deterministic/lint-like (matches our no-slop core),
+  and `DESIGN.md` can pin our exact palette/fonts so it can't drift. Reputable author (ex-Google).
+- **[content-designer/ux-writing-skill](https://github.com/content-designer/ux-writing-skill)** —
+  microcopy/content-quality skill (purposeful · concise · conversational · clear) over buttons,
+  errors, empty states, notifications, onboarding + voice/tone + a11y. **High & orthogonal:** changes
+  words, not pixels (zero visual risk); we have lots of strings now (SyncNotice, MetricTips, the
+  calibration panel, the 502 copy) that a pass would sharpen.
+- **[leonxlnx/taste-skill](https://github.com/leonxlnx/taste-skill)** — popular (~49k★) anti-"generic
+  slop" skill: dials for `DESIGN_VARIANCE` / `MOTION_INTENSITY` / `VISUAL_DENSITY`, design-system map,
+  GSAP skeletons, aesthetic variants. **Moderate–high but use carefully:** the density/motion dials +
+  anti-slop discipline are useful knobs, but its core strength is *imposing* an aesthetic — we already
+  have one, so cherry-pick principles, don't let it restyle.
+- **[alchaincyf/huashu-design](https://github.com/alchaincyf/huashu-design)** — skill that *generates*
+  high-fidelity deliverables (prototypes, decks, motion, infographics) with a "Brand Asset Protocol" +
+  anti-AI-slop rules. **Moderate:** good for one-off exploratory mockups (an alternative to the Google
+  Stitch route) and the Brand Asset Protocol (lock real colors/fonts before designing) is a principle
+  worth stealing — but it emits standalone HTML, not edits to our Next.js components; Chinese-primary.
+- **[nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)** —
+  greenfield **design-system generator** (161 industry rules, 67 styles, 161 palettes, 57 font
+  pairings). **Low fit:** built to *pick* a style/palette from scratch — the opposite of a fixed look.
+  Pattern reference only.
+
+**Verdict:** **adopt selectively** — `impeccable` for an `audit → polish` pass on our components
+(highest-signal, refine-not-replace) and `ux-writing-skill` for a microcopy sweep (high value, can't
+touch the visuals). **Borrow principles** from `taste-skill` (density/motion dials, anti-slop) and
+`huashu-design` (Brand Asset Protocol). **Skip** `ui-ux-pro-max` (generator, conflicts with our fixed
+design language).
+
+**Caveats (against the mandates):** installing a third-party skill lets its instructions steer the
+agent, and several ship npm CLIs (supply-chain surface) — both cut against **zero-bloat**. Prefer
+lifting the SKILL.md guidance / detector rules into our own repo over `npm install`-ing their tooling,
+and vet the less-known authors first. The deterministic-detector idea (`impeccable`) and copy-quality
+checks (`ux-writing-skill`) are the parts most compatible with our **deterministic core** ethos.
+
