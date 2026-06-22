@@ -1,10 +1,38 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { isoDaysAgo, localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, CyberFrame } from "../ui";
+
+// The block overview can run several sentences. Clamp it to 3 lines so the calendar + goals stay near
+// the top of the fold, with a "Show more" toggle that only appears when the text actually overflows.
+function BlockOverview({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clampable, setClampable] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setClampable(el.scrollHeight > el.clientHeight + 1);
+  }, [text]);
+  return (
+    <div className="mt-2 max-w-3xl">
+      <p ref={ref} className={`text-sm leading-6 text-zinc-600 dark:text-zinc-400 ${expanded ? "" : "line-clamp-3"}`}>
+        {text}
+      </p>
+      {(clampable || expanded) && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-0.5 text-xs font-medium text-zinc-500 hover:underline dark:text-[#00d4ff]"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 // ---------- Weekly debrief ----------
 
@@ -388,9 +416,7 @@ export function CurrentBlockSection({
             </button>
           )}
         </div>
-        {block.overview && (
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">{block.overview}</p>
-        )}
+        {block.overview && <BlockOverview text={block.overview} />}
         <BlockCalendar block={block} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
       </div>
     </section>

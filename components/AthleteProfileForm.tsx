@@ -206,54 +206,8 @@ export default function AthleteProfileForm() {
         </div>
       )}
 
-      {/* Power PRs — from sync or manual */}
-      {(syncedPowerCurve.length > 0 || athleteMd.powerProfile.length > 0) && (
-        <Section title="Power PRs" editHref={syncedPowerCurve.length > 0 ? undefined : "/knowledge"}>
-          {syncedPowerCurve.length > 0 ? (
-            <>
-              <p className="mb-3 text-[11px] text-zinc-400 dark:text-zinc-500">
-                all-time best efforts · from Intervals.icu · {timeAgo(autoSync.syncedAt)}
-              </p>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                {syncedPowerCurve.map((pt) => {
-                  const label = POWER_CURVE_LABELS[pt.durationSec] ?? `${pt.durationSec}s`;
-                  const wkg = latestWeightKg ? (pt.watts / latestWeightKg).toFixed(1) : null;
-                  return (
-                    <div key={pt.durationSec} className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-                      <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{label}</p>
-                      <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00d4ff]">{pt.watts}W</p>
-                      {wkg && <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{wkg} W/kg</p>}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-zinc-400 dark:text-zinc-500">
-                    <th className="pb-1 pr-4 font-medium">Duration</th>
-                    <th className="pb-1 pr-4 font-medium">Watts</th>
-                    <th className="pb-1 font-medium">W/kg</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700">
-                  {athleteMd.powerProfile.map((p) => (
-                    <tr key={p.duration}>
-                      <td className="py-1 pr-4 text-zinc-500 dark:text-zinc-400">{p.duration}</td>
-                      <td className="py-1 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">{p.watts}</td>
-                      <td className="py-1 text-zinc-500 dark:text-zinc-400">{p.wkg}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Section>
-      )}
-
-      {/* Rider profile — auto-derived from the curve shape (Track A) */}
+      {/* Rider profile — auto-derived from the curve shape (Track A). Leads above the raw PR grid: the
+          "what am I / what to target" read is the decision-critical content, the PR numbers are reference. */}
       {powerProfile && powerProfile.confident && (
         <Section title="Rider profile">
           <p className="mb-3 text-[11px] text-zinc-400 dark:text-zinc-500">
@@ -298,6 +252,57 @@ export default function AthleteProfileForm() {
               );
             })}
           </div>
+        </Section>
+      )}
+
+      {/* Power PRs — reference grid below the rider read; W/kg demoted to a hover (title + cursor-help)
+          so each of the 9 tiles is two lines, not three. */}
+      {(syncedPowerCurve.length > 0 || athleteMd.powerProfile.length > 0) && (
+        <Section title="Power PRs" editHref={syncedPowerCurve.length > 0 ? undefined : "/knowledge"}>
+          {syncedPowerCurve.length > 0 ? (
+            <>
+              <p className="mb-3 text-[11px] text-zinc-400 dark:text-zinc-500">
+                all-time best efforts · from Intervals.icu · {timeAgo(autoSync.syncedAt)}
+              </p>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {syncedPowerCurve.map((pt) => {
+                  const label = POWER_CURVE_LABELS[pt.durationSec] ?? `${pt.durationSec}s`;
+                  const wkg = latestWeightKg ? (pt.watts / latestWeightKg).toFixed(1) : null;
+                  return (
+                    <div
+                      key={pt.durationSec}
+                      title={wkg ? `${wkg} W/kg` : undefined}
+                      className={`rounded bg-zinc-50 px-3 py-1.5 dark:bg-zinc-900 ${wkg ? "cursor-help" : ""}`}
+                    >
+                      <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{label}</p>
+                      <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00d4ff]">{pt.watts}W</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-zinc-400 dark:text-zinc-500">
+                    <th className="pb-1 pr-4 font-medium">Duration</th>
+                    <th className="pb-1 pr-4 font-medium">Watts</th>
+                    <th className="pb-1 font-medium">W/kg</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-700">
+                  {athleteMd.powerProfile.map((p) => (
+                    <tr key={p.duration}>
+                      <td className="py-1 pr-4 text-zinc-500 dark:text-zinc-400">{p.duration}</td>
+                      <td className="py-1 pr-4 font-semibold text-zinc-800 dark:text-zinc-200">{p.watts}</td>
+                      <td className="py-1 text-zinc-500 dark:text-zinc-400">{p.wkg}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Section>
       )}
 
