@@ -6,12 +6,10 @@
 
 import { computeExecutionScore, resolveCompliance, timeAboveZ2Fraction, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
+import { round1, round2 } from "./stats";
 import type { ActivitySummary, BehaviourSummary, CurrentBlock, CurrentBlockDay, RideEntryContext, RideScoreEntry } from "./types";
 
 const MAX_ENTRIES = 400; // ~6 months of all rides
-
-const round1 = (n: number) => Math.round(n * 10) / 10;
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function isRide(a: ActivitySummary): boolean {
   return a.type === "Ride" || a.type === "VirtualRide";

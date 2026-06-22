@@ -158,9 +158,24 @@ describe("resolveTsbEdgesOverride (derived edge + manual override precedence)", 
   });
 
   it("applies a confident derived edge, with any manual override winning", () => {
+    // CS-7: needs both ≥5 failures AND ≥3 successes (contrast) to clear the gate.
+    const entries = [...Array.from({ length: 8 }, () => qEntry(-30, 3)), qEntry(-5, 8), qEntry(-6, 7), qEntry(-7, 7)];
+    expect(resolveTsbEdgesOverride(entries)).toEqual({ deepFatigue: -30 }); // medium confidence
+    expect(resolveTsbEdgesOverride(entries, { deepFatigue: -18 })).toEqual({ deepFatigue: -18 }); // manual deepFatigue wins
+  });
+
+  it("does not apply a derived edge without enough success contrast (CS-7)", () => {
+    // 8 failures but only 2 successes → low confidence → derived value not applied.
     const entries = [...Array.from({ length: 8 }, () => qEntry(-30, 3)), qEntry(-5, 8), qEntry(-6, 7)];
-    expect(resolveTsbEdgesOverride(entries)).toEqual({ deepFatigue: -30 }); // medium confidence (n=8)
-    expect(resolveTsbEdgesOverride(entries, { deepFatigue: -18 })).toEqual({ deepFatigue: -18 }); // manual wins
+    expect(resolveTsbEdgesOverride(entries)).toEqual({ deepFatigue: -25 });
+  });
+
+  it("yields the derived edge below a manually-set productiveOverload — never nudges the manual value (CS-5)", () => {
+    // Derives a shallow deepFatigue (~−12) that would collide with a manual productiveOverload of −15.
+    const entries = [...Array.from({ length: 5 }, () => qEntry(-8, 3)), ...Array.from({ length: 3 }, () => qEntry(-3, 8))];
+    const edges = resolveTsbModifierEdges(resolveTsbEdgesOverride(entries, { productiveOverload: -15 }));
+    expect(edges.productiveOverload).toBe(-15); // manual neighbour preserved, not nudged to −11
+    expect(edges.deepFatigue).toBeLessThan(-15); // derived edge yielded below it
   });
 });
 

@@ -5,6 +5,7 @@
 // pretend to). Pure + deterministic + defensive — every output is clamped to a sane range.
 
 import type { CalibratedParameter, CalibrationStore, RideScoreEntry, WorkoutType } from "./types";
+import { clamp, median } from "./stats";
 
 export interface AcwrBands {
   optimalLow: number; // below this = under-reaching ("low")
@@ -14,8 +15,6 @@ export interface AcwrBands {
 
 // Population defaults (Gabbett acute:chronic workload sweet spot ≈ 0.8–1.3, spike > 1.5).
 export const DEFAULT_ACWR_BANDS: AcwrBands = { optimalLow: 0.8, optimalHigh: 1.3, dangerHigh: 1.5 };
-
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 // EWMA smoothing for the athlete model, derived from the planned-ride sample size: with little
 // history, weight recent rides more (responsive); as history accumulates, smooth out noise.
@@ -107,10 +106,14 @@ const TSB_DISCRIMINATION_MARGIN = 4; // failures must sit ≥ this many TSB poin
 const TSB_DEEP_MIN = -45; // clamp the derived edge to a sane deep-fatigue range
 const TSB_DEEP_MAX = -12;
 
-function median(xs: number[]): number {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+// Confidence for the deep-fatigue edge (CS-7) — TSB-specific, not the generic confidenceFromN: quality
+// FAILURES are rare and each is informative, so the bar is lower than the sample-size default, but it
+// also requires real CONTRAST (enough successes) rather than weighting failure count alone. resolveCalibratedValue
+// applies a derived value only at medium+, so the effective gate to take effect is nUnder ≥ 5 AND nGood ≥ 3.
+function tsbDeepFatigueConfidence(nUnder: number, nGood: number): CalibratedParameter["confidence"] {
+  if (nUnder < 5 || nGood < 3) return "low";
+  if (nUnder < 10) return "medium";
+  return "high";
 }
 
 export function deriveTsbDeepFatigue(entries: RideScoreEntry[]): CalibratedParameter {
@@ -141,7 +144,7 @@ export function deriveTsbDeepFatigue(entries: RideScoreEntry[]): CalibratedParam
   return {
     value: clamp(medUnder, TSB_DEEP_MIN, TSB_DEEP_MAX),
     source: "derived",
-    confidence: confidenceFromN(n),
+    confidence: tsbDeepFatigueConfidence(n, good.length),
     dataPoints: n,
     lastUpdated: now,
     locked: false, // keep re-deriving as the rolling ledger window evolves
@@ -149,16 +152,24 @@ export function deriveTsbDeepFatigue(entries: RideScoreEntry[]): CalibratedParam
   };
 }
 
-// The effective TSB-edge override to feed resolveTsbModifierEdges: the derived deep-fatigue edge as the
-// new default (only when it clears the confidence gate), with any manual settings override layered on
-// top — manual wins. Precedence: manual override > derived > population default. When neither applies the
-// result resolves to the population edges, so an athlete with no signal is classified byte-identically.
+// The effective TSB-edge override to feed resolveTsbModifierEdges. Precedence is **per-edge**: a manual
+// override is authoritative for the edges it pins; the derived deep-fatigue edge fills `deepFatigue` ONLY
+// when it isn't manually pinned. Crucially the derived edge must YIELD to a manually-set `productiveOverload`
+// — staying strictly below it — so resolveTsbModifierEdges' ordering pass can never nudge a manual value up
+// (CS-5: manual > derived > population, including for the *neighbour* edges). No signal → population edges
+// (byte-identical classification).
 export function resolveTsbEdgesOverride(
   entries: RideScoreEntry[],
   settingsOverride?: Partial<TsbModifierEdges> | null
 ): Partial<TsbModifierEdges> {
-  const derivedDeep = resolveCalibratedValue(deriveTsbDeepFatigue(entries), DEFAULT_TSB_MODIFIER_EDGES.deepFatigue);
-  return { deepFatigue: derivedDeep, ...(settingsOverride ?? {}) };
+  const o = settingsOverride ?? {};
+  const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+  if (isNum(o.deepFatigue)) return { ...o }; // athlete pinned deepFatigue — derived doesn't apply
+  let deepFatigue = resolveCalibratedValue(deriveTsbDeepFatigue(entries), DEFAULT_TSB_MODIFIER_EDGES.deepFatigue);
+  // Yield to a manually-set productiveOverload: keep the derived edge below it rather than letting the
+  // ordering pass rewrite the manual value.
+  if (isNum(o.productiveOverload)) deepFatigue = Math.min(deepFatigue, o.productiveOverload - 1);
+  return { ...o, deepFatigue };
 }
 
 // ---------- Per-parameter calibration framework (ROADMAP #2) ----------

@@ -226,6 +226,8 @@ export async function POST(req: Request) {
     // after the first block's start) so the ledger starts fresh with the first block instead
     // of pre-loading months of pre-app legacy rides. The log is immutable per date; new dates
     // are scored against their as-of FTP, and legacy entries are backfilled once to the schema.
+    // Morning-check log read once here and reused for the snapshot below (CS-6 — previously read twice).
+    const morningChecks = await readMorningChecks();
     {
       const block = await readCurrentBlock();
       const blockHistory = await readBlockHistory();
@@ -238,7 +240,7 @@ export async function POST(req: Request) {
       // state→execution correlation (ROADMAP #2): form (CTL/ATL/TSB, carried-forward from the synced
       // wellness stream) + the day's subjective morning-check (same-day only — no carry-forward).
       const formStateForDate = buildFormStateLookup(lastSync.wellness);
-      const morningByDate = new Map((await readMorningChecks()).entries.map((m) => [m.date, m]));
+      const morningByDate = new Map(morningChecks.entries.map((m) => [m.date, m]));
       const contextForDate = (date: string): RideEntryContext | null => {
         const formState = formStateForDate(date) ?? undefined;
         const mc = morningByDate.get(date);
@@ -394,14 +396,13 @@ export async function POST(req: Request) {
     );
     // Rebuild the CoachSnapshot on the fresh data so the Today card updates after a sync without a
     // second round-trip (same builder as the GET + /api/ask — the athlete sees the LLM's numbers).
-    const [blockForSnap, morningChecks, interventionLogForSnap, profileForSnap, settingsForSnap, baselinesForSnap] = await Promise.all([
+    const [blockForSnap, interventionLogForSnap, profileForSnap, settingsForSnap, baselinesForSnap] = await Promise.all([
       readCurrentBlock(),
-      readMorningChecks(),
       readInterventionLog(),
       readAthleteProfile(),
       readBlockSettings(),
       readRollingBaselines(), // the freshly-persisted baselines (with updatedAt), written earlier this sync
-    ]);
+    ]); // morningChecks already read once above (CS-6)
     const coachSnapshot = buildCoachSnapshotFromSources({
       date: today,
       ftp: physStore?.current.ftp ?? profileForSnap.performance.ftp,

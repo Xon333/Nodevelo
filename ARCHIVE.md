@@ -119,6 +119,22 @@ The keystone framework + its first calibrated parameter. Three commits; tests gr
   earns it. Tested (derivation, both guards, exclusions, clamp, precedence, low-confidence fallback);
   full suite green (834).
 
+- **TSB-derivation review follow-ups CS-5..CS-8 (after findings 1–4 fixed inline).**
+  - **CS-5 — per-edge precedence.** `resolveTsbEdgesOverride` now resolves precedence per-edge: a manual
+    `deepFatigue` short-circuits the derived value entirely, and a derived edge **yields** below a manually-set
+    `productiveOverload` (`min(derived, manualPO − 1)`) so `resolveTsbModifierEdges`' ordering pass can no
+    longer nudge a manual neighbour up. Manual > derived > population, for the *neighbour* edges too.
+  - **CS-6 — single morning-check read.** The sync POST read `readMorningChecks()` twice (ledger stamp +
+    snapshot); hoisted to one read reused by both.
+  - **CS-7 — TSB-specific confidence gate.** Replaced `confidenceFromN(nUnder)` with
+    `tsbDeepFatigueConfidence(nUnder, nGood)`: lower failure bar (quality failures are rare + informative)
+    but now requires real **contrast** (≥3 successes) — effective take-effect gate is nUnder ≥ 5 ∧ nGood ≥ 3
+    (was an ~unreachable ≥8 failures). The contrast requirement also blunts CS-8's tiny-N median concern,
+    since the applied derivation now rests on ≥3 successes.
+  - **CS-8 — shared `lib/stats.ts`.** Extracted `round1` / `round2` / `clamp` / `median` into one module;
+    `calibration.ts`, `readiness.ts`, `score-log.ts` now import them instead of re-defining. Tested. Full
+    suite green (839 + stats).
+
 ---
 
 ## Scoring-core — Z2 "dialed-in" discipline signal

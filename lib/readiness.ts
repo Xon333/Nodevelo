@@ -3,8 +3,7 @@
 
 import type { AcwrResult, FatigueAlert, FitnessMetrics, IntensityDistribution, LoadRampAlert, ReadinessSignal, RideFormState, WellnessEntry } from "./types";
 import { DEFAULT_ACWR_BANDS, type AcwrBands } from "./calibration";
-
-const round1 = (n: number) => Math.round(n * 10) / 10;
+import { round1 } from "./stats";
 
 // The form (CTL/ATL/TSB) the athlete carried INTO a given date, from the synced wellness stream —
 // intervals.icu's OWN per-day values (authoritative, not reconstructed). Deliberately the most recent
