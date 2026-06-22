@@ -311,7 +311,7 @@ export default function AthleteProfileForm() {
                   <li key={i} className="flex items-start justify-between gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
                     <span className="min-w-0 text-sm text-zinc-800 dark:text-zinc-200">{g.goal}</span>
                     {g.target && g.target !== g.goal && (
-                      <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
+                      <span className="min-w-0 break-words rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
                         {g.target}
                       </span>
                     )}

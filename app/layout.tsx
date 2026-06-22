@@ -47,7 +47,10 @@ export default function RootLayout({
             <Nav />
             {/* Reserve space for the fixed left rail on desktop; bottom bar on mobile */}
             <div className="sm:pl-44">
-              <main className="mx-auto w-full max-w-5xl px-4 py-5 pb-24 sm:py-8 sm:pb-8">{children}</main>
+              {/* Mobile: clip horizontal overflow so a hover tooltip near the right edge (not even
+                  touch-triggerable) can't create page-wide horizontal scroll. Desktop is unaffected —
+                  tooltips show fully in the margin. Vertical (top-full dropdowns) stays visible. */}
+              <main className="mx-auto w-full max-w-5xl px-4 py-5 pb-24 max-sm:overflow-x-clip sm:py-8 sm:pb-8">{children}</main>
             </div>
           </SyncProvider>
         </QueryProvider>
