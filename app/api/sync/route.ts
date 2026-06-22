@@ -39,7 +39,7 @@ import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
-import { deriveDecouplingGood, resolveAcwrBands, resolveCalibratedValue } from "@/lib/calibration";
+import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveCalibratedValue } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { resolveToday } from "@/lib/date";
 import type { ExecutedInterval, TodayAnalysis } from "@/lib/types";
@@ -198,7 +198,13 @@ export async function POST(req: Request) {
       updatedAt: new Date().toISOString(),
     };
     await writeCalibration(calibration);
-    const resolvedCal = { decouplingGood: resolveCalibratedValue(calibration.decouplingGood, DEFAULT_DECOUPLING_GOOD) };
+    // Resolve the values the scorer uses this sync: the decoupling cutoff (confidence-gated) + the
+    // per-type IF-band offsets derived from the athlete's current power zones (ROADMAP #2). Default
+    // zones → empty offsets → identical scoring.
+    const resolvedCal = {
+      decouplingGood: resolveCalibratedValue(calibration.decouplingGood, DEFAULT_DECOUPLING_GOOD),
+      ifBandOffsets: deriveIfBandOffsets(physStore?.current.powerZonePct ?? []),
+    };
 
     // Track D: mine ride notes for recurring quirks (deterministic, no AI). Regenerated in full each
     // sync. Best-effort — extraction must never break a sync.

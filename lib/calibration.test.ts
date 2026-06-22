@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, deriveDecouplingGood, emptyCalibration, isAcwrBandsOverridden, resolveAcwrBands, resolveCalibratedValue } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_POWER_ZONE_TOPS_PCT, deriveDecouplingGood, deriveIfBandOffsets, emptyCalibration, isAcwrBandsOverridden, resolveAcwrBands, resolveCalibratedValue } from "./calibration";
 import type { CalibratedParameter } from "./types";
 
 describe("autoEwmaAlpha", () => {
@@ -131,5 +131,37 @@ describe("deriveDecouplingGood", () => {
     const next = deriveDecouplingGood({ ...high, manualOverride: 5 }, 3, 40);
     expect(next.manualOverride).toBe(5);
     expect(resolveCalibratedValue(next, 4)).toBe(5); // manual override still wins at resolve
+  });
+});
+
+describe("deriveIfBandOffsets (ROADMAP #2 — per-type IF cutoffs)", () => {
+  it("returns no offsets for default power zones (identical scoring guarantee)", () => {
+    expect(deriveIfBandOffsets(DEFAULT_POWER_ZONE_TOPS_PCT)).toEqual({});
+  });
+
+  it("returns no offsets for missing/empty zones", () => {
+    expect(deriveIfBandOffsets([])).toEqual({});
+    expect(deriveIfBandOffsets(undefined as unknown as number[])).toEqual({});
+  });
+
+  it("shifts a type's bands when its anchoring zone edge deviates", () => {
+    // Threshold anchors to the Z4 top (index 3, default 105). A 110% Z4 top → +0.05.
+    const zones = [55, 75, 90, 110, 120, 150];
+    expect(deriveIfBandOffsets(zones)).toEqual({ Threshold: 0.05 });
+  });
+
+  it("ignores deviations inside the deadband (≈ noise / near-default)", () => {
+    // Z2 top 76 vs default 75 → 0.01 < 0.02 deadband → omitted.
+    expect(deriveIfBandOffsets([55, 76, 90, 105, 120, 150])).toEqual({});
+  });
+
+  it("clamps a wildly customised zone set to a bounded shift", () => {
+    // Z5 top 150 vs default 120 → raw +0.30, clamped to +0.08.
+    expect(deriveIfBandOffsets([55, 75, 90, 105, 150, 180]).VO2max).toBe(0.08);
+  });
+
+  it("shifts down for a lower-than-default zone edge", () => {
+    // Z2 top 70 vs default 75 → -0.05.
+    expect(deriveIfBandOffsets([55, 70, 90, 105, 120, 150])).toEqual({ Z2: -0.05 });
   });
 });

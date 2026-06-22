@@ -4,7 +4,7 @@
 // assembles the TodayAnalysis. Splitting it out makes the hardest part of the sync (execution scoring,
 // compliance capping, advised intake, coach-note preservation) unit-testable without mocking HTTP.
 import { adjustBuffer } from "./nutrition";
-import { computeExecutionScore, resolveCompliance } from "./execution-score";
+import { computeExecutionScore, resolveCompliance, type ScoringCalibration } from "./execution-score";
 import type {
   ActivitySummary,
   CurrentBlockDay,
@@ -79,7 +79,7 @@ export interface TodayAnalysisInputs {
   // Prior analysis for the same day, so a re-sync preserves an already-generated coach note + its
   // provenance stamp instead of blanking it.
   preserved: TodayAnalysis | null;
-  resolvedCal: { decouplingGood: number };
+  resolvedCal: ScoringCalibration;
 }
 
 export interface TodayAnalysisResult {

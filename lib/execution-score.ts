@@ -7,6 +7,16 @@
 // absolute cutoffs [2, 4, 7, 10], so an uncalibrated score is byte-identical to before.
 export const DEFAULT_DECOUPLING_GOOD = 4;
 
+// Per-athlete scoring calibration (ROADMAP #2) threaded into the score. Every field is optional and
+// defaults to the population behaviour, so an uncalibrated/default-zoned athlete scores identically.
+export interface ScoringCalibration {
+  // Recenters the decoupling bands on the athlete's own typical drift (absent → DEFAULT_DECOUPLING_GOOD).
+  decouplingGood?: number;
+  // Per-workout-type IF-band shift (FTP fraction) that moves the intensity-vs-type bands to the
+  // athlete's own power-zone edges (see deriveIfBandOffsets). Absent/0 → unchanged population bands.
+  ifBandOffsets?: Record<string, number>;
+}
+
 export interface ExecutionScoreInput {
   compliancePct: number | null;
   intensityFactor: number | null;
@@ -19,9 +29,9 @@ export interface ExecutionScoreInput {
   // type would be circular. When set, the intensity-vs-type branch is skipped and the score
   // rests on the intent-independent signals (decoupling, pacing, RPE).
   intrinsic?: boolean;
-  // Per-athlete calibration (ROADMAP #2). `decouplingGood` recenters the decoupling bands on the
-  // athlete's own typical drift. Absent → DEFAULT_DECOUPLING_GOOD, i.e. unchanged scoring.
-  calibration?: { decouplingGood?: number } | null;
+  // Per-athlete calibration (ROADMAP #2): recenters decoupling bands + shifts the IF-vs-type bands to
+  // the athlete's own zone edges. Absent → population behaviour (unchanged scoring).
+  calibration?: ScoringCalibration | null;
 }
 
 export function computeExecutionScore(input: ExecutionScoreInput): number | null {
@@ -69,39 +79,43 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
   // --- Intensity vs planned type (±2) --- skipped for off-plan rides (would be circular)
   if (intensityFactor !== null && plannedType && !intrinsic) {
     const IF = intensityFactor;
+    // Per-athlete IF-band shift (ROADMAP #2): moves the band edges to the athlete's own zone edges.
+    // Defaults to 0 (population bands) — so a default-zoned/uncalibrated athlete scores identically.
+    const o = input.calibration?.ifBandOffsets?.[plannedType] ?? 0;
     switch (plannedType) {
       case "Z2":
-        if (IF >= 0.60 && IF <= 0.74) score += 1;
-        else if (IF > 0.74 && IF <= 0.82) score -= 1;
-        else if (IF > 0.82) score -= 2;
-        else if (IF < 0.52) score -= 1;
+        if (IF >= 0.60 + o && IF <= 0.74 + o) score += 1;
+        else if (IF > 0.74 + o && IF <= 0.82 + o) score -= 1;
+        else if (IF > 0.82 + o) score -= 2;
+        else if (IF < 0.52 + o) score -= 1;
         break;
       case "Recovery":
-        if (IF < 0.60) score += 1;
-        else if (IF >= 0.70) score -= 2;
+        if (IF < 0.60 + o) score += 1;
+        else if (IF >= 0.70 + o) score -= 2;
         else score -= 1;
         break;
       case "Threshold":
-        if (IF >= 0.82 && IF <= 0.92) score += 2;
-        else if (IF >= 0.78 && IF <= 0.96) score += 1;
-        else if (IF < 0.74 || IF > 1.05) score -= 2;
+        if (IF >= 0.82 + o && IF <= 0.92 + o) score += 2;
+        else if (IF >= 0.78 + o && IF <= 0.96 + o) score += 1;
+        else if (IF < 0.74 + o || IF > 1.05 + o) score -= 2;
         else score -= 1;
         break;
       case "VO2max":
-        if (IF >= 0.90 && IF <= 1.10) score += 2;
-        else if (IF >= 0.86 && IF <= 1.15) score += 1;
-        else if (IF < 0.80) score -= 2;
+        if (IF >= 0.90 + o && IF <= 1.10 + o) score += 2;
+        else if (IF >= 0.86 + o && IF <= 1.15 + o) score += 1;
+        else if (IF < 0.80 + o) score -= 2;
         break;
       case "SIT":
-        if (IF >= 1.00) score += 2;
-        else if (IF >= 0.90) score += 1;
+        if (IF >= 1.00 + o) score += 2;
+        else if (IF >= 0.90 + o) score += 1;
         else score -= 1;
         break;
       case "RaceSim":
         // Race-sim is hard + surgy — reward a genuinely high, variable effort; penalise a soft one.
-        if (IF >= 0.80 && IF <= 0.95) score += 2;
-        else if (IF >= 0.75 && IF <= 1.0) score += 1;
-        else if (IF < 0.70) score -= 2;
+        // (No zone anchor, so `o` is always 0 here; kept uniform for clarity.)
+        if (IF >= 0.80 + o && IF <= 0.95 + o) score += 2;
+        else if (IF >= 0.75 + o && IF <= 1.0 + o) score += 1;
+        else if (IF < 0.70 + o) score -= 2;
         break;
     }
   }

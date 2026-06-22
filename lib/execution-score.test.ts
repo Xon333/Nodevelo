@@ -208,3 +208,32 @@ describe("executionScoreLabel", () => {
     expect(executionScoreLabel(1)).toBe("Poor");
   });
 });
+
+describe("computeExecutionScore — per-type IF-band offset (ROADMAP #2)", () => {
+  // Isolate the IF-vs-type branch: full duration (+2), no decoupling/VI/RPE signal.
+  const threshold = (ifVal: number, calibration?: ExecutionScoreInput["calibration"]): number =>
+    computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: ifVal, plannedType: "Threshold", calibration })!;
+
+  it("scores identically with no offset, an empty offset map, or a zero offset", () => {
+    const plain = threshold(0.95);
+    expect(threshold(0.95, { ifBandOffsets: {} })).toBe(plain);
+    expect(threshold(0.95, { ifBandOffsets: { Threshold: 0 } })).toBe(plain);
+  });
+
+  it("a positive offset lifts a just-above-band IF back into the +2 band", () => {
+    // IF 0.95: default +2 band [0.82,0.92] misses → +1 (8). Shift +0.05 → +2 band [0.87,0.97] hits → +2 (9).
+    expect(threshold(0.95)).toBe(8);
+    expect(threshold(0.95, { ifBandOffsets: { Threshold: 0.05 } })).toBe(9);
+  });
+
+  it("a positive offset can also drop a now-too-easy IF out of the +2 band", () => {
+    // IF 0.84: default +2 band [0.82,0.92] hits → +2 (9). Shift +0.05 → +2 band [0.87,0.97] misses → +1 (8).
+    expect(threshold(0.84)).toBe(9);
+    expect(threshold(0.84, { ifBandOffsets: { Threshold: 0.05 } })).toBe(8);
+  });
+
+  it("only shifts the matching type's bands, leaving others on population constants", () => {
+    // A VO2max offset must not touch a Threshold ride.
+    expect(threshold(0.95, { ifBandOffsets: { VO2max: 0.05 } })).toBe(threshold(0.95));
+  });
+});

@@ -4,7 +4,7 @@
 // overridden (auto-deriving injury-risk bands isn't possible without injury data, so we don't
 // pretend to). Pure + deterministic + defensive — every output is clamped to a sane range.
 
-import type { CalibratedParameter, CalibrationStore } from "./types";
+import type { CalibratedParameter, CalibrationStore, WorkoutType } from "./types";
 
 export interface AcwrBands {
   optimalLow: number; // below this = under-reaching ("low")
@@ -115,4 +115,44 @@ export function deriveDecouplingGood(
     locked: false, // never auto-freeze — keep adapting to the rolling window
     manualOverride,
   };
+}
+
+// ---------- Per-type IF-band calibration (ROADMAP #2) ----------
+// Shift the execution-score intensity-vs-type bands to the athlete's OWN power-zone edges, instead of
+// fixed population constants. Same `derive-with-fallback` pattern: a zero offset reproduces the
+// existing bands exactly, so a default-zoned athlete scores byte-identically.
+
+// Population-default power-zone upper bounds as %FTP. These are the Coggan / Intervals.icu defaults
+// (Z1<55, Z2 56-75, Z3 76-90, Z4 91-105, Z5 106-120, Z6 121-150, Z7 open) the execution-score IF
+// bands were tuned against — so an athlete whose zones match gets a zero offset.
+export const DEFAULT_POWER_ZONE_TOPS_PCT = [55, 75, 90, 105, 120, 150];
+
+// Which power-zone upper bound anchors each workout type's IF bands. RaceSim is intentionally absent
+// (surgy/mixed effort with no single anchoring zone edge), so it stays on the population constants.
+const IF_ANCHOR_ZONE_INDEX: Partial<Record<WorkoutType, number>> = {
+  Recovery: 0, // Z1 top
+  Z2: 1, // Z2 top
+  Threshold: 3, // Z4 top
+  VO2max: 4, // Z5 top
+  SIT: 5, // Z6 top
+};
+
+const IF_OFFSET_DEADBAND = 0.02; // <2% FTP off default → treat as default (don't perturb on noise)
+const IF_OFFSET_CLAMP = 0.08; // bound the shift so a wildly customised zone set can't distort scoring
+
+// Per-workout-type IF-band shift (in FTP fraction) derived from how far the athlete's power-zone edges
+// sit from the population default. Returns only the types that materially deviate — default/near-default
+// or missing zones yield {}, leaving computeExecutionScore on its population bands. Pure + bounded.
+export function deriveIfBandOffsets(powerZonePct: number[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!Array.isArray(powerZonePct) || powerZonePct.length === 0) return out;
+  for (const [type, idx] of Object.entries(IF_ANCHOR_ZONE_INDEX) as [WorkoutType, number][]) {
+    const top = powerZonePct[idx];
+    const def = DEFAULT_POWER_ZONE_TOPS_PCT[idx];
+    if (typeof top !== "number" || !Number.isFinite(top)) continue;
+    const raw = (top - def) / 100;
+    if (Math.abs(raw) < IF_OFFSET_DEADBAND) continue; // within the deadband → no shift
+    out[type] = clamp(raw, -IF_OFFSET_CLAMP, IF_OFFSET_CLAMP);
+  }
+  return out;
 }

@@ -4,7 +4,7 @@
 // on intrinsic quality (decoupling, pacing) against an inferred type. Each entry records the
 // FTP it used so the immutable ledger never re-shifts when FTP later changes.
 
-import { computeExecutionScore, resolveCompliance } from "./execution-score";
+import { computeExecutionScore, resolveCompliance, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
 import type { ActivitySummary, BehaviourSummary, CurrentBlock, CurrentBlockDay, RideScoreEntry } from "./types";
 
@@ -27,9 +27,10 @@ export function buildRideScores(
   // execution-quality metric and the drift signal — there was no plan for them to be "off."
   // null = no block has ever existed, so every off-plan ride is legacy.
   offPlanFloor: string | null = null,
-  // Per-athlete calibration (ROADMAP #2): the resolved values to score against. Each new entry is
-  // stamped with what it used (frozen, like ftpUsed). Omitted → population defaults, no stamp.
-  calibration?: { decouplingGood?: number } | null
+  // Per-athlete calibration (ROADMAP #2): the resolved values to score against. The decoupling cutoff
+  // is stamped on each new entry (frozen, like ftpUsed); the IF-band offsets are applied but not yet
+  // stamped (past entries stay frozen via mergeScoreLog regardless). Omitted → population defaults.
+  calibration?: ScoringCalibration | null
 ): RideScoreEntry[] {
   // Prescribed sessions, by date (only days that actually plan a ride).
   const plannedByDate = new Map<string, CurrentBlockDay>();

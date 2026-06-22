@@ -3,6 +3,7 @@ import { Chakra_Petch, JetBrains_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import SyncNotice from "@/components/SyncNotice";
 import { SyncProvider } from "@/components/SyncProvider";
 import QueryProvider from "@/components/QueryProvider";
 
@@ -45,6 +46,7 @@ export default function RootLayout({
         <QueryProvider>
           <SyncProvider>
             <Nav />
+            <SyncNotice />
             {/* Reserve space for the fixed left rail on desktop; bottom bar on mobile */}
             <div className="sm:pl-44">
               {/* Mobile: clip horizontal overflow so a hover tooltip near the right edge (not even

@@ -112,8 +112,20 @@ function DarkToggle() {
 // Sync control, shared from SyncProvider so it can live in the nav (freeing page space).
 // `compact` is the mobile icon-only variant; the rail variant shows status + last-synced.
 function SyncControl({ compact }: { compact?: boolean }) {
-  const { state, syncing, syncError, analyzing, syncWarnings, doSync } = useSync();
+  const { state, syncing, syncError, loadError, analyzing, syncWarnings, doSync } = useSync();
   if (!state?.configured) return null;
+
+  // Persistent status hint on the button. The detail + Retry live in the dismissible SyncNotice
+  // banner; this dot keeps "last sync had an issue" visible afterwards — and gives mobile (the
+  // icon-only button) the indicator it never had. Hidden while syncing (the spinner is the signal).
+  const notice: "error" | "warn" | null = syncError || loadError ? "error" : syncWarnings.length ? "warn" : null;
+  const dotColor = notice === "error" ? "bg-red-500" : "bg-amber-500";
+  const title =
+    notice === "error"
+      ? "Last sync had a problem — click to retry"
+      : notice === "warn"
+        ? `Last sync finished with ${syncWarnings.length} warning${syncWarnings.length === 1 ? "" : "s"}`
+        : "Sync Intervals.icu";
 
   if (compact) {
     return (
@@ -121,10 +133,11 @@ function SyncControl({ compact }: { compact?: boolean }) {
         onClick={() => void doSync()}
         disabled={syncing}
         aria-label="Sync Intervals.icu"
-        title="Sync Intervals.icu"
-        className="rounded-md px-2 py-1.5 text-base text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        title={title}
+        className="relative rounded-md px-2 py-1.5 text-base text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
       >
         <span className={`inline-block ${syncing ? "animate-spin" : ""}`}>⟳</span>
+        {notice && !syncing && <span className={`absolute right-1 top-1 h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />}
       </button>
     );
   }
@@ -134,10 +147,12 @@ function SyncControl({ compact }: { compact?: boolean }) {
       <button
         onClick={() => void doSync()}
         disabled={syncing}
-        className="flex w-full items-center justify-center gap-2 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:border dark:border-[#ff49c8]/50 dark:bg-transparent dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/10"
+        title={title}
+        className="relative flex w-full items-center justify-center gap-2 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:border dark:border-[#ff49c8]/50 dark:bg-transparent dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/10"
       >
         <span className={`inline-block ${syncing ? "animate-spin" : ""}`}>⟳</span>
         {syncing ? "Syncing…" : "Sync"}
+        {notice && !syncing && <span className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />}
       </button>
       <p className="mt-1 text-center text-[10px] text-zinc-400 dark:text-zinc-500">
         {analyzing
@@ -146,14 +161,6 @@ function SyncControl({ compact }: { compact?: boolean }) {
             ? `synced ${timeAgo(state.lastSync.syncedAt)}`
             : "never synced"}
       </p>
-      {syncError && <p className="mt-0.5 text-center text-[10px] text-red-500">{syncError}</p>}
-      {syncWarnings.length > 0 && (
-        <ul className="mt-0.5 space-y-0.5">
-          {syncWarnings.map((w, i) => (
-            <li key={i} className="text-center text-[10px] text-amber-600 dark:text-amber-400">⚠ {w}</li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
