@@ -32,6 +32,7 @@ Before writing *any* code, you must internally clear these 4 logic gates. Do not
 - **Git & Repo Management**:
   - Keep commits small, atomic, and focused on the active `todo.md` item.
   - If instructed to pull or analyze external repositories, ALWAYS default to using the `git-shallow-clone` MCP tool to minimize token ingestion.
+  - **Concurrent Agents**: This working directory may be shared with another agent session working on NodeVelo at the same time (no per-session branches/worktrees — trunk-based, direct on `main`). If a build/lint/typecheck error surfaces in a file you did NOT edit this session, do not "fix" it. First run `git status --short <file>` — if it shows uncommitted/modified, that's almost certainly the other agent mid-edit, not a real regression. Wait ~30s and retry the check once; if it still fails after the retry, stop and report it to the user rather than silently patching someone else's in-flight code. When you do commit, stage only the exact files you personally touched (`git add <path>...`) — never `git add -A` / `git add .` — so you don't sweep up their WIP.
 - **Leverage Skills First**: Before writing custom bash scripts or complex logic, check if a relevant Claude Skill (from `awesome-claude-skills`, e.g., `systematic-debugging`, `test-driven-development`) is available in the environment to standardize the workflow.
 
 ## 5. Execution Rules
