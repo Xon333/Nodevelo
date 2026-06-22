@@ -14,7 +14,7 @@ export const GENERATION_MODEL = "claude-sonnet-4-6";
 // Bump whenever the generation/analysis prompt structure or rules change. Stamped (with the model
 // id) onto every AI-produced artifact — GeneratedPlan, TodayAnalysis, BlockHistoryEntry — so a past
 // output stays reproducible/auditable when the model or prompt later changes.
-export const PROMPT_VERSION = 2;
+export const PROMPT_VERSION = 3;
 // Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
 // session + the question, never deep history, so a small model is the right cost/latency call.
 export const QUICK_MODEL = "claude-haiku-4-5";
@@ -301,10 +301,10 @@ Hard rules:
 - **Interval protocols — match the knowledge base exactly:** SIT = 4–6 × 20–30s ALL-OUT efforts (maximal, 130–200% FTP) with 4 min easy recovery — never prescribe SIT as 1-minute or sub-130% efforts, and state the effort as "all-out / maximal" in the DESCRIPTION intent. VO2max = 3–8 min efforts at 106–120% FTP. Threshold = 88–105% FTP (sweet-spot 88–93%). Do not push a Threshold session above 105% or a VO2max session above 120%.
 - **RaceSim (KB §10) — a peaking/sharpening session, not a base-week one:** a structured-but-variable race rehearsal — 3–6 "race moves" (e.g. 2–4 min climbs at 100–115% with short 30–60s standing attacks layered on, 3–6 min easy between), optional finishing sprint; whole-session IF ~0.80–0.88. Use it in the back half of a build / event lead-in, as one of the week's quality sessions. Best fit for this athlete's hilly-KOM goals.
 - **Athlete-directed / terrain-flexible sessions (KB §11):** for outdoor quality you may prescribe a structured-but-flexible session instead of a fixed ladder — state target efforts as ranges (count · duration band · intensity band, e.g. "2–3 × ≥5 min @ threshold"), a placement rule ("on any sustained climb"), and a strict Z2 + HR-cap floor for the rest. Keep at least one fixed/ERG quality session per week as the controlled benchmark.
-- **Execution cues (DESCRIPTION "Execution" line — grounded in the KB + this athlete's weakpoints; one short clause, only when it genuinely helps):**
-  - **Long / endurance Z2 (esp. on hilly routes):** govern by the HR ceiling (top of Z2), not just watts — grey-zone drift is this athlete's known outdoor leak. On climbs let power drift up briefly but keep HR capped; ease on descents instead of surging (amateurs surge climbs and coast descents — the opposite of optimal).
-  - **SIT:** stay seated — standing recruits upper body and gives less consistent power for the 30s aerobic efforts. **Standing sprints** are a separate skill (KB): cue them only on dedicated neuromuscular / race-sprint work or RaceSim attacks (hands in drops, rock the bike under a quiet torso, bigger gear) — this athlete has flagged out-of-saddle technique as a weakpoint worth practising.
-  - **Rides with descents:** treat descents as deliberate practice for descending and cornering (known weakpoints) — work line choice and braking, not just recovery.
+- **Execution cues (DESCRIPTION "Execution" line — one short clause, only when it genuinely helps):** ground every cue in *this* athlete's listed weakpoints, their rider profile + auto-identified easy win (above), the session type, and the terrain — apply the principle, don't recite a fixed script for a rider it doesn't fit:
+  - **Pacing discipline:** when grey-zone / aerobic drift is a weakpoint, govern long endurance Z2 by the HR ceiling (top of Z2), not just watts — let power drift up briefly on climbs but keep HR capped, and ease on descents instead of surging (amateurs surge climbs and coast descents — the opposite of optimal).
+  - **Technique skills (only when a matching weakpoint or easy win exists):** turn the relevant terrain into deliberate practice — e.g. descents → line choice + braking when descending/cornering is flagged; the auto-identified easy win → one light weekly touch of that energy system, unless the goal points elsewhere.
+  - **Position by effort type:** SIT efforts stay seated (standing recruits upper body, less consistent power for the 30s aerobic efforts). **Standing sprints** are a separate skill (KB) — cue them only on dedicated neuromuscular / race-sprint work or RaceSim attacks (hands in drops, quiet torso, bigger gear), and only when out-of-saddle power is a flagged weakpoint.
   Omit the Execution line for Rest days and whenever no cue adds value; never repeat the Intent.
   Keep every cue as concise *inline* coaching (a clause the athlete acts on mid-ride) — **never**
   tell them to watch a video, read an article, or include any external link/URL.

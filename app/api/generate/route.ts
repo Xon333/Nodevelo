@@ -13,6 +13,7 @@ import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlo
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { formatReflectionsForPrompt } from "@/lib/retrospective-schema";
 import { formatQuirksForPrompt } from "@/lib/quirks";
+import { analyzePowerProfile, formatPowerProfileForPrompt } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
@@ -121,6 +122,13 @@ export async function POST(req: Request) {
     const reflectionsContext = formatReflectionsForPrompt(blockHistory[0]?.structuredReflections ?? []);
     const quirkContext = formatQuirksForPrompt(quirks.entries);
 
+    // Track A: classify the power-curve shape into a rider type + auto-derived weak point ("easy win"),
+    // injected as a hint that complements the manual weakpoints. Deterministic; the LLM only phrases it.
+    // All-time best efforts give the truest read of what this rider is built for.
+    const powerProfileContext = formatPowerProfileForPrompt(
+      analyzePowerProfile(sync?.powerCurveAllTime ?? sync?.powerCurve ?? [], profile.performance.ftp, latestWeight)
+    );
+
     // ONE synthesised coaching block: the athlete model's ranked insights (weak/under-
     // delivering/trending types, off-plan drift) folded together with each dimension's
     // validation track record — instead of three overlapping context blocks.
@@ -191,7 +199,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext,
+      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + powerProfileContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );

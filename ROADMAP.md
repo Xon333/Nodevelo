@@ -164,21 +164,26 @@ Translate the raw power curve into structured coaching — the distinct value ov
 TrainerRoad / TrainingPeaks. **Shares the power-profile read with #2's per-athlete IF bands — build
 the curve-shape analysis once.**
 
-- **Weak-Point Optimizer & rider-type ID.** Deterministically analyse the **shape** of the synced
-  power curve (ratios across 5s / 1min / 5min / 20min, plus W/kg) to:
-  - **Classify rider type** (sprinter / puncheur / TT / all-rounder) from the curve profile.
-  - **Flag the "easy win"** — the duration most depressed relative to the rider's own profile / type
-    norm — as an explicit micro-target for the next block.
-  - Surface both on Profile + feed them into generation **and the block review** (this absorbs the
-    "telemetry-graph ingestion" idea — the review reads the curve shape, not just compliance).
-  - Replaces today's **manual** weak points (`athlete_profile.md`) with an auto-derived layer; manual
-    stays as an override. Keep it **deterministic** — classification + easy-win in TypeScript, the
-    LLM only phrases it.
-- **Plan-cue generalization.** Execution cues in generation are grounded in weak points, but the
-  *examples* are hardcoded text (descending / cornering / standing sprints — this athlete's). Make
-  the cues derive from the athlete's actual weak points + goals (and, once the optimizer lands, the
-  auto-identified weak point), so they generalise to any rider instead of baking one athlete's
-  limiters into the prompt.
+- **Weak-Point Optimizer & rider-type ID — SHIPPED.** `lib/power-profile.ts` (`analyzePowerProfile`)
+  classifies the curve **shape** deterministically: each anchor (5s / 1min / 5min) is taken as a
+  multiple of FTP, divided by a population reference multiple → a per-system *relative strength*
+  (20 min ≈ FTP is the baseline, so bodyweight cancels — the read works without a weigh-in; W/kg is
+  display-only). Rider type = the dominant system (sprinter / puncheur / time-trialist / all-rounder);
+  the **"easy win"** = the most-depressed system vs the rider's own engine. Computed **on demand** (no
+  persisted store — a trivial pure transform of already-loaded curve + physiology FTP; avoids
+  staleness). Surfaced read-only on Profile (`AthleteProfileForm` "Rider profile" card) and injected
+  into generation as an auto-derived weak-point **hint alongside** the manual weakpoints
+  (`formatPowerProfileForPrompt`, not a replacement). LLM only phrases it.
+  - **Remaining:** the population reference multiples are the one magic-number block — fold into #2's
+    calibration framework. Also still to do: feed the profile into the **block review / retrospective**
+    (the "telemetry-graph ingestion" idea — review reads the curve shape, not just compliance), and
+    optionally persist a snapshot if rider-type-over-time is wanted.
+- **Plan-cue generalization — SHIPPED.** The hardcoded execution-cue examples (this athlete's
+  grey-zone drift / descending-cornering / out-of-saddle) in `buildUserMessage` (`lib/anthropic-api.ts`)
+  now state the **principle conditioned on the injected data** — pacing discipline *when* drift is a
+  weakpoint, technique practice *only when* a matching weakpoint/easy-win exists, position by effort
+  type — so cues derive from this athlete's weakpoints + rider profile/easy-win and generalise to any
+  rider. `PROMPT_VERSION` bumped 2→3.
 
 ### Track B — Session selection & prescription variety  ⭐ — SHIPPED
 Both sub-items shipped (full record in [ARCHIVE.md](ARCHIVE.md)); selection is now deterministic (the LLM only phrases the chosen prescription):

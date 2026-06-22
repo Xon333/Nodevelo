@@ -96,6 +96,38 @@ export interface PowerPR {
   prevWatts: number; // the previous best it beat
 }
 
+// ---------- Power profile (Track A — rider-type + weak-point, derived on demand) ----------
+// The shape of the power curve, classified deterministically. Computed on the fly from the synced
+// curve + physiology FTP (no persisted store — it's a trivial pure transform of already-loaded data,
+// so a derived file would only add staleness). The LLM phrases it; it never computes the type.
+
+export type RiderType = "sprinter" | "puncheur" | "time-trialist" | "all-rounder";
+
+// The four physiological systems the anchor durations map onto. Threshold (20 min ≈ FTP) is the
+// baseline the others are measured against, so it's never itself a strength or a weak point.
+export type PowerSystem = "neuromuscular" | "anaerobic" | "vo2max" | "threshold";
+
+export interface PowerSystemStrength {
+  system: PowerSystem;
+  durationSec: number;
+  watts: number;
+  wattsPerKg: number | null; // null when bodyweight is unknown — display only; classification ignores it
+  // The anchor's power as a multiple of FTP, divided by the population reference multiple for that
+  // duration. 1.0 = exactly as expected for this engine; >1 stronger, <1 a relative dip.
+  relativeStrength: number;
+}
+
+export interface PowerProfile {
+  riderType: RiderType;
+  systems: PowerSystemStrength[]; // neuromuscular / anaerobic / vo2max, ordered short→long (threshold omitted: it's the baseline)
+  // The single most-depressed system vs this rider's own engine — the "easy win" micro-target.
+  // null when nothing is meaningfully below expectation (a balanced curve).
+  easyWin: { system: PowerSystem; durationSec: number; relativeStrength: number } | null;
+  confident: boolean; // false when too few anchor durations are present to trust the read
+  ftp: number; // the FTP the ratios were normalised against (provenance)
+  basis: "all-time" | "84-day"; // which curve was analysed
+}
+
 export interface FitnessMetrics {
   ctl: number | null;
   atl: number | null;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readAthleteProfile, readLastSync, writeAthleteProfile } from "@/lib/data-store";
 import { parseAthleteMd } from "@/lib/kb-loader";
+import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
 import type { Zone } from "@/lib/zones";
@@ -72,6 +73,13 @@ export async function GET() {
     athleteMd,
     // Prefer all-time best efforts (true PRs); fall back to the 84-day curve if unavailable.
     syncedPowerCurve: sync?.powerCurveAllTime ?? sync?.powerCurve ?? [],
+    // Track A: rider-type + auto-derived weak point from the curve shape (deterministic; null when
+    // there's no FTP or too little curve to classify). The same analysis feeds generation.
+    powerProfile: analyzePowerProfile(
+      sync?.powerCurveAllTime ?? sync?.powerCurve ?? [],
+      physStore?.current.ftp ?? profile.performance.ftp,
+      weighIns[0]?.weightKg ?? null
+    ),
     weightHistory: (sync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .map((w) => ({ date: w.date, weightKg: w.weightKg as number }))

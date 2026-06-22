@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import type { PowerCurvePoint } from "@/lib/types";
+import type { PowerCurvePoint, PowerProfile, PowerSystem } from "@/lib/types";
 
 interface NutritionSettings {
   baseCalories: number;
@@ -49,6 +49,7 @@ interface ProfileResponse {
   autoSync: AutoSyncInfo;
   bufferStatus: BufferStatus;
   syncedPowerCurve: PowerCurvePoint[];
+  powerProfile: PowerProfile | null;
   latestWeightKg: number | null;
   weightHistory: WeightPoint[];
 }
@@ -58,6 +59,20 @@ type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; mess
 const POWER_CURVE_LABELS: Record<number, string> = {
   5: "5s", 15: "15s", 30: "30s", 60: "1 min",
   120: "2 min", 300: "5 min", 1200: "20 min", 1800: "30 min", 3600: "60 min",
+};
+
+// Track A — rider-profile display labels. The blurb mirrors the one fed to generation.
+const RIDER_TYPE_BLURB: Record<PowerProfile["riderType"], string> = {
+  sprinter: "Explosive short power; drops off over sustained efforts.",
+  puncheur: "Strong over 1–5 min surges relative to your engine.",
+  "time-trialist": "Flat curve — sustained power with little punch above threshold.",
+  "all-rounder": "Balanced across the power-duration curve.",
+};
+const SYSTEM_LABELS: Record<PowerSystem, string> = {
+  neuromuscular: "Sprint (5s)",
+  anaerobic: "Anaerobic (1 min)",
+  vo2max: "VO2max (5 min)",
+  threshold: "Threshold (20 min)",
 };
 
 // ---------- Shared helpers ----------
@@ -151,7 +166,7 @@ export default function AthleteProfileForm() {
   }
   if (!data) return <p className="py-12 text-center text-sm text-zinc-400">Loading…</p>;
 
-  const { athleteMd, autoSync, bufferStatus, syncedPowerCurve, latestWeightKg } = data;
+  const { athleteMd, autoSync, bufferStatus, syncedPowerCurve, powerProfile, latestWeightKg } = data;
 
   return (
     <div className="space-y-5">
@@ -235,6 +250,54 @@ export default function AthleteProfileForm() {
               </table>
             </div>
           )}
+        </Section>
+      )}
+
+      {/* Rider profile — auto-derived from the curve shape (Track A) */}
+      {powerProfile && powerProfile.confident && (
+        <Section title="Rider profile">
+          <p className="mb-3 text-[11px] text-zinc-400 dark:text-zinc-500">
+            auto-derived from your power-curve shape · a hint the coach plans around, not a fixed label
+          </p>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="rounded-full bg-cyan-50 px-2.5 py-0.5 text-sm font-semibold capitalize text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]">
+              {powerProfile.riderType}
+            </span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">{RIDER_TYPE_BLURB[powerProfile.riderType]}</span>
+          </div>
+          {powerProfile.easyWin && (
+            <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+              <span className="font-semibold">Easy win:</span> your {SYSTEM_LABELS[powerProfile.easyWin.system].toLowerCase()} power
+              is the most depressed relative to your own engine — a worthwhile micro-target.
+            </p>
+          )}
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {powerProfile.systems.map((s) => {
+              const pct = Math.round((s.relativeStrength - 1) * 100);
+              const strong = pct >= 6;
+              const weak = pct <= -6;
+              return (
+                <div key={s.system} className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{SYSTEM_LABELS[s.system]}</p>
+                  <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00d4ff]">{s.watts}W</p>
+                  {s.wattsPerKg !== null && (
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500">{s.wattsPerKg} W/kg</p>
+                  )}
+                  <p
+                    className={
+                      strong
+                        ? "mt-0.5 text-[11px] font-medium text-cyan-700 dark:text-[#00d4ff]"
+                        : weak
+                          ? "mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400"
+                          : "mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500"
+                    }
+                  >
+                    {pct > 0 ? "+" : ""}{pct}% vs expected
+                  </p>
+                </div>
+              );
+            })}
+          </div>
         </Section>
       )}
 
