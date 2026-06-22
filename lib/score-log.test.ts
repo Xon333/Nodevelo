@@ -86,6 +86,33 @@ describe("buildRideScores", () => {
     expect(buildRideScores(b, acts, ftp200, "2026-01-10", null, { decouplingGood: 6 })[0].calibration).toEqual({ decouplingGood: 6 });
     expect(buildRideScores(b, acts, ftp200, "2026-01-10")[0].calibration).toBeUndefined(); // pre-calibration entries
   });
+
+  it("freezes the per-type IF-band offset that scored a planned entry (ROADMAP #2)", () => {
+    const b = block([{ date: "2026-01-01", type: "Z2", durationMin: 60 }]);
+    const acts = [activity({ date: "2026-01-01", avgWatts: 135, normalizedPower: 138 })];
+    // The offset for THIS entry's type is frozen alongside the global decoupling cutoff.
+    expect(
+      buildRideScores(b, acts, ftp200, "2026-01-10", null, { decouplingGood: 6, ifBandOffsets: { Z2: 0.05 } })[0].calibration
+    ).toEqual({ decouplingGood: 6, ifBandOffset: 0.05 });
+    // Only the offset for the entry's own type is stamped — irrelevant types are dropped.
+    expect(
+      buildRideScores(b, acts, ftp200, "2026-01-10", null, { ifBandOffsets: { Threshold: 0.04 } })[0].calibration
+    ).toBeUndefined();
+    // A zero offset (within the deadband) is not stamped.
+    expect(
+      buildRideScores(b, acts, ftp200, "2026-01-10", null, { ifBandOffsets: { Z2: 0 } })[0].calibration
+    ).toBeUndefined();
+  });
+
+  it("does not stamp an IF offset on off-plan rides (intensity-vs-type is skipped there)", () => {
+    // No planned day for this date → off-plan, scored intrinsically, so no IF offset applies to it.
+    const acts = [activity({ date: "2026-01-05", avgWatts: 135, normalizedPower: 138 })];
+    const entry = buildRideScores(null, acts, ftp200, "2026-01-10", "2026-01-01", {
+      decouplingGood: 6,
+      ifBandOffsets: { Z2: 0.05 },
+    })[0];
+    expect(entry.calibration).toEqual({ decouplingGood: 6 }); // offset omitted — it never moved this score
+  });
 });
 
 describe("mergeScoreLog", () => {

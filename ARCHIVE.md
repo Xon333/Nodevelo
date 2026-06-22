@@ -46,8 +46,17 @@ The keystone framework + its first calibrated parameter. Three commits; tests gr
   route to **both** the ledger re-score and today scoring; `execution-score.ts` gained a
   `ScoringCalibration { decouplingGood?, ifBandOffsets? }` type, `o = calibration?.ifBandOffsets?.[type] ?? 0`.
   Pure + deterministic + tested (offset derivation + the IF-branch shift in isolation). _Slivers left
-  in ROADMAP #2:_ stamp the offset on ledger entries (only decoupling is stamped today); surface on
-  Settings (derived live from zones, not yet in `CalibrationStore`); anchor RaceSim.
+  in ROADMAP #2:_ surface on Settings (derived live from zones, not yet in `CalibrationStore`); anchor RaceSim.
+
+- **IF offset frozen onto ledger entries (provenance, ROADMAP #2 sliver).** `buildRideScores` now stamps
+  the per-type IF-band offset that actually scored an entry alongside the decoupling cutoff, via the new
+  exported `calStampFor(calibration, scoringType, intrinsic)` helper — replacing the single global
+  `calStamp`. Only **planned** entries carry an offset (off-plan rides skip the intensity-vs-type branch,
+  so none applied); a zero/deadband offset or an irrelevant type is omitted, so uncalibrated/default-zoned
+  entries stay key-free (byte-identical). `RideScoreEntry.calibration` widened to
+  `{ decouplingGood?; ifBandOffset? }` (both independently optional — backward-compatible with stored
+  entries). The sync route's live-today re-score reuses `calStampFor` so today's entry stamps the same
+  shape. Tested (planned stamp, type-scoping, deadband, off-plan omission); full suite green.
 
 ---
 

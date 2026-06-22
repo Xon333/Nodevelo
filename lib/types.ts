@@ -390,8 +390,10 @@ export interface RideScoreEntry {
   tss: number | null;
   // The per-athlete calibration this entry was scored against (ROADMAP #2) — frozen alongside ftpUsed
   // so the immutable ledger stays reproducible. Absent on entries scored before calibration shipped
-  // (those used population defaults).
-  calibration?: { decouplingGood: number };
+  // (those used population defaults). `decouplingGood` is the global drift cutoff; `ifBandOffset` is
+  // the per-type IF-band shift that scored THIS entry (planned rides only — off-plan rides skip the
+  // intensity-vs-type branch). Each field is independently optional — only what actually applied is stamped.
+  calibration?: { decouplingGood?: number; ifBandOffset?: number };
 }
 
 // ---------- Athlete model (the learning "second brain") ----------

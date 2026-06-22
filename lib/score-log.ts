@@ -17,6 +17,26 @@ function isRide(a: ActivitySummary): boolean {
   return a.type === "Ride" || a.type === "VirtualRide";
 }
 
+// Freeze the calibration that actually scored THIS entry (ROADMAP #2). `decouplingGood` is global;
+// the IF-band offset is per-type and only moves planned (non-intrinsic) entries — off-plan rides skip
+// the intensity-vs-type branch, so no offset applies and none is stamped. A spread-ready `{}` when
+// nothing applied keeps uncalibrated entries free of a `calibration` key (byte-identical to before).
+// Exported so the sync route's live-today re-score stamps the same shape (planned → pass the type).
+export function calStampFor(
+  calibration: ScoringCalibration | null | undefined,
+  scoringType: string | null,
+  intrinsic: boolean
+): { calibration: { decouplingGood?: number; ifBandOffset?: number } } | Record<string, never> {
+  const stamp: { decouplingGood?: number; ifBandOffset?: number } = {};
+  const g = calibration?.decouplingGood;
+  if (g != null && Number.isFinite(g)) stamp.decouplingGood = g;
+  if (!intrinsic && scoringType) {
+    const o = calibration?.ifBandOffsets?.[scoringType];
+    if (o != null && Number.isFinite(o) && o !== 0) stamp.ifBandOffset = o;
+  }
+  return Object.keys(stamp).length > 0 ? { calibration: stamp } : {};
+}
+
 export function buildRideScores(
   block: CurrentBlock | null,
   activities: ActivitySummary[],
@@ -28,19 +48,14 @@ export function buildRideScores(
   // null = no block has ever existed, so every off-plan ride is legacy.
   offPlanFloor: string | null = null,
   // Per-athlete calibration (ROADMAP #2): the resolved values to score against. The decoupling cutoff
-  // is stamped on each new entry (frozen, like ftpUsed); the IF-band offsets are applied but not yet
-  // stamped (past entries stay frozen via mergeScoreLog regardless). Omitted → population defaults.
+  // AND the per-type IF-band offset that actually scored an entry are both frozen onto it (like ftpUsed),
+  // so the immutable ledger stays reproducible (past entries stay frozen via mergeScoreLog regardless).
+  // Omitted → population defaults.
   calibration?: ScoringCalibration | null
 ): RideScoreEntry[] {
   // Prescribed sessions, by date (only days that actually plan a ride).
   const plannedByDate = new Map<string, CurrentBlockDay>();
   if (block) for (const d of block.days) if (d.durationMin > 0) plannedByDate.set(d.date, d);
-
-  // The calibration stamp frozen onto every entry scored this run (absent when uncalibrated).
-  const calStamp =
-    calibration?.decouplingGood != null && Number.isFinite(calibration.decouplingGood)
-      ? { calibration: { decouplingGood: calibration.decouplingGood } }
-      : {};
 
   // One entry per date; if a date has two rides, keep the longer (the key session).
   const byDate = new Map<string, RideScoreEntry>();
@@ -88,7 +103,7 @@ export function buildRideScores(
           ftpUsed: ftp,
           durationMin: actualMin,
           tss: act.trainingLoad,
-          ...calStamp,
+          ...calStampFor(calibration, planned.type, false),
         };
       }
     } else {
@@ -119,7 +134,7 @@ export function buildRideScores(
           ftpUsed: ftp,
           durationMin: actualMin,
           tss: act.trainingLoad,
-          ...calStamp,
+          ...calStampFor(calibration, inferredType, true),
         };
       }
     }

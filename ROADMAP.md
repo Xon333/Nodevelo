@@ -19,9 +19,9 @@ record is in [ARCHIVE.md](ARCHIVE.md). Ordered roughly by leverage. `← X` = bl
 `parameterise → derive-with-fallback → stamp` machinery:
 - **Per-type IF cutoffs** — *shipped (ARCHIVE).* `deriveIfBandOffsets` shifts the IF-vs-type bands to
   the athlete's own power-zone %FTP edges, bounded + 0 for default zones (byte-identical scoring),
-  threaded through `resolvedCal` to both ledger + today scoring. _Open slivers:_ stamp the offset on
-  ledger entries (only decoupling is stamped today); surface on Settings (derived live from zones, not
-  yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
+  threaded through `resolvedCal` to both ledger + today scoring; the per-type offset is now also
+  **stamped onto each ledger entry** for provenance (ARCHIVE). _Open slivers:_ surface on Settings
+  (derived live from zones, not yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
 - **Fold in the CR-11 constants** (population fallback, opportunistic): morning-check strain bands +
   TSB-deep cutoff; `resolveTsbModifier` edges (the TSB adaptation window `← #1`); durability `88%`
   floor + `≤122%/≤20m` insert envelope; athlete-state fusion weights (§5).

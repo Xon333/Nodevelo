@@ -36,7 +36,7 @@ import { DEFAULT_DECOUPLING_GOOD } from "@/lib/execution-score";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { backfillLedgerEntries } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
-import { buildRideScores, mergeScoreLog } from "@/lib/score-log";
+import { buildRideScores, calStampFor, mergeScoreLog } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveCalibratedValue } from "@/lib/calibration";
@@ -342,7 +342,14 @@ export async function POST(req: Request) {
               await updateScoreLog((entries) =>
                 entries.map((e) =>
                   e.date === today && !e.legacy
-                    ? { ...e, executionScore, compliancePct: resolvedCompliancePct, calibration: { decouplingGood: resolvedCal.decouplingGood } }
+                    ? {
+                        ...e,
+                        executionScore,
+                        compliancePct: resolvedCompliancePct,
+                        // Re-stamp with the current calibration (this entry may be a stale prior one) —
+                        // including the per-type IF offset for a planned day. Off-plan → decouplingGood only.
+                        ...calStampFor(resolvedCal, e.planned ? e.plannedType : null, !e.planned),
+                      }
                     : e
                 )
               );
