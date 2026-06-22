@@ -12,6 +12,32 @@ exact commits.
 
 ---
 
+## Per-athlete calibration framework — first pass (ROADMAP #2)
+
+The keystone framework + its first calibrated parameter. Three commits; tests grew to 333.
+
+- **The framework (Phase 0).** `lib/calibration.ts` promoted beyond α/ACWR into a uniform
+  `CalibratedParameter { value, source, confidence, dataPoints, lastUpdated, locked, manualOverride }`
+  (`lib/types.ts`) + `CalibrationStore`. `resolveCalibratedValue` resolves the effective value
+  (precedence: manual override > trusted-derived [locked or ≥ medium confidence] > population default;
+  never returns NaN); `confidenceFromN` is the sample-size confidence/lock layer (the additive
+  uncertainty model Track D deferred into #2 — built once here). `data/calibration.json` is a derived
+  store (`readCalibration`/`writeCalibration`, no backup, like rolling-baselines).
+- **Decoupling "good" cutoff (Phase 1).** `deriveDecouplingGood` turns `rolling-baselines.avgDecoupling90d`
+  (clamped 2.5–8, sample-size confidence) into the band's "good" cutoff, preserving a manual override and
+  freezing once locked. `computeExecutionScore` takes optional `calibration.decouplingGood` and scales the
+  decoupling bands off it — at the default G=4 the cutoffs are exactly `[2,4,7,10]`, so an uncalibrated
+  score is byte-identical (no silent ledger regime split).
+- **Immutable-ledger stamping.** `RideScoreEntry.calibration` freezes the values each entry was scored
+  against (like `ftpUsed`; absent on pre-calibration entries). `buildRideScores` + the sync POST's
+  interval-aware re-score both stamp it; a calibration change only affects new entries.
+- **Wiring + UI.** Sync POST derives → writes → resolves → scores+stamps; GET returns `calibration` on
+  `AppState`; read-only `CalibrationPanel` on Settings shows the effective value + provenance
+  (default / learning / calibrated). Until a sync derives a confident value, everything resolves to the
+  population default — a fresh athlete scores exactly as before.
+
+---
+
 ## Code-review hardening pass (CR-1..16)
 
 A self-review of the §5/#1/#3/Track B work, worked as a gated pre-feature pass. All 16 items resolved.

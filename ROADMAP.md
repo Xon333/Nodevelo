@@ -51,40 +51,37 @@ edges, per-athlete calibration via #2. The LLM phrases it; the band + decision s
 > confidently diagnose under-recovery/under-fuelling or prescribe a skip off one compromised data
 > point. Ask/condition, don't assert. (Threading `disposition` into the snapshot is what closes this.)
 
-### 2. Per-athlete calibration framework  ⭐ (the keystone — several tracks derive params into it)
-The execution score (`lib/execution-score.ts`) still uses **population magic numbers**:
-- Per-type intensity-appropriateness IF bands (e.g. Z2 rewards IF 0.60–0.74, Threshold 0.82–0.92).
-- Decoupling bands (`< 2%` great … `> 10%` poor) and the ± weightings.
+### 2. Per-athlete calibration framework  ⭐ — framework + first parameter SHIPPED (the keystone — several tracks derive params into it)
+**Framework + first parameter SHIPPED** (full record in [ARCHIVE.md](ARCHIVE.md)). `lib/calibration.ts`
+is now a uniform per-parameter record — `CalibratedParameter { value, source, confidence, dataPoints,
+lastUpdated, locked, manualOverride }` + `resolveCalibratedValue` (precedence: manual override > trusted
+derived > population default) + a sample-size `confidence`/`lock` layer (the additive uncertainty model
+Track D deferred into #2 — built once here). Persisted in `data/calibration.json` (derived store),
+surfaced read-only on Settings (`CalibrationPanel`). **First parameter live: the decoupling "good"
+cutoff**, auto-derived from `rolling-baselines.avgDecoupling90d` and threaded into `computeExecutionScore`
+(the bands recenter on the athlete's own drift; byte-identical at the population default). The frozen
+scoring core / immutable-ledger problem is solved by **stamping the calibration each score entry used**
+(frozen like `ftpUsed`) — so a calibration change only affects new entries, never the past. (`α` + ACWR
+bands keep their existing hybrid auto/override path.)
 
-Make them personal via `lib/calibration.ts` (the hybrid auto + manual pattern used for α / ACWR):
-- **IF bands → derive from `physiology.json` power zones** (the athlete's %FTP zone edges *are*
-  their personal IF cutoffs).
-- **Decoupling "good" threshold → from `rolling-baselines.avgDecoupling90d`**, not a fixed 4%.
-- Extend `AthleteCalibration` (`decouplingGood` + per-type IF bands); thread into `computeExecutionScore`.
-- **Caution:** touches the frozen scoring core. Immutable ledger means changes only affect *new*
-  entries. Needs careful tests + a manual-override hook; auto-derive with population fallback.
-
-**Generalise into one calibration framework (absorbs the external "per-athlete threshold learning"
-spec + the confidence-weighted-modeling sub-item below).** Today `lib/calibration.ts` only holds α +
-ACWR bands. Promote it to a uniform per-parameter record so every learned value carries its own
-provenance and a guard against chasing noise:
-`{ current_value, confidence (sample-size/variance), data_points_count, last_updated, lock_threshold,
-manual_override? }` — auto-derive once enough data, then **lock** and require manual override.
-Parameters to bring under it: **per-type IF cutoffs** (from `physiology.json` zones — the power-curve
-read is shared with Track A), **decoupling / Pw:HR "good" threshold** (from `avgDecoupling90d`),
-**ACWR band** (narrow if load-tolerant, widen if fragile), **EWMA α / fitness-decay rate** (lengthen
-if the athlete retains fitness, shorten if rapid decay), **TSB adaptation window** (the range that
-actually produced adaptation — consumed by #1), and **optimal carbs g/h per ride type** (owned by
-Track C). The `confidence` + `lock_threshold` layer is the additive uncertainty model the
-second-brain item (Track D) also calls for — build it once here, not twice.
-
-**Population magic-numbers added by recent features (CR-11) — fold these in too, don't keep scattering
-more:** the morning-check **strain bands** (`STRAIN_HIGH=15`, `STRAIN_MED=12`) + **TSB-deep cutoff**
-(`-25`) in `lib/morning-check.ts`; the **TSB-modifier band edges** in `lib/coach-snapshot.ts`
-(`resolveTsbModifier`); the **durability limiter→template map** + the **embedded-intensity floor**
-(`88%`, `lib/prescription.ts`/`lib/durability.ts`); and the **durability-insert envelope** (`≤122%`,
-`≤20 min`, `lib/workout-validate.ts`). All are uncalibrated population defaults today — each new
-deterministic feature adds a few, so #2 should absorb them rather than let them drift per-module.
+**Remaining — bring more parameters under the framework** (the old Phase 2 *IF-bands* + Phase 3
+*scattered-constants*, combined: they're the same `parameterise → derive-with-fallback → stamp` move now
+that the machinery exists):
+- **Per-type IF cutoffs** — derive from `physiology.json` power-zone %FTP edges (shared power-curve read
+  with Track A) and thread into the `computeExecutionScore` `switch (plannedType)`. The largest remaining
+  scoring-core change; each new entry stamps the bands it used.
+- **Fold in the recent population magic-numbers (CR-11)** as calibrated parameters with population
+  fallback, opportunistically as each proves worth calibrating: morning-check **strain bands**
+  (`STRAIN_HIGH=15`/`STRAIN_MED=12`) + **TSB-deep cutoff** (`-25`, `lib/morning-check.ts`); the
+  **TSB-modifier band edges** (`resolveTsbModifier`, `lib/coach-snapshot.ts` — the **TSB adaptation
+  window** #1 consumes); the **durability limiter→template map** + **embedded-intensity floor** (`88%`,
+  `lib/prescription.ts`/`lib/durability.ts`); the **durability-insert envelope** (`≤122%`/`≤20 min`,
+  `lib/workout-validate.ts`); and the athlete-state **fusion weights** (§5).
+- **Owned elsewhere:** **optimal carbs g/h per ride type** → Track C; **ACWR band** narrow/widen +
+  **EWMA α / fitness-decay** stay on their current path (promote onto the full record if/when worth it).
+- **The pattern is set** (follow it for each): population default = today's literal value, derive from the
+  athlete's own data with confidence-gated fallback, stamp it onto any immutable-ledger entry it scores,
+  and prove with a test that a fresh athlete scores identically to the population default.
 
 **Two execution-accuracy gaps surfaced in real use (route here — they touch the scoring core):**
 - **Z2 "dialed-in" is overstated.** Z2 execution scores on avg IF + decoupling, *not time above
