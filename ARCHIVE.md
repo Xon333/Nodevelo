@@ -35,6 +35,66 @@ The keystone framework + its first calibrated parameter. Three commits; tests gr
   `AppState`; read-only `CalibrationPanel` on Settings shows the effective value + provenance
   (default / learning / calibrated). Until a sync derives a confident value, everything resolves to the
   population default — a fresh athlete scores exactly as before.
+- **Per-type IF cutoffs (second parameter under the framework).** `deriveIfBandOffsets(powerZonePct)`
+  (`lib/calibration.ts`) shifts the `computeExecutionScore` `switch (plannedType)` IF bands to the
+  athlete's OWN power-zone %FTP edges — Recovery/Z2/Threshold/VO2max/SIT anchored to their zone top
+  (Z1/Z2/Z4/Z5/Z6), RaceSim deliberately left on population constants (no single anchoring edge). The
+  per-type shift is a bounded FTP-fraction offset (±0.08 clamp, 0.02 deadband) added to every band edge
+  in the IF branch; `DEFAULT_POWER_ZONE_TOPS_PCT = [55,75,90,105,120,150]` (Coggan/Intervals defaults)
+  yields `{}` → **byte-identical scoring for a default-zoned athlete** (the regression net: the existing
+  execution-score suite stays green unchanged). Threaded through `resolvedCal.ifBandOffsets` in the sync
+  route to **both** the ledger re-score and today scoring; `execution-score.ts` gained a
+  `ScoringCalibration { decouplingGood?, ifBandOffsets? }` type, `o = calibration?.ifBandOffsets?.[type] ?? 0`.
+  Pure + deterministic + tested (offset derivation + the IF-branch shift in isolation). _Slivers left
+  in ROADMAP #2:_ stamp the offset on ledger entries (only decoupling is stamped today); surface on
+  Settings (derived live from zones, not yet in `CalibrationStore`); anchor RaceSim.
+
+---
+
+## Code-review hardening sweep (CR-A..H)
+
+A "senior dev who hates this implementation" pass over the whole repo, 2026-06-22 — eight findings,
+each shipped as its own atomic commit with tests. Suite grew 333 → 394. Deferred sub-items (real but
+lower-leverage) are routed to ROADMAP; the design-judgment calls live there too.
+
+- **CR-A — transactional ledger writes.** `json-store` serialized byte-*writes*, not read-modify-write,
+  so a concurrent `/api/sync` + `/api/disposition` each doing `read→mutate→write` on `score-log.json`
+  could lose an update. Added `updateJsonFile<T>(file, fallback, mutate)` (reads INSIDE the per-file
+  lock via the generalized `withFileLock`) + `updateScoreLog`/`updateDispositions` helpers; wired both
+  sync score-log writes and both disposition writes through them. (Other ledger touchers are read-only.)
+  `lib/json-store.ts`, `lib/data-store.ts`, `app/api/disposition/route.ts`.
+- **CR-B — external-fetch timeouts.** `AbortSignal.timeout(20s)` on `icuFetch` (abort/network → typed
+  `IntervalsApiError`), `timeout:240s` + `maxRetries:2` on the Anthropic client, `maxDuration=120` on
+  `/api/sync`. New `intervals-api.test.ts`. `lib/intervals-api.ts`, `lib/anthropic-api.ts`.
+- **CR-C — refuse a destructive empty sync.** `isSuspectEmptySync(prev, fresh)` (pure, tested): a sync
+  with no activities AND no wellness when the prior had data returns 502 instead of overwriting
+  `last-sync.json` + resetting baselines from `[]`. _Deferred → ROADMAP P8:_ persistent sub-step
+  failures deserve real observability, not a recurring toast. `lib/intervals-api.ts`, `app/api/sync/route.ts`.
+- **CR-D — same-origin API guard.** Next 16 `proxy.ts` (the renamed middleware) matching `/api/:path*`,
+  backed by unit-tested `lib/csrf.ts` `isForbiddenCrossSiteWrite` (state-changing methods need a
+  same-origin `Origin`; safe methods + non-browser clients exempt). Verified live: cross-site POST →
+  403 before the handler, same-origin POST passes. Closes the drive-by `/api/import` hole. NEW `proxy.ts`, `lib/csrf.ts`.
+- **CR-E — immutability contradictions fixed.** `deriveDecouplingGood` no longer auto-locks at n≥20 —
+  it re-derives from the 90-day rolling mean every sync (input is already recency-windowed; a season of
+  getting fitter must move the cutoff), confidence gate still guards noise, last-known-good kept across
+  an empty window. `mergeScoreLog` comment now states the real contract (past frozen, today re-derived
+  live). `lib/calibration.ts`, `lib/score-log.ts`.
+- **CR-F — enforce the AI's nutrition numbers.** `validateNutrition` recomputes each day's daily-intake
+  kcal from the same deterministic formula the reference table is built from, parses the figure the
+  model wrote, flags a material deviation (generous tolerance). Wired into `/api/generate`. _Deferred →
+  ROADMAP Track C:_ per-carb (pre/in/post) checks — shared free-text line makes which-number-is-which
+  parsing ambiguous. NEW `lib/nutrition-validate.ts`.
+- **CR-G — decompose the sync god-route + first mutating-route test (worktree).** Extracted the
+  today-ride pure logic into `lib/ride-analysis.ts` (`computeRideMetrics`, `computeAdvisedIntake`,
+  `buildTodayAnalysis`) and the ledger schema migration into `lib/sync-ledger.ts` (`backfillLedgerEntries`);
+  the route now does I/O + calls the tested pure builders (~130 lines lighter). Added
+  `app/api/disposition/route.test.ts` — first coverage for a mutating route (the CR-A transactional path).
+  _Deferred → ROADMAP:_ full step-by-step pipeline split + component tests. NEW `lib/ride-analysis.ts`, `lib/sync-ledger.ts`.
+- **CR-H — edge cases (H1 shipped, rest triaged).** `resolveAllTimeCurve` merges fresh + prior all-time
+  taking max-per-duration so the all-time power curve stays monotonic on a missing/partial/regressed
+  fetch (84-day curve only as a first-sync last resort) — PR detection can't false-drop. The other three
+  (physiologyAsOf re-sort cost, dual weight-trend display, HR bpm-vs-%LTHR heuristic) triaged as
+  not-a-bug / not-worth-the-risk, documented. `lib/intervals-api.ts`.
 
 ---
 
