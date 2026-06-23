@@ -18,8 +18,6 @@ leverage. `← X` = blocked-on / derives-from; numeric IDs (#1–4, §5–7) are
 Bring more parameters under the same `parameterise → derive-with-fallback → stamp` machinery.
 - **Per-type IF cutoffs — open slivers:** surface the offsets on Settings (derived live from zones, not
   yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
-- **Fold in the CR-11 constants** (population fallback, opportunistic): morning-check strain bands +
-  TSB-deep cutoff; durability `88%` floor + `≤122%/≤20m` insert envelope; athlete-state fusion weights (§5).
 - **Context-stamp the ledger → unlock honest auto-derivation** ⭐ (the data play that turns the
   override-only edges into *learned* ones). Several parameters could only be manually overridden because
   the ledger recorded the *value* an entry scored against but not the athlete-state **context** at that

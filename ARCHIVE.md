@@ -135,6 +135,31 @@ The keystone framework + its first calibrated parameter. Three commits; tests gr
     `calibration.ts`, `readiness.ts`, `score-log.ts` now import them instead of re-defining. Tested. Full
     suite green (839 + stats).
 
+### Population-fallback fold-in — strain bands, durability envelope, fusion weights (ROADMAP #2/§5)
+
+Three scattered groups of "magic numbers" brought under the same `resolve-with-fallback` machinery as the
+ACWR/TSB-edge bands — population fallback, manually overridable via `BlockSettings`, **no** derivation
+(no honest per-athlete signal exists yet). Each consumer takes the resolved value as an optional param
+defaulting to the population default, so an absent override behaves byte-identically. Two commits; tests
+grew to 462.
+
+- **Morning-check strain bands + TSB-deep cutoff.** `StrainBands` (`high`=15/`med`=12) +
+  `resolveStrainBands` in `calibration.ts`; `decideMorningCheck` takes the resolved bands. The TSB-deep
+  cutoff dropped its duplicate `-25` literal and now routes through the existing
+  `resolveTsbModifierEdges().deepFatigue` (one source for the edge). Wired via the morning-check route.
+- **Durability-insert envelope.** `DurabilityInsertEnvelope` (88% floor, ≤122% / ≤20 min) +
+  `resolveDurabilityInsertEnvelope`; dedups `EMBEDDED_HARD_PCT` (was defined twice — `prescription.ts`
+  + `workout-validate.ts`). `validateWorkoutProtocol` / `validatePlanProtocol` / `carriesEmbeddedIntensity`
+  take the resolved value; wired via the generate route.
+- **Athlete-state fusion weights.** `athlete-state.ts`'s private `const C` promoted to
+  `DEFAULT_ATHLETE_STATE_WEIGHTS` + `resolveAthleteStateWeights` (recursive finite-leaf deep-merge, never
+  mutates the default) + a shared `DeepPartial` helper. `computeAthleteState(i, weights = DEFAULT)` —
+  evaluators are now pure fns of `(inputs, weights)`. Threaded through `resolveCoachSignals` +
+  `CoachSnapshotSources` and every snapshot site (sync GET + POST, `/api/ask`, generate).
+- **Overrides** live on `BlockSettings` (`strainBands` / `durabilityInsertEnvelope` /
+  `athleteStateWeights`), alongside the existing `acwrBands` / `tsbModifierEdges`. Per-athlete
+  *derivation* of any of these stays future work (← #2's shared correlation engine).
+
 ---
 
 ## Scoring-core — Z2 "dialed-in" discipline signal
