@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { readCurrentBlock, readLastSync, readMorningChecks, readTodayAnalysis, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
+import { readBlockSettings, readCurrentBlock, readLastSync, readMorningChecks, readTodayAnalysis, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
+import { resolveStrainBands, resolveTsbModifierEdges } from "@/lib/calibration";
 import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, type MorningCheckAnswers } from "@/lib/morning-check";
 import { applyEasyCap, applyProactiveReschedule, suggestProactiveReschedule } from "@/lib/reschedule";
 import { computeAcwr, computeReadiness } from "@/lib/readiness";
@@ -56,16 +57,23 @@ export async function POST(req: Request) {
   if (typeof answers === "string") return NextResponse.json({ error: answers }, { status: 400 });
 
   const date = resolveToday(b.today);
-  const [block, sync] = await Promise.all([readCurrentBlock(), readLastSync()]);
+  const [block, sync, settings] = await Promise.all([readCurrentBlock(), readLastSync(), readBlockSettings()]);
   const todayDay = block?.days.find((d) => d.date === date) ?? null;
   const isQualityDay = !!todayDay && todayDay.durationMin > 0 && QUALITY.has(todayDay.type);
 
-  const { decision, strain, reasons } = decideMorningCheck(answers, {
-    isQualityDay,
-    tsb: sync?.fitness.tsb ?? null,
-    readiness: sync ? computeReadiness(sync.fitness, sync.wellness)?.level ?? null : null,
-    acwr: sync ? computeAcwr(sync.activities)?.level ?? null : null,
-  });
+  const { decision, strain, reasons } = decideMorningCheck(
+    answers,
+    {
+      isQualityDay,
+      tsb: sync?.fitness.tsb ?? null,
+      readiness: sync ? computeReadiness(sync.fitness, sync.wellness)?.level ?? null : null,
+      acwr: sync ? computeAcwr(sync.activities)?.level ?? null : null,
+    },
+    {
+      strainBands: resolveStrainBands(settings.strainBands),
+      tsbDeepEdge: resolveTsbModifierEdges(settings.tsbModifierEdges).deepFatigue,
+    }
+  );
 
   const entry: MorningCheckEntry = { date, ...answers, strain, decision, setAt: new Date().toISOString() };
   const log = await readMorningChecks();

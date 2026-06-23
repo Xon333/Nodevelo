@@ -3,6 +3,7 @@
 // against. Only deliberate efforts (≥ sweet-spot) are kept; warmups, recovery valves
 // and endurance steps are ignored, so an endurance ride yields an empty prescription.
 
+import { DEFAULT_DURABILITY_INSERT_ENVELOPE } from "./calibration";
 import type { PrescribedInterval } from "./types";
 
 const WORK_THRESHOLD_PCT = 80;
@@ -30,17 +31,23 @@ function parseStep(line: string): { durationSec: number; pct: number } | null {
 }
 
 // Threshold-and-above work, distinctly past sweet-spot/tempo — what a durability template embeds
-// (B threshold, C VO2) inside an otherwise-easy ride. 88% is the threshold floor.
-const EMBEDDED_HARD_PCT = 88;
+// (B threshold, C VO2) inside an otherwise-easy ride. The %FTP floor is the calibration-framework
+// durability-insert envelope's `embeddedHardPct` (population default 88%); EMBEDDED_MIN_SEC is the
+// separate "meaningful dose" threshold.
 const EMBEDDED_MIN_SEC = 5 * 60;
 
 // True when a ride carries a meaningful dose of threshold-or-harder work — e.g. a durability Z2 ride
 // with late threshold/VO2 efforts. Lets the spacing + protocol checks stop treating such a ride as
-// "easy". Sweet-spot/tempo steady rides (80–87%) and pure endurance don't trip it.
-export function carriesEmbeddedIntensity(workoutText: string | undefined, ftp: number): boolean {
+// "easy". Sweet-spot/tempo steady rides (80–87%) and pure endurance don't trip it. `embeddedHardPct`
+// defaults to the population floor; pass the athlete's resolved envelope edge to personalise it.
+export function carriesEmbeddedIntensity(
+  workoutText: string | undefined,
+  ftp: number,
+  embeddedHardPct: number = DEFAULT_DURABILITY_INSERT_ENVELOPE.embeddedHardPct
+): boolean {
   if (!workoutText) return false;
   const hardSec = parsePrescription(workoutText, ftp)
-    .filter((w) => w.targetPctFtp >= EMBEDDED_HARD_PCT)
+    .filter((w) => w.targetPctFtp >= embeddedHardPct)
     .reduce((sum, w) => sum + w.reps * w.durationSec, 0);
   return hardSec >= EMBEDDED_MIN_SEC;
 }

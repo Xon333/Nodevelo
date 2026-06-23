@@ -87,6 +87,69 @@ export function isTsbModifierEdgesOverridden(override?: Partial<TsbModifierEdges
   );
 }
 
+// ---------- Morning-check strain bands (ROADMAP #2 — population-fallback fold-in) ----------
+// The subjective-strain thresholds decideMorningCheck downgrades a quality day against. Like the ACWR
+// and TSB-edge bands above — and unlike the decoupling cutoff — no honest per-athlete derivation exists
+// (we lack a labelled "this strain wrecked the session" signal), so they stay population-validated
+// defaults with a manual override, under the same resolve-with-fallback machinery. Strain is the 4
+// (fresh) … 20 (wrecked) score from morning-check's strainScore.
+export interface StrainBands {
+  high: number; // strain ≥ this → downgrade on its own
+  med: number; // strain ≥ this → downgrade only when the objective signals agree
+}
+
+// Population defaults — the literal edges decideMorningCheck shipped with, so an un-overridden athlete
+// is decided byte-identically.
+export const DEFAULT_STRAIN_BANDS: StrainBands = { high: 15, med: 12 };
+
+export function resolveStrainBands(override?: Partial<StrainBands> | null): StrainBands {
+  const o = override ?? {};
+  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  // Both edges live inside strain's 4–20 range; keep high ≥ med so a bad override can't make the
+  // "downgrade only with corroboration" band outrank the "downgrade outright" band.
+  const high = clamp(pick(o.high, DEFAULT_STRAIN_BANDS.high), 5, 20);
+  let med = clamp(pick(o.med, DEFAULT_STRAIN_BANDS.med), 4, 19);
+  if (med >= high) med = high - 1;
+  return { high, med };
+}
+
+export function isStrainBandsOverridden(override?: Partial<StrainBands> | null): boolean {
+  if (!override) return false;
+  return (["high", "med"] as const).some((k) => typeof override[k] === "number" && Number.isFinite(override[k] as number));
+}
+
+// ---------- Durability-insert envelope (ROADMAP #2 — population-fallback fold-in) ----------
+// The KB §12 envelope a durability template's embedded hard efforts (threshold/VO2 work buried inside
+// an otherwise-easy ride) must fall within, plus the %FTP floor above which a step COUNTS as such an
+// insert. Was three literals duplicated across prescription.ts + workout-validate.ts; centralised here
+// as one population default, overridable like the bands above.
+export interface DurabilityInsertEnvelope {
+  embeddedHardPct: number; // ≥ this %FTP = a genuine hard insert worth validating (the threshold floor)
+  maxIntensityPct: number; // an insert above this %FTP is malformed (supra-VO2, not an embedded effort)
+  maxEffortMin: number; // an insert longer than this is malformed (a marathon block, not an insert)
+}
+
+// Population defaults — the literals the durability validator shipped with (88% floor, ≤122% / ≤20 min
+// envelope), so an un-overridden plan validates byte-identically.
+export const DEFAULT_DURABILITY_INSERT_ENVELOPE: DurabilityInsertEnvelope = { embeddedHardPct: 88, maxIntensityPct: 122, maxEffortMin: 20 };
+
+export function resolveDurabilityInsertEnvelope(override?: Partial<DurabilityInsertEnvelope> | null): DurabilityInsertEnvelope {
+  const o = override ?? {};
+  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+  const embeddedHardPct = clamp(pick(o.embeddedHardPct, DEFAULT_DURABILITY_INSERT_ENVELOPE.embeddedHardPct), 70, 105);
+  let maxIntensityPct = clamp(pick(o.maxIntensityPct, DEFAULT_DURABILITY_INSERT_ENVELOPE.maxIntensityPct), 100, 160);
+  if (maxIntensityPct <= embeddedHardPct) maxIntensityPct = embeddedHardPct + 1; // ceiling must clear the floor
+  const maxEffortMin = clamp(pick(o.maxEffortMin, DEFAULT_DURABILITY_INSERT_ENVELOPE.maxEffortMin), 5, 60);
+  return { embeddedHardPct, maxIntensityPct, maxEffortMin };
+}
+
+export function isDurabilityInsertEnvelopeOverridden(override?: Partial<DurabilityInsertEnvelope> | null): boolean {
+  if (!override) return false;
+  return (["embeddedHardPct", "maxIntensityPct", "maxEffortMin"] as const).some(
+    (k) => typeof override[k] === "number" && Number.isFinite(override[k] as number)
+  );
+}
+
 // ---------- Derive the TSB deep-fatigue edge from stamped ledger context (ROADMAP #2) ----------
 // Now that each entry freezes the TSB the athlete carried into the session (formState), the deep-fatigue
 // edge becomes honestly derivable: the form level at which THIS athlete's quality work falls apart.

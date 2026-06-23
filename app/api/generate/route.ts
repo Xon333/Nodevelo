@@ -19,7 +19,7 @@ import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
 import { buildCoachSnapshot, formatFormFuelLine, resolveCoachSignals } from "@/lib/coach-snapshot";
-import { resolveTsbEdgesOverride } from "@/lib/calibration";
+import { resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride } from "@/lib/calibration";
 import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
@@ -239,7 +239,7 @@ export async function POST(req: Request) {
     // KB-grounded protocol check: flag any generated workout that contradicts the knowledge
     // base (e.g. SIT prescribed as 1-min efforts, threshold pushed into VO2max territory) so
     // the plan and the live session can't describe different things.
-    warnings.push(...validatePlanProtocol(days, profile.performance.ftp));
+    warnings.push(...validatePlanProtocol(days, profile.performance.ftp, resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope)));
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
     warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp));

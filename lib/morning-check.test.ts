@@ -55,6 +55,29 @@ describe("decideMorningCheck", () => {
   });
 });
 
+describe("decideMorningCheck — calibration overrides (ROADMAP #2 fold-in)", () => {
+  it("omitting the calibration arg decides identically to the population defaults", () => {
+    // The fold-in must be behaviour-preserving: an absent override resolves to high=15/med=12, tsbDeep=-25.
+    expect(decideMorningCheck(moderate, poorObjective)).toEqual(
+      decideMorningCheck(moderate, poorObjective, { strainBands: { high: 15, med: 12 }, tsbDeepEdge: -25 })
+    );
+  });
+
+  it("a lower strain.high override downgrades a strain that the default would pass", () => {
+    // moderate = strain 12; default high=15 → no solo downgrade on good objective signals.
+    expect(decideMorningCheck(moderate, goodObjective).decision).toBe("proceed");
+    expect(decideMorningCheck(moderate, goodObjective, { strainBands: { high: 11, med: 8 } }).decision).toBe("downgrade");
+  });
+
+  it("a shallower tsbDeepEdge override flips the objective-poor read for a mid TSB", () => {
+    const o: MorningCheckObjective = { isQualityDay: true, tsb: -15, readiness: "Build", acwr: "optimal" };
+    // strain 12 (med) + tsb -15: default deep edge -25 → objective not poor → proceeds.
+    expect(decideMorningCheck(moderate, o).decision).toBe("proceed");
+    // raise the deep edge to -12 → tsb -15 now reads deep → strain-med + objective-poor → downgrade.
+    expect(decideMorningCheck(moderate, o, { tsbDeepEdge: -12 }).decision).toBe("downgrade");
+  });
+});
+
 describe("proactiveApplyBlock", () => {
   const downgrade: MorningCheckEntry = { date: "2026-06-20", fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none", strain: 19, decision: "downgrade", setAt: "" };
 

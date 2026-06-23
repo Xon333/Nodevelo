@@ -3,6 +3,7 @@
 // absent HRV feed would give, combined with the objective form signals (TSB / readiness / ACWR). No
 // AI in the decision; the thresholds are population defaults and are calibration hooks for #2.
 
+import { resolveStrainBands, resolveTsbModifierEdges, type StrainBands } from "./calibration";
 import type { AcwrResult, MorningCheckDecision, MorningCheckEntry, ReadinessSignal } from "./types";
 
 export interface MorningCheckAnswers {
@@ -20,10 +21,10 @@ export interface MorningCheckObjective {
   acwr: AcwrResult["level"] | null;
 }
 
-// Population-default band edges — calibration hooks for #2 (per-athlete tuning).
-const STRAIN_HIGH = 15; // strain alone forces a downgrade
-const STRAIN_MED = 12; // strain that downgrades only when the objective signals agree
-const TSB_DEEP = -25;
+// The strain bands + TSB-deep cutoff are population defaults under the #2 calibration framework
+// (resolveStrainBands / resolveTsbModifierEdges), not local literals — see lib/calibration.ts. The
+// route passes the athlete's manual overrides (settings.strainBands / settings.tsbModifierEdges); an
+// absent override resolves to the population default, so an un-overridden check decides identically.
 
 // Subjective strain, 4 (fresh) … 20 (wrecked). The /api/morning-check route is the validation
 // boundary (it rejects non-1–5 ratings with a 400); strainScore also clamps each input so the score
@@ -39,16 +40,29 @@ export interface MorningCheckDecisionResult {
   reasons: string[];
 }
 
-export function decideMorningCheck(a: MorningCheckAnswers, o: MorningCheckObjective): MorningCheckDecisionResult {
+// `cal` carries the athlete's resolved calibration edges (strain bands + TSB-deep cutoff); omit it and
+// the population defaults apply, so an un-overridden check decides byte-identically.
+export interface MorningCheckCalibration {
+  strainBands?: StrainBands;
+  tsbDeepEdge?: number;
+}
+
+export function decideMorningCheck(
+  a: MorningCheckAnswers,
+  o: MorningCheckObjective,
+  cal: MorningCheckCalibration = {}
+): MorningCheckDecisionResult {
   const strain = strainScore(a);
   const reasons: string[] = [];
+  const { high: strainHigh, med: strainMed } = cal.strainBands ?? resolveStrainBands();
+  const tsbDeep = cal.tsbDeepEdge ?? resolveTsbModifierEdges().deepFatigue;
 
   // Only quality days have a stimulus worth protecting; an easy/rest day just proceeds.
   if (!o.isQualityDay) {
     return { decision: "proceed", strain, reasons: ["Today isn't a quality day — nothing to downgrade."] };
   }
 
-  const objectivePoor = (o.tsb !== null && o.tsb <= TSB_DEEP) || o.readiness === "Recover" || o.acwr === "high" || o.acwr === "danger";
+  const objectivePoor = (o.tsb !== null && o.tsb <= tsbDeep) || o.readiness === "Recover" || o.acwr === "high" || o.acwr === "danger";
 
   let downgrade = false;
   let easy = false; // proceed but cap intensity (neck-check rule)
@@ -59,7 +73,7 @@ export function decideMorningCheck(a: MorningCheckAnswers, o: MorningCheckObject
     downgrade = true;
     reasons.push("Reported illness (sick).");
   } else if (a.illness === "mild") {
-    if (strain >= STRAIN_MED || objectivePoor) {
+    if (strain >= strainMed || objectivePoor) {
       downgrade = true;
       reasons.push("Mild illness alongside elevated strain/fatigue — don't push a quality day.");
     } else {
@@ -67,13 +81,13 @@ export function decideMorningCheck(a: MorningCheckAnswers, o: MorningCheckObject
       reasons.push("Mild illness on otherwise-fresh legs — proceed easy and cap the hard intervals (neck-check rule).");
     }
   }
-  if (strain >= STRAIN_HIGH) {
+  if (strain >= strainHigh) {
     downgrade = true;
     reasons.push(`High reported strain (${strain}/20).`);
-  } else if (strain >= STRAIN_MED && objectivePoor) {
+  } else if (strain >= strainMed && objectivePoor) {
     downgrade = true;
     const bits: string[] = [];
-    if (o.tsb !== null && o.tsb <= TSB_DEEP) bits.push(`TSB ${o.tsb}`);
+    if (o.tsb !== null && o.tsb <= tsbDeep) bits.push(`TSB ${o.tsb}`);
     if (o.readiness === "Recover") bits.push("readiness Recover");
     if (o.acwr === "high" || o.acwr === "danger") bits.push(`ACWR ${o.acwr}`);
     reasons.push(`Moderate reported strain (${strain}/20) with the objective signals agreeing (${bits.join(", ")}).`);

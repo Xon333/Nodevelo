@@ -12,6 +12,7 @@
 
 import type { PlannedDay, WorkoutType } from "./types";
 import { parsePrescription } from "./prescription";
+import { DEFAULT_DURABILITY_INSERT_ENVELOPE, type DurabilityInsertEnvelope } from "./calibration";
 
 interface ProtocolRule {
   maxEffortSec?: number; // longest a single work effort should run
@@ -31,15 +32,11 @@ const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
 
 // Durability templates (KB §12) embed threshold/VO2 efforts inside an otherwise-easy ride (TYPE
 // Z2/Recovery). Those inserts are invisible to the per-type rules above, so validate the genuinely-
-// hard ones (≥88% FTP) against the threshold∪VO2 envelope — a supra-VO2 (>~120%) or marathon insert
-// is malformed, but intended threshold/VO2 work passes.
+// hard ones (≥ the envelope's embeddedHardPct) against the threshold∪VO2 envelope — a supra-VO2 or
+// marathon insert is malformed, but intended threshold/VO2 work passes. The envelope (floor / %FTP
+// ceiling / max duration) is the calibration-framework population default, overridable per athlete.
 const ENDURANCE_TYPES = new Set<WorkoutType>(["Z2", "Recovery"]);
-const EMBEDDED_HARD_PCT = 88;
-const DURABILITY_INSERT: ProtocolRule = {
-  maxEffortSec: 20 * 60,
-  maxIntensityPct: 122,
-  cite: "KB training §12: durability inserts are threshold/VO2 efforts (≤~120% FTP, ≤~20 min)",
-};
+const DURABILITY_CITE = "KB training §12: durability inserts are threshold/VO2 efforts (≤~120% FTP, ≤~20 min)";
 
 function fmtDur(sec: number): string {
   return sec >= 60 ? `${Math.round(sec / 60)}m` : `${sec}s`;
@@ -47,17 +44,21 @@ function fmtDur(sec: number): string {
 
 // Validate one planned day's work efforts against its type's KB protocol. Returns a (possibly
 // empty) list of human-readable warnings — never throws, never mutates.
-export function validateWorkoutProtocol(day: PlannedDay, ftp: number): string[] {
+export function validateWorkoutProtocol(
+  day: PlannedDay,
+  ftp: number,
+  envelope: DurabilityInsertEnvelope = DEFAULT_DURABILITY_INSERT_ENVELOPE
+): string[] {
   if (!day.workoutText) return [];
   // parsePrescription returns only the deliberate work efforts (≥80% FTP); warmups, recovery
   // valves and endurance steps are already excluded, so we never flag those.
   let steps = parsePrescription(day.workoutText, ftp);
   let rule = PROTOCOL[day.type];
   if (!rule && ENDURANCE_TYPES.has(day.type)) {
-    // Endurance ride: only the hard inserts (≥88%) are "intensity" worth validating; a tempo block
-    // or pure Z2 isn't a durability insert and shouldn't trip the per-type quality rules.
-    steps = steps.filter((s) => s.targetPctFtp >= EMBEDDED_HARD_PCT);
-    rule = DURABILITY_INSERT;
+    // Endurance ride: only the hard inserts (≥ the floor) are "intensity" worth validating; a tempo
+    // block or pure Z2 isn't a durability insert and shouldn't trip the per-type quality rules.
+    steps = steps.filter((s) => s.targetPctFtp >= envelope.embeddedHardPct);
+    rule = { maxEffortSec: envelope.maxEffortMin * 60, maxIntensityPct: envelope.maxIntensityPct, cite: DURABILITY_CITE };
   }
   if (!rule || steps.length === 0) return [];
 
@@ -81,6 +82,10 @@ export function validateWorkoutProtocol(day: PlannedDay, ftp: number): string[] 
 
 // Validate a whole generated block. Flattened so the generate route can fold these straight
 // into the plan's warnings array.
-export function validatePlanProtocol(days: PlannedDay[], ftp: number): string[] {
-  return days.flatMap((d) => validateWorkoutProtocol(d, ftp));
+export function validatePlanProtocol(
+  days: PlannedDay[],
+  ftp: number,
+  envelope: DurabilityInsertEnvelope = DEFAULT_DURABILITY_INSERT_ENVELOPE
+): string[] {
+  return days.flatMap((d) => validateWorkoutProtocol(d, ftp, envelope));
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveCalibratedValue, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_STRAIN_BANDS, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isDurabilityInsertEnvelopeOverridden, isStrainBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveStrainBands, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
 import type { CalibratedParameter, RideScoreEntry } from "./types";
 
 // Minimal quality-session ledger entry with a stamped TSB, for the deep-fatigue derivation tests.
@@ -95,6 +95,69 @@ describe("isTsbModifierEdgesOverridden", () => {
     expect(isTsbModifierEdgesOverridden(null)).toBe(false);
     expect(isTsbModifierEdgesOverridden({})).toBe(false);
     expect(isTsbModifierEdgesOverridden({ deepFatigue: -30 })).toBe(true);
+  });
+});
+
+describe("resolveStrainBands (ROADMAP #2 — morning-check strain)", () => {
+  it("returns population defaults with no override", () => {
+    expect(resolveStrainBands()).toEqual(DEFAULT_STRAIN_BANDS);
+    expect(resolveStrainBands(null)).toEqual(DEFAULT_STRAIN_BANDS);
+    expect(resolveStrainBands({})).toEqual(DEFAULT_STRAIN_BANDS);
+  });
+
+  it("merges a partial override onto the defaults", () => {
+    expect(resolveStrainBands({ high: 17 })).toEqual({ high: 17, med: 12 });
+  });
+
+  it("keeps high above med when an override inverts them", () => {
+    const b = resolveStrainBands({ high: 10, med: 14 });
+    expect(b.med).toBeLessThan(b.high);
+  });
+
+  it("ignores non-finite values and clamps to strain's 4–20 range", () => {
+    const b = resolveStrainBands({ high: Number.NaN, med: 99 });
+    expect(b.high).toBe(DEFAULT_STRAIN_BANDS.high);
+    expect(b.med).toBeLessThan(b.high);
+    expect(b.med).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("isStrainBandsOverridden", () => {
+  it("detects a real override vs none", () => {
+    expect(isStrainBandsOverridden(null)).toBe(false);
+    expect(isStrainBandsOverridden({})).toBe(false);
+    expect(isStrainBandsOverridden({ high: 17 })).toBe(true);
+  });
+});
+
+describe("resolveDurabilityInsertEnvelope (ROADMAP #2 — durability inserts)", () => {
+  it("returns population defaults with no override", () => {
+    expect(resolveDurabilityInsertEnvelope()).toEqual(DEFAULT_DURABILITY_INSERT_ENVELOPE);
+    expect(resolveDurabilityInsertEnvelope(null)).toEqual(DEFAULT_DURABILITY_INSERT_ENVELOPE);
+    expect(resolveDurabilityInsertEnvelope({})).toEqual(DEFAULT_DURABILITY_INSERT_ENVELOPE);
+  });
+
+  it("merges a partial override onto the defaults", () => {
+    expect(resolveDurabilityInsertEnvelope({ maxEffortMin: 15 })).toEqual({ embeddedHardPct: 88, maxIntensityPct: 122, maxEffortMin: 15 });
+  });
+
+  it("keeps the %FTP ceiling above the floor when an override collapses them", () => {
+    const e = resolveDurabilityInsertEnvelope({ embeddedHardPct: 100, maxIntensityPct: 95 });
+    expect(e.maxIntensityPct).toBeGreaterThan(e.embeddedHardPct);
+  });
+
+  it("ignores non-finite values and clamps to sane ranges", () => {
+    const e = resolveDurabilityInsertEnvelope({ embeddedHardPct: Number.NaN, maxEffortMin: 999 });
+    expect(e.embeddedHardPct).toBe(DEFAULT_DURABILITY_INSERT_ENVELOPE.embeddedHardPct);
+    expect(e.maxEffortMin).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("isDurabilityInsertEnvelopeOverridden", () => {
+  it("detects a real override vs none", () => {
+    expect(isDurabilityInsertEnvelopeOverridden(null)).toBe(false);
+    expect(isDurabilityInsertEnvelopeOverridden({})).toBe(false);
+    expect(isDurabilityInsertEnvelopeOverridden({ maxEffortMin: 15 })).toBe(true);
   });
 });
 

@@ -8,12 +8,14 @@ vi.mock("@/lib/data-store", () => ({
   readLastSync: vi.fn(),
   readMorningChecks: vi.fn(),
   readTodayAnalysis: vi.fn(),
+  readBlockSettings: vi.fn(),
   writeMorningChecks: vi.fn(),
   writeCurrentBlock: vi.fn(),
 }));
 
 import * as store from "@/lib/data-store";
 import { GET, POST, PUT } from "@/app/api/morning-check/route";
+import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
 import type { CurrentBlock, MorningCheckEntry, MorningCheckLog, SyncData, TodayAnalysis } from "@/lib/types";
 
 const TODAY = "2026-06-20";
@@ -49,6 +51,7 @@ beforeEach(() => {
   vi.mocked(store.readLastSync).mockResolvedValue(sync);
   vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
+  vi.mocked(store.readBlockSettings).mockResolvedValue(DEFAULT_BLOCK_SETTINGS);
   vi.mocked(store.writeMorningChecks).mockResolvedValue(undefined);
   vi.mocked(store.writeCurrentBlock).mockResolvedValue(undefined);
 });

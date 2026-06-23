@@ -291,6 +291,13 @@ export interface BlockSettings {
   // Optional manual override for the TSB adaptation-window edges resolveTsbModifier classifies form
   // against (ROADMAP #2). Absent = population defaults; set to personalise the fatigue-tolerance bands.
   tsbModifierEdges?: { deepFatigue: number; productiveOverload: number; balanced: number };
+  // Optional manual override for the morning-check subjective-strain bands (ROADMAP #2). Absent =
+  // population defaults; set to personalise where reported strain downgrades a quality day.
+  strainBands?: { high: number; med: number };
+  // Optional manual override for the durability-insert envelope (ROADMAP #2): the %FTP floor above
+  // which an embedded effort counts as a hard insert, and the %FTP / duration ceiling it must fall
+  // within. Absent = population defaults (88% floor, ≤122% / ≤20 min).
+  durabilityInsertEnvelope?: { embeddedHardPct: number; maxIntensityPct: number; maxEffortMin: number };
   updatedAt: string;
 }
 

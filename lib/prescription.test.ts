@@ -17,6 +17,12 @@ describe("carriesEmbeddedIntensity", () => {
   it("returns false with no workout", () => {
     expect(carriesEmbeddedIntensity(undefined, FTP)).toBe(false);
   });
+  it("honours an overridden hard-effort floor (ROADMAP #2 fold-in)", () => {
+    // A 10-min 90% block clears the default 88% floor…
+    expect(carriesEmbeddedIntensity("- 10m 90%", FTP)).toBe(true);
+    // …but not a raised 95% floor, so it no longer counts as embedded intensity.
+    expect(carriesEmbeddedIntensity("- 10m 90%", FTP, 95)).toBe(false);
+  });
 });
 
 describe("parsePrescription", () => {
