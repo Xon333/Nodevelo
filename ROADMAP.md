@@ -15,30 +15,18 @@ leverage. `← X` = blocked-on / derives-from; numeric IDs (#1–4, §5–7) are
 ## Next up
 
 ### #2 · Per-athlete calibration — extend the framework  ⭐ (the keystone)
-Bring more parameters under the same `parameterise → derive-with-fallback → stamp` machinery.
+Bring more parameters under the same `parameterise → derive-with-fallback → stamp` machinery. The
+marquee data-play — context-stamp the ledger, then auto-derive off it — has shipped its spine: the input
+stamps (`formState` + morning-check), the first derived edge (`deriveTsbDeepFatigue`), and the shared
+`deriveExecutionEdge` engine it now rides on (all in ARCHIVE). What's left:
 - **Per-type IF cutoffs — open slivers:** surface the offsets on Settings (derived live from zones, not
   yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
-- **Context-stamp the ledger → unlock honest auto-derivation** ⭐ (the data play that turns the
-  override-only edges into *learned* ones). Several parameters could only be manually overridden because
-  the ledger recorded the *value* an entry scored against but not the athlete-state **context** at that
-  moment — nothing to correlate an outcome against. Now fixed on both the input and the first derivation:
-  - *Input side — form + morning-check context stamped (ARCHIVE):* `buildFormStateLookup` +
-    `RideScoreEntry.formState` freeze the objective form (intervals.icu's own per-day CTL/ATL); the
-    subjective morning-check (fatigue/sleep/soreness) is frozen alongside. _Readiness deliberately NOT
-    stamped_ — it's a derived composite of form + HRV, reconstructable from what's already frozen.
-  - *First auto-derivation — TSB deep-fatigue edge (ARCHIVE):* `deriveTsbDeepFatigue` recenters the edge
-    on the TSB depth where THIS athlete's quality sessions actually fall apart (median TSB of their
-    under-executed quality work), **guarded** so it only fires when fatigue genuinely discriminates
-    (failures deeper than successes) and clears the confidence gate — else it stays on the population
-    default. `resolveTsbEdgesOverride` layers it under the manual override (manual wins) at every snapshot
-    site. Calibrates to where they **adapt**, not where they **train**.
-  - _Open:_ extend the derive-from-stamped-context move to the other override-only params (e.g. the
-    `productiveOverload`/`balanced` edges, #3 reschedule thresholds) via the **shared state→execution
-    correlation engine** (`lib/correlation.ts` `deriveExecutionEdge` — now built; `deriveTsbDeepFatigue`
-    is its first consumer). Each new edge = a spec, not new code, but only where an **honest** execution
-    outcome separates failures from successes — the `productiveOverload`/`balanced` edges still lack one;
-    the morning-check **strain edge** needs `motivation` stamped too (the ledger freezes only
-    fatigue/sleep/soreness). Carbs is the other consumer → **Track C** (ties **#4**).
+- **More honest auto-derivations off the engine** — each new edge is a *spec* over
+  `lib/correlation.ts`, not new code, but only where an **honest** execution outcome separates failures
+  from successes. Concretely buildable next: **stamp `motivation`** (the ledger freezes only
+  fatigue/sleep/soreness) → unlocks the morning-check **strain edge**. Still lacking a defensible outcome
+  signal: the `productiveOverload`/`balanced` edges and the #3 reschedule thresholds. Carbs is the other
+  consumer → **Track C** (ties **#4**).
 - **Pattern (follow per param):** default = today's literal value; derive with confidence-gated
   fallback; stamp on any ledger entry it scores; test that a fresh athlete scores identically.
 - *Owned elsewhere:* optimal carbs g/h `→ Track C`; ACWR band + EWMA α stay on their current path.
@@ -64,8 +52,9 @@ Decision thresholds → per-athlete `← #2`; let the **reactive** `RescheduleBa
 downgrade (on `fatigueAlert`, before a miss).
 
 ### §5 · Athlete-state — slivers
-Energy-availability evaluator `← Track C`; per-athlete fusion weights `← #2`; tune score→band thresholds
-+ headline against real use; possible score-over-time trend.
+Energy-availability evaluator `← Track C`; *derive* the per-athlete fusion weights off the engine `← #2`
+(the population fold-in + override shipped — derivation is the open part); tune score→band thresholds +
+headline against real use; possible score-over-time trend.
 
 ---
 
