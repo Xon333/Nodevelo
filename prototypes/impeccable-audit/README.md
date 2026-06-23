@@ -9,13 +9,15 @@ research note in [`../../research.md`](../../research.md)).
 imported anywhere, and is not in the TS build. Nothing in the app was changed.
 
 ## Files
-- [`DESIGN.md`](./DESIGN.md) — NodeVelo's locked design system (fonts, color tokens, radii, dual-theme
-  rule, the allowed-hex set, and the documented intentional waivers). The audit's ground truth.
+- **Ground truth → [`/DESIGN.md`](../../DESIGN.md)** (repo root) — NodeVelo's canonical, dark-first design
+  system (fonts, color tokens, radii, dual-theme rule, allowed-hex set, intentional waivers). The
+  detector reads this file's hexes directly, so a sanctioned token is never flagged as drift.
 - [`detect.mjs`](./detect.mjs) — a zero-dependency Node detector (~8 rules) doing source-text checks on
   `.tsx`, tuned to our system so the output is signal not noise (tiny-text exempts uppercase eyebrow
-  labels; em-dash uses impeccable's >2 threshold; the palette check reads DESIGN.md's allowed hexes).
-- [`AUDIT.md`](./AUDIT.md) — the findings from running it against the current components, with a verdict
-  per rule and a sample qualitative critique pass.
+  labels; em-dash counts within one string + exempts the no-data glyph; native-title skips component
+  props/buttons; light-only exempts toggle knobs; the palette check reads `/DESIGN.md`).
+- [`AUDIT.md`](./AUDIT.md) — the run output, the first-pass→reality investigation, and the trustworthy
+  hardened result.
 
 ## Run it
 ```bash

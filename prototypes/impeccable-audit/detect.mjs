@@ -8,23 +8,36 @@
 // threshold). It does source-text (regex) checks only — the real tool also renders pages.
 
 import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// --- DESIGN.md tokens (a real integration would parse DESIGN.md; inlined here for the prototype) ---
-const ALLOWED_HEX = new Set(
-  ["ff49c8", "00d4ff", "10b981", "06b6d4", "f59e0b", "f97316", "f43f5e", "d946ef", "8b5cf6"].map((h) => h.toLowerCase())
-);
+// --- DESIGN.md-aware palette: the allowed hexes are READ from the repo-root DESIGN.md (every #rrggbb
+// it documents), with an inlined fallback. This is what makes the off-palette check trustworthy —
+// it checks code against the actual design doc, so a sanctioned token (e.g. #7fe7ff) is never flagged.
+const FALLBACK_HEX = ["ff49c8", "00d4ff", "7fe7ff", "10b981", "06b6d4", "f59e0b", "f97316", "f43f5e", "d946ef", "8b5cf6"];
+function loadAllowedHex() {
+  try {
+    const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const hexes = [...readFileSync(join(root, "DESIGN.md"), "utf8").matchAll(/#([0-9a-fA-F]{6})\b/g)].map((m) => m[1].toLowerCase());
+    if (hexes.length) return new Set(hexes);
+  } catch {
+    /* fall through to the inlined set */
+  }
+  return new Set(FALLBACK_HEX);
+}
+const ALLOWED_HEX = loadAllowedHex();
 const COLORED_BG = /\bbg-(amber|red|rose|orange|emerald|cyan|fuchsia|violet|green|blue|pink|lime|teal|indigo)-\d{2,3}\b/;
 const LIGHT_ONLY = /\b(bg-white|bg-zinc-50|text-zinc-900|text-zinc-800|border-zinc-200)\b/;
 
 // rule id → {category, severity, why}
 const RULES = {
-  "off-palette-color": ["design-system", "warn", "literal hex outside the DESIGN.md palette — make it a token or zinc/status class"],
+  "off-palette-color": ["design-system", "warn", "literal hex not in DESIGN.md's palette — make it a token or zinc/status class"],
   "tiny-text": ["quality", "warn", "sub-12px body text is hard to read (uppercase eyebrow labels are exempt)"],
   "gray-on-color": ["quality", "warn", "muted zinc text on a colored background reads washed out"],
   "gradient-text": ["slop", "advisory", "bg-clip-text gradient — an AI tell (DESIGN.md waives it for the wordmark only)"],
-  "em-dash-overuse": ["slop", "advisory", "more than two em-dashes in one string is an AI cadence tell"],
-  "native-title-tooltip": ["consistency", "advisory", "informational title= — DESIGN.md standardises on the InfoDot/MetricTip popover (buttons may keep title=)"],
-  "light-only-color": ["dual-theme", "warn", "light-mode color with no dark: sibling on the line — a dark-mode regression"],
+  "em-dash-overuse": ["slop", "advisory", "more than two em-dashes in one string is an AI cadence tell (no-data — glyphs exempt)"],
+  "native-title-tooltip": ["consistency", "advisory", "native title= on a DOM element — prefer InfoDot/MetricTip for a labelled metric explanation (per-datum detail is fine)"],
+  "light-only-color": ["dual-theme", "warn", "light-mode color with no dark: sibling — a dark-mode regression (toggle knobs / status dots exempt)"],
 };
 
 function scanLine(line) {
@@ -46,13 +59,24 @@ function scanLine(line) {
   }
   // gradient-text
   if (/\bbg-clip-text\b/.test(line)) out.push(["gradient-text", "bg-clip-text"]);
-  // em-dash overuse (>2 in the line)
-  const dashes = (line.match(/—/g) || []).length;
-  if (dashes > 2) out.push(["em-dash-overuse", `${dashes} em-dashes`]);
-  // native-title-tooltip (informational title, not on a button)
-  if (/\btitle=/.test(line) && !isButton) out.push(["native-title-tooltip", line.match(/title=\{?["'`][^"'`]{0,40}/)?.[0] ?? "title="]);
-  // light-only-color (no dark: on the same line)
-  if (LIGHT_ONLY.test(line) && !/\bdark:/.test(line)) out.push(["light-only-color", line.match(LIGHT_ONLY)[0]]);
+  // em-dash overuse — >2 inside a SINGLE quoted string (real body copy), not glyphs/labels summed
+  // across one JSX line. The lone "—" no-data placeholder glyph is exempt.
+  for (const m of line.matchAll(/"[^"]*"|'[^']*'|`[^`]*`/g)) {
+    const s = m[0].slice(1, -1);
+    const n = (s.match(/—/g) || []).length;
+    if (s !== "—" && n > 2) out.push(["em-dash-overuse", `${n} em-dashes in one string`]);
+  }
+  // native-title-tooltip — genuine native title= on a DOM element. Skips component props
+  // (<Section title=…>, <Card title=…>) and buttons; per DESIGN.md a native title is fine for dense
+  // per-datum detail, so this is a gentle "prefer InfoDot for a labelled metric explanation" nudge.
+  const isComponentProp = /<[A-Z][A-Za-z]*\b[^>]*\btitle=/.test(line) || /\b(Section|Card|Tile)\b[^>]*\btitle=/.test(line);
+  if (/\btitle=/.test(line) && !isButton && !isComponentProp) {
+    out.push(["native-title-tooltip", line.match(/title=\{?["'`][^"'`]{0,40}/)?.[0] ?? "title="]);
+  }
+  // light-only-color (no dark: on the same line) — a real dark-mode gap. Exempts the toggle-knob /
+  // status-dot pattern (a small absolute rounded-full element is theme-agnostic by design).
+  const isKnob = /\babsolute\b/.test(line) && /\brounded-full\b/.test(line);
+  if (LIGHT_ONLY.test(line) && !/\bdark:/.test(line) && !isKnob) out.push(["light-only-color", line.match(LIGHT_ONLY)[0]]);
 
   return out;
 }
