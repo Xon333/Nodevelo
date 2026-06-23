@@ -35,6 +35,19 @@ export function calStampFor(
   return Object.keys(stamp).length > 0 ? { calibration: stamp } : {};
 }
 
+// Fueling context stamp (ROADMAP Track C): freeze the athlete's logged carb intake as g/h onto the
+// entry, so a later carbs→execution/decoupling correlation has the provenance to derive their optimal
+// intake (the engine's next consumer, once enough rides carry it). Spread-ready `{}` when no real intake
+// was logged — only a positive carbs_ingested is stamped (a default/blank field reads as null or 0 and
+// is indistinguishable from "didn't fuel", so we don't pollute the signal with fake zeros). Pure: g/h is
+// the logged grams over the ride's moving hours, frozen like ftpUsed so the ledger stays reproducible.
+export function fuelStampFor(act: ActivitySummary): { fuel: { carbsGPerH: number } } | Record<string, never> {
+  const grams = act.carbsIngestedG;
+  if (grams == null || !Number.isFinite(grams) || grams <= 0 || act.movingTimeSec <= 0) return {};
+  const carbsGPerH = round1(grams / (act.movingTimeSec / 3600));
+  return { fuel: { carbsGPerH } };
+}
+
 export function buildRideScores(
   block: CurrentBlock | null,
   activities: ActivitySummary[],
@@ -113,6 +126,7 @@ export function buildRideScores(
           tss: act.trainingLoad,
           ...calStampFor(calibration, planned.type, false),
           ...contextStamp,
+          ...fuelStampFor(act),
         };
       }
     } else {
@@ -145,6 +159,7 @@ export function buildRideScores(
           tss: act.trainingLoad,
           ...calStampFor(calibration, inferredType, true),
           ...contextStamp,
+          ...fuelStampFor(act),
         };
       }
     }

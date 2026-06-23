@@ -16,6 +16,7 @@ const act = (over: Partial<ActivitySummary>): ActivitySummary => ({
   kj: 700,
   trainingLoad: 60,
   rpe: null,
+  carbsIngestedG: null,
   decoupling: null,
   efficiencyFactor: null,
   description: null,

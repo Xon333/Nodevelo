@@ -16,6 +16,7 @@ const activity = (over: Partial<ActivitySummary> = {}): ActivitySummary => ({
   kj: 600,
   trainingLoad: 70,
   rpe: 5,
+  carbsIngestedG: null,
   decoupling: 4,
   efficiencyFactor: null,
   description: "felt good",

@@ -209,6 +209,7 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       kj: joules !== null ? Math.round(joules / 1000) : null,
       trainingLoad: num(a.icu_training_load),
       rpe: num(a.icu_rpe),
+      carbsIngestedG: num(a.carbs_ingested), // "CHO In" — athlete-logged carbohydrate intake (g), often unset
       decoupling: num(a.icu_power_hr_decoupling),
       efficiencyFactor: num(a.icu_efficiency_factor),
       description: str(a.description) || null,

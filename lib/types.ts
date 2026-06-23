@@ -63,6 +63,7 @@ export interface ActivitySummary {
   kj: number | null; // total work in kJ
   trainingLoad: number | null;
   rpe: number | null; // icu_rpe, 1-10
+  carbsIngestedG: number | null; // intervals.icu carbs_ingested ("CHO In") — grams the athlete logged consuming
   decoupling: number | null; // aerobic decoupling %
   efficiencyFactor: number | null; // icu_efficiency_factor — Pw:HR pulled from Intervals.icu
   description: string | null; // athlete's free-text note written in Intervals.icu
@@ -425,6 +426,11 @@ export interface RideScoreEntry {
   // day's subjective self-report. Each absent on pre-feature entries or when no data covers the date.
   formState?: RideFormState;
   morningCheck?: RideMorningContext;
+  // Fueling CONTEXT frozen at scoring time (ROADMAP Track C): the carbohydrate intake the athlete logged
+  // for this ride, normalised to g/h, so a later carbs→execution/decoupling correlation can derive their
+  // optimal intake. Provenance only — never feeds executionScore. Stamped only when a real (>0) intake was
+  // logged in intervals.icu (carbs_ingested); absent otherwise (most rides, until the athlete fills it in).
+  fuel?: { carbsGPerH: number };
 }
 
 // Form (fitness/fatigue/balance) as of a ride's date — the slow-moving load state from the synced

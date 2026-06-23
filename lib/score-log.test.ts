@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRideScores, mergeScoreLog, summariseBehaviour } from "./score-log";
+import { buildRideScores, fuelStampFor, mergeScoreLog, summariseBehaviour } from "./score-log";
 import type { ActivitySummary, CurrentBlock, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
@@ -16,6 +16,7 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     kj: 600,
     trainingLoad: 60,
     rpe: 5,
+    carbsIngestedG: null,
     decoupling: 3,
     efficiencyFactor: 1.3,
     description: null,
@@ -133,6 +134,35 @@ describe("buildRideScores", () => {
     // Absent when no resolver, or when the resolver has nothing for that date (byte-identical to before).
     expect(buildRideScores(b, acts, ftp200, "2026-01-10")[0].formState).toBeUndefined();
     expect(buildRideScores(b, acts, ftp200, "2026-01-10", null, null, () => null)[0].formState).toBeUndefined();
+  });
+
+  it("stamps logged carb intake as g/h (ROADMAP Track C fueling context)", () => {
+    const b = block([{ date: "2026-01-03", type: "Z2", durationMin: 120 }]);
+    // 180 g over a 2 h ride → 90 g/h.
+    const acts = [activity({ date: "2026-01-03", avgWatts: 135, normalizedPower: 138, movingTimeSec: 7200, carbsIngestedG: 180 })];
+    expect(buildRideScores(b, acts, ftp200, "2026-01-10")[0].fuel).toEqual({ carbsGPerH: 90 });
+    // Absent when nothing was logged (null) — most rides, byte-identical to before.
+    const none = [activity({ date: "2026-01-03", avgWatts: 135, normalizedPower: 138, carbsIngestedG: null })];
+    expect(buildRideScores(b, none, ftp200, "2026-01-10")[0].fuel).toBeUndefined();
+  });
+});
+
+describe("fuelStampFor", () => {
+  const base = activity({ date: "2026-01-01", movingTimeSec: 3600 });
+
+  it("normalises logged grams to g/h over the ride's moving time", () => {
+    expect(fuelStampFor({ ...base, movingTimeSec: 5400, carbsIngestedG: 90 })).toEqual({ fuel: { carbsGPerH: 60 } });
+    expect(fuelStampFor({ ...base, movingTimeSec: 3600, carbsIngestedG: 75 })).toEqual({ fuel: { carbsGPerH: 75 } });
+  });
+
+  it("stamps nothing for unlogged (null), zero, or non-finite intake — no fake zeros in the signal", () => {
+    expect(fuelStampFor({ ...base, carbsIngestedG: null })).toEqual({});
+    expect(fuelStampFor({ ...base, carbsIngestedG: 0 })).toEqual({});
+    expect(fuelStampFor({ ...base, carbsIngestedG: Number.NaN })).toEqual({});
+  });
+
+  it("stamps nothing when moving time is zero (avoids divide-by-zero)", () => {
+    expect(fuelStampFor({ ...base, movingTimeSec: 0, carbsIngestedG: 50 })).toEqual({});
   });
 });
 
