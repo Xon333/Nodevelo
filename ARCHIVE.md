@@ -182,6 +182,18 @@ signal stamped against it. Two commits; tests grew to 474.
   `productiveOverload`/`balanced` edges (no honest execution outcome) and the morning-check strain edge
   (needs `motivation` stamped — the ledger freezes only fatigue/sleep/soreness).
 
+### Activity power-field mapping fix (P1 data integrity, 2026-06-23 triage)
+
+`fetchActivities` read NP/decoupling/max from keys intervals.icu never returns, so they were `null` on
+every ride — silently dropping IF back to raw avg watts (a VO2 4×4 read as 0.62 / "recovery") and
+zeroing decoupling + its rolling baseline. Verified against the raw activity API: NP is
+`icu_weighted_avg_watts` (not `icu_normalized_power`), decoupling is a bare `decoupling` (not
+`icu_power_hr_decoupling`), max power is `icu_pm_p_max` (not `max_watts`); `icu_efficiency_factor` was
+present all along, which is what exposed the gap (EF needs NP). Fixed with the correct keys (old ones
+kept as defensive fallbacks) + a mapping test. _Follow-up open in todo (SYNC-2):_ historical score-log
+entries are frozen with the wrong IF/decoupling and need a one-time rebuild. (Triage also confirmed the
+coach-note non-display is a client render bug — SYNC-1 — and that "no power PRs" was correct, not a bug.)
+
 ---
 
 ## Scoring-core — Z2 "dialed-in" discipline signal

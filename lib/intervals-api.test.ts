@@ -111,4 +111,23 @@ describe("intervals-api network failure handling (CR-B)", () => {
     const init = spy.mock.calls[0][1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
+
+  it("maps power metrics off the keys intervals.icu actually returns (NP/decoupling/max)", async () => {
+    // Raw shape from a real activity: NP under icu_weighted_avg_watts, decoupling under `decoupling`,
+    // max power under icu_pm_p_max — NOT icu_normalized_power / max_watts (which it doesn't send).
+    const raw = [{
+      id: "i1", start_date_local: "2026-06-23T08:00:00", type: "Ride", name: "Cycling",
+      moving_time: 8189, icu_average_watts: 179, icu_weighted_avg_watts: 235, icu_pm_p_max: 591,
+      decoupling: 14.6, icu_efficiency_factor: 1.64, average_heartrate: 143, max_heartrate: 190,
+      icu_joules: 1472172, icu_training_load: 151, carbs_ingested: 114,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-06-01", "2026-06-23");
+    expect(a.normalizedPower).toBe(235);
+    expect(a.decoupling).toBe(14.6);
+    expect(a.maxWatts).toBe(591);
+    expect(a.carbsIngestedG).toBe(114);
+  });
 });
