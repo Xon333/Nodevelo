@@ -151,6 +151,11 @@ export async function POST(req: Request) {
   }
   try {
     const today = resolveToday((reqBody as { today?: unknown } | null)?.today);
+    // One-time ledger rebuild (SYNC-2): re-derive PAST entries from the freshly-synced activities
+    // instead of freezing them. Needed once after the activity power-field mapping fix, which had
+    // left NP/decoupling null on historical rides (so their IF/execution scores were computed off raw
+    // avg watts). Off by default — a normal sync stays immutable per date.
+    const rebuildLedger = (reqBody as { rebuildLedger?: unknown } | null)?.rebuildLedger === true;
     // Non-fatal step failures are collected here and returned so they surface (a toast) instead of
     // being swallowed by best-effort catches.
     const warnings: string[] = [];
@@ -255,9 +260,14 @@ export async function POST(req: Request) {
       // Transactional (CR-A): the backfill is computed from the ledger read INSIDE the lock, so a
       // concurrent disposition POST (or the deferred analyze patch) can't clobber these scores. The
       // backfill itself is the pure, unit-tested backfillLedgerEntries (CR-G).
-      await updateScoreLog((entries) =>
-        applyDispositions(mergeScoreLog(backfillLedgerEntries(entries, ftpForDate, offPlanFloor), fresh), dispositions)
-      );
+      await updateScoreLog((entries) => {
+        const backfilled = backfillLedgerEntries(entries, ftpForDate, offPlanFloor);
+        // Normal sync: existing wins (immutable per date). Rebuild: fresh (recomputed from corrected
+        // activities) wins, while existing still fills any date outside the activity window.
+        const merged = rebuildLedger ? mergeScoreLog(fresh, backfilled) : mergeScoreLog(backfilled, fresh);
+        return applyDispositions(merged, dispositions);
+      });
+      if (rebuildLedger) warnings.push("Ledger rebuilt: past entries re-scored from corrected activity data (NP/decoupling).");
     }
 
     // Close the learning loop: re-evaluate any matured interventions against the freshly

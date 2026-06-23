@@ -197,6 +197,17 @@ describe("mergeScoreLog", () => {
     const merged = mergeScoreLog(many, []);
     expect(merged.length).toBeLessThanOrEqual(400);
   });
+
+  it("fresh-wins direction (SYNC-2 rebuild): recomputed entries override existing, existing fills gaps", () => {
+    // The ledger rebuild calls mergeScoreLog(fresh, existing) so corrected re-scores take effect on
+    // overlapping dates, while an existing entry outside the activity window is preserved.
+    const existing = [mk("2026-01-01", 5), mk("2026-01-03", 6)]; // 01-01 has no fresh counterpart
+    const fresh = [mk("2026-01-03", 9), mk("2026-01-02", 7)];
+    const merged = mergeScoreLog(fresh, existing);
+    expect(merged.find((e) => e.date === "2026-01-03")?.executionScore).toBe(9); // fresh wins
+    expect(merged.find((e) => e.date === "2026-01-01")?.executionScore).toBe(5); // kept (outside window)
+    expect(merged.find((e) => e.date === "2026-01-02")?.executionScore).toBe(7);
+  });
 });
 
 const ftp200 = () => 200;
