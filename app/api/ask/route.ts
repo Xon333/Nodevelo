@@ -76,6 +76,7 @@ export async function POST(req: Request) {
     morningChecks: morningChecks.entries,
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
+    athleteStateWeightsOverride: settings.athleteStateWeights,
   });
 
   const context: AskCoachContext = { snapshot, session, upcoming };

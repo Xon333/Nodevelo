@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeAthleteState, type AthleteStateInputs } from "./athlete-state";
+import { DEFAULT_ATHLETE_STATE_WEIGHTS, resolveAthleteStateWeights } from "./calibration";
 
 // Neutral baseline: no news → a mid "steady" read. Tests tweak one axis at a time.
 const base: AthleteStateInputs = {
@@ -127,5 +128,26 @@ describe("computeAthleteState — confidence + availability", () => {
         offPlanPct: null,
       })
     ).toBeNull();
+  });
+});
+
+describe("computeAthleteState — fusion-weight overrides (ROADMAP §5 / #2 fold-in)", () => {
+  it("omitting the weights arg scores identically to the explicit population default", () => {
+    expect(computeAthleteState(base)).toEqual(computeAthleteState(base, DEFAULT_ATHLETE_STATE_WEIGHTS));
+    expect(computeAthleteState(base)).toEqual(computeAthleteState(base, resolveAthleteStateWeights()));
+  });
+
+  it("a lower BASE weight shifts the whole score down", () => {
+    const def = computeAthleteState(base)!;
+    const lowered = computeAthleteState(base, resolveAthleteStateWeights({ BASE: 40 }))!;
+    expect(lowered.score).toBe(def.score - 20);
+  });
+
+  it("a stronger TSB scale amplifies the form contribution", () => {
+    const fresh = { ...base, tsb: 20 };
+    const def = computeAthleteState(fresh)!;
+    const amplified = computeAthleteState(fresh, resolveAthleteStateWeights({ tsb: { scale: 1.0 } }))!;
+    const tsbOf = (s: typeof def) => s.drivers.find((d) => d.key === "tsb")!.effect;
+    expect(tsbOf(amplified)).toBeGreaterThan(tsbOf(def));
   });
 });

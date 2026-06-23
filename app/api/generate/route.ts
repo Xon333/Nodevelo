@@ -142,7 +142,7 @@ export async function POST(req: Request) {
     // systemic state, not just per-dimension execution history.
     // Form/fuel/state signals via the shared resolver, so generation + Ask-Coach can't drift (CR-9);
     // the resolver owns the band resolution (RR-5).
-    const signals = resolveCoachSignals(sync, athleteModel, baselines, blockSettings.acwrBands);
+    const signals = resolveCoachSignals(sync, athleteModel, baselines, blockSettings.acwrBands, blockSettings.athleteStateWeights);
     const stateContext = signals.athleteState
       ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${signals.athleteState.headline} — state ${signals.athleteState.score}/100, recommendation: ${signals.athleteState.recommendation}.`
       : "";

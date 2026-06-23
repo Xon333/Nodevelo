@@ -150,6 +150,69 @@ export function isDurabilityInsertEnvelopeOverridden(override?: Partial<Durabili
   );
 }
 
+// ---------- Athlete-state fusion weights (ROADMAP §5 / #2 — population-fallback fold-in) ----------
+// The signal-fusion tuning knobs (BASE + per-signal scales/caps/thresholds) athlete-state.ts grades
+// the glanceable 0–100 state with. Were a private `const C` of magic numbers; centralised here as a
+// population default so they sit under the same framework and CAN be overridden per athlete. Per-athlete
+// *derivation* of these weights is a separate §5 sliver (← #2's correlation engine); this is just the
+// population-fallback fold-in, so an un-overridden athlete is scored byte-identically.
+export interface AthleteStateWeights {
+  BASE: number; // neutral start (no news → mid "steady")
+  tsb: { scale: number; cap: number; freshAbove: number; deepBelow: number };
+  acwr: { optimal: number; low: number; high: number; danger: number };
+  exec: { mid: number; perPoint: number; trend: number; cap: number };
+  decoupling: { perPct: number; cap: number; deadband: number };
+  rpe: { perPoint: number; cap: number; deadband: number };
+  behaviour: { highOffPlan: number; effect: number };
+  override: { livedThreshold: number; scoreCap: number }; // ≥N lived-negatives → cap the score
+}
+
+// Population defaults — the literal knobs athlete-state.ts shipped with.
+export const DEFAULT_ATHLETE_STATE_WEIGHTS: AthleteStateWeights = {
+  BASE: 60,
+  tsb: { scale: 0.6, cap: 18, freshAbove: 5, deepBelow: -5 },
+  acwr: { optimal: 4, low: -2, high: -10, danger: -20 },
+  exec: { mid: 6, perPoint: 4, trend: 4, cap: 16 },
+  decoupling: { perPct: 3, cap: 9, deadband: 1 },
+  rpe: { perPoint: 5, cap: 10, deadband: 0.5 },
+  behaviour: { highOffPlan: 60, effect: -4 },
+  override: { livedThreshold: 2, scoreCap: 40 },
+};
+
+export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+
+// Recursively merge an override's finite numeric leaves onto a default; non-finite or missing values
+// fall back. No ordering constraints — these are free tuning knobs, not bands — so defensiveness is
+// just "ignore garbage and keep the default".
+function mergeNumericLeaves<T>(def: T, ov: unknown): T {
+  if (typeof def === "number") {
+    return (typeof ov === "number" && Number.isFinite(ov) ? ov : def) as T;
+  }
+  if (def !== null && typeof def === "object") {
+    const out: Record<string, unknown> = {};
+    const o = (ov ?? {}) as Record<string, unknown>;
+    for (const k of Object.keys(def as Record<string, unknown>)) {
+      out[k] = mergeNumericLeaves((def as Record<string, unknown>)[k], o[k]);
+    }
+    return out as T;
+  }
+  return def;
+}
+
+export function resolveAthleteStateWeights(override?: DeepPartial<AthleteStateWeights> | null): AthleteStateWeights {
+  return mergeNumericLeaves(DEFAULT_ATHLETE_STATE_WEIGHTS, override ?? undefined);
+}
+
+export function isAthleteStateWeightsOverridden(override?: DeepPartial<AthleteStateWeights> | null): boolean {
+  if (!override) return false;
+  // Any finite numeric leaf anywhere in the (shallow-or-deep) override counts.
+  const hasNum = (v: unknown): boolean =>
+    typeof v === "number"
+      ? Number.isFinite(v)
+      : v !== null && typeof v === "object" && Object.values(v as Record<string, unknown>).some(hasNum);
+  return hasNum(override);
+}
+
 // ---------- Derive the TSB deep-fatigue edge from stamped ledger context (ROADMAP #2) ----------
 // Now that each entry freezes the TSB the athlete carried into the session (formState), the deep-fatigue
 // edge becomes honestly derivable: the form level at which THIS athlete's quality work falls apart.

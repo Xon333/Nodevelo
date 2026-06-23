@@ -39,7 +39,7 @@ import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, calStampFor, mergeScoreLog } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
-import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveCalibratedValue } from "@/lib/calibration";
+import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { resolveToday } from "@/lib/date";
 import type { ExecutedInterval, RideEntryContext, TodayAnalysis } from "@/lib/types";
@@ -78,7 +78,8 @@ export async function GET(req: Request) {
   const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp) : null;
   // Signal fusion (§5): one glanceable state from the fused signals.
   const athleteState = computeAthleteState(
-    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr)
+    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr),
+    resolveAthleteStateWeights(settings.athleteStateWeights)
   );
   // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/ask, so the
   // Today card shows the exact figures the coach reasons from (FTP off the physiology SoT).
@@ -95,6 +96,7 @@ export async function GET(req: Request) {
     morningChecks: morningChecks.entries,
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
+    athleteStateWeightsOverride: settings.athleteStateWeights,
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -392,7 +394,8 @@ export async function POST(req: Request) {
     const analysisPending = todayAnalysis !== null && !todayAnalysis.coachNote;
     // Signal fusion (§5) recomputed on the fresh data so the glanceable state updates after a sync.
     const athleteState = computeAthleteState(
-      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr)
+      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr),
+      resolveAthleteStateWeights((await readBlockSettings()).athleteStateWeights)
     );
     // Rebuild the CoachSnapshot on the fresh data so the Today card updates after a sync without a
     // second round-trip (same builder as the GET + /api/ask — the athlete sees the LLM's numbers).
@@ -416,6 +419,7 @@ export async function POST(req: Request) {
       morningChecks: morningChecks.entries,
       acwrBandsOverride: settingsForSnap.acwrBands,
       tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
+      athleteStateWeightsOverride: settingsForSnap.athleteStateWeights,
     });
     return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), athleteState, coachSnapshot, calibration });
   } catch (err) {

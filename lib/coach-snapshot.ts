@@ -26,7 +26,7 @@ import { computeAcwr, computeLoadRamp, computeReadiness } from "./readiness";
 import { timeAboveZ2Fraction } from "./execution-score";
 import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
 import { weightTrendFromWellness } from "./nutrition";
-import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveTsbEdgesOverride, resolveTsbModifierEdges, type AcwrBands, type TsbModifierEdges } from "./calibration";
+import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveAthleteStateWeights, resolveTsbEdgesOverride, resolveTsbModifierEdges, type AcwrBands, type AthleteStateWeights, type DeepPartial, type TsbModifierEdges } from "./calibration";
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import { synthesizeCoachingDirectives } from "./synthesis";
 import { summariseValidation } from "./intervention";
@@ -113,11 +113,13 @@ export interface CoachSnapshotInput extends CoachSignals {
 
 // `acwrBandsOverride` is the raw per-athlete override (settings.acwrBands); resolution to the full
 // bands lives here so callers don't each repeat resolveAcwrBands() and drift (RR-5/RR-7).
+// `athleteStateWeightsOverride` (settings.athleteStateWeights) is resolved here for the same reason.
 export function resolveCoachSignals(
   sync: SyncData | null,
   athleteModel: AthleteModel,
   baselines: RollingBaselines,
-  acwrBandsOverride?: Partial<AcwrBands> | null
+  acwrBandsOverride?: Partial<AcwrBands> | null,
+  athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null
 ): CoachSignals {
   if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null };
   const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride));
@@ -126,7 +128,10 @@ export function resolveCoachSignals(
     readiness: computeReadiness(sync.fitness, sync.wellness),
     acwr,
     loadRamp: computeLoadRamp(sync.activities),
-    athleteState: computeAthleteState(athleteStateInputsFrom(sync, athleteModel, baselines, acwr)),
+    athleteState: computeAthleteState(
+      athleteStateInputsFrom(sync, athleteModel, baselines, acwr),
+      resolveAthleteStateWeights(athleteStateWeightsOverride)
+    ),
     weightTrend7dKg: weightTrendFromWellness(sync.wellness),
   };
 }
@@ -278,11 +283,12 @@ export interface CoachSnapshotSources {
   morningChecks: MorningCheckEntry[];
   acwrBandsOverride?: Partial<AcwrBands> | null;
   tsbModifierEdgesOverride?: Partial<TsbModifierEdges> | null;
+  athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null;
 }
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
   const athleteModel = buildAthleteModel(s.scoreEntries);
-  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride);
+  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride);
   // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;
   return buildCoachSnapshot({

@@ -298,6 +298,19 @@ export interface BlockSettings {
   // which an embedded effort counts as a hard insert, and the %FTP / duration ceiling it must fall
   // within. Absent = population defaults (88% floor, ≤122% / ≤20 min).
   durabilityInsertEnvelope?: { embeddedHardPct: number; maxIntensityPct: number; maxEffortMin: number };
+  // Optional manual override for the athlete-state fusion weights (ROADMAP §5 / #2). A deep-partial:
+  // any subset of the BASE / per-signal scales-caps-thresholds; absent or missing leaves fall back to
+  // the population default (DEFAULT_ATHLETE_STATE_WEIGHTS). Shape mirrors AthleteStateWeights.
+  athleteStateWeights?: {
+    BASE?: number;
+    tsb?: { scale?: number; cap?: number; freshAbove?: number; deepBelow?: number };
+    acwr?: { optimal?: number; low?: number; high?: number; danger?: number };
+    exec?: { mid?: number; perPoint?: number; trend?: number; cap?: number };
+    decoupling?: { perPct?: number; cap?: number; deadband?: number };
+    rpe?: { perPoint?: number; cap?: number; deadband?: number };
+    behaviour?: { highOffPlan?: number; effect?: number };
+    override?: { livedThreshold?: number; scoreCap?: number };
+  };
   updatedAt: string;
 }
 

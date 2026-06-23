@@ -9,6 +9,7 @@
 // constants in `C` below — retuning is editing constants, not logic. The AI only ever phrases the
 // headline from this; it never computes or overrides the state.
 
+import { DEFAULT_ATHLETE_STATE_WEIGHTS, type AthleteStateWeights } from "./calibration";
 import type { AcwrResult, ActivitySummary, AthleteModel, AthleteState, SignalContribution, SyncData } from "./types";
 
 export interface AthleteStateInputs {
@@ -24,24 +25,17 @@ export interface AthleteStateInputs {
   offPlanPct: number | null; // 0–100
 }
 
-// ---- tunable knobs (one place; foundations — expect tweaking) ----
-const C = {
-  BASE: 60, // neutral start: no news → mid "steady"
-  tsb: { scale: 0.6, cap: 18, freshAbove: 5, deepBelow: -5 },
-  acwr: { optimal: 4, low: -2, high: -10, danger: -20 },
-  exec: { mid: 6, perPoint: 4, trend: 4, cap: 16 },
-  decoupling: { perPct: 3, cap: 9, deadband: 1 },
-  rpe: { perPoint: 5, cap: 10, deadband: 0.5 },
-  behaviour: { highOffPlan: 60, effect: -4 },
-  override: { livedThreshold: 2, scoreCap: 40 }, // ≥2 corroborating lived-negatives → cap the score
-};
+// The fusion weights (BASE + per-signal scales/caps/thresholds) are the calibration framework's
+// population default (DEFAULT_ATHLETE_STATE_WEIGHTS in lib/calibration.ts), passed in as `C` so they
+// can be overridden per athlete; retuning is editing that default, not this logic. Each evaluator
+// takes the resolved weights so the math stays a pure function of (inputs, weights).
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const round = (v: number) => Math.round(v);
 
-// ---- evaluators: inputs → SignalContribution | null (null = signal unavailable) ----
+// ---- evaluators: (inputs, weights) → SignalContribution | null (null = signal unavailable) ----
 
-function evalTsb(i: AthleteStateInputs): SignalContribution | null {
+function evalTsb(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
   if (i.tsb === null) return null;
   const effect = round(clamp(i.tsb * C.tsb.scale, -C.tsb.cap, C.tsb.cap));
   const dir = i.tsb > C.tsb.freshAbove ? "up" : i.tsb < C.tsb.deepBelow ? "down" : "flat";
@@ -49,14 +43,14 @@ function evalTsb(i: AthleteStateInputs): SignalContribution | null {
   return { key: "tsb", label: "Form (TSB)", dir, effect, note };
 }
 
-function evalAcwr(i: AthleteStateInputs): SignalContribution | null {
+function evalAcwr(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
   if (i.acwrLevel === null) return null;
   const effect = C.acwr[i.acwrLevel];
   const dir = effect > 0 ? "up" : effect < 0 ? "down" : "flat";
   return { key: "acwr", label: "Load ratio (ACWR)", dir, effect, note: `Acute:chronic load ${i.acwrLevel}` };
 }
 
-function evalExecution(i: AthleteStateInputs): SignalContribution | null {
+function evalExecution(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
   if (i.execEwma === null) return null;
   let effect = (i.execEwma - C.exec.mid) * C.exec.perPoint;
   if (i.execTrend === "up") effect += C.exec.trend;
@@ -68,7 +62,7 @@ function evalExecution(i: AthleteStateInputs): SignalContribution | null {
   return { key: "execution", label: "Execution quality", dir, effect, note };
 }
 
-function evalDecoupling(i: AthleteStateInputs): SignalContribution | null {
+function evalDecoupling(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
   if (i.decouplingLatest === null || i.decouplingBaseline === null) return null;
   const delta = i.decouplingLatest - i.decouplingBaseline; // + = worse than baseline
   if (Math.abs(delta) < C.decoupling.deadband) {
@@ -80,7 +74,7 @@ function evalDecoupling(i: AthleteStateInputs): SignalContribution | null {
   return { key: "decoupling", label: "Aerobic decoupling", dir, effect, note };
 }
 
-function evalRpe(i: AthleteStateInputs): SignalContribution | null {
+function evalRpe(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
   if (i.rpeRecent === null || i.rpeBaseline === null) return null;
   const delta = i.rpeRecent - i.rpeBaseline; // + = higher perceived cost = worse
   if (Math.abs(delta) < C.rpe.deadband) {
@@ -92,7 +86,7 @@ function evalRpe(i: AthleteStateInputs): SignalContribution | null {
   return { key: "rpe", label: "Perceived effort (RPE)", dir, effect, note };
 }
 
-function evalBehaviour(i: AthleteStateInputs): SignalContribution | null {
+function evalBehaviour(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
   if (i.offPlanPct === null || i.offPlanPct <= C.behaviour.highOffPlan) return null; // light input — fires only on high drift
   return { key: "behaviour", label: "Plan adherence", dir: "down", effect: C.behaviour.effect, note: `${round(i.offPlanPct)}% of rides off-plan` };
 }
@@ -113,9 +107,12 @@ function bandFor(score: number): { band: AthleteState["band"]; recommendation: A
 
 const CORE_KEYS = new Set(["tsb", "acwr", "execution", "decoupling", "rpe"]);
 
-export function computeAthleteState(i: AthleteStateInputs): AthleteState | null {
+export function computeAthleteState(
+  i: AthleteStateInputs,
+  C: AthleteStateWeights = DEFAULT_ATHLETE_STATE_WEIGHTS
+): AthleteState | null {
   const evaluators = [evalTsb, evalAcwr, evalExecution, evalDecoupling, evalRpe, evalBehaviour];
-  const drivers = evaluators.map((fn) => fn(i)).filter((c): c is SignalContribution => c !== null);
+  const drivers = evaluators.map((fn) => fn(i, C)).filter((c): c is SignalContribution => c !== null);
   if (drivers.length === 0) return null; // nothing to say
 
   let score = clamp(C.BASE + drivers.reduce((s, c) => s + c.effect, 0), 0, 100);

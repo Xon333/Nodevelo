@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_STRAIN_BANDS, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isDurabilityInsertEnvelopeOverridden, isStrainBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveStrainBands, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_STRAIN_BANDS, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isStrainBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveStrainBands, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
 import type { CalibratedParameter, RideScoreEntry } from "./types";
 
 // Minimal quality-session ledger entry with a stamped TSB, for the deep-fatigue derivation tests.
@@ -158,6 +158,43 @@ describe("isDurabilityInsertEnvelopeOverridden", () => {
     expect(isDurabilityInsertEnvelopeOverridden(null)).toBe(false);
     expect(isDurabilityInsertEnvelopeOverridden({})).toBe(false);
     expect(isDurabilityInsertEnvelopeOverridden({ maxEffortMin: 15 })).toBe(true);
+  });
+});
+
+describe("resolveAthleteStateWeights (ROADMAP §5 — fusion weights)", () => {
+  it("returns population defaults with no override", () => {
+    expect(resolveAthleteStateWeights()).toEqual(DEFAULT_ATHLETE_STATE_WEIGHTS);
+    expect(resolveAthleteStateWeights(null)).toEqual(DEFAULT_ATHLETE_STATE_WEIGHTS);
+    expect(resolveAthleteStateWeights({})).toEqual(DEFAULT_ATHLETE_STATE_WEIGHTS);
+  });
+
+  it("deep-merges a partial override, leaving untouched leaves at their default", () => {
+    const w = resolveAthleteStateWeights({ BASE: 50, tsb: { scale: 1.0 } });
+    expect(w.BASE).toBe(50);
+    expect(w.tsb.scale).toBe(1.0);
+    expect(w.tsb.cap).toBe(DEFAULT_ATHLETE_STATE_WEIGHTS.tsb.cap); // sibling leaf preserved
+    expect(w.acwr).toEqual(DEFAULT_ATHLETE_STATE_WEIGHTS.acwr); // untouched group preserved
+  });
+
+  it("ignores non-finite leaves and falls back to the default", () => {
+    const w = resolveAthleteStateWeights({ BASE: Number.NaN, override: { scoreCap: Number.POSITIVE_INFINITY } });
+    expect(w.BASE).toBe(DEFAULT_ATHLETE_STATE_WEIGHTS.BASE);
+    expect(w.override.scoreCap).toBe(DEFAULT_ATHLETE_STATE_WEIGHTS.override.scoreCap);
+  });
+
+  it("does not mutate the default", () => {
+    resolveAthleteStateWeights({ tsb: { scale: 9 } });
+    expect(DEFAULT_ATHLETE_STATE_WEIGHTS.tsb.scale).toBe(0.6);
+  });
+});
+
+describe("isAthleteStateWeightsOverridden", () => {
+  it("detects a real (possibly deep) override vs none", () => {
+    expect(isAthleteStateWeightsOverridden(null)).toBe(false);
+    expect(isAthleteStateWeightsOverridden({})).toBe(false);
+    expect(isAthleteStateWeightsOverridden({ tsb: {} })).toBe(false); // empty group is not an override
+    expect(isAthleteStateWeightsOverridden({ BASE: 50 })).toBe(true);
+    expect(isAthleteStateWeightsOverridden({ tsb: { scale: 1 } })).toBe(true);
   });
 });
 
