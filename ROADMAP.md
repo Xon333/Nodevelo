@@ -32,9 +32,13 @@ Bring more parameters under the same `parameterise → derive-with-fallback → 
     (failures deeper than successes) and clears the confidence gate — else it stays on the population
     default. `resolveTsbEdgesOverride` layers it under the manual override (manual wins) at every snapshot
     site. Calibrates to where they **adapt**, not where they **train**.
-  - _Open:_ extend the same derive-from-stamped-context move to the other override-only params (e.g. the
+  - _Open:_ extend the derive-from-stamped-context move to the other override-only params (e.g. the
     `productiveOverload`/`balanced` edges, #3 reschedule thresholds) via the **shared state→execution
-    correlation engine** — now grouped with **Track C** and built there (ties **#4**).
+    correlation engine** (`lib/correlation.ts` `deriveExecutionEdge` — now built; `deriveTsbDeepFatigue`
+    is its first consumer). Each new edge = a spec, not new code, but only where an **honest** execution
+    outcome separates failures from successes — the `productiveOverload`/`balanced` edges still lack one;
+    the morning-check **strain edge** needs `motivation` stamped too (the ledger freezes only
+    fatigue/sleep/soreness). Carbs is the other consumer → **Track C** (ties **#4**).
 - **Pattern (follow per param):** default = today's literal value; derive with confidence-gated
   fallback; stamp on any ledger entry it scores; test that a fresh athlete scores identically.
 - *Owned elsewhere:* optimal carbs g/h `→ Track C`; ACWR band + EWMA α stay on their current path.
@@ -76,20 +80,22 @@ Per-template scoring loop (grade each long ride vs its template's expected signa
 `durabilityTemplate` stamp is in place; ties #4 + Track C); tighten per-loading-week RaceSim only if real
 use shows the LLM under-delivering.
 
-### Track C · Fueling intelligence + the shared correlation engine  (inputs already synced — high value)
-All open. Turn fueling from a static formula into a learned signal — and build the **general
-state→subsequent-execution correlation engine** here (grouped in from #2's context-stamp play): the
-ledger now freezes state context (form + morning-check) per entry, so one engine can correlate *any*
-stamped signal against the next session's quality and feed the override-only params (the `← #2`
-auto-derivations beyond the TSB deep-fatigue edge already shipped). Build the derivation once, reuse it
-for carbs **and** the calibration edges.
-- **Correlation engine** — per ride type, correlate synced carbs g/h against decoupling, RPE-vs-IF
-  divergence, interval completion, next-day TSB → converge on the athlete's optimal g/h, stored as a
-  calibrated parameter `← #2`. Same machinery serves #2's remaining state→execution derivations.
-- **Contextual post-ride prompts** (deterministic thresholds, LLM phrases the number).
+### Track C · Fueling intelligence + the shared correlation engine  (high value)
+Turn fueling from a static formula into a learned signal, on the **shared correlation engine**. The
+engine itself is **built** (`lib/correlation.ts` `deriveExecutionEdge` — the generalised guarded
+regression `deriveTsbDeepFatigue` now rides on; "build the derivation once, reuse it" for carbs **and**
+the calibration edges). The carbs **input is now stamped** too (`fuel.carbsGPerH`, from intervals.icu
+`carbs_ingested`) — sparse until athletes fill it in, accumulating like `formState` did before its edge
+could fire. What's left:
+- **Optimum-derivation shape** — the engine's `deriveExecutionEdge` finds a *failure edge*; carbs needs
+  an *optimum* (the g/h band tied to the best outcomes). Add that shape, then per ride type correlate
+  `fuel.carbsGPerH` against decoupling / RPE-vs-IF divergence / interval completion / next-day TSB →
+  converge on optimal g/h, stored as a calibrated parameter `← #2`.
+- **Contextual post-ride prompts** (deterministic thresholds, LLM phrases the number) — also the nudge
+  that gets `carbs_ingested` filled in, which feeds the derivation above.
 - **Pre-ride loading loop** — day-before carb bump before long durability, then *learn whether it
   helped* (loaded vs baseline decoupling) and stop if it doesn't move the signal.
-- Surfacing layer = **§6**; build the derivation once, reuse in §6 + the Today tile + the Trends overlay.
+- Surfacing layer = **§6**; reuse the one derivation in §6 + the Today tile + the Trends overlay.
 
 ---
 

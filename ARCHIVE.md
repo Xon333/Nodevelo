@@ -160,6 +160,28 @@ grew to 462.
   `athleteStateWeights`), alongside the existing `acwrBands` / `tsbModifierEdges`. Per-athlete
   *derivation* of any of these stays future work (← #2's shared correlation engine).
 
+### Shared correlation engine + carbs ledger stamp (ROADMAP #2 / Track C)
+
+The reusable substrate the roadmap asked for ("build the derivation once, reuse it") plus the first new
+signal stamped against it. Two commits; tests grew to 474.
+
+- **The engine (`lib/correlation.ts`).** `deriveExecutionEdge(entries, spec)` generalises the guarded
+  regression `deriveTsbDeepFatigue` hard-coded: population filter (planned · !legacy · !compromised ·
+  in-scope type · present signal), under/good outcome partition, a discrimination guard with a
+  `failureSide` direction (`lower`|`higher`), confidence gate + clamp → `CalibratedParameter`. Depends
+  only on `./types` + `./stats` (no `./calibration`) so calibration consumes it cycle-free.
+  `deriveTsbDeepFatigue` is now a thin `failureSide: "lower"` spec over it — behaviour byte-identical
+  (every existing deep-fatigue test still green).
+- **Carbs input stamped (`fuel.carbsGPerH`).** intervals-api maps `carbs_ingested` ("CHO In") into
+  `ActivitySummary.carbsIngestedG`; `score-log.fuelStampFor` freezes it as g/h (grams over moving hours)
+  onto each entry, alongside the calibration + context stamps. Only a positive logged intake is stamped
+  (a blank/zero field is indistinguishable from "didn't fuel" — no fake zeros). Provenance only; never
+  feeds `executionScore`. Sparse until athletes fill it in, accumulating like `formState` did.
+- **Not yet built** (ROADMAP Track C): the *optimum*-derivation shape carbs needs (the engine finds a
+  failure edge, not an optimum); consuming the derived optimal g/h (#1 fuel slots, §6 surfacing); the
+  `productiveOverload`/`balanced` edges (no honest execution outcome) and the morning-check strain edge
+  (needs `motivation` stamped — the ledger freezes only fatigue/sleep/soreness).
+
 ---
 
 ## Scoring-core — Z2 "dialed-in" discipline signal
