@@ -132,7 +132,9 @@ Tailwind **arbitrary literals with opacity** — that is the established convent
 ## 8 · Layout
 - **Desktop:** fixed left nav rail `w-44`; content centered `max-w-5xl`, offset `sm:pl-44`. The Today
   page is viewport-locked (`lg:h-[calc(100dvh-4rem)] lg:overflow-hidden`) with cards scrolling internally.
-- **Mobile:** sticky top bar (wordmark + sync + theme) + bottom tab bar (icon + tiny label).
+- **Mobile:** sticky top bar (wordmark + Model brain icon + sync + theme) + bottom tab bar (icon +
+  tiny label). Model is reached via the top-bar brain icon, not a 7th bottom tab; on desktop it's the
+  7th rail tab.
 - **Decision-critical content above the fold** on open (esp. Today/Profile/Plan).
 
 ### Per-page hierarchy (which data · why · where)
@@ -148,7 +150,8 @@ default: summary first, detail on demand (`<details>` for blocks, `MetricTip`/`I
 | **Plan** | "What's my block, and what's next?" | Active block hero (calendar + progress) | Goals · this-week debrief | Block history → `<details>`; generation form collapses while a block is active |
 | **Trends** | "Am I improving over time?" | Last-7-days glance + coach insights | the trend charts (Pw:HR · CTL · execution · volume · fueling) — **review depth is intentional here** | Block-history long-view (hero) |
 | **Profile** | "Who am I — what does the coach plan around?" | Rider-profile read (power-curve shape) | PRs · goals · weakpoints · nutrition | "Edit →" routes to Knowledge |
-| **Settings** | "Tune generation + platform behaviour" | Block-generation knobs | calibration (read-only) · AI usage · backup | — |
+| **Model** | "What does the brain know about me — and why?" | What drives your state (ranked drivers) | coaching directives + track record · per-athlete calibration | contest/correct (manual override) — next |
+| **Settings** | "Tune generation + platform behaviour" | Block-generation knobs | AI usage · backup | — |
 
 **Bespoke-per-use-case elements** (don't force these into a generic `StatTile`): the readiness gauge
 (`AthleteStateCard`), the coach's-read glance (`CoachSnapshotCard`), the prescription-vs-execution rep

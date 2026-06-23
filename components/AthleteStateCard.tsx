@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { AthleteState } from "@/lib/types";
 
 // The §5 "second brain's read on you now" glance: a 0–100 score (the default view); the band label
@@ -29,10 +30,18 @@ export default function AthleteStateCard({ state }: { state: AthleteState }) {
         <span className="text-[10px] text-zinc-400 dark:text-zinc-500">/100</span>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-          Athlete state
-          {state.confidence !== "high" && <span className="ml-1 normal-case opacity-80">· {state.confidence} confidence</span>}
-        </p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="min-w-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+            Athlete state
+            {state.confidence !== "high" && <span className="ml-1 normal-case opacity-80">· {state.confidence} confidence</span>}
+          </p>
+          <Link
+            href="/model"
+            className="shrink-0 text-[10px] font-medium text-zinc-400 transition-colors hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-[#00d4ff]"
+          >
+            why? →
+          </Link>
+        </div>
         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
           <div className={`h-full rounded-full ${BAND_BAR[state.band]}`} style={{ width: `${state.score}%` }} />
         </div>

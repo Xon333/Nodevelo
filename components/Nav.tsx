@@ -6,13 +6,16 @@ import { useEffect, useState } from "react";
 import { timeAgo } from "@/lib/client-api";
 import { useSync } from "./SyncProvider";
 
-type IconName = "today" | "plan" | "trends" | "profile" | "settings" | "knowledge";
+type IconName = "today" | "plan" | "trends" | "profile" | "model" | "settings" | "knowledge";
 
-const LINKS: { href: string; label: string; short: string; icon: IconName }[] = [
+// `mobileTab: false` keeps a link out of the mobile bottom bar (already 6 tabs) — Model is reached
+// via the brain icon in the mobile top bar instead, but still gets a 7th tab on the desktop rail.
+const LINKS: { href: string; label: string; short: string; icon: IconName; mobileTab?: boolean }[] = [
   { href: "/today", label: "Today", short: "Today", icon: "today" },
   { href: "/plan", label: "Plan", short: "Plan", icon: "plan" },
   { href: "/trends", label: "Trends", short: "Trends", icon: "trends" },
   { href: "/profile", label: "Profile", short: "Profile", icon: "profile" },
+  { href: "/model", label: "Model", short: "Model", icon: "model", mobileTab: false },
   { href: "/settings", label: "Settings", short: "Settings", icon: "settings" },
   { href: "/knowledge", label: "Knowledge Base", short: "Docs", icon: "knowledge" },
 ];
@@ -54,6 +57,15 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
         <svg {...common}>
           <circle cx="12" cy="8" r="4" />
           <path d="M4 21c0-4 3.5-6 8-6s8 2 8 6" />
+        </svg>
+      );
+    case "model":
+      // A brain: two bumpy hemispheres meeting at a central fold.
+      return (
+        <svg {...common}>
+          <path d="M12 5C10.8 4.2 9 4.6 8.5 6 7 5.8 5.8 7 6.2 8.4 5 9 5 10.8 6.2 11.4 5.4 12.4 5.8 14 7.2 14.2 7.2 15.6 8.6 16.4 10 16 10.4 16.8 11.2 17 12 16.8" />
+          <path d="M12 5C13.2 4.2 15 4.6 15.5 6 17 5.8 18.2 7 17.8 8.4 19 9 19 10.8 17.8 11.4 18.6 12.4 18.2 14 16.8 14.2 16.8 15.6 15.4 16.4 14 16 13.6 16.8 12.8 17 12 16.8" />
+          <path d="M12 5v11.8" />
         </svg>
       );
     case "settings":
@@ -181,6 +193,18 @@ export default function Nav() {
             NodeVelo
           </Link>
           <div className="flex items-center gap-1">
+            <Link
+              href="/model"
+              aria-label="Model"
+              aria-current={isActive("/model") ? "page" : undefined}
+              className={`rounded-md px-2 py-1.5 transition-colors ${
+                isActive("/model")
+                  ? "text-zinc-900 dark:text-[#ff49c8]"
+                  : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              }`}
+            >
+              <Icon name="model" className="h-5 w-5" />
+            </Link>
             <SyncControl compact />
             <DarkToggle />
           </div>
@@ -221,7 +245,7 @@ export default function Nav() {
       {/* Bottom tab bar: mobile only */}
       <nav className="no-print fixed inset-x-0 bottom-0 z-40 border-t border-zinc-200 bg-white/95 backdrop-blur pb-[env(safe-area-inset-bottom)] sm:hidden dark:border-zinc-700 dark:bg-zinc-900/95">
         <div className="mx-auto flex max-w-5xl items-stretch justify-around">
-          {LINKS.map((link) => {
+          {LINKS.filter((l) => l.mobileTab !== false).map((link) => {
             const active = isActive(link.href);
             return (
               <Link

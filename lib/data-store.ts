@@ -122,6 +122,14 @@ export async function writeCalibration(calibration: CalibrationStore): Promise<v
   await writeJson("calibration.json", calibration);
 }
 
+// Transactional read-modify-write on the calibration store — guards the Model page's contest/correct
+// override POST from racing a concurrent sync's re-derive (which preserves manualOverride).
+export async function updateCalibration(
+  mutate: (cur: CalibrationStore) => CalibrationStore
+): Promise<CalibrationStore> {
+  return updateJson<CalibrationStore>("calibration.json", emptyCalibration(), mutate);
+}
+
 const DEFAULT_QUIRKS: AthleteQuirkStore = { entries: [], extractedAt: new Date(0).toISOString(), engine: "" };
 
 // Derived store (Track D): mined from ride notes, regenerated in full each sync — like rolling
