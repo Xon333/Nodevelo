@@ -14,6 +14,75 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
+**RV-2026-06-24 — senior-dev general review (architecture + edge cases).** 10 findings from a
+full read of the deterministic core, sync orchestrator, routes, and Intervals client. Done in-session:
+both P1s (RV-1, RV-2) + the no-input items (RV-6 docs, RV-9 write-route test). Remaining items need a
+decision or design call. Verdict: 8.5/10 — high-quality core, a few sharp edges.
+
+### P1 — fixed this session
+
+- ☑ P1 `bug` **RV-1** — the readiness window functions computed "today" from the server's UTC date,
+  while activities are matched on their LOCAL date and the rest of sync threads `resolveToday` (the
+  local day). Near the UTC boundary in a non-UTC timezone the ACWR acute/chronic, load-ramp, and
+  polarization windows shifted a day off the calendar the rides live on. **Fix:** `computeLoadRamp` /
+  `computeAcwr` / `computeIntensityDistribution` / `computeRollingBaselines` now take a `today` arg
+  (default = `utcToday()`, byte-identical to before) and anchor their offsets to `Date.parse(today)`;
+  sync (GET+POST), morning-check, and `resolveCoachSignals`→CoachSnapshot all pass the resolved local
+  date. 3 tests added. _[readiness.ts](lib/readiness.ts) · [sync/route.ts](app/api/sync/route.ts) ·
+  [coach-snapshot.ts:117](lib/coach-snapshot.ts:117)._
+- ☑ P1 `bug` **RV-2** — `/api/write` POSTed each day to Intervals.icu with `upsertOnUid=false`, so a
+  partial failure (day N of M fails) left days 1..N-1 as orphaned calendar events with no local block,
+  and the natural retry **duplicated** every already-written day. **Fix:** `planDayToEvent` stamps a
+  deterministic `uid = nodevelo-<date>`; `createEvent` posts `upsertOnUid=true` whenever the payload
+  carries a uid, so block writes are idempotent — a retry/re-write upserts the same per-day event
+  instead of duplicating, and a regenerated block cleanly replaces the prior NodeVelo event on a date.
+  Ad-hoc note posts (no uid) keep create semantics. 1 test added. _[plan-parser.ts](lib/plan-parser.ts) ·
+  [intervals-api.ts:432](lib/intervals-api.ts:432)._ **Note:** this makes the write retry-safe but is
+  not a true rollback — a deleteEvent-based cleanup of a partial set is still open (folded into RV-9).
+
+### P2 — needs a decision or design before acting
+
+- ☐ P2 `bug` **RV-3** — README §3 claims readiness excludes HRV ("no HRV tracker in the loop"), but
+  `computeReadiness` reads `w.hrv`, averages 7 days, and can return "Hold" on HRV suppression — and
+  `fetchWellness` now syncs `hrv`, so the branch is LIVE. The module header even says "…and HRV". Docs
+  and code contradict. **Decision needed:** is HRV in or out of readiness? Then make docs+code agree.
+  _[readiness.ts:74](lib/readiness.ts:74) · [README.md:264](README.md:264)._
+- ☐ P2 `bug` **RV-4** (coupled to RV-3, only matters if HRV stays) — the HRV branch has no staleness
+  guard: `sorted[0]` is just the most-recent non-null HRV, so a reading from weeks ago still drives a
+  "Hold" today. Everything else in the file is strict about this (`MAX_FORM_CARRY_DAYS = 10`). Also the
+  7-day "baseline" includes today itself, damping the very signal it tests. **Fix when RV-3 lands:** add
+  a recency cap + exclude the current day from the baseline. _[readiness.ts:74-82](lib/readiness.ts:74)._
+- ☐ P2 `arch` **RV-5** — physiology `reconcile` stamps a changed snapshot `effectiveFrom: today` (the
+  day NodeVelo first SAW the change), not the day Intervals.icu actually changed it. An FTP test on Mon
+  not synced until Fri scores Mon–Thu rides against the OLD FTP — quietly degrading the "scored against
+  the FTP live that day" pillar. **Investigate:** does sport-settings expose a change/updated date to
+  anchor to? Behaviour change to a core pillar — design first. _[physiology.ts:151](lib/physiology.ts:151)._
+- ☐ P3 `arch` **RV-5b** — `reconcile` appends to `history` with no dedup/bound; `physiology.json` grows
+  monotonically over years of FTP nudges. Cosmetic at single-user scale. _[physiology.ts:168](lib/physiology.ts:168)._
+- ☐ P2 `feat` **RV-7** — AI spend is measured (`ai-usage.ts`) but never capped: `recordUsage` only
+  accumulates; nothing refuses a call past a threshold. No circuit breaker on a runaway loop. **Decision
+  needed:** soft monthly cap value + behaviour (warn vs hard-429 from the LLM routes). _[ai-usage.ts](lib/ai-usage.ts)._
+
+### P3 — altitude / cleanup
+
+- ☑ P3 `audit` **RV-6** — documented the two interval-matcher tradeoffs that were implicit: (a) the
+  structural-mismatch guard intentionally launders a deliberately-short-but-strong session into a pass
+  (false-positive accepted to dodge detection noise), and (b) order-based rep alignment mis-aligns every
+  rep after a skipped middle rep. Comment-only; behaviour unchanged. _[interval-match.ts](lib/interval-match.ts)._
+- ◑ P3 `test` **RV-9** — no integration test crosses the route/IO boundary; every route's orchestration
+  (the part that corrupts data when wrong — RV-1/RV-2 both survived because of this) is untested. **Done:**
+  `/api/write` partial-failure test (createEvent fails mid-loop → asserts `blockSaved:false`, no block/
+  history write, and a stable uid on every payload) — 3 tests, the RV-2 regression guard.
+  _[write/route.test.ts](app/api/write/route.test.ts)._ **Remaining:** the deleteEvent-based rollback of a
+  partial set (a true rollback, beyond retry-safety), and coverage for the other mutating routes.
+- ☐ P3 `refactor` **RV-8** — `anthropic-api.ts` (773 LOC: prompt strings + 5 call sites + parsing),
+  `Dashboard.tsx` (529), `Trends.tsx` (508) are where complexity piles up while `lib/` stays well-split.
+  Split the prompt module first (it's the one nobody will want to touch in 6 months).
+- ☐ P3 `cleanup` **RV-10** — `data/` accumulates one-shot rebuild backups
+  (`score-log.json.pre-rebuild-*.bak`) forever; no rotation. Gitignored so harmless, low priority.
+
+---
+
 **CR-2026-06-24 — xhigh code-review sweep of the Jun-23 logic commits + the a11y pass.** 15 findings,
 verified against source. Act top-down; P1 = data-integrity, fix first.
 

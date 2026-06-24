@@ -1,6 +1,12 @@
 // Match the coach's prescription against the intervals the athlete curated in
 // Intervals.icu, rep-by-rep, and roll it up. Order-based alignment: the i-th prescribed
 // rep is compared to the i-th executed work effort. Pure + deterministic.
+//
+// KNOWN LIMITATION (order-based alignment, RV-6): if a middle rep is skipped, every subsequent
+// executed rep shifts up one slot (executed rep 4 gets scored against prescribed target 3). It's
+// correct for the common case (all reps attempted, possibly under target) and for trailing extras
+// (handled below), but a ragged, gap-in-the-middle session mis-aligns. No positional/time matching
+// is attempted — Intervals' interval boundaries aren't reliable enough to align on.
 
 import type { ExecutedInterval, IntervalAdherence, IntervalComparison, PrescribedInterval } from "./types";
 
@@ -69,6 +75,13 @@ export function matchPrescription(
   // ridden (e.g. a SIT day stored as 1-min reps but ridden/detected as 30s) — so the duration
   // penalty would mis-score a correct session. A genuine bail (short reps with weak power, or a
   // mid-session fade) is excluded by the strong-power + all-reps-consistent requirement.
+  //
+  // ACCEPTED TRADEOFF (RV-6): this also launders a *deliberately* short-but-strong session — an
+  // athlete who cut every rep in half at the right wattage ("I'll hit the watts but only 30s each")
+  // reads as a detection mismatch and dodges the duration penalty. We accept that false-positive to
+  // avoid the far more common false-negative (penalising a correctly-ridden session whose stored rep
+  // duration just disagrees with detection). The disposition flow (athlete marks it partial) is the
+  // intended correction for the rare genuine-short case.
   const countMatches = reps.length === flat.length;
   const allRepsHalvedOrLess = reps.length >= 2 && reps.every((r) => r.durationPct < 55);
   const powerNailed = median(reps.map((r) => r.adherencePct)) >= 95;
