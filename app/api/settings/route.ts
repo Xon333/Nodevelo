@@ -2,7 +2,20 @@ import { NextResponse } from "next/server";
 import { readBlockSettings, writeBlockSettings } from "@/lib/data-store";
 import type { BlockSettings } from "@/lib/types";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import { isAcwrBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveTsbModifierEdges, type AcwrBands, type TsbModifierEdges } from "@/lib/calibration";
+import {
+  isAcwrBandsOverridden,
+  isDurabilityInsertEnvelopeOverridden,
+  isStrainBandsOverridden,
+  isTsbModifierEdgesOverridden,
+  resolveAcwrBands,
+  resolveDurabilityInsertEnvelope,
+  resolveStrainBands,
+  resolveTsbModifierEdges,
+  type AcwrBands,
+  type DurabilityInsertEnvelope,
+  type StrainBands,
+  type TsbModifierEdges,
+} from "@/lib/calibration";
 
 export async function GET() {
   const settings = await readBlockSettings();
@@ -59,6 +72,29 @@ export async function PUT(req: Request) {
     updated.tsbModifierEdges = resolveTsbModifierEdges(b.tsbModifierEdges as Partial<TsbModifierEdges>);
   } else if (current.tsbModifierEdges) {
     updated.tsbModifierEdges = current.tsbModifierEdges;
+  }
+
+  // Morning-check strain-band override (ROADMAP #2): same clamp-or-preserve pattern. Read by the
+  // morning-check route — before SET-1 this (and the two below) were dropped on every save.
+  if (isStrainBandsOverridden(b.strainBands as Partial<StrainBands> | null)) {
+    updated.strainBands = resolveStrainBands(b.strainBands as Partial<StrainBands>);
+  } else if (current.strainBands) {
+    updated.strainBands = current.strainBands;
+  }
+
+  // Durability-insert envelope override (ROADMAP #2): read by the generate route's plan validation.
+  if (isDurabilityInsertEnvelopeOverridden(b.durabilityInsertEnvelope as Partial<DurabilityInsertEnvelope> | null)) {
+    updated.durabilityInsertEnvelope = resolveDurabilityInsertEnvelope(b.durabilityInsertEnvelope as Partial<DurabilityInsertEnvelope>);
+  } else if (current.durabilityInsertEnvelope) {
+    updated.durabilityInsertEnvelope = current.durabilityInsertEnvelope;
+  }
+
+  // Athlete-state fusion weights (ROADMAP §5 / #2): PRESERVE an existing override so a save can't wipe it,
+  // but don't accept a NEW one through this route yet — resolveAthleteStateWeights does not clamp (CAL-1),
+  // so persisting arbitrary client values could disable the lived-fatigue safety cap. Accept+clamp lands
+  // with CAL-1.
+  if (current.athleteStateWeights) {
+    updated.athleteStateWeights = current.athleteStateWeights;
   }
 
   await writeBlockSettings(updated);
