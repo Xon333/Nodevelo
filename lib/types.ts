@@ -83,6 +83,18 @@ export interface WellnessEntry {
   kcalConsumed: number | null;
   ctl: number | null;
   atl: number | null;
+  // Subjective self-report, synced straight from Intervals.icu's wellness screen so it's logged once
+  // (where the athlete already logs weight + kcal) rather than in a separate NodeVelo form. Raw 1–4
+  // ordinals as Intervals returns them — same order as its UI, where for ALL of these a HIGHER number is
+  // the WORSE state: soreness 1=low…4=extreme, fatigue 1=low…4=extreme, stress 1=low…4=extreme,
+  // mood 1=great…4=grumpy, motivation 1=highly motivated…4=unmotivated, injury 1=none…4=injured.
+  // null when the athlete hasn't logged that field. (Direction is interpreted by consumers, not here.)
+  soreness: number | null;
+  fatigue: number | null;
+  stress: number | null;
+  mood: number | null;
+  motivation: number | null;
+  injury: number | null;
 }
 
 export interface PowerCurvePoint {

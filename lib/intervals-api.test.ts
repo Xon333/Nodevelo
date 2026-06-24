@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchActivities, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
+import { fetchActivities, fetchWellness, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
 import type { PowerCurvePoint, SyncData } from "./types";
 
 const mkSync = (over: Partial<SyncData> = {}): SyncData => ({
@@ -156,5 +156,40 @@ describe("intervals-api network failure handling (CR-B)", () => {
     ) as unknown as typeof fetch;
     const [a] = await fetchActivities("2026-06-01", "2026-06-23");
     expect(a.decoupling).toBe(4.5);
+  });
+});
+
+describe("fetchWellness — subjective self-report mapping", () => {
+  const realFetch = globalThis.fetch;
+  beforeEach(() => {
+    process.env.INTERVALS_API_KEY = "test-key";
+    process.env.INTERVALS_ATHLETE_ID = "i1";
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    delete process.env.INTERVALS_API_KEY;
+    delete process.env.INTERVALS_ATHLETE_ID;
+    vi.restoreAllMocks();
+  });
+
+  const wellnessResponse = (raw: unknown) =>
+    vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+
+  it("maps the Intervals.icu subjective fields (soreness/fatigue/stress/mood/motivation/injury)", async () => {
+    globalThis.fetch = wellnessResponse([
+      { id: "2026-06-24", weight: 62.2, soreness: 2, fatigue: 3, stress: 1, mood: 1, motivation: 2, injury: 1 },
+    ]);
+    const [w] = await fetchWellness("2026-06-01", "2026-06-24");
+    expect(w).toMatchObject({ soreness: 2, fatigue: 3, stress: 1, mood: 1, motivation: 2, injury: 1, weightKg: 62.2 });
+  });
+
+  it("leaves an unlogged subjective field null (athlete logged only weight)", async () => {
+    globalThis.fetch = wellnessResponse([{ id: "2026-06-24", weight: 62.2 }]);
+    const [w] = await fetchWellness("2026-06-01", "2026-06-24");
+    expect(w.soreness).toBeNull();
+    expect(w.motivation).toBeNull();
+    expect(w.weightKg).toBe(62.2);
   });
 });

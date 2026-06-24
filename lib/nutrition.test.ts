@@ -140,6 +140,12 @@ describe("weightTrendFromWellness", () => {
     kcalConsumed: null,
     ctl: null,
     atl: null,
+    soreness: null,
+    fatigue: null,
+    stress: null,
+    mood: null,
+    motivation: null,
+    injury: null,
   });
 
   it("returns the change between the latest weigh-in and ~7 days prior", () => {
