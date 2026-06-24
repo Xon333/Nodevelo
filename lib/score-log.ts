@@ -37,13 +37,14 @@ export function calStampFor(
 
 // Fueling context stamp (ROADMAP Track C): freeze the athlete's logged carb intake as g/h onto the
 // entry, so a later carbs→execution/decoupling correlation has the provenance to derive their optimal
-// intake (the engine's next consumer, once enough rides carry it). Spread-ready `{}` when no real intake
-// was logged — only a positive carbs_ingested is stamped (a default/blank field reads as null or 0 and
-// is indistinguishable from "didn't fuel", so we don't pollute the signal with fake zeros). Pure: g/h is
-// the logged grams over the ride's moving hours, frozen like ftpUsed so the ledger stays reproducible.
+// intake (the engine's next consumer, once enough rides carry it). Spread-ready `{}` when nothing was
+// logged: carbsIngestedG is num(carbs_ingested), so an unlogged ride reads null — distinct from a
+// deliberately-logged 0 ("fasted"), which IS a real data point the correlation needs (FUEL-1; without it
+// the signal can only ever learn from well-fuelled rides). Negative/non-finite are garbage → dropped.
+// Pure: g/h is the logged grams over the ride's moving hours, frozen like ftpUsed so it stays reproducible.
 export function fuelStampFor(act: ActivitySummary): { fuel: { carbsGPerH: number } } | Record<string, never> {
   const grams = act.carbsIngestedG;
-  if (grams == null || !Number.isFinite(grams) || grams <= 0 || act.movingTimeSec <= 0) return {};
+  if (grams == null || !Number.isFinite(grams) || grams < 0 || act.movingTimeSec <= 0) return {};
   const carbsGPerH = round1(grams / (act.movingTimeSec / 3600));
   return { fuel: { carbsGPerH } };
 }

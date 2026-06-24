@@ -55,21 +55,19 @@ verified against source. Act top-down; P1 = data-integrity, fix first.
 
 ### P2 — correctness, lower urgency / latent
 
-- ☐ P2 `bug` **CAL-3** — durability envelope split-brain: `validateSchedule`→`isHardDay`→
-  `carriesEmbeddedIntensity` uses the population default while `validatePlanProtocol` gets the resolved
-  per-athlete envelope. _[schedule-validate.ts:31](lib/schedule-validate.ts:31)._ → thread the resolved
-  envelope into `validateSchedule` (the param/comment already invite it).
-- ☐ P2 `bug` **API-1** — `normalizedPower = num(icu_weighted_avg_watts) ?? num(icu_normalized_power)`;
-  `num(0)===0` short-circuits, so a 0-watt weighted-avg → NP=0 → IF=0 (quality day read as recovery). Dead
-  fallback too (icu_normalized_power never returned). _[intervals-api.ts:210](lib/intervals-api.ts:210)._
-  → treat 0 as missing for the NP basis.
-- ☐ P2 `bug` **API-2** — decoupling silently lost if the API serializes it as a numeric string; `num()`
-  is a strict `typeof number` guard so `"4.5"` → null, fallback null. _[intervals-api.ts:218](lib/intervals-api.ts:218)._
-  → coerce with `Number(x)` (verify against a real payload first).
-- ☐ P2 `feat` **FUEL-1** — `fuelStampFor` drops a logged `0g` carb ride (`grams<=0 → {}`), so fasted rides
-  are indistinguishable from unlogged — the Track-C carbs→execution correlation can never learn the
-  underfueling side. _[score-log.ts:46](lib/score-log.ts:46)._ → stamp 0 when explicitly logged; distinguish
-  null (unlogged) from 0.
+- ☑ P2 `bug` **CAL-3** — durability envelope split-brain fixed: `validateSchedule` now resolves the
+  durability envelope once and threads `embeddedHardPct` through `isHardDay`→`carriesEmbeddedIntensity`, so
+  spacing agrees with `validatePlanProtocol` on what counts as an embedded effort. 1 test added.
+  _[schedule-validate.ts](lib/schedule-validate.ts)._
+- ☑ P2 `bug` **API-1** — added `numPos` (treats a present-but-zero power reading as absent), used for the
+  activity `normalizedPower` and interval `npWatts`, so a 0-watt weighted-avg no longer short-circuits the
+  `??` and forces IF=0. 1 test added. _[intervals-api.ts:210](lib/intervals-api.ts:210)._
+- ☑ P2 `bug` **API-2** — added `numLoose` (accepts a numeric string), used for `decoupling`, so a
+  string-serialised value is no longer silently dropped. Safe no-op when the API sends a number (the real
+  payload does). 1 test added. _[intervals-api.ts:218](lib/intervals-api.ts:218)._
+- ☑ P2 `feat` **FUEL-1** — `fuelStampFor` now keeps an explicitly-logged `0g` ride (`grams < 0` drop, not
+  `<= 0`): unlogged stays `null`→absent, fasted stays `0`→a real data point for the Track-C correlation.
+  `RideScoreEntry.fuel` has no consumer yet, so no behavioural ripple. _[score-log.ts:46](lib/score-log.ts:46)._
 
 ### P3 — altitude / cleanup / a11y polish
 

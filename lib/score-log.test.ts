@@ -155,10 +155,11 @@ describe("fuelStampFor", () => {
     expect(fuelStampFor({ ...base, movingTimeSec: 3600, carbsIngestedG: 75 })).toEqual({ fuel: { carbsGPerH: 75 } });
   });
 
-  it("stamps nothing for unlogged (null), zero, or non-finite intake — no fake zeros in the signal", () => {
-    expect(fuelStampFor({ ...base, carbsIngestedG: null })).toEqual({});
-    expect(fuelStampFor({ ...base, carbsIngestedG: 0 })).toEqual({});
+  it("stamps nothing for unlogged (null) or non-finite intake, but keeps an explicitly logged 0 (FUEL-1)", () => {
+    expect(fuelStampFor({ ...base, carbsIngestedG: null })).toEqual({}); // unlogged (num(undefined)→null) stays absent
     expect(fuelStampFor({ ...base, carbsIngestedG: Number.NaN })).toEqual({});
+    expect(fuelStampFor({ ...base, carbsIngestedG: -5 })).toEqual({}); // negative is garbage
+    expect(fuelStampFor({ ...base, carbsIngestedG: 0 })).toEqual({ fuel: { carbsGPerH: 0 } }); // a logged fasted ride is a real data point
   });
 
   it("stamps nothing when moving time is zero (avoids divide-by-zero)", () => {
