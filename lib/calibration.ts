@@ -26,11 +26,15 @@ export function autoEwmaAlpha(plannedSampleSize: number): number {
   return clamp(a, 0.2, 0.6);
 }
 
+// Pick a finite numeric override leaf, else fall back to the default — the shared finite-guard every band
+// resolver below uses (CAL-2). The per-field clamp + ordering stays in each resolver: those rules are
+// genuinely per-parameter (and nudge in different directions), so only the finite-guard is shared.
+const pick = (v: unknown, fallback: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+
 // Merge a manual override onto the population defaults, defensively: ignore non-finite values
 // and enforce ordering (low < high < danger) so a bad override can't produce nonsense bands.
 export function resolveAcwrBands(override?: Partial<AcwrBands> | null): AcwrBands {
   const o = override ?? {};
-  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
   const optimalLow = clamp(pick(o.optimalLow, DEFAULT_ACWR_BANDS.optimalLow), 0.1, 2);
   let optimalHigh = clamp(pick(o.optimalHigh, DEFAULT_ACWR_BANDS.optimalHigh), 0.2, 3);
   let dangerHigh = clamp(pick(o.dangerHigh, DEFAULT_ACWR_BANDS.dangerHigh), 0.3, 4);
@@ -71,7 +75,6 @@ export const DEFAULT_TSB_MODIFIER_EDGES: TsbModifierEdges = { deepFatigue: -25, 
 // can't invert the bands. Mirrors resolveAcwrBands.
 export function resolveTsbModifierEdges(override?: Partial<TsbModifierEdges> | null): TsbModifierEdges {
   const o = override ?? {};
-  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
   const deepFatigue = clamp(pick(o.deepFatigue, DEFAULT_TSB_MODIFIER_EDGES.deepFatigue), -60, -5);
   let productiveOverload = clamp(pick(o.productiveOverload, DEFAULT_TSB_MODIFIER_EDGES.productiveOverload), -50, 0);
   let balanced = clamp(pick(o.balanced, DEFAULT_TSB_MODIFIER_EDGES.balanced), -5, 30);
@@ -105,7 +108,6 @@ export const DEFAULT_STRAIN_BANDS: StrainBands = { high: 15, med: 12 };
 
 export function resolveStrainBands(override?: Partial<StrainBands> | null): StrainBands {
   const o = override ?? {};
-  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
   // Both edges live inside strain's 4–20 range; keep high ≥ med so a bad override can't make the
   // "downgrade only with corroboration" band outrank the "downgrade outright" band.
   const high = clamp(pick(o.high, DEFAULT_STRAIN_BANDS.high), 5, 20);
@@ -136,7 +138,6 @@ export const DEFAULT_DURABILITY_INSERT_ENVELOPE: DurabilityInsertEnvelope = { em
 
 export function resolveDurabilityInsertEnvelope(override?: Partial<DurabilityInsertEnvelope> | null): DurabilityInsertEnvelope {
   const o = override ?? {};
-  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
   const embeddedHardPct = clamp(pick(o.embeddedHardPct, DEFAULT_DURABILITY_INSERT_ENVELOPE.embeddedHardPct), 70, 105);
   let maxIntensityPct = clamp(pick(o.maxIntensityPct, DEFAULT_DURABILITY_INSERT_ENVELOPE.maxIntensityPct), 100, 160);
   if (maxIntensityPct <= embeddedHardPct) maxIntensityPct = embeddedHardPct + 1; // ceiling must clear the floor
