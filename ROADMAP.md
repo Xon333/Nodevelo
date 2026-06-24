@@ -23,13 +23,46 @@ stamps (`formState` + morning-check), the first derived edge (`deriveTsbDeepFati
   yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
 - **More honest auto-derivations off the engine** — each new edge is a *spec* over
   `lib/correlation.ts`, not new code, but only where an **honest** execution outcome separates failures
-  from successes. Concretely buildable next: **stamp `motivation`** (the ledger freezes only
-  fatigue/sleep/soreness) → unlocks the morning-check **strain edge**. Still lacking a defensible outcome
-  signal: the `productiveOverload`/`balanced` edges and the #3 reschedule thresholds. Carbs is the other
-  consumer → **Track C** (ties **#4**).
+  from successes. Active build = the morning-check **strain edge**, but **re-sourced**: motivation (and the
+  whole morning read) now comes from the **Intervals.icu wellness sync**, not a NodeVelo form — see
+  *Subjective wellness from Intervals.icu* below. Still lacking a defensible outcome signal: the
+  `productiveOverload`/`balanced` edges and the #3 reschedule thresholds. Carbs is the other consumer →
+  **Track C** (ties **#4**).
 - **Pattern (follow per param):** default = today's literal value; derive with confidence-gated
   fallback; stamp on any ledger entry it scores; test that a fresh athlete scores identically.
 - *Owned elsewhere:* optimal carbs g/h `→ Track C`; ACWR band + EWMA α stay on their current path.
+
+### Subjective wellness from Intervals.icu — retire the morning-check form  ⭐ (active; resume here)
+Source the morning subjective read (soreness / fatigue / stress / mood / motivation / injury) from the
+Intervals.icu **wellness sync** instead of NodeVelo's own form: the athlete already logs it there next to
+weight + kcal, it gets richer for free with a wearable (HRV / readiness / resting-HR auto-fill), and it
+matches the "Intervals.icu is the synced SoT" pattern. **Decision: sync-only** — retire `MorningCheckIn` +
+`morning-check.json`; the proactive "downgrade today?" then needs the morning wellness logged in
+Intervals.icu + a sync (no instant in-app capture — an accepted tradeoff). Wellness *write-back* (so the app
+could still capture it) is a separate `← §7` API piece (only `createEvent` exists today).
+- ☑ **Inc 1 (shipped, `98464b9` → ARCHIVE):** the six subjective fields now map into `WellnessEntry` (raw
+  Intervals 1–4 ordinals, higher = worse).
+- ☐ **Inc 2:** repoint the ledger morning-context stamp to read the subjective signals from synced wellness
+  (the way `formState` pulls TSB/CTL/ATL) → motivation gets stamped → derive the morning-check **strain
+  edge** via the shared engine: `deriveStrainHigh` + `resolveStrainBandsOverride`, mirroring
+  `deriveTsbDeepFatigue` / `resolveTsbEdgesOverride` (one derived edge → the `high` band; `med` stays
+  population/override).
+- ☐ **Inc 3:** run `decideMorningCheck` at sync-time off synced wellness; **keep** the proactive reschedule
+  apply (`PUT` / `applyProactiveReschedule` / `RescheduleBanner` — it just triggers off the synced decision);
+  remove `MorningCheckIn` + the form `POST` + `morning-check.json` (the decision recomputes from wellness).
+- ⛔ **OPEN — decide this FIRST (tomorrow):** the strain definition on the new inputs (today
+  `strain = fatigue + soreness + (6−sleep) + (6−motivation)`, 1–5 scale; the synced fields are 1–4 and add
+  stress/mood/injury):
+  - **(A, leaning)** map 1–4 → 1–5 and keep the existing strain formula + bands + downgrade thresholds —
+    least change, preserves the validated decision logic + all its tests; ignores stress/mood/injury for now.
+  - **(B)** redefine strain natively on 1–4, folding in stress/mood/injury — richer/more faithful, but needs
+    re-tuned `DEFAULT_STRAIN_BANDS` + decision thresholds + broader test updates.
+  - Both are *safe*: the engine's discrimination + confidence guards fall back to the population bands when
+    the signal doesn't discriminate, so a wrong scale/direction degrades gracefully (never a corrupt edge).
+- 🔎 **Confirm vs a live wellness payload before Inc 2/3:** motivation direction (expect API `1` = most
+  motivated); sleep source for strain (`sleepHours` vs `sleepQuality` + its direction); **illness has no
+  wellness field** (Injury ≠ sickness) → the synced decision can't downgrade for reported illness — accept as
+  a limitation, or keep a minimal illness input.
 
 ### Scoring-core gaps (route through #2 — they touch `execution-score.ts`)
 - **Recovery-specific Z2 cap** — give Recovery its own "dialed-in" cap (above Z1, not Z2) *if* the

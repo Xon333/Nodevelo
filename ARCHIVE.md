@@ -181,6 +181,12 @@ signal stamped against it. Two commits; tests grew to 474.
   failure edge, not an optimum); consuming the derived optimal g/h (#1 fuel slots, §6 surfacing); the
   `productiveOverload`/`balanced` edges (no honest execution outcome) and the morning-check strain edge
   (needs `motivation` stamped — the ledger freezes only fatigue/sleep/soreness).
+- **Subjective wellness now synced (Inc 1 of the form-retirement plan, `98464b9`).** Reframed: the morning
+  read is sourced from the **Intervals.icu wellness sync** (the athlete already logs it there next to
+  weight/kcal), not a NodeVelo form. `fetchWellness` now maps soreness/fatigue/stress/mood/motivation/injury
+  into `WellnessEntry` (raw 1–4, higher = worse). The strain-edge derivation + form retirement (Inc 2–3) and
+  the open strain-scale decision are tracked in [ROADMAP.md](ROADMAP.md) → *Subjective wellness from
+  Intervals.icu*.
 
 ### One-time ledger rebuild after the mapping fix (SYNC-2, 2026-06-23 triage)
 
