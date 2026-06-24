@@ -430,7 +430,12 @@ export function isSuspectEmptySync(prev: SyncData | null, fresh: SyncData): bool
 // ---------- writes ----------
 
 export async function createEvent(event: IntervalsEventPayload): Promise<number | null> {
-  const data = await icuFetch(athletePath(`/events?upsertOnUid=false`), {
+  // Upsert on the stable `uid` when the payload carries one. Block writes stamp a deterministic
+  // `nodevelo-<date>` uid (see planDayToEvent), so a retried/partially-failed block write UPDATES the
+  // events it already created instead of duplicating them — the write becomes idempotent and safely
+  // retryable. Ad-hoc events without a uid (coach notes, manual note write-back) keep create semantics.
+  const upsert = typeof event.uid === "string" && event.uid.length > 0;
+  const data = await icuFetch(athletePath(`/events?upsertOnUid=${upsert}`), {
     method: "POST",
     body: JSON.stringify(event),
   });

@@ -726,6 +726,10 @@ export interface IntervalsEventPayload {
   description: string;
   type?: string; // Ride, WeightTraining — omitted for NOTE events
   moving_time?: number; // seconds
+  // Stable external id. When present, createEvent posts with upsertOnUid=true so a re-written block
+  // updates the same event instead of creating a duplicate (idempotent writes). Block days set
+  // `nodevelo-<date>`; ad-hoc events (notes) omit it and keep create semantics.
+  uid?: string;
 }
 
 export interface WriteResult {
