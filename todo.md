@@ -32,14 +32,18 @@ verified against source. Act top-down; P1 = data-integrity, fix first.
   wiped the rest every save). **Fix:** all three now accept+clamp via their resolvers and preserve-when-omitted
   — `strainBands` + `durabilityInsertEnvelope` in SET-1, `athleteStateWeights` accept block added with CAL-1
   once its resolver clamped. 6 route tests. _[settings/route.ts](app/api/settings/route.ts)._
-- ☐ P1 `bug` **LEDGER-2** — SYNC-2 rebuild drops frozen `formState`/`morningCheck` provenance for rides
-  older than the fresh wellness window. `contextForDate` resolves only from `lastSync.wellness`; `fresh`
-  wins with `formState:undefined`, deleting correlation-engine data points permanently.
-  _[sync/route.ts:251](app/api/sync/route.ts:251)._ → on rebuild, carry forward the existing entry's stamp
-  when fresh has none.
-- ☐ P1 `audit` **LEDGER-3** — `rebuildLedger` is an unauthenticated destructive boolean on the hot sync
-  route, no auth, no one-shot guard. _[sync/route.ts:158](app/api/sync/route.ts:158)._ → move to a dedicated
-  run-once migration that refuses to re-run; remove the flag from the sync handler.
+- ☑ P1 `bug` **LEDGER-2** — SYNC-2 rebuild dropped frozen `formState`/`morningCheck` provenance for rides
+  older than the fresh wellness window (`fresh` won the merge with `formState:undefined`, deleting
+  correlation-engine data points). **Fix:** `mergeScoreLogRebuild` now carries forward any context stamp
+  the re-scored `fresh` entry lacks (a fresh stamp still wins when present; context-free stays context-free).
+  3 tests added. _[score-log.ts](lib/score-log.ts)._
+- ☑ P1 `audit` **LEDGER-3** — `rebuildLedger` was an unguarded destructive boolean on the hot sync route
+  that re-ran on every sync if set. **Fix:** persisted one-shot marker (`ledger-rebuild.json`) + pure
+  `shouldRebuildLedger(requested, alreadyRebuilt, force)` predicate — a normal sync never rebuilds, a repeat
+  request is refused once the marker is set, and `force:true` is the explicit re-run path. (Kept on the sync
+  trigger by design: the rebuild needs fresh-sync-derived state — calibration/ftpForDate/context — so a
+  standalone endpoint would just re-run a sync; the guard is the right-depth fix.) 4 predicate tests added.
+  _[sync-ledger.ts](lib/sync-ledger.ts) · [sync/route.ts:158](app/api/sync/route.ts:158)._
 - ☑ P1 `bug` **CAL-1** — `resolveAthleteStateWeights` was the only resolver with no clamp/ordering, so an
   extreme override could disable the lived-fatigue safety cap at [athlete-state.ts:122](lib/athlete-state.ts:122).
   **Fix:** a per-leaf `ATHLETE_STATE_WEIGHT_BOUNDS` spec + `clampLeaves` walker bounds every leaf; key

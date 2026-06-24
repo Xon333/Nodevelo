@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backfillLedgerEntries } from "./sync-ledger";
+import { backfillLedgerEntries, shouldRebuildLedger } from "./sync-ledger";
 import type { RideScoreEntry } from "./types";
 
 const ftpForDate = () => 250;
@@ -61,5 +61,24 @@ describe("backfillLedgerEntries (CR-G ledger schema migration)", () => {
   it("treats a null floor (no block ever existed) as all off-plan rides legacy", () => {
     const e = { date: "2025-07-01", executionScore: 5, plannedType: null } as unknown as RideScoreEntry;
     expect(backfillLedgerEntries([e], ftpForDate, null)[0].legacy).toBe(true);
+  });
+});
+
+describe("shouldRebuildLedger (LEDGER-3 one-shot guard)", () => {
+  it("never rebuilds a normal sync (not requested)", () => {
+    expect(shouldRebuildLedger(false, false, false)).toBe(false);
+    expect(shouldRebuildLedger(false, true, true)).toBe(false);
+  });
+
+  it("rebuilds on the first request when not yet rebuilt", () => {
+    expect(shouldRebuildLedger(true, false, false)).toBe(true);
+  });
+
+  it("refuses a repeat request once already rebuilt", () => {
+    expect(shouldRebuildLedger(true, true, false)).toBe(false);
+  });
+
+  it("allows a forced re-run despite the marker", () => {
+    expect(shouldRebuildLedger(true, true, true)).toBe(true);
   });
 });

@@ -13,10 +13,12 @@ import {
   readCalibration,
   readInterventionLog,
   readLastSync,
+  readLedgerRebuild,
   readMorningChecks,
   readRollingBaselines,
   readScoreLog,
   updateScoreLog,
+  writeLedgerRebuild,
   writeCalibration,
   writeInterventionLog,
   writeQuirks,
@@ -34,7 +36,7 @@ import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention"
 import { weightTrendFromWellness } from "@/lib/nutrition";
 import { DEFAULT_DECOUPLING_GOOD } from "@/lib/execution-score";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
-import { backfillLedgerEntries } from "@/lib/sync-ledger";
+import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, calStampFor, mergeScoreLog, mergeScoreLogRebuild } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
@@ -154,8 +156,10 @@ export async function POST(req: Request) {
     // One-time ledger rebuild (SYNC-2): re-derive PAST entries from the freshly-synced activities
     // instead of freezing them. Needed once after the activity power-field mapping fix, which had
     // left NP/decoupling null on historical rides (so their IF/execution scores were computed off raw
-    // avg watts). Off by default — a normal sync stays immutable per date.
-    const rebuildLedger = (reqBody as { rebuildLedger?: unknown } | null)?.rebuildLedger === true;
+    // avg watts). Off by default — a normal sync stays immutable per date. It's a destructive one-shot:
+    // a persisted marker stops it re-running every sync (LEDGER-3); `force` re-runs after a future fix.
+    const rebuildRequested = (reqBody as { rebuildLedger?: unknown } | null)?.rebuildLedger === true;
+    const rebuildForce = (reqBody as { force?: unknown } | null)?.force === true;
     // Non-fatal step failures are collected here and returned so they surface (a toast) instead of
     // being swallowed by best-effort catches.
     const warnings: string[] = [];
@@ -257,6 +261,13 @@ export async function POST(req: Request) {
       const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor, resolvedCal, contextForDate);
       // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
       const dispositions = (await readDispositions()).entries;
+      // One-shot guard (LEDGER-3): the rebuild runs at most once. A normal sync never requests it; a
+      // repeat request after the persisted marker is refused unless `force` is set.
+      const rebuildMarker = await readLedgerRebuild();
+      const doRebuild = shouldRebuildLedger(rebuildRequested, rebuildMarker.rebuiltAt !== null, rebuildForce);
+      if (rebuildRequested && !doRebuild) {
+        warnings.push(`Ledger rebuild skipped — already rebuilt ${rebuildMarker.rebuiltAt} (one-time migration; pass force to re-run).`);
+      }
       // Transactional (CR-A): the backfill is computed from the ledger read INSIDE the lock, so a
       // concurrent disposition POST (or the deferred analyze patch) can't clobber these scores. The
       // backfill itself is the pure, unit-tested backfillLedgerEntries (CR-G).
@@ -264,11 +275,15 @@ export async function POST(req: Request) {
         const backfilled = backfillLedgerEntries(entries, ftpForDate, offPlanFloor);
         // Normal sync: existing wins (immutable per date). Rebuild: fresh (recomputed from corrected
         // activities) wins, while existing still fills any date outside the activity window — but a
-        // rebuild never downgrades a frozen planned ride to off-plan (LEDGER-1; see mergeScoreLogRebuild).
-        const merged = rebuildLedger ? mergeScoreLogRebuild(fresh, backfilled) : mergeScoreLog(backfilled, fresh);
+        // rebuild never downgrades a frozen planned ride to off-plan and carries forward frozen context
+        // (LEDGER-1/2; see mergeScoreLogRebuild).
+        const merged = doRebuild ? mergeScoreLogRebuild(fresh, backfilled) : mergeScoreLog(backfilled, fresh);
         return applyDispositions(merged, dispositions);
       });
-      if (rebuildLedger) warnings.push("Ledger rebuilt: past entries re-scored from corrected activity data (NP/decoupling).");
+      if (doRebuild) {
+        await writeLedgerRebuild(new Date().toISOString());
+        warnings.push("Ledger rebuilt: past entries re-scored from corrected activity data (NP/decoupling).");
+      }
     }
 
     // Close the learning loop: re-evaluate any matured interventions against the freshly

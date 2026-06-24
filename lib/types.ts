@@ -499,6 +499,12 @@ export interface ScoreLog {
   updatedAt: string;
 }
 
+// One-shot marker for the SYNC-2 ledger rebuild (LEDGER-3). Persisted so the destructive re-score runs
+// at most once; null = never rebuilt. See shouldRebuildLedger.
+export interface LedgerRebuildMarker {
+  rebuiltAt: string | null;
+}
+
 // ---------- Intervention / validation ledger (data/intervention-log.json) ----------
 // Closes the learning loop: when an insight drives a generated block it is recorded here
 // with a baseline snapshot, then re-evaluated after a horizon to mark whether acting on it

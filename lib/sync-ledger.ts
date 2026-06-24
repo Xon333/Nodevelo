@@ -4,6 +4,14 @@
 // idempotently: an entry that already has a value keeps it, so re-running never re-shifts history.
 import type { RideScoreEntry } from "./types";
 
+// One-shot guard for the SYNC-2 ledger rebuild (LEDGER-3). The rebuild re-scores PAST entries from
+// corrected activity data — a destructive, one-time migration that must not silently re-run on every
+// sync. A normal sync never requests it; once it has run (a persisted `rebuiltAt` marker), a repeat
+// request is refused unless `force` is set (the deliberate "re-correct after another data fix" path).
+export function shouldRebuildLedger(requested: boolean, alreadyRebuilt: boolean, force: boolean): boolean {
+  return requested && (!alreadyRebuilt || force);
+}
+
 export function backfillLedgerEntries(
   entries: RideScoreEntry[],
   ftpForDate: (date: string) => number,

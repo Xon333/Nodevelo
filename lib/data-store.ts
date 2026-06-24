@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, DispositionLog, InterventionLog, MorningCheckLog, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, DispositionLog, InterventionLog, LedgerRebuildMarker, MorningCheckLog, RollingBaselines, ScoreLog, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { readMdPerformance } from "./kb-loader";
@@ -163,6 +163,18 @@ export async function updateScoreLog(
     entries: mutate(log.entries),
     updatedAt: new Date().toISOString(),
   }));
+}
+
+// One-shot marker for the SYNC-2 ledger rebuild (LEDGER-3) — persisted so a destructive re-score can't
+// silently repeat on every sync. Tiny dedicated file; default = never rebuilt.
+const DEFAULT_LEDGER_REBUILD: LedgerRebuildMarker = { rebuiltAt: null };
+
+export async function readLedgerRebuild(): Promise<LedgerRebuildMarker> {
+  return readJson<LedgerRebuildMarker>("ledger-rebuild.json", DEFAULT_LEDGER_REBUILD);
+}
+
+export async function writeLedgerRebuild(rebuiltAt: string): Promise<void> {
+  await writeJson("ledger-rebuild.json", { rebuiltAt });
 }
 
 const DEFAULT_INTERVENTION_LOG: InterventionLog = { records: [], updatedAt: new Date(0).toISOString() };
