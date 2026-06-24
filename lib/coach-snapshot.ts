@@ -119,15 +119,18 @@ export function resolveCoachSignals(
   athleteModel: AthleteModel,
   baselines: RollingBaselines,
   acwrBandsOverride?: Partial<AcwrBands> | null,
-  athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null
+  athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null,
+  // Resolved local "today" so the ACWR / load-ramp windows anchor to the athlete's calendar day, not
+  // the server's UTC date (they match activities on local date). Absent → the function's UTC default.
+  today?: string
 ): CoachSignals {
   if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null };
-  const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride));
+  const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride), today);
   return {
     fitness: sync.fitness,
     readiness: computeReadiness(sync.fitness, sync.wellness),
     acwr,
-    loadRamp: computeLoadRamp(sync.activities),
+    loadRamp: computeLoadRamp(sync.activities, today),
     athleteState: computeAthleteState(
       athleteStateInputsFrom(sync, athleteModel, baselines, acwr),
       resolveAthleteStateWeights(athleteStateWeightsOverride)
@@ -288,7 +291,7 @@ export interface CoachSnapshotSources {
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
   const athleteModel = buildAthleteModel(s.scoreEntries);
-  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride);
+  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date);
   // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;
   return buildCoachSnapshot({

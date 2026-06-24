@@ -4,6 +4,7 @@
 import type { AcwrResult, FatigueAlert, FitnessMetrics, IntensityDistribution, LoadRampAlert, ReadinessSignal, RideFormState, WellnessEntry } from "./types";
 import { DEFAULT_ACWR_BANDS, type AcwrBands } from "./calibration";
 import { round1 } from "./stats";
+import { utcToday } from "./date";
 
 // The form (CTL/ATL/TSB) the athlete carried INTO a given date, from the synced wellness stream —
 // intervals.icu's OWN per-day values (authoritative, not reconstructed). Deliberately the most recent
@@ -96,11 +97,12 @@ export function computeReadiness(
 // injury-risk heuristic; a noise floor avoids firing on early-season ramps from a
 // near-zero base.
 export function computeLoadRamp(
-  activities: Array<{ date: string; trainingLoad: number | null }>
+  activities: Array<{ date: string; trainingLoad: number | null }>,
+  today: string = utcToday()
 ): LoadRampAlert {
-  const today = new Date().toISOString().slice(0, 10);
   const dayMs = 86_400_000;
-  const iso = (offsetDays: number) => new Date(Date.now() - offsetDays * dayMs).toISOString().slice(0, 10);
+  const base = Date.parse(today);
+  const iso = (offsetDays: number) => new Date(base - offsetDays * dayMs).toISOString().slice(0, 10);
 
   const thisStart = iso(6); // [today-6 .. today]
   const lastEnd = iso(7);
@@ -152,11 +154,12 @@ export function computeLoadRamp(
 // >1.5 = spike/danger. Returns null until there's enough chronic base to be meaningful.
 export function computeAcwr(
   activities: Array<{ date: string; trainingLoad: number | null }>,
-  bands: AcwrBands = DEFAULT_ACWR_BANDS
+  bands: AcwrBands = DEFAULT_ACWR_BANDS,
+  today: string = utcToday()
 ): AcwrResult | null {
-  const today = new Date().toISOString().slice(0, 10);
   const dayMs = 86_400_000;
-  const iso = (offsetDays: number) => new Date(Date.now() - offsetDays * dayMs).toISOString().slice(0, 10);
+  const base = Date.parse(today);
+  const iso = (offsetDays: number) => new Date(base - offsetDays * dayMs).toISOString().slice(0, 10);
   const sumFrom = (from: string) =>
     activities
       .filter((a) => a.date >= from && a.date <= today && a.trainingLoad !== null)
@@ -181,11 +184,11 @@ export function computeAcwr(
 export function computeIntensityDistribution(
   activities: Array<{ date: string; movingTimeSec: number; avgWatts: number | null; normalizedPower?: number | null; powerZoneTimes?: number[] | null }>,
   ftp: number,
-  days = 7
+  days = 7,
+  today: string = utcToday()
 ): IntensityDistribution | null {
   if (ftp <= 0) return null;
-  const today = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  const from = new Date(Date.parse(today) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
   let easy = 0;
   let moderate = 0;
   let hard = 0;
@@ -222,7 +225,8 @@ export function computeRollingBaselines(
     avgCadence: number | null;
     movingTimeSec: number;
   }>,
-  wellness: WellnessEntry[]
+  wellness: WellnessEntry[],
+  today: string = utcToday()
 ): {
   avgTss90d: number | null;
   avgDecoupling90d: number | null;
@@ -230,7 +234,7 @@ export function computeRollingBaselines(
   avgCtl90d: number | null;
   avgWeeklyHours90d: number | null;
 } {
-  const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.parse(today) - 90 * 86_400_000).toISOString().slice(0, 10);
 
   const recent = activities.filter((a) => a.date >= cutoff);
 

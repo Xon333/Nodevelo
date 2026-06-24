@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       isQualityDay,
       tsb: sync?.fitness.tsb ?? null,
       readiness: sync ? computeReadiness(sync.fitness, sync.wellness)?.level ?? null : null,
-      acwr: sync ? computeAcwr(sync.activities)?.level ?? null : null,
+      acwr: sync ? computeAcwr(sync.activities, undefined, date)?.level ?? null : null,
     },
     {
       strainBands: resolveStrainBands(settings.strainBands),

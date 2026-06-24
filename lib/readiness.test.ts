@@ -120,6 +120,44 @@ describe("computeIntensityDistribution", () => {
   });
 });
 
+describe("date windows anchor to the supplied `today` (TZ fix)", () => {
+  // These functions used to derive `today` from the server's UTC date internally, so near the UTC day
+  // boundary the acute/chronic windows shifted a day off the LOCAL calendar that activities are dated
+  // on. They now accept the resolved local `today`; the default still reproduces the old UTC behaviour.
+  it("computeLoadRamp anchors this-week / last-week to the passed today", () => {
+    const activities = [
+      { date: "2026-06-24", trainingLoad: 250 }, // within [today-6 .. today]
+      { date: "2026-06-17", trainingLoad: 200 }, // within [today-13 .. today-7] → +25%
+    ];
+    const r = computeLoadRamp(activities, "2026-06-24");
+    expect(r.thisWeekTss).toBe(250);
+    expect(r.lastWeekTss).toBe(200);
+    expect(r.changePct).toBe(25);
+  });
+
+  it("rolling the anchor back a day re-buckets a boundary ride (the off-by-one the fix removes)", () => {
+    const activities = [{ date: "2026-06-24", trainingLoad: 250 }];
+    expect(computeLoadRamp(activities, "2026-06-24").thisWeekTss).toBe(250); // same day → this week
+    expect(computeLoadRamp(activities, "2026-06-23").thisWeekTss).toBe(0); // anchor a day behind → excluded
+  });
+
+  it("computeAcwr and computeIntensityDistribution accept the same anchor", () => {
+    const acwrActs = Array.from({ length: 28 }, (_, i) => ({
+      date: new Date(Date.parse("2026-06-24") - i * 86_400_000).toISOString().slice(0, 10),
+      trainingLoad: 60,
+    }));
+    expect(computeAcwr(acwrActs, undefined, "2026-06-24")!.level).toBe("optimal");
+
+    const dist = computeIntensityDistribution(
+      [{ date: "2026-06-24", movingTimeSec: 3600, avgWatts: 280 }],
+      288,
+      7,
+      "2026-06-24"
+    )!;
+    expect(dist.hardPct).toBe(100); // 280/288 > 0.90, inside the window
+  });
+});
+
 describe("buildFormStateLookup (ROADMAP #2 — ledger context-stamp)", () => {
   const wellness = [
     { date: "2026-01-01", ctl: 50, atl: 55 }, // tsb -5

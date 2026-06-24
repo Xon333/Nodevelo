@@ -75,9 +75,9 @@ export async function GET(req: Request) {
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
     : null;
   const fatigueAlert = lastSync ? computeFatigueAlert(lastSync.fitness) : null;
-  const loadRamp = lastSync ? computeLoadRamp(lastSync.activities) : null;
-  const acwr = lastSync ? computeAcwr(lastSync.activities, resolveAcwrBands(settings.acwrBands)) : null;
-  const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp) : null;
+  const loadRamp = lastSync ? computeLoadRamp(lastSync.activities, today) : null;
+  const acwr = lastSync ? computeAcwr(lastSync.activities, resolveAcwrBands(settings.acwrBands), today) : null;
+  const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp, 7, today) : null;
   // Signal fusion (§5): one glanceable state from the fused signals.
   const athleteState = computeAthleteState(
     athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr),
@@ -196,7 +196,7 @@ export async function POST(req: Request) {
     let todayAnalysis: TodayAnalysis | null = null;
 
     // Always update rolling baselines on sync (deterministic, no AI needed).
-    const baselines = computeRollingBaselines(lastSync.activities, lastSync.wellness);
+    const baselines = computeRollingBaselines(lastSync.activities, lastSync.wellness, today);
     await writeRollingBaselines({ ...baselines, updatedAt: new Date().toISOString() });
 
     // Per-athlete calibration (ROADMAP #2): derive the decoupling "good" cutoff from the 90-day mean +
@@ -410,9 +410,9 @@ export async function POST(req: Request) {
 
     const readiness = computeReadiness(lastSync.fitness, lastSync.wellness);
     const fatigueAlert = computeFatigueAlert(lastSync.fitness);
-    const loadRamp = computeLoadRamp(lastSync.activities);
-    const acwr = computeAcwr(lastSync.activities, resolveAcwrBands((await readBlockSettings()).acwrBands));
-    const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp);
+    const loadRamp = computeLoadRamp(lastSync.activities, today);
+    const acwr = computeAcwr(lastSync.activities, resolveAcwrBands((await readBlockSettings()).acwrBands), today);
+    const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp, 7, today);
     const scoreLog = await readScoreLog();
     const dispositions = await readDispositions();
     // A fresh ride has its deterministic analysis but no coach note yet — tell the client to
