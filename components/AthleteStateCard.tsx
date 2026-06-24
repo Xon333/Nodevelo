@@ -2,16 +2,10 @@
 
 import Link from "next/link";
 import type { AthleteState } from "@/lib/types";
+import { BAND_COLOR, DIR, driverEffectClass } from "./athlete-state-ui";
 
 // The §5 "second brain's read on you now" glance: a 0–100 score (the default view); the band label
-// + drivers reveal on hover.
-const BAND_NUM: Record<AthleteState["band"], string> = {
-  primed: "text-emerald-600 dark:text-emerald-400",
-  ready: "text-green-600 dark:text-green-400",
-  steady: "text-zinc-700 dark:text-zinc-200",
-  strained: "text-amber-600 dark:text-amber-400",
-  depleted: "text-red-600 dark:text-red-400",
-};
+// + drivers reveal on hover. Band/driver styling is shared with StateDriversCard via athlete-state-ui.
 const BAND_BAR: Record<AthleteState["band"], string> = {
   primed: "bg-emerald-500",
   ready: "bg-green-500",
@@ -19,14 +13,13 @@ const BAND_BAR: Record<AthleteState["band"], string> = {
   strained: "bg-amber-500",
   depleted: "bg-red-500",
 };
-const DIR: Record<"up" | "down" | "flat", string> = { up: "↑", down: "↓", flat: "→" };
 
 export default function AthleteStateCard({ state }: { state: AthleteState }) {
   const band = state.band[0].toUpperCase() + state.band.slice(1);
   return (
     <div className="group relative flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
       <div className="flex items-baseline gap-0.5">
-        <span className={`font-mono text-3xl font-bold leading-none ${BAND_NUM[state.band]}`}>{state.score}</span>
+        <span className={`font-mono text-3xl font-bold leading-none ${BAND_COLOR[state.band]}`}>{state.score}</span>
         <span className="text-[10px] text-zinc-500 dark:text-zinc-400">/100</span>
       </div>
       <div className="min-w-0 flex-1">
@@ -60,11 +53,7 @@ export default function AthleteStateCard({ state }: { state: AthleteState }) {
               <span className="min-w-0 text-zinc-500 dark:text-zinc-400">
                 {DIR[d.dir]} {d.note}
               </span>
-              <span
-                className={`shrink-0 font-mono ${
-                  d.effect > 0 ? "text-emerald-600 dark:text-emerald-400" : d.effect < 0 ? "text-red-600 dark:text-red-400" : "text-zinc-400"
-                }`}
-              >
+              <span className={`shrink-0 font-mono ${driverEffectClass(d.effect)}`}>
                 {d.effect > 0 ? "+" : ""}
                 {d.effect}
               </span>

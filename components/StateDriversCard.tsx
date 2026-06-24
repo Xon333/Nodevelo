@@ -2,19 +2,12 @@
 
 import { useSync } from "./SyncProvider";
 import { Card } from "./ui";
-import type { AthleteState } from "@/lib/types";
+import { BAND_COLOR, DIR, driverEffectClass } from "./athlete-state-ui";
 
 // "Why is my state what it is?" — the fused 0–100 readiness score plus the ranked signals that moved
 // it (the XAI ranked-drivers pattern). Reads the same AthleteState the coach acts on, so the score is
-// never a black box: every point traces to a named driver.
-const BAND_COLOR: Record<AthleteState["band"], string> = {
-  primed: "text-emerald-600 dark:text-emerald-400",
-  ready: "text-green-600 dark:text-green-400",
-  steady: "text-zinc-700 dark:text-zinc-200",
-  strained: "text-amber-600 dark:text-amber-400",
-  depleted: "text-red-600 dark:text-red-400",
-};
-const DIR: Record<"up" | "down" | "flat", string> = { up: "↑", down: "↓", flat: "→" };
+// never a black box: every point traces to a named driver. Band/driver styling is shared with
+// AthleteStateCard via athlete-state-ui so the two can't drift.
 
 export default function StateDriversCard() {
   const { state } = useSync();
@@ -49,15 +42,7 @@ export default function StateDriversCard() {
                   <span className="min-w-0 text-xs text-zinc-600 dark:text-zinc-300">
                     {DIR[d.dir]} {d.note}
                   </span>
-                  <span
-                    className={`shrink-0 font-mono text-xs ${
-                      d.effect > 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : d.effect < 0
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-zinc-400"
-                    }`}
-                  >
+                  <span className={`shrink-0 font-mono text-xs ${driverEffectClass(d.effect)}`}>
                     {d.effect > 0 ? "+" : ""}
                     {d.effect}
                   </span>
