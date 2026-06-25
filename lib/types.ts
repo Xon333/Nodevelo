@@ -72,7 +72,13 @@ export interface ActivitySummary {
   rpe: number | null; // icu_rpe, 1-10
   carbsIngestedG: number | null; // intervals.icu carbs_ingested ("CHO In") — grams the athlete logged consuming
   decoupling: number | null; // aerobic decoupling %
-  efficiencyFactor: number | null; // icu_efficiency_factor — Pw:HR pulled from Intervals.icu
+  efficiencyFactor: number | null; // icu_efficiency_factor — whole-ride Pw:HR pulled from Intervals.icu
+  // Pw:HR over the ride's Z2 SAMPLES only (icu_power_hr_z2) + how many Z2 minutes it was computed over
+  // (icu_power_hr_z2_mins). intervals.icu isolates the aerobic portions, so this is a clean, like-for-like
+  // aerobic-efficiency reading present even on interval days — the athlete-state aerobic signal (higher =
+  // fresher), trusted only above a Z2-minutes floor. null when the ride had no Z2.
+  powerHrZ2: number | null;
+  powerHrZ2Mins: number | null;
   description: string | null; // athlete's free-text note written in Intervals.icu
   avgCadence: number | null; // rpm
   distanceMeters: number | null;

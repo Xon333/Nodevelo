@@ -10,8 +10,8 @@ const base: AthleteStateInputs = {
   execEwma: 6,
   execTrend: "flat",
   execSampleSize: 10,
-  decouplingLatest: 5,
-  decouplingBaseline: 5,
+  aerobicEffLatest: 1.5,
+  aerobicEffBaseline: 1.5,
   rpeRecent: 5,
   rpeBaseline: 5,
   offPlanPct: 10,
@@ -31,8 +31,8 @@ describe("computeAthleteState — directional logic (not exact numbers)", () => 
       tsb: 20,
       execEwma: 9,
       execTrend: "up",
-      decouplingLatest: 2,
-      decouplingBaseline: 6,
+      aerobicEffLatest: 1.7,
+      aerobicEffBaseline: 1.5,
       rpeRecent: 4,
       rpeBaseline: 6,
     })!;
@@ -42,14 +42,14 @@ describe("computeAthleteState — directional logic (not exact numbers)", () => 
 
   it("corroborated fatigue caps a fresh-TSB athlete down (the lived-signal override)", () => {
     // TSB very fresh (+30) + optimal ACWR would read 'steady'/high, but execution-down +
-    // decoupling-up + rpe-up (3 lived negatives) must pull it to ≤ strained.
+    // aerobic-efficiency-down + rpe-up (3 lived negatives) must pull it to ≤ strained.
     const fatigued = computeAthleteState({
       ...base,
       tsb: 30,
       execEwma: 6,
       execTrend: "down",
-      decouplingLatest: 8,
-      decouplingBaseline: 5,
+      aerobicEffLatest: 1.3,
+      aerobicEffBaseline: 1.5,
       rpeRecent: 6,
       rpeBaseline: 5,
     })!;
@@ -63,8 +63,8 @@ describe("computeAthleteState — directional logic (not exact numbers)", () => 
       tsb: 25,
       execEwma: 8,
       execTrend: "up",
-      decouplingLatest: 12, // only this one is bad
-      decouplingBaseline: 5,
+      aerobicEffLatest: 1.3, // only this one is bad (below baseline)
+      aerobicEffBaseline: 1.5,
       rpeRecent: 5,
       rpeBaseline: 5,
     })!;
@@ -72,11 +72,11 @@ describe("computeAthleteState — directional logic (not exact numbers)", () => 
     expect(s.recommendation).not.toBe("recover");
   });
 
-  it("decoupling rising vs baseline registers as a 'up' (worse) driver", () => {
-    const s = computeAthleteState({ ...base, decouplingLatest: 11, decouplingBaseline: 5 })!;
-    const dec = s.drivers.find((d) => d.key === "decoupling")!;
-    expect(dec.dir).toBe("up");
-    expect(dec.effect).toBeLessThan(0);
+  it("aerobic efficiency below baseline registers as a 'down' (worse) driver", () => {
+    const s = computeAthleteState({ ...base, aerobicEffLatest: 1.3, aerobicEffBaseline: 1.5 })!;
+    const ae = s.drivers.find((d) => d.key === "aerobicEff")!;
+    expect(ae.dir).toBe("down");
+    expect(ae.effect).toBeLessThan(0);
   });
 
   it("drivers are sorted by |effect| desc and name the contributing signals", () => {
@@ -85,14 +85,14 @@ describe("computeAthleteState — directional logic (not exact numbers)", () => 
       tsb: 30,
       execTrend: "down",
       execEwma: 3,
-      decouplingLatest: 12,
-      decouplingBaseline: 5,
+      aerobicEffLatest: 1.3,
+      aerobicEffBaseline: 1.5,
       rpeRecent: 8,
       rpeBaseline: 5,
     })!;
     const mags = s.drivers.map((d) => Math.abs(d.effect));
     expect([...mags]).toEqual([...mags].sort((a, b) => b - a));
-    expect(s.drivers.map((d) => d.key)).toEqual(expect.arrayContaining(["tsb", "acwr", "execution", "decoupling", "rpe"]));
+    expect(s.drivers.map((d) => d.key)).toEqual(expect.arrayContaining(["tsb", "acwr", "execution", "aerobicEff", "rpe"]));
   });
 });
 
@@ -104,8 +104,8 @@ describe("computeAthleteState — confidence + availability", () => {
       execEwma: null,
       execTrend: null,
       execSampleSize: 0,
-      decouplingLatest: null,
-      decouplingBaseline: null,
+      aerobicEffLatest: null,
+      aerobicEffBaseline: null,
       rpeRecent: null,
       rpeBaseline: null,
       offPlanPct: null,
@@ -122,8 +122,8 @@ describe("computeAthleteState — confidence + availability", () => {
         execEwma: null,
         execTrend: null,
         execSampleSize: 0,
-        decouplingLatest: null,
-        decouplingBaseline: null,
+        aerobicEffLatest: null,
+        aerobicEffBaseline: null,
         rpeRecent: null,
         rpeBaseline: null,
         offPlanPct: null,
@@ -153,38 +153,38 @@ describe("computeAthleteState — fusion-weight overrides (ROADMAP §5 / #2 fold
   });
 });
 
-describe("athleteStateInputsFrom — Z2-gated decoupling", () => {
+describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
   const iso = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
   const act = (over: Partial<ActivitySummary> & { date: string }): ActivitySummary => ({
     id: over.date, type: "Ride", name: "r", movingTimeSec: 4000, avgWatts: 165, normalizedPower: 165,
     maxWatts: 300, icuFtp: null, avgHr: 140, maxHr: 160, kj: 500, trainingLoad: 50, rpe: null,
-    carbsIngestedG: null, decoupling: 4, efficiencyFactor: null, description: null, avgCadence: null,
-    distanceMeters: null, elevationGain: null, powerZoneTimes: null, hrZoneTimes: null, ...over,
+    carbsIngestedG: null, decoupling: 4, efficiencyFactor: null, powerHrZ2: 1.5, powerHrZ2Mins: 60,
+    description: null, avgCadence: null, distanceMeters: null, elevationGain: null,
+    powerZoneTimes: null, hrZoneTimes: null, ...over,
   });
   const model = { sampleSize: 0, overallExecEwma: 0, overallTrend: "flat", behaviour: { offPlanPct: 0 } } as unknown as AthleteModel;
   const sync = (activities: ActivitySummary[]): SyncData =>
     ({ syncedAt: "", activities, wellness: [], powerCurve: [], powerCurveAllTime: [], fitness: { ctl: null, atl: null, tsb: null } });
 
-  it("ignores an interval ride's decoupling, using the latest qualifying Z2 ride + a Z2 baseline", () => {
+  it("uses the latest ride with enough Z2, ignoring a thin-Z2 interval day", () => {
     const activities = [
-      act({ date: iso(0), normalizedPower: 240, avgWatts: 235, decoupling: 8 }), // interval (0.96 FTP) → excluded
-      act({ date: iso(1), normalizedPower: 165, decoupling: 4 }), // Z2 → latest qualifying
-      act({ date: iso(4), normalizedPower: 160, decoupling: 5 }), // Z2
-      act({ date: iso(8), normalizedPower: 168, decoupling: 3 }), // Z2
+      act({ date: iso(0), powerHrZ2: 1.31, powerHrZ2Mins: 8 }), // interval day, only 8 Z2 min → excluded
+      act({ date: iso(1), powerHrZ2: 1.55, powerHrZ2Mins: 60 }), // endurance → latest qualifying
+      act({ date: iso(4), powerHrZ2: 1.5, powerHrZ2Mins: 50 }),
+      act({ date: iso(8), powerHrZ2: 1.6, powerHrZ2Mins: 70 }),
     ];
-    const inputs = athleteStateInputsFrom(sync(activities), model, null, 250);
-    expect(inputs.decouplingLatest).toBe(4); // the recent Z2 ride, NOT the interval ride's 8
-    expect(inputs.decouplingBaseline).toBe(4); // mean(4, 5, 3) over qualifying rides
+    const inputs = athleteStateInputsFrom(sync(activities), model, null);
+    expect(inputs.aerobicEffLatest).toBe(1.55); // the recent ≥15-min-Z2 ride, NOT the 8-min interval day
+    expect(inputs.aerobicEffBaseline).toBe(1.55); // round2(mean(1.55, 1.50, 1.60))
   });
 
-  it("sits the signal out (null) when there's no qualifying steady ride", () => {
+  it("sits the signal out (null) when no ride clears the Z2-minutes floor", () => {
     const inputs = athleteStateInputsFrom(
-      sync([act({ date: iso(0), normalizedPower: 240, avgWatts: 235, decoupling: 8 })]), // only an interval ride
+      sync([act({ date: iso(0), powerHrZ2: 1.31, powerHrZ2Mins: 8 })]), // only a thin-Z2 interval day
       model,
-      null,
-      250
+      null
     );
-    expect(inputs.decouplingLatest).toBeNull();
-    expect(inputs.decouplingBaseline).toBeNull();
+    expect(inputs.aerobicEffLatest).toBeNull();
+    expect(inputs.aerobicEffBaseline).toBeNull();
   });
 });

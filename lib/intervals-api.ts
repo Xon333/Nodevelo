@@ -241,6 +241,9 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       carbsIngestedG: num(a.carbs_ingested), // "CHO In" — athlete-logged carbohydrate intake (g), often unset
       decoupling: numLoose(a.decoupling) ?? numLoose(a.icu_power_hr_decoupling),
       efficiencyFactor: num(a.icu_efficiency_factor),
+      // Z2-isolated Pw:HR + the Z2 minutes behind it — the athlete-state aerobic signal (see ActivitySummary).
+      powerHrZ2: numPos(a.icu_power_hr_z2),
+      powerHrZ2Mins: num(a.icu_power_hr_z2_mins),
       description: str(a.description) || null,
       avgCadence: num(a.average_cadence),
       distanceMeters: num(a.distance),

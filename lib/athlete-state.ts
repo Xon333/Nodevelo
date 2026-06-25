@@ -10,8 +10,7 @@
 // headline from this; it never computes or overrides the state.
 
 import { DEFAULT_ATHLETE_STATE_WEIGHTS, type AthleteStateWeights } from "./calibration";
-import { round1 } from "./stats";
-import { isSteadyEnduranceRide } from "./trends";
+import { round2 } from "./stats";
 import type { AcwrResult, ActivitySummary, AthleteModel, AthleteState, SignalContribution, SyncData } from "./types";
 
 export interface AthleteStateInputs {
@@ -20,8 +19,8 @@ export interface AthleteStateInputs {
   execEwma: number | null; // overall execution EWMA, 1–10
   execTrend: "up" | "down" | "flat" | null;
   execSampleSize: number; // planned-ride sample behind the EWMA
-  decouplingLatest: number | null; // latest QUALIFYING (steady-Z2, recent) ride's decoupling %; null otherwise
-  decouplingBaseline: number | null; // mean decoupling over qualifying Z2 rides (90d); null if too few
+  aerobicEffLatest: number | null; // latest ride's Z2 Pw:HR (icu_power_hr_z2), if recent + enough Z2; else null
+  aerobicEffBaseline: number | null; // mean Z2 Pw:HR over qualifying rides (90d); null if too few
   rpeRecent: number | null; // mean session RPE, recent window
   rpeBaseline: number | null; // mean session RPE, longer baseline window
   offPlanPct: number | null; // 0–100
@@ -64,16 +63,19 @@ function evalExecution(i: AthleteStateInputs, C: AthleteStateWeights): SignalCon
   return { key: "execution", label: "Execution quality", dir, effect, note };
 }
 
-function evalDecoupling(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
-  if (i.decouplingLatest === null || i.decouplingBaseline === null) return null;
-  const delta = i.decouplingLatest - i.decouplingBaseline; // + = worse than baseline
-  if (Math.abs(delta) < C.decoupling.deadband) {
-    return { key: "decoupling", label: "Aerobic decoupling", dir: "flat", effect: 0, note: `Decoupling near baseline` };
+function evalAerobicEff(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
+  if (i.aerobicEffLatest === null || i.aerobicEffBaseline === null || i.aerobicEffBaseline <= 0) return null;
+  // Z2-isolated Pw:HR (intervals.icu's icu_power_hr_z2) vs the athlete's recent baseline — HIGHER = more
+  // power per heartbeat = fresher/fitter (the inverse of decoupling's polarity). Relative %Δ so the signal
+  // is scale-free across athletes. Below baseline = aerobic system under strain → a "lived negative".
+  const relPct = ((i.aerobicEffLatest - i.aerobicEffBaseline) / i.aerobicEffBaseline) * 100;
+  if (Math.abs(relPct) < C.aerobicEff.deadband) {
+    return { key: "aerobicEff", label: "Aerobic efficiency", dir: "flat", effect: 0, note: `Aerobic efficiency near baseline` };
   }
-  const effect = round(clamp(-delta * C.decoupling.perPct, -C.decoupling.cap, C.decoupling.cap));
-  const dir = delta > 0 ? "up" : "down"; // "up" = decoupling rising = worse
-  const note = dir === "up" ? `Decoupling ${delta.toFixed(1)}% above baseline` : `Decoupling ${(-delta).toFixed(1)}% below baseline`;
-  return { key: "decoupling", label: "Aerobic decoupling", dir, effect, note };
+  const effect = round(clamp(relPct * C.aerobicEff.perPct, -C.aerobicEff.cap, C.aerobicEff.cap));
+  const dir = relPct > 0 ? "up" : "down"; // "up" = efficiency rising = better
+  const note = dir === "up" ? `Aerobic efficiency ${relPct.toFixed(0)}% above baseline` : `Aerobic efficiency ${(-relPct).toFixed(0)}% below baseline`;
+  return { key: "aerobicEff", label: "Aerobic efficiency", dir, effect, note };
 }
 
 function evalRpe(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
@@ -96,7 +98,7 @@ function evalBehaviour(i: AthleteStateInputs, C: AthleteStateWeights): SignalCon
 // The lived signals (what the body/sessions actually say, vs the load model). ≥2 corroborating
 // "worse" readings here cap the score even when TSB/ACWR look fresh — the reconciliation rule.
 function isLivedNegative(c: SignalContribution): boolean {
-  return (c.key === "execution" && c.dir === "down") || (c.key === "decoupling" && c.dir === "up") || (c.key === "rpe" && c.dir === "up");
+  return (c.key === "execution" && c.dir === "down") || (c.key === "aerobicEff" && c.dir === "down") || (c.key === "rpe" && c.dir === "up");
 }
 
 function bandFor(score: number): { band: AthleteState["band"]; recommendation: AthleteState["recommendation"] } {
@@ -107,13 +109,13 @@ function bandFor(score: number): { band: AthleteState["band"]; recommendation: A
   return { band: "depleted", recommendation: "recover" };
 }
 
-const CORE_KEYS = new Set(["tsb", "acwr", "execution", "decoupling", "rpe"]);
+const CORE_KEYS = new Set(["tsb", "acwr", "execution", "aerobicEff", "rpe"]);
 
 export function computeAthleteState(
   i: AthleteStateInputs,
   C: AthleteStateWeights = DEFAULT_ATHLETE_STATE_WEIGHTS
 ): AthleteState | null {
-  const evaluators = [evalTsb, evalAcwr, evalExecution, evalDecoupling, evalRpe, evalBehaviour];
+  const evaluators = [evalTsb, evalAcwr, evalExecution, evalAerobicEff, evalRpe, evalBehaviour];
   const drivers = evaluators.map((fn) => fn(i, C)).filter((c): c is SignalContribution => c !== null);
   if (drivers.length === 0) return null; // nothing to say
 
@@ -150,40 +152,40 @@ function meanRpe(activities: ActivitySummary[], sinceIso: string): number | null
   return rpes.length ? Math.round((rpes.reduce((s, v) => s + v, 0) / rpes.length) * 10) / 10 : null;
 }
 
-const DECOUPLING_RECENCY_DAYS = 14; // a qualifying ride older than this isn't "now" aerobic strain
-const DECOUPLING_BASELINE_DAYS = 90;
-const DECOUPLING_MIN_BASELINE = 3; // need a few like-for-like rides before the baseline is trustworthy
+const AEROBIC_RECENCY_DAYS = 14; // a reading older than this isn't "now" aerobic state
+const AEROBIC_BASELINE_DAYS = 90;
+const AEROBIC_MIN_BASELINE = 3; // need a few readings before the baseline is trustworthy
+const AEROBIC_MIN_Z2_MINS = 15; // trust a ride's Z2 Pw:HR only above this much Z2 (a few warmup mins is noisy)
 
 export function athleteStateInputsFrom(
   sync: SyncData | null,
   model: AthleteModel,
-  acwr: AcwrResult | null,
-  ftp: number
+  acwr: AcwrResult | null
 ): AthleteStateInputs {
   const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
   const acts = sync?.activities ?? [];
-  // Z2-GATED aerobic decoupling. A whole-ride decoupling on an interval day is a ride-STRUCTURE artifact
-  // (hard efforts first inflate first-half Pw:HR), not aerobic strain — and as a "lived negative" it could
-  // wrongly cap the state. So only steady-endurance rides count (the same like-for-like gate as the Trends
-  // Pw:HR), and the latest must be recent to be "now". Baseline = mean over qualifying rides in the window;
-  // too few → null → the signal sits out (better absent than misleading). evalDecoupling needs BOTH present.
-  const qualifying = acts.filter((a) => a.decoupling !== null && isSteadyEnduranceRide(a, ftp));
+  // Aerobic efficiency from intervals.icu's Z2-isolated Pw:HR (icu_power_hr_z2). Because it's already
+  // computed over the ride's Z2 SAMPLES only, it's a clean like-for-like aerobic reading present even on
+  // interval days — no ride-structure confound (that was the whole-ride-decoupling problem). Trusted only
+  // above a Z2-minutes floor (a few warmup minutes are noisy); the latest must be recent. Baseline = mean
+  // over qualifying rides in the window; too few → null → the signal sits out (better absent than wrong).
+  const qualifying = acts.filter((a) => a.powerHrZ2 !== null && (a.powerHrZ2Mins ?? 0) >= AEROBIC_MIN_Z2_MINS);
   const latestQual = [...qualifying].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
-  const decouplingLatest =
-    latestQual && latestQual.date >= daysAgo(DECOUPLING_RECENCY_DAYS) ? latestQual.decoupling : null;
+  const aerobicEffLatest =
+    latestQual && latestQual.date >= daysAgo(AEROBIC_RECENCY_DAYS) ? latestQual.powerHrZ2 : null;
   const baseVals = qualifying
-    .filter((a) => a.date >= daysAgo(DECOUPLING_BASELINE_DAYS))
-    .map((a) => a.decoupling as number);
-  const decouplingBaseline =
-    baseVals.length >= DECOUPLING_MIN_BASELINE ? round1(baseVals.reduce((s, v) => s + v, 0) / baseVals.length) : null;
+    .filter((a) => a.date >= daysAgo(AEROBIC_BASELINE_DAYS))
+    .map((a) => a.powerHrZ2 as number);
+  const aerobicEffBaseline =
+    baseVals.length >= AEROBIC_MIN_BASELINE ? round2(baseVals.reduce((s, v) => s + v, 0) / baseVals.length) : null;
   return {
     tsb: sync?.fitness.tsb ?? null,
     acwrLevel: acwr?.level ?? null,
     execEwma: model.sampleSize > 0 ? model.overallExecEwma : null,
     execTrend: model.sampleSize > 0 ? model.overallTrend : null,
     execSampleSize: model.sampleSize,
-    decouplingLatest,
-    decouplingBaseline,
+    aerobicEffLatest,
+    aerobicEffBaseline,
     rpeRecent: meanRpe(acts, daysAgo(14)),
     rpeBaseline: meanRpe(acts, daysAgo(90)),
     offPlanPct: model.behaviour.offPlanPct,

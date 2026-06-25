@@ -163,7 +163,7 @@ export interface AthleteStateWeights {
   tsb: { scale: number; cap: number; freshAbove: number; deepBelow: number };
   acwr: { optimal: number; low: number; high: number; danger: number };
   exec: { mid: number; perPoint: number; trend: number; cap: number };
-  decoupling: { perPct: number; cap: number; deadband: number };
+  aerobicEff: { perPct: number; cap: number; deadband: number }; // Pw:HR-Z2 vs baseline (higher = fresher)
   rpe: { perPoint: number; cap: number; deadband: number };
   behaviour: { highOffPlan: number; effect: number };
   override: { livedThreshold: number; scoreCap: number }; // ≥N lived-negatives → cap the score
@@ -175,7 +175,7 @@ export const DEFAULT_ATHLETE_STATE_WEIGHTS: AthleteStateWeights = {
   tsb: { scale: 0.6, cap: 18, freshAbove: 5, deepBelow: -5 },
   acwr: { optimal: 4, low: -2, high: -10, danger: -20 },
   exec: { mid: 6, perPoint: 4, trend: 4, cap: 16 },
-  decoupling: { perPct: 3, cap: 9, deadband: 1 },
+  aerobicEff: { perPct: 1.5, cap: 9, deadband: 2 }, // effect = relative %Δ from baseline × perPct, capped
   rpe: { perPoint: 5, cap: 10, deadband: 0.5 },
   behaviour: { highOffPlan: 60, effect: -4 },
   override: { livedThreshold: 2, scoreCap: 40 },
@@ -195,7 +195,7 @@ const ATHLETE_STATE_WEIGHT_BOUNDS = {
   tsb: { scale: [0, 3], cap: [0, 40], freshAbove: [0, 30], deepBelow: [-40, 0] },
   acwr: { optimal: [0, 15], low: [-15, 10], high: [-40, 5], danger: [-60, 0] },
   exec: { mid: [3, 8], perPoint: [0, 12], trend: [0, 12], cap: [0, 30] },
-  decoupling: { perPct: [0, 12], cap: [0, 30], deadband: [0, 5] },
+  aerobicEff: { perPct: [0, 6], cap: [0, 30], deadband: [0, 8] },
   rpe: { perPoint: [0, 15], cap: [0, 30], deadband: [0, 3] },
   behaviour: { highOffPlan: [0, 100], effect: [-20, 0] },
   override: { livedThreshold: [1, 3], scoreCap: [0, 70] },

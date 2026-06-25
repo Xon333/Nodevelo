@@ -12,6 +12,8 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     normalizedPower: 185,
     maxWatts: 400,
     icuFtp: null,
+    powerHrZ2: null,
+    powerHrZ2Mins: null,
     avgHr: 140,
     maxHr: 165,
     kj: 600,

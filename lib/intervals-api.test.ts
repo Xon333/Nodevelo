@@ -120,6 +120,7 @@ describe("intervals-api network failure handling (CR-B)", () => {
       moving_time: 8189, icu_average_watts: 179, icu_weighted_avg_watts: 235, icu_pm_p_max: 591,
       decoupling: 14.6, icu_efficiency_factor: 1.64, average_heartrate: 143, max_heartrate: 190,
       icu_joules: 1472172, icu_training_load: 151, carbs_ingested: 114, icu_ftp: 268,
+      icu_power_hr_z2: 1.5684667, icu_power_hr_z2_mins: 42,
     }];
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
@@ -130,6 +131,8 @@ describe("intervals-api network failure handling (CR-B)", () => {
     expect(a.maxWatts).toBe(591);
     expect(a.carbsIngestedG).toBe(114);
     expect(a.icuFtp).toBe(268); // RV-5: the FTP intervals.icu applied to this ride
+    expect(a.powerHrZ2).toBeCloseTo(1.5685, 3); // Z2-isolated Pw:HR — the athlete-state aerobic signal
+    expect(a.powerHrZ2Mins).toBe(42);
   });
 
   it("treats a present-but-zero weighted-avg power as missing, not a 0 W effort (API-1)", async () => {

@@ -12,6 +12,8 @@ const act = (over: Partial<ActivitySummary>): ActivitySummary => ({
   normalizedPower: 205,
   maxWatts: 400,
   icuFtp: null,
+  powerHrZ2: null,
+  powerHrZ2Mins: null,
   avgHr: 140,
   maxHr: 175,
   kj: 700,

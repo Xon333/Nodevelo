@@ -8,7 +8,7 @@ framework + the tunable knobs, not final numbers._
 One **glanceable, deterministic "what does the second brain think of my state right now"** metric —
 Whoop-recovery-style. It **fuses** the brain's parallel signals (which today surface separately and
 can contradict each other) into one reconciled read. It does **not** replace the individual metrics
-(readiness, execution, decoupling…); it sits above them as the summary glance.
+(readiness, execution, aerobic efficiency…); it sits above them as the summary glance.
 
 The headline is a **0–100 score**; the band label + the drivers are revealed **on hover**.
 
@@ -16,7 +16,7 @@ The headline is a **0–100 score**; the band label + the drivers are revealed *
 
 ```ts
 interface SignalContribution {
-  key: string;        // "tsb" | "acwr" | "execution" | "decoupling" | "rpe" | "behaviour"
+  key: string;        // "tsb" | "acwr" | "execution" | "aerobicEff" | "rpe" | "behaviour"
   label: string;      // human label for the hover
   dir: "up" | "down" | "flat";   // relative to the athlete's baseline/expected
   effect: number;     // signed points added to the score (− = worse state)
@@ -56,8 +56,10 @@ constants (see below). Positive effect = better state.
 - **acwr** — from `computeAcwr().level`. Optimal → ~0; high → −; danger → −−.
 - **execution** — from `AthleteModel.overallExecEwma` (1–10) + `overallTrend`. Above mid + trending up
   → +; below mid + trending down → −. (How well recent sessions are actually being executed.)
-- **decoupling** — latest ride decoupling vs `rollingBaselines.avgDecoupling90d`. Worse-than-baseline
-  (↑) → −; better → +. (Aerobic strain.)
+- **aerobicEff** — latest ride's Z2-isolated Pw:HR (`icu_power_hr_z2`, intervals.icu) vs the athlete's
+  recent baseline, both gated to rides with ≥15 min of Z2. Higher than baseline → + (fresher/fitter);
+  below → − (aerobic strain). Z2-isolated by intervals.icu, so it's clean even on an interval day —
+  no whole-ride-decoupling ride-structure confound. Absent (signal sits out) when no qualifying ride.
 - **rpe** — recent mean session RPE vs a longer baseline mean. Higher-than-baseline → −. (Perceived
   cost.)
 - **behaviour** — `AthleteModel.behaviour.offPlanPct`. Light input: very high off-plan drift → small −.
@@ -65,7 +67,7 @@ constants (see below). Positive effect = better state.
 ### Lived-signal override (the reconciliation rule)
 
 The load model (tsb/acwr) can read "fresh" while the body is wrecked. So: **if ≥2 of the lived signals
-{execution-down, decoupling-up, rpe-up} corroborate strongly, cap the score down** (and force
+{execution-down, aerobicEff-down, rpe-up} corroborate strongly, cap the score down** (and force
 `band ≤ strained`, `recommendation ≤ soften`) even when tsb/acwr are positive. The ≥2 threshold guards
 against one noisy reading flipping the conclusion.
 
@@ -109,8 +111,8 @@ threshold (≥2) and its cap. All named, all in one place — retuning is editin
 ## Tests (`athlete-state.test.ts`)
 
 Pin the **directional logic, not the exact numbers** (so weights stay free to tune):
-- All-good inputs (fresh tsb, optimal acwr, high execution, low decoupling, normal rpe) → high band.
-- Corroborated fatigue (execution-down + decoupling-up + rpe-up) → low band **even with a fresh tsb**
+- All-good inputs (fresh tsb, optimal acwr, high execution, high aerobic efficiency, normal rpe) → high band.
+- Corroborated fatigue (execution-down + aerobicEff-down + rpe-up) → low band **even with a fresh tsb**
   (the override fires).
 - A single bad lived signal does **not** flip a fresh tsb (override needs ≥2).
 - Missing signals → lower `confidence`, still returns a value; no signals at all → `null`.

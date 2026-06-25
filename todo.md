@@ -34,14 +34,17 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
   in [intervals-api.ts](lib/intervals-api.ts) + [interval-match.ts](lib/interval-match.ts).
 
 **ACC-2026-06-25 — second-brain state accuracy (athlete request).**
-- ☑ P2 `bug` **Z2-gate decoupling in the athlete state.** It fed the latest ANY-type ride's whole-ride
-  decoupling vs an all-rides 90d average — but whole-ride decoupling on an interval day is a ride-STRUCTURE
-  artifact (hard efforts first inflate first-half Pw:HR), not aerobic strain, and as a "lived negative" it
-  could wrongly CAP the score. Now only steady-endurance rides count (shared `isSteadyEnduranceRide` gate
-  the Trends Pw:HR already used: outdoor, 0.56–0.85 FTP, ≥45min), the latest must be recent (≤14d), and the
-  baseline is the mean over qualifying rides (≥3, else the signal sits out — better absent than misleading).
-  FTP threaded through resolveCoachSignals + sync + generate. 2 tests. _[athlete-state.ts](lib/athlete-state.ts) ·
-  [trends.ts](lib/trends.ts)._
+- ☑ P2 `bug` **Aerobic signal → intervals.icu's Z2-isolated Pw:HR (`icu_power_hr_z2`).** The state fed
+  the latest ANY-type ride's WHOLE-ride decoupling vs an all-rides 90d average — a ride-STRUCTURE artifact
+  on interval days (hard-first inflates first-half Pw:HR), not aerobic strain, and as a "lived negative" it
+  could wrongly CAP the score. First gated decoupling to steady-Z2 rides; then the athlete pointed out
+  intervals.icu already exposes `icu_power_hr_z2` (Pw:HR over the ride's Z2 SAMPLES) — confirmed on the API,
+  present even on the interval day. Final: the aerobic driver is now Pw:HR-Z2-vs-baseline (HIGHER = fresher;
+  inverse polarity of decoupling), gated on ≥15 Z2-min, latest ≤14d, baseline mean over ≥3 qualifying rides
+  (else sits out). Present on any ride with real Z2 — the coverage the athlete wanted, no confound. Repurposed
+  the `decoupling` state-weight → `aerobicEff`; the unneeded FTP threading was reverted. Decoupling stays in
+  execution scoring + Trends. spec doc updated; 2 tests. _[athlete-state.ts](lib/athlete-state.ts) ·
+  [intervals-api.ts](lib/intervals-api.ts) · [docs/specs/athlete-state.md](docs/specs/athlete-state.md)._
 - ☑ P2 `bug` **OLS weight trend.** Replaced the latest-minus-one-reference diff (a single outlier exactly
   7 days ago produced a false reading) with an ordinary-least-squares slope over every weigh-in in the
   trailing 14 days → kg/7d (≥3 weigh-ins). Robust to one noisy reading, handles 5×/week logging natively.

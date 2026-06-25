@@ -199,7 +199,7 @@ describe("resolveAthleteStateWeights (ROADMAP §5 — fusion weights)", () => {
     // The review attack: { scoreCap: 100, livedThreshold: 99 } silently disables the corroborated-fatigue cap.
     const w = resolveAthleteStateWeights({ override: { scoreCap: 100, livedThreshold: 99 } });
     expect(w.override.scoreCap).toBe(70); // ≤ 70 → can't land a wrecked athlete in the 80+ "primed/push" band
-    expect(w.override.livedThreshold).toBe(3); // only 3 lived signals exist (exec/decoupling/rpe) — must stay ≤ 3
+    expect(w.override.livedThreshold).toBe(3); // only 3 lived signals exist (exec/aerobicEff/rpe) — must stay ≤ 3
   });
 
   it("enforces fresh > deep on the TSB direction edges so an override can't invert them (CAL-1)", () => {
