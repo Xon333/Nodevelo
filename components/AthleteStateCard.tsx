@@ -26,7 +26,15 @@ export default function AthleteStateCard({ state }: { state: AthleteState }) {
         <div className="flex items-baseline justify-between gap-2">
           <p className="min-w-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
             Athlete state
-            {state.confidence !== "high" && <span className="ml-1 normal-case">· {state.confidence} confidence</span>}
+            {/* Confidence tier (A): low = visible amber caution (the read is thin — few core signals or a
+                tiny execution sample); medium = muted; high = hidden (the default, no need to flag). */}
+            {state.confidence !== "high" && (
+              <span
+                className={`ml-1 normal-case ${state.confidence === "low" ? "text-amber-600 dark:text-amber-400" : ""}`}
+              >
+                · {state.confidence} confidence
+              </span>
+            )}
           </p>
           <Link
             href="/model"

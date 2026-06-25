@@ -112,11 +112,14 @@ export function TodayRideCard({
       IF < 0.95 ? "tempo" :
       IF < 1.05 ? "threshold" :
       IF < 1.15 ? "VO2max" : "anaerobic";
+    // Provenance stamp (B): IF reads NP when present, else avg power (ride-analysis.ts — `normalizedPower
+    // ?? avgWatts`). An avg-based IF understates variable efforts, so the basis is shown, not hidden.
+    const npBased = analysis.activityNormalizedPower != null;
     metrics.push({
       label: "IF",
       value: IF.toFixed(2),
-      sub: band,
-      tip: "Intensity Factor = normalized power ÷ FTP — how hard the whole ride was relative to your threshold. ~0.75–0.85 endurance · 0.85–0.95 tempo · 0.95–1.05 threshold/race · >1.05 VO2+. Uses NP when present, else avg power.",
+      sub: `${band} · ${npBased ? "NP" : "avg"}`,
+      tip: `Intensity Factor = ${npBased ? "normalized power" : "average power (NP unavailable)"} ÷ FTP — how hard the whole ride was relative to your threshold. ~0.75–0.85 endurance · 0.85–0.95 tempo · 0.95–1.05 threshold/race · >1.05 VO2+.${npBased ? "" : " Avg-based: understates short/variable efforts vs a true NP read."}`,
     });
   }
   // NP and avg power as distinct tiles — NP (the variability-aware figure that IF/execution read
@@ -131,7 +134,14 @@ export function TodayRideCard({
     metrics.push({ label: "Avg speed", value: `${kmh.toFixed(1)} km/h` });
   }
   if (analysis.activityDecoupling != null)
-    metrics.push({ label: "Decoupling", value: `${analysis.activityDecoupling.toFixed(1)}%` });
+    metrics.push({
+      label: "Decoupling",
+      value: `${analysis.activityDecoupling.toFixed(1)}%`,
+      // Honesty stamp (B): decoupling was demoted out of execution scoring (ACC-2026-06-25 — too noisy
+      // per-ride, whole-ride drift is a structure artifact on non-steady days). Say so, so it doesn't
+      // read as if it counts toward the score next to it.
+      tip: "Aerobic drift — how much power-to-HR drifted across the ride. Context only: it's no longer part of your execution score (too noisy per-ride), kept as a steady-ride durability reference. Lower is better; ~5%+ on a steady endurance ride hints at fatigue or under-fuelling.",
+    });
   if (analysis.activityRpe != null)
     metrics.push({ label: "RPE", value: `${analysis.activityRpe}/10` });
 
