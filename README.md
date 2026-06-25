@@ -332,10 +332,12 @@ On each `POST /api/sync`:
 the earliest snapshot anchor to the earliest). Two consequences keep the coaching model honest:
 
 - **Coach analysis (today's ride)** is judged against `current` — today's fitness.
-- **The score ledger is immutable.** `buildRideScores()` scores each ride against
-  `physiologyAsOf(rideDate)`, and `mergeScoreLog()` freezes existing dates (fresh entries only
-  fill new dates). A threshold ride logged at IF 0.94 stays 0.94 forever, even after an FTP
-  bump — so trends reflect real adaptation, not a redefinition of the FTP denominator.
+- **The score ledger is immutable.** `buildRideScores()` anchors each ride to the FTP that was live
+  when it happened — preferring the ride's own `icu_ftp` (Intervals.icu's own per-activity record of
+  the FTP it applied, which is exact even when an FTP change wasn't synced for days) and falling back
+  to `physiologyAsOf(rideDate)` when the activity carries none. `mergeScoreLog()` then freezes existing
+  dates (fresh entries only fill new dates). A threshold ride logged at IF 0.94 stays 0.94 forever, even
+  after an FTP bump — so trends reflect real adaptation, not a redefinition of the FTP denominator.
 
 FTP-independent markers (Pw:HR / efficiency factor, decoupling, raw power-curve PRs) are the
 backbone of long-term progression precisely because they survive FTP redefinition. The Pw:HR

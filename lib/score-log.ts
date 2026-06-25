@@ -80,7 +80,11 @@ export function buildRideScores(
     const actualMin = Math.round(act.movingTimeSec / 60);
     if (actualMin <= 0) continue;
 
-    const ftp = ftpForDate(act.date);
+    // Anchor to the FTP intervals.icu applied to THIS ride (icu_ftp) when present — its own record of the
+    // FTP live that day. It beats the effective-dated store, whose change-date is only as precise as when
+    // we happened to sync (RV-5: an FTP test not synced for days would otherwise score the gap rides
+    // against the old FTP). Falls back to physiologyAsOf via ftpForDate when the activity carries none.
+    const ftp = act.icuFtp ?? ftpForDate(act.date);
     const ifBasis = act.normalizedPower ?? act.avgWatts;
     const intensityFactor = ifBasis !== null && ftp > 0 ? round2(ifBasis / ftp) : null;
     const variabilityIndex =

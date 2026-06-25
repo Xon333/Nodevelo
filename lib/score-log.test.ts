@@ -11,6 +11,7 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     avgWatts: 180,
     normalizedPower: 185,
     maxWatts: 400,
+    icuFtp: null,
     avgHr: 140,
     maxHr: 165,
     kj: 600,
@@ -68,6 +69,22 @@ describe("buildRideScores", () => {
     const scores = buildRideScores(b, acts, ftpForDate, "2026-03-01");
     expect(scores.find((s) => s.date === "2026-01-01")?.ftpUsed).toBe(200);
     expect(scores.find((s) => s.date === "2026-02-01")?.ftpUsed).toBe(300);
+  });
+
+  it("prefers the ride's own icu_ftp over the effective-dated store, and falls back when absent (RV-5)", () => {
+    const b = block([
+      { date: "2026-01-01", type: "Z2", durationMin: 60 },
+      { date: "2026-01-02", type: "Z2", durationMin: 60 },
+    ]);
+    // ftpForDate would return the stale 200 for both (e.g. an FTP test not yet synced). The 01-01 ride
+    // carries its own icu_ftp=260 from intervals.icu and must anchor to it; 01-02 has none → fallback.
+    const acts = [
+      activity({ date: "2026-01-01", icuFtp: 260, avgWatts: 135, normalizedPower: 138 }),
+      activity({ date: "2026-01-02", icuFtp: null, avgWatts: 135, normalizedPower: 138 }),
+    ];
+    const scores = buildRideScores(b, acts, ftp200, "2026-01-10");
+    expect(scores.find((s) => s.date === "2026-01-01")?.ftpUsed).toBe(260); // per-ride anchor wins
+    expect(scores.find((s) => s.date === "2026-01-02")?.ftpUsed).toBe(200); // fallback to as-of store
   });
 
   it("skips rest days, future days, and days without a ride", () => {

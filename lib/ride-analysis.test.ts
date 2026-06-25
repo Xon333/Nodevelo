@@ -11,6 +11,7 @@ const activity = (over: Partial<ActivitySummary> = {}): ActivitySummary => ({
   avgWatts: 190,
   normalizedPower: 200,
   maxWatts: 600,
+  icuFtp: null,
   avgHr: 150,
   maxHr: 175,
   kj: 600,

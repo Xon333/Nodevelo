@@ -51,13 +51,16 @@ retained + hardened). Remaining items need a decision or design call. Verdict: 8
   STALE reading (`MAX_HRV_STALE_DAYS = 2`, mirrors the form carry cap) and EXCLUDES today from the 7-day
   baseline so the latest reading is graded against its own history. 3 tests: off-by-default, fresh-on,
   stale-on. _[readiness.ts](lib/readiness.ts)._
-- ☐ P2 `arch` **RV-5** — physiology `reconcile` stamps a changed snapshot `effectiveFrom: today` (the
-  day NodeVelo first SAW the change), not the day Intervals.icu actually changed it. An FTP test on Mon
-  not synced until Fri scores Mon–Thu rides against the OLD FTP — quietly degrading the "scored against
-  the FTP live that day" pillar. **Investigate:** does sport-settings expose a change/updated date to
-  anchor to? Behaviour change to a core pillar — design first. _[physiology.ts:151](lib/physiology.ts:151)._
+- ☑ P2 `arch` **RV-5** — fixed by anchoring ledger scoring to the ride's OWN per-activity FTP. Investigation:
+  sport-settings exposes only current values (no change-date), but intervals.icu stamps each activity with
+  the FTP it applied (`icu_ftp`) — its own record of the FTP live that day, exact even when an FTP change
+  wasn't synced for days. `buildRideScores` now uses `act.icuFtp ?? ftpForDate(date)`, so gap rides score
+  against the real FTP; effective-dated physiology stays the fallback (and still drives zones + the change
+  banner). 2 tests. _[score-log.ts](lib/score-log.ts) · [intervals-api.ts:228](lib/intervals-api.ts:228) ·
+  [README.md:335](README.md:335)._
 - ☐ P3 `arch` **RV-5b** — `reconcile` appends to `history` with no dedup/bound; `physiology.json` grows
-  monotonically over years of FTP nudges. Cosmetic at single-user scale. _[physiology.ts:168](lib/physiology.ts:168)._
+  monotonically over years of FTP nudges. Cosmetic, and now even lower priority — RV-5 means scoring no
+  longer leans on the history (it's only a fallback + the zones/change-banner source). _[physiology.ts:168](lib/physiology.ts:168)._
 - ☐ P2 `feat` **RV-7** — AI spend is measured (`ai-usage.ts`) but never capped: `recordUsage` only
   accumulates; nothing refuses a call past a threshold. No circuit breaker on a runaway loop. **Decision
   needed:** soft monthly cap value + behaviour (warn vs hard-429 from the LLM routes). _[ai-usage.ts](lib/ai-usage.ts)._
