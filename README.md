@@ -52,6 +52,7 @@ Five design decisions define the whole app — everything else follows from them
 | [ARCHIVE.md](ARCHIVE.md) | Completed work, grouped by theme |
 | [research.md](research.md) | Exploratory spikes — findings, not build commitments |
 | [todo.md](todo.md) | Lean live punch-list for incoming bugs / feedback |
+| [DESIGN.md](DESIGN.md) | Design source of truth — tokens, type ladder, per-page hierarchy |
 | `AGENTS.md` · `CLAUDE.md` | Operating constraints for AI coding agents |
 
 ---
@@ -460,7 +461,7 @@ and only phrases them in natural language — it never calculates nutrition.
 ## Development
 
 ```bash
-npm test       # vitest (252 tests across 33 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, …)
+npm test       # vitest (550 tests across 52 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, …)
 npm run lint
 npm run build
 ```
