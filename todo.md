@@ -77,9 +77,12 @@ retained + hardened). Remaining items need a decision or design call. Verdict: 8
   history write, and a stable uid on every payload) — 3 tests, the RV-2 regression guard.
   _[write/route.test.ts](app/api/write/route.test.ts)._ **Remaining:** the deleteEvent-based rollback of a
   partial set (a true rollback, beyond retry-safety), and coverage for the other mutating routes.
-- ☐ P3 `refactor` **RV-8** — `anthropic-api.ts` (773 LOC: prompt strings + 5 call sites + parsing),
-  `Dashboard.tsx` (529), `Trends.tsx` (508) are where complexity piles up while `lib/` stays well-split.
-  Split the prompt module first (it's the one nobody will want to touch in 6 months).
+- ◑ P3 `refactor` **RV-8** — split `anthropic-api.ts` (was 773 LOC): all pure prompt assembly moved to
+  `anthropic-prompts.ts` (618 LOC, now unit-tested — 5 new tests for the previously-untestable ride-
+  analysis/retrospective builders), leaving `anthropic-api.ts` a 211-LOC SDK call layer (+ a shared
+  `textOf` helper deduping 4 copies of response parsing). Public surface unchanged (builders + types
+  re-exported), so no call site moved; 520 tests green. **Remaining:** the big React views
+  (`Dashboard.tsx` 529, `Trends.tsx` 508) — separate, lower-risk UI splits. _[anthropic-prompts.ts](lib/anthropic-prompts.ts) · [anthropic-api.ts](lib/anthropic-api.ts)._
 - ☐ P3 `cleanup` **RV-10** — `data/` accumulates one-shot rebuild backups
   (`score-log.json.pre-rebuild-*.bak`) forever; no rotation. Gitignored so harmless, low priority.
 
