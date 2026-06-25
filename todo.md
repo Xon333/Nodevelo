@@ -14,77 +14,54 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
-**RV2-2026-06-25 — senior-dev accuracy review (engine deep-read).** 15 findings from a full read of the
-deterministic core (execution-score, readiness, athlete-state, physiology, nutrition) + the Intervals
-client. Theme: **windows that include their own comparison point**, **divisors that assume full history**,
-and **a few open-top scoring bands**. None ship yet. IDs cross-reference the review (#1–#15).
+**RV2-2026-06-25 — senior-dev accuracy review (engine deep-read).** 15 findings. Theme: **windows that
+include their own comparison point**, **divisors that assume full history**, **open-top scoring bands**.
+**12 shipped this session** (`125fde9` rolling-window cluster, `f9d2510` engine cluster); RV2-1 resolved as
+not-a-bug; RV2-12 accepted limitation; RV2-14 part-shipped; RV2-15 data-gated. **One open question for you:
+RV2-14 protein scaling.**
 
-### P1 — accuracy / data-integrity (fix first)
+### Shipped this session
 
-- ☐ P1 `bug` **RV2-1 (#1)** — `fetchActivityStream` substitutes `0` for any non-finite sample, so a power
-  dropout reads 0 W and an HR dropout reads 0 bpm (an impossible sentinel). Both feed zone re-bucketing +
-  Z2 Pw:HR → gaps inflate Z1/easy time and drag averages down, invisibly. **Fix:** drop missing samples,
-  don't zero-fill. _[intervals-api.ts:171](lib/intervals-api.ts:171)._
-- ☐ P1 `bug` **RV2-2 (#2)** — ACWR is the coupled rolling-average form (acute 7d is a subset of chronic 28d)
-  AND chronic divides by a fixed `28` regardless of how many days have data, so a new athlete (e.g. 12d
-  history) gets an understated chronic → ACWR spikes into false "danger." The `chronic < 5` guard only
-  catches near-zero. **Fix:** divide by `min(28, daysWithData)`; consider EWMA to decouple acute/chronic.
-  _[readiness.ts:185](lib/readiness.ts:185)._
+- ☑ P1 `bug` **RV2-2 (#2)** — ACWR divisors now use the days of history that exist (not fixed 7/28, which
+  understated a new athlete's chronic → false "danger"); the implicit `chronic<5` proxy replaced with an
+  explicit ≥14-day gate. _[readiness.ts](lib/readiness.ts) · `125fde9`._
+- ☑ P2 `bug` **RV2-3 (#3)** — weekly hours divides by the weeks that exist, not a flat 90/7. _`125fde9`._
+- ☑ P2 `bug` **RV2-4 (#4)** — aerobic + RPE baselines now EXCLUDE the recent window they're compared against
+  (no more self-muted comparison). _[athlete-state.ts](lib/athlete-state.ts) · `125fde9`._
+- ☑ P2 `bug` **RV2-5 (#5)** — RPE needs a minimum sample (≥2 recent / ≥3 baseline) so one ride can't be a
+  trend. _`125fde9`._
+- ☑ P2 `bug` **RV2-6 (#6)** — Theil–Sen replaces OLS for the weight trend (genuinely outlier-robust at the
+  window edge, which OLS is not). _[nutrition.ts](lib/nutrition.ts) · `f9d2510`._
+- ☑ P2 `bug` **RV2-7 (#7)** — HR zones with no LTHR/max-HR anchor return `[]` (→ md fallback) instead of raw
+  % as bpm. _[physiology.ts](lib/physiology.ts) · `f9d2510`._
+- ☑ P2 `bug` **RV2-8 (#8)** — VO2max/RaceSim now penalise a wildly over-cooked effort (open top end before).
+  _[execution-score.ts](lib/execution-score.ts) · `f9d2510`._
+- ☑ P2 `bug` **RV2-11 (#11)** — `today` threaded into `athleteStateInputsFrom` (was `Date.now()`), anchoring
+  backfill/replay to the as-of day. _[athlete-state.ts](lib/athlete-state.ts) · `125fde9`._
+- ☑ P3 `cleanup` **RV2-9 (#9)** — one shared heavy-fatigue predicate for the alert + the readiness level (was
+  duplicated thresholds). _[readiness.ts](lib/readiness.ts) · `125fde9`._
+- ☑ P3 `cleanup` **RV2-10 (#10)** — `interval-match` uses `stats.median` instead of a local copy.
+  _[interval-match.ts](lib/interval-match.ts) · `f9d2510`._
+- ☑ P3 `polish` **RV2-13 (#13)** — power-curve match tolerance clamped to [5s, 120s]. _[intervals-api.ts](lib/intervals-api.ts) · `f9d2510`._
+- ☑ P3 `audit` **RV2-1 (#1)** — _Resolved: not an accuracy bug._ `bucketZones` already skips `v <= 0`
+  ([zones.ts](lib/zones.ts)), so zero-filled stream gaps are excluded from zone time, and the aerobic signal
+  uses Intervals' precomputed `icu_power_hr_z2`, not these streams. The only effect is cosmetic dips in the
+  ride-trace viz — and dropping samples would DESYNC the power/HR index pairing in `buildRideTrace`. Left as-is.
 
-### P2 — correctness, lower blast radius
+### Still open
 
-- ☐ P2 `bug` **RV2-3 (#3)** — same fixed-divisor bug in weekly hours: `totalHours90d / (90/7)` divides by
-  12.86 weeks even when `recent` spans 20 days → understated weekly hours for anyone with <90d.
-  _[readiness.ts:271](lib/readiness.ts:271)._
-- ☐ P2 `bug` **RV2-4 (#4)** — two "now vs baseline" state signals compare a value against a window that
-  contains it: `rpeRecent` (14d) ⊂ `rpeBaseline` (90d), and the aerobic baseline (90d) includes the latest
-  reading it's compared to. Self-comparison mutes both. **Fix:** exclude the recent window from its own
-  baseline (HRV already does this at [readiness.ts:93](lib/readiness.ts:93) — inconsistent that these
-  don't). _[athlete-state.ts:176](lib/athlete-state.ts:176), [athlete-state.ts:189](lib/athlete-state.ts:189)._
-- ☐ P2 `bug` **RV2-5 (#5)** — RPE drives a *core* state signal off n=1 (`meanRpe` returns on a single ride),
-  while aerobic efficiency demands `AEROBIC_MIN_BASELINE = 3`. One grumpy RPE entry counts as a full core
-  driver and can push `confidence: "high"`. **Fix:** add a min-sample floor to RPE.
-  _[athlete-state.ts:150](lib/athlete-state.ts:150), [athlete-state.ts:133](lib/athlete-state.ts:133)._
-- ☐ P2 `bug` **RV2-6 (#6)** — the OLS weight trend is documented (commit `c0e0bdd`) as "robust to a single
-  outlier"; OLS is the opposite at the window edges — an outlier at max |x| (oldest point or the x=0 anchor)
-  has the highest leverage on the slope. Robust to a mid-window outlier, not an edge one. **Fix:** Theil–Sen
-  (median of pairwise slopes) if the claim is to hold. _[nutrition.ts:147](lib/nutrition.ts:147)._
-- ☐ P2 `bug` **RV2-7 (#7)** — HR zones render as garbage with no anchor: percent-of-LTHR zones with both
-  `lthr` and `maxHr` null return the raw percentages *as if bpm* (power correctly returns `[]` when it can't
-  resolve). Plus the bpm-vs-percent sniff `max > 150` misclassifies a masters athlete whose absolute zones
-  top ~148. **Fix:** return `[]` when no anchor; firm up the unit heuristic.
-  _[physiology.ts:121](lib/physiology.ts:121), [physiology.ts:80](lib/physiology.ts:80)._
-- ☐ P2 `bug` **RV2-8 (#8)** — VO2max and RaceSim have no over-intensity penalty: a VO2 session blown out at
-  IF 1.3 falls through every band and scores neutral (Threshold penalizes `> 1.05`; these don't cap the top).
-  **Fix:** add an upper-bound penalty branch to VO2max/RaceSim. _[execution-score.ts:98](lib/execution-score.ts:98)._
-- ☐ P2 `bug` **RV2-11 (#11)** — "today" comes from two sources: `athlete-state` reads `Date.now()` while
-  readiness/acwr/load-ramp take an injectable `today` (the RV-1 fix). Any backfill/replay computes state
-  against wall-clock now, not the as-of date. **Fix:** thread `today` through `athleteStateInputsFrom`.
-  _[athlete-state.ts:165](lib/athlete-state.ts:165)._
-- ☐ P2 `audit` **RV2-15 (#15)** — the new wellness strain adapter always feeds `sleep = 3` (sleepQuality is
-  null in real data), so strain's range collapsed 4–20 → 6–18 with a quarter of the signal constant, but the
-  bands (`med 12 / high 15`) were tuned on the real 4-input formula and weren't re-centered (a synced "fresh"
-  day now reads 6, not 4). Guards keep it safe; re-center once `deriveStrainHigh` has data. Already noted in
-  ROADMAP Inc 2. _[morning-check.ts](lib/morning-check.ts)._
-
-### P3 — redundancy / consistency / polish
-
-- ☐ P3 `cleanup` **RV2-9 (#9)** — `computeFatigueAlert` and `computeReadiness` duplicate the same
-  `atl/ctl > 1.5` + `tsb < -30` thresholds and branches; change one, the other drifts. **Fix:** one shared
-  `fatigueOverride(fitness)` predicate. _[readiness.ts:49](lib/readiness.ts:49), [readiness.ts:76](lib/readiness.ts:76)._
-- ☐ P3 `cleanup` **RV2-10 (#10)** — `interval-match.ts` re-implements `median` locally, the exact
-  duplication `stats.ts` was created to prevent (per its own header). **Fix:** import `median` from stats.
-  _[interval-match.ts:57](lib/interval-match.ts:57), [stats.ts:9](lib/stats.ts:9)._
-- ☐ P3 `audit` **RV2-12 (#12)** — `computeIntensityDistribution` buckets rides with power-zone data by zone
-  seconds but rides without by NP/FTP thresholds; the two don't agree, so a window mixing both is
-  apples-and-oranges into one `easyPct`. _[readiness.ts:215](lib/readiness.ts:215)._
-- ☐ P3 `polish` **RV2-13 (#13)** — power-curve match uses a single `target * 0.2` tolerance: ±1s for a 5s
-  target (drops valid points), ±12min for 60min (matches a 48-min effort to the 60-min slot). **Fix:** an
-  absolute floor for short durations. _[intervals-api.ts:341](lib/intervals-api.ts:341)._
-- ☐ P3 `audit` **RV2-14 (#14)** — nutrition asymmetries: rest days ignore both buffer and weight-trend while
-  training days adjust for both; protein is flat 30g while carbs scale per-kg; `SESSION_INTENSITY_FACTOR` has
-  VO2max (0.75) < Threshold (0.78) (defensible but reads like a typo — wants a comment).
-  _[nutrition.ts:117](lib/nutrition.ts:117), [nutrition.ts:133](lib/nutrition.ts:133), [nutrition.ts:89](lib/nutrition.ts:89)._
+- ☐ P2 `audit` **RV2-14 (#14) — NEEDS YOUR CALL: should post-ride protein scale with body weight?** Carbs
+  scale per-kg but protein is a flat 30g, so a 90kg and a 55kg rider get the same. Standard guidance is
+  ~0.3 g/kg → ~16–27g across that range. Changing it is a nutrition-spec decision, so it's parked. (The other
+  two parts are settled: the VO2max<Threshold session-intensity factor is now commented as deliberate `f9d2510`;
+  rest days staying flat — no buffer/trend — is the documented design, not a bug.) _[nutrition.ts:133](lib/nutrition.ts:133)._
+- ☐ P3 `audit` **RV2-12 (#12) — accepted limitation.** `computeIntensityDistribution` buckets zone-data rides
+  by zone seconds and no-zone rides by a single NP/FTP number; they can't be fully reconciled (an NP scalar
+  can't yield time-in-zone). Inherent to the data, not fixable without per-sample streams for every ride;
+  documented so it isn't re-surfaced. _[readiness.ts:215](lib/readiness.ts:215)._
+- ☐ P2 `audit` **RV2-15 (#15) — data-gated.** The strain adapter feeds neutral `sleep=3`, so strain's range is
+  6–18 not 4–20 and the bands weren't re-centered. Re-center once `deriveStrainHigh` has real ledger stamps to
+  fit against (chicken/egg until then; guards keep it safe). Tracked in ROADMAP Inc 2. _[morning-check.ts](lib/morning-check.ts)._
 
 **BUG-2026-06-25 — interval-order misparse on multi-step repeat blocks.**
 - ☑ P1 `bug` `parsePrescription` expanded "Main Set 3x { Over 1m, Under 2m, … }" as each-step-×3
@@ -199,8 +176,10 @@ very low, so a hard cap isn't worth the friction yet. Verdict: 8.5/10.
     helpers → `trends/sections.tsx` (171).
   Verified: tsc + lint clean, 520 tests, all routes SSR 200. _[components/dashboard/](components/dashboard) ·
   [components/trends/](components/trends) · [anthropic-prompts.ts](lib/anthropic-prompts.ts)._
-- ☐ P3 `cleanup` **RV-10** — `data/` accumulates one-shot rebuild backups
-  (`score-log.json.pre-rebuild-*.bak`) forever; no rotation. Gitignored so harmless, low priority.
+- ☑ P3 `cleanup` **RV-10** — _Resolved: no active writer._ A repo-wide search finds no code that writes
+  `pre-rebuild-*.bak` anymore — the one file in `data/` is an orphan from a removed one-off rebuild script.
+  Nothing accumulates, nothing to rotate. (The live `.bak` in [json-store.ts](lib/json-store.ts) is already
+  one-deep per file.) Deleting the orphan is optional; it's gitignored and harmless.
 
 ---
 
