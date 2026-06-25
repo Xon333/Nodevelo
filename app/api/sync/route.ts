@@ -45,6 +45,7 @@ import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
+import { strainScore, wellnessToMorningAnswers } from "@/lib/morning-check";
 import { resolveToday } from "@/lib/date";
 import type { ExecutedInterval, RideEntryContext, TodayAnalysis } from "@/lib/types";
 
@@ -256,13 +257,18 @@ export async function POST(req: Request) {
 
       // Athlete-state context as of each ride's date, stamped onto each entry for the future
       // state→execution correlation (ROADMAP #2): form (CTL/ATL/TSB, carried-forward from the synced
-      // wellness stream) + the day's subjective morning-check (same-day only — no carry-forward).
+      // wellness stream) + the day's subjective morning read (same-day only — no carry-forward). Inc 2:
+      // the morning read is now sourced from the synced Intervals.icu wellness (not a NodeVelo form), so
+      // it stamps wherever the athlete logged subjective wellness, and carries the composite strain.
       const formStateForDate = buildFormStateLookup(lastSync.wellness);
-      const morningByDate = new Map(morningChecks.entries.map((m) => [m.date, m]));
+      const wellnessByDate = new Map(lastSync.wellness.map((w) => [w.date, w]));
       const contextForDate = (date: string): RideEntryContext | null => {
         const formState = formStateForDate(date) ?? undefined;
-        const mc = morningByDate.get(date);
-        const morningCheck = mc ? { fatigue: mc.fatigue, sleep: mc.sleep, soreness: mc.soreness } : undefined;
+        const w = wellnessByDate.get(date);
+        const answers = w ? wellnessToMorningAnswers(w) : null;
+        const morningCheck = answers
+          ? { fatigue: answers.fatigue, sleep: answers.sleep, soreness: answers.soreness, strain: strainScore(answers) }
+          : undefined;
         return formState || morningCheck ? { formState, morningCheck } : null;
       };
       const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor, resolvedCal, contextForDate);

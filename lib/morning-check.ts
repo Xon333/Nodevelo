@@ -4,7 +4,7 @@
 // AI in the decision; the thresholds are population defaults and are calibration hooks for #2.
 
 import { resolveStrainBands, resolveTsbModifierEdges, type StrainBands } from "./calibration";
-import type { AcwrResult, MorningCheckDecision, MorningCheckEntry, ReadinessSignal } from "./types";
+import type { AcwrResult, MorningCheckDecision, MorningCheckEntry, ReadinessSignal, WellnessEntry } from "./types";
 
 export interface MorningCheckAnswers {
   fatigue: number; // 1–5, higher = more fatigued (bad)
@@ -32,6 +32,28 @@ export interface MorningCheckObjective {
 const clamp1to5 = (n: number): number => Math.max(1, Math.min(5, n));
 export function strainScore(a: MorningCheckAnswers): number {
   return clamp1to5(a.fatigue) + clamp1to5(a.soreness) + (6 - clamp1to5(a.sleep)) + (6 - clamp1to5(a.motivation));
+}
+
+// Map a synced Intervals.icu wellness row's subjective fields into strain inputs (ROADMAP #2, Inc 2),
+// so the morning read comes from the athlete's existing Intervals.icu logging instead of a NodeVelo form.
+// Intervals stores these 1–4 with HIGHER = worse for ALL of them (see WellnessEntry); the strain formula
+// uses 1–5 with fatigue/soreness higher = worse but sleep/motivation higher = BETTER. So: linearly stretch
+// 1–4 → 1–5 and FLIP motivation. A missing field falls back to the neutral midpoint (3) so a partial log
+// still scores; all-absent → null (nothing to read). stress/mood/injury are deferred — fold each in as its
+// own derived edge later only if it discriminates (ponytail: one number with guessed weights is untestable).
+const map5 = (v: number): number => (Math.max(1, Math.min(4, v)) - 1) * (4 / 3) + 1; // 1→1, 2→2.33, 3→3.67, 4→5
+export function wellnessToMorningAnswers(w: WellnessEntry): MorningCheckAnswers | null {
+  const { fatigue: f, soreness: s, motivation: m } = w;
+  if (f == null && s == null && m == null) return null; // no subjective read logged this day
+  return {
+    fatigue: f != null ? map5(f) : 3,
+    soreness: s != null ? map5(s) : 3,
+    // ponytail: sleepQuality is unlogged (null) for this athlete and its 1–4 direction is unconfirmed —
+    // feed the neutral midpoint until a wearable fills it, then map5(w.sleepQuality) and verify direction.
+    sleep: 3,
+    motivation: m != null ? 6 - map5(m) : 3, // flip: Intervals higher = worse → formula higher = better
+    illness: "none", // Intervals wellness has no illness/sickness field (injury ≠ sick) — sync can't downgrade for illness
+  };
 }
 
 export interface MorningCheckDecisionResult {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, strainScore, type MorningCheckAnswers, type MorningCheckObjective } from "./morning-check";
-import type { MorningCheckEntry } from "./types";
+import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, strainScore, wellnessToMorningAnswers, type MorningCheckAnswers, type MorningCheckObjective } from "./morning-check";
+import type { MorningCheckEntry, WellnessEntry } from "./types";
 
 const fresh: MorningCheckAnswers = { fatigue: 1, sleep: 5, soreness: 1, motivation: 5, illness: "none" };
 const wrecked: MorningCheckAnswers = { fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none" };
@@ -92,6 +92,41 @@ describe("proactiveApplyBlock", () => {
   });
   it("blocks when the check-in said proceed", () => {
     expect(proactiveApplyBlock({ ...downgrade, decision: "proceed" }, false)).toMatch(/didn't recommend/);
+  });
+});
+
+describe("wellnessToMorningAnswers (ROADMAP #2, Inc 2 — sync-sourced morning read)", () => {
+  // A wellness row with only the fields the adapter reads; the rest are irrelevant to strain.
+  const wellness = (subjective: Partial<WellnessEntry>): WellnessEntry => ({
+    date: "2026-06-25", weightKg: null, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: null,
+    ctl: null, atl: null, soreness: null, fatigue: null, stress: null, mood: null, motivation: null, injury: null,
+    ...subjective,
+  });
+
+  it("returns null when no subjective field is logged", () => {
+    expect(wellnessToMorningAnswers(wellness({ stress: 4, mood: 4 }))).toBeNull(); // stress/mood don't feed strain
+  });
+
+  it("maps an Intervals 'fresh' row (all 1) to minimum strain", () => {
+    const a = wellnessToMorningAnswers(wellness({ fatigue: 1, soreness: 1, motivation: 1 }))!;
+    expect(strainScore(a)).toBe(6); // 1 + 1 + (6−3 neutral sleep) + (6−5 motivation flip)
+    expect(a.illness).toBe("none");
+  });
+
+  it("maps an Intervals 'wrecked' row (all 4) to high strain", () => {
+    const a = wellnessToMorningAnswers(wellness({ fatigue: 4, soreness: 4, motivation: 4 }))!;
+    expect(strainScore(a)).toBe(18); // 5 + 5 + 3 + 5 — clears the high band (15)
+  });
+
+  it("flips motivation: Intervals 4 (unmotivated) is MORE strain, not less", () => {
+    const motivated = strainScore(wellnessToMorningAnswers(wellness({ fatigue: 2, soreness: 2, motivation: 1 }))!);
+    const unmotivated = strainScore(wellnessToMorningAnswers(wellness({ fatigue: 2, soreness: 2, motivation: 4 }))!);
+    expect(unmotivated).toBeGreaterThan(motivated);
+  });
+
+  it("fills missing subjective fields with the neutral midpoint (a partial log still scores)", () => {
+    const a = wellnessToMorningAnswers(wellness({ fatigue: 4 }))!; // soreness/motivation absent → neutral
+    expect(strainScore(a)).toBe(14); // 5 + 3 + 3 + 3
   });
 });
 

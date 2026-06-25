@@ -42,27 +42,27 @@ Intervals.icu + a sync (no instant in-app capture — an accepted tradeoff). Wel
 could still capture it) is a separate `← §7` API piece (only `createEvent` exists today).
 - ☑ **Inc 1 (shipped, `98464b9` → ARCHIVE):** the six subjective fields now map into `WellnessEntry` (raw
   Intervals 1–4 ordinals, higher = worse).
-- ☐ **Inc 2:** repoint the ledger morning-context stamp to read the subjective signals from synced wellness
-  (the way `formState` pulls TSB/CTL/ATL) → motivation gets stamped → derive the morning-check **strain
-  edge** via the shared engine: `deriveStrainHigh` + `resolveStrainBandsOverride`, mirroring
-  `deriveTsbDeepFatigue` / `resolveTsbEdgesOverride` (one derived edge → the `high` band; `med` stays
-  population/override).
-- ☐ **Inc 3:** run `decideMorningCheck` at sync-time off synced wellness; **keep** the proactive reschedule
-  apply (`PUT` / `applyProactiveReschedule` / `RescheduleBanner` — it just triggers off the synced decision);
-  remove `MorningCheckIn` + the form `POST` + `morning-check.json` (the decision recomputes from wellness).
-- ⛔ **OPEN — decide this FIRST (tomorrow):** the strain definition on the new inputs (today
-  `strain = fatigue + soreness + (6−sleep) + (6−motivation)`, 1–5 scale; the synced fields are 1–4 and add
-  stress/mood/injury):
-  - **(A, leaning)** map 1–4 → 1–5 and keep the existing strain formula + bands + downgrade thresholds —
-    least change, preserves the validated decision logic + all its tests; ignores stress/mood/injury for now.
-  - **(B)** redefine strain natively on 1–4, folding in stress/mood/injury — richer/more faithful, but needs
-    re-tuned `DEFAULT_STRAIN_BANDS` + decision thresholds + broader test updates.
-  - Both are *safe*: the engine's discrimination + confidence guards fall back to the population bands when
-    the signal doesn't discriminate, so a wrong scale/direction degrades gracefully (never a corrupt edge).
-- 🔎 **Confirm vs a live wellness payload before Inc 2/3:** motivation direction (expect API `1` = most
-  motivated); sleep source for strain (`sleepHours` vs `sleepQuality` + its direction); **illness has no
-  wellness field** (Injury ≠ sickness) → the synced decision can't downgrade for reported illness — accept as
-  a limitation, or keep a minimal illness input.
+- ☑ **Inc 2 (shipped → ARCHIVE):** the ledger morning-context stamp now reads the subjective signals from
+  synced wellness (`wellnessToMorningAnswers` in `morning-check.ts`, wired in `app/api/sync/route.ts`) and
+  carries the composite `strain` on `RideMorningContext`. The strain edge rides the shared engine —
+  `deriveStrainHigh` + `resolveStrainBandsOverride` (one derived edge → the `high` band; `med` stays
+  population/override), mirroring `deriveTsbDeepFatigue` / `resolveTsbEdgesOverride`.
+- ☐ **Inc 3:** run `decideMorningCheck` at sync-time off synced wellness, **wiring `resolveStrainBandsOverride`**
+  into the live decision (it's built + tested but has no production caller yet — Inc 3 is the pure wiring);
+  **keep** the proactive reschedule apply (`PUT` / `applyProactiveReschedule` / `RescheduleBanner` — it just
+  triggers off the synced decision); remove `MorningCheckIn` + the form `POST` + `morning-check.json` (the
+  decision recomputes from wellness).
+- ✅ **Strain-scale decision — SETTLED (A):** map 1–4 → 1–5, **flip motivation** (Intervals higher = worse →
+  formula higher = better), keep the existing formula + bands + thresholds + their tests. stress/mood/injury
+  **deferred** — each becomes its own derived edge later only if it discriminates. B (native redefine) was
+  rejected: it needs re-tuned bands with no ledger data to tune against yet; A is the honest on-ramp since
+  `deriveStrainHigh` personalises the `high` band from real stamps as data accrues.
+- 🔎 **Confirmed vs the live payload (`data/last-sync.json`):** subjective fields populate 1–4 as documented;
+  **motivation** higher = worse (handled by the flip). **`sleepQuality` is null in every row** (no wearable
+  autofill) → the strain `sleep` term feeds the **neutral midpoint (3)**; wire `map5(w.sleepQuality)` and
+  confirm its direction only once a wearable starts filling it. **No illness/sickness field** (injury ≠ sick)
+  → the synced decision can't downgrade for reported illness (accepted limitation; `injury` ≥3 as a downgrade
+  trigger is a possible later add, deferred).
 
 ### Scoring-core gaps (route through #2 — they touch `execution-score.ts`)
 - **Off-plan aerobic signal — fill the gap decoupling left** ⭐ — decoupling was demoted out of execution

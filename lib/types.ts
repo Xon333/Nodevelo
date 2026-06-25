@@ -476,6 +476,9 @@ export interface RideMorningContext {
   fatigue: number;
   sleep: number;
   soreness: number;
+  // The composite strain (4–20) the day's read scored to — the signal deriveStrainHigh correlates
+  // against. Optional: pre-Inc-2 entries (form-era stamps) carry the raw fields but no composite.
+  strain?: number;
 }
 
 // Everything stamped onto a ledger entry as athlete-state context for a given date (ROADMAP #2). Resolved
