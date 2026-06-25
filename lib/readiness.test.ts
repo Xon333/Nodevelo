@@ -1,10 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { buildFormStateLookup, computeAcwr, computeIntensityDistribution, computeLoadRamp } from "./readiness";
+import { buildFormStateLookup, computeAcwr, computeIntensityDistribution, computeLoadRamp, computeReadiness } from "./readiness";
+import type { FitnessMetrics, WellnessEntry } from "./types";
 
 // Build a date `n` days ago in YYYY-MM-DD (local), matching computeLoadRamp's basis.
 function daysAgo(n: number): string {
   return new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
 }
+
+describe("computeReadiness HRV gating (RV-3 opt-in / RV-4 staleness)", () => {
+  const wl = (date: string, hrv: number | null) => ({ date, hrv } as WellnessEntry);
+  // No fatigue/TSB override (atl/ctl = 1.0, tsb = 0) so the HRV branch is what decides, when reached.
+  const neutralFitness: FitnessMetrics = { ctl: 50, atl: 50, tsb: 0 };
+  const today = new Date().toISOString().slice(0, 10);
+  const d = (n: number) => new Date(Date.parse(today) - n * 86_400_000).toISOString().slice(0, 10);
+  // Latest reading well below its prior-3-day baseline (~61) → would trigger a suppression Hold.
+  const suppressed = [wl(d(0), 40), wl(d(1), 60), wl(d(2), 62), wl(d(3), 61)];
+
+  it("ignores HRV by default — a suppressed reading does not force a Hold on HRV grounds", () => {
+    expect(computeReadiness(neutralFitness, suppressed).reason).not.toMatch(/HRV/);
+  });
+
+  it("honours a fresh suppressed HRV when explicitly enabled", () => {
+    const r = computeReadiness(neutralFitness, suppressed, { useHrv: true });
+    expect(r.level).toBe("Hold");
+    expect(r.reason).toMatch(/HRV/);
+  });
+
+  it("ignores a STALE HRV even when enabled (RV-4 recency guard)", () => {
+    const stale = [wl(d(5), 40), wl(d(6), 60), wl(d(7), 62), wl(d(8), 61)]; // latest 5d old > cap
+    expect(computeReadiness(neutralFitness, stale, { useHrv: true }).reason).not.toMatch(/HRV/);
+  });
+});
 
 describe("computeLoadRamp", () => {
   it("does not fire when the prior week is below the noise floor", () => {

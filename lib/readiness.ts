@@ -1,4 +1,6 @@
-// Deterministic daily readiness signal from TSB, ATL/CTL ratio, and HRV.
+// Deterministic daily readiness signal from TSB and the ATL/CTL ratio, plus an OPT-IN HRV-suppression
+// check that is OFF by default (RV-3): there's no overnight HRV source in the loop, so HRV must not move
+// readiness until one exists. The branch is retained and sound — pass { useHrv: true } to re-enable it.
 // Returns a "Build / Hold / Recover" level with a plain-English reason.
 
 import type { AcwrResult, FatigueAlert, FitnessMetrics, IntensityDistribution, LoadRampAlert, ReadinessSignal, RideFormState, WellnessEntry } from "./types";
@@ -15,6 +17,10 @@ import { utcToday } from "./date";
 // (CTL decays over weeks — a stale value isn't "current form"); null when nothing recent enough exists.
 // Pure; sorts once, then each lookup is a short scan.
 const MAX_FORM_CARRY_DAYS = 10;
+
+// HRV is a daily morning signal; a reading older than this isn't "today's" autonomic state, so the
+// opt-in suppression check in computeReadiness ignores it (RV-4). Small by design — HRV decays fast.
+const MAX_HRV_STALE_DAYS = 2;
 
 export function buildFormStateLookup(
   wellness: Array<{ date: string; ctl: number | null; atl: number | null }>
@@ -59,7 +65,10 @@ export function computeFatigueAlert(fitness: FitnessMetrics): FatigueAlert {
 
 export function computeReadiness(
   fitness: FitnessMetrics,
-  wellness: WellnessEntry[]
+  wellness: WellnessEntry[],
+  // HRV is OFF by default (RV-3) — no overnight HRV source in the loop. Pass { useHrv: true } (once an
+  // overnight strap is in use) to re-enable the suppression check below; everything else is unaffected.
+  opts: { useHrv?: boolean } = {}
 ): ReadinessSignal {
   const { ctl, atl, tsb } = fitness;
 
@@ -71,15 +80,23 @@ export function computeReadiness(
     return { level: "Recover", reason: `TSB ${tsb} — deep fatigue, rest or easy movement only` };
   }
 
-  // HRV suppression vs 7-day average.
-  const sorted = [...wellness]
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .filter((w) => w.hrv !== null) as Array<WellnessEntry & { hrv: number }>;
-  if (sorted.length >= 3) {
-    const latest = sorted[0].hrv;
-    const avg7 = sorted.slice(0, 7).reduce((s, w) => s + w.hrv, 0) / Math.min(sorted.length, 7);
-    if (latest < avg7 * 0.88) {
-      return { level: "Hold", reason: `HRV ${Math.round(latest)} vs 7-day avg ${Math.round(avg7)} — signs of stress, hold intensity` };
+  // HRV suppression vs the prior 7-day average. Opt-in (see opts.useHrv). When enabled it is hardened
+  // against the two RV-4 flaws: a STALE reading is rejected (an HRV value carried over from days ago
+  // isn't today's autonomic state — mirrors buildFormStateLookup's carry cap), and the baseline EXCLUDES
+  // today so the latest reading is graded against its own history, not a window that already contains it.
+  if (opts.useHrv) {
+    const sorted = [...wellness]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .filter((w) => w.hrv !== null) as Array<WellnessEntry & { hrv: number }>;
+    const latestEntry = sorted[0] ?? null;
+    const ageDays = latestEntry ? (Date.parse(utcToday()) - Date.parse(latestEntry.date)) / 86_400_000 : Infinity;
+    const baseline = sorted.slice(1, 8); // prior days only — today excluded (RV-4)
+    if (latestEntry && Number.isFinite(ageDays) && ageDays <= MAX_HRV_STALE_DAYS && baseline.length >= 3) {
+      const latest = latestEntry.hrv;
+      const avg7 = baseline.reduce((s, w) => s + w.hrv, 0) / baseline.length;
+      if (latest < avg7 * 0.88) {
+        return { level: "Hold", reason: `HRV ${Math.round(latest)} vs 7-day avg ${Math.round(avg7)} — signs of stress, hold intensity` };
+      }
     }
   }
 

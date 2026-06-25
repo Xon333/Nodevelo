@@ -15,9 +15,9 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 ## Open
 
 **RV-2026-06-24 — senior-dev general review (architecture + edge cases).** 10 findings from a
-full read of the deterministic core, sync orchestrator, routes, and Intervals client. Done in-session:
-both P1s (RV-1, RV-2) + the no-input items (RV-6 docs, RV-9 write-route test). Remaining items need a
-decision or design call. Verdict: 8.5/10 — high-quality core, a few sharp edges.
+full read of the deterministic core, sync orchestrator, routes, and Intervals client. Done: both P1s
+(RV-1, RV-2), the no-input items (RV-6 docs, RV-9 write-route test), and RV-3/RV-4 (HRV gated off but
+retained + hardened). Remaining items need a decision or design call. Verdict: 8.5/10.
 
 ### P1 — fixed this session
 
@@ -42,16 +42,15 @@ decision or design call. Verdict: 8.5/10 — high-quality core, a few sharp edge
 
 ### P2 — needs a decision or design before acting
 
-- ☐ P2 `bug` **RV-3** — README §3 claims readiness excludes HRV ("no HRV tracker in the loop"), but
-  `computeReadiness` reads `w.hrv`, averages 7 days, and can return "Hold" on HRV suppression — and
-  `fetchWellness` now syncs `hrv`, so the branch is LIVE. The module header even says "…and HRV". Docs
-  and code contradict. **Decision needed:** is HRV in or out of readiness? Then make docs+code agree.
-  _[readiness.ts:74](lib/readiness.ts:74) · [README.md:264](README.md:264)._
-- ☐ P2 `bug` **RV-4** (coupled to RV-3, only matters if HRV stays) — the HRV branch has no staleness
-  guard: `sorted[0]` is just the most-recent non-null HRV, so a reading from weeks ago still drives a
-  "Hold" today. Everything else in the file is strict about this (`MAX_FORM_CARRY_DAYS = 10`). Also the
-  7-day "baseline" includes today itself, damping the very signal it tests. **Fix when RV-3 lands:** add
-  a recency cap + exclude the current day from the baseline. _[readiness.ts:74-82](lib/readiness.ts:74)._
+- ☑ P2 `bug` **RV-3** — HRV gated OUT of readiness by default (no overnight HRV source), code retained
+  for later. `computeReadiness` takes `opts.useHrv` (default false); the suppression branch only runs
+  when enabled. README §3 + the module header now state HRV is excluded-by-default / opt-in, so docs and
+  code agree. Flip on with `computeReadiness(..., { useHrv: true })` once an overnight strap is worn.
+  _[readiness.ts](lib/readiness.ts) · [README.md:261](README.md:261)._
+- ☑ P2 `bug` **RV-4** — hardened the (now opt-in) HRV branch so it's sound when re-enabled: rejects a
+  STALE reading (`MAX_HRV_STALE_DAYS = 2`, mirrors the form carry cap) and EXCLUDES today from the 7-day
+  baseline so the latest reading is graded against its own history. 3 tests: off-by-default, fresh-on,
+  stale-on. _[readiness.ts](lib/readiness.ts)._
 - ☐ P2 `arch` **RV-5** — physiology `reconcile` stamps a changed snapshot `effectiveFrom: today` (the
   day NodeVelo first SAW the change), not the day Intervals.icu actually changed it. An FTP test on Mon
   not synced until Fri scores Mon–Thu rides against the OLD FTP — quietly degrading the "scored against

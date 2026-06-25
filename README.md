@@ -260,8 +260,10 @@ actually worked — closing the learning loop.
 
 ### Readiness & polarization (`lib/readiness.ts`)
 
-Computed at sync time and surfaced on the Today/Trends views (HR/sleep are intentionally
-excluded — no HRV tracker in the loop):
+Computed at sync time and surfaced on the Today/Trends views. HRV is **excluded by default** — there's
+no overnight HRV source in the loop, so it must not move readiness until one exists. The suppression
+check is retained in code and opt-in (`computeReadiness(..., { useHrv: true })`), ready to switch on
+once an overnight strap is worn:
 
 - **ACWR** — acute (7-day) vs. chronic (28-day) average daily TSS; banded
   `low / optimal / high / danger` (sweet spot ≈ 0.8–1.3, danger > 1.5).
