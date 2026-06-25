@@ -12,6 +12,13 @@ import { readJsonFile, writeJsonFile } from "./json-store";
 
 const FILE = "physiology.json";
 
+// Cap on retained superseded snapshots (RV-5b). reconcile only archives on a real FTP/zone change so
+// growth is slow, but it was unbounded. Keep the most recent N — ~2 years of monthly changes, far more
+// than the 182-day sync window needs. physiologyAsOf anchors any pre-earliest date to the earliest kept
+// snapshot, so dropping ancient ones is graceful — and post-RV-5 ledger scoring prefers each ride's own
+// icu_ftp, leaning on this history only as a fallback.
+const MAX_HISTORY = 23; // + current = 24 snapshots retained
+
 // ---------- defensive helpers ----------
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -168,7 +175,8 @@ export function reconcile(
   return {
     store: {
       current: { ...incoming, effectiveFrom: today },
-      history: [...prev.history, prev.current],
+      // Bounded so the store can't grow without limit over years of FTP changes (RV-5b).
+      history: [...prev.history, prev.current].slice(-MAX_HISTORY),
     },
     changed: true,
   };

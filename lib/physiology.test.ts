@@ -130,4 +130,17 @@ describe("reconcile", () => {
     expect(store.current.ftp).toBe(300);
     expect(store.current.effectiveFrom).toBe("2026-06-15");
   });
+
+  it("bounds history growth, keeping the most recent snapshots (RV-5b)", () => {
+    // 40 successive FTP changes; history must cap (current + 23 = 24 retained), keeping the newest.
+    let store: PhysiologyStore = { current: snap({ ftp: 200, effectiveFrom: "2026-01-01" }), history: [] };
+    for (let i = 1; i <= 40; i++) {
+      store = reconcile(store, snap({ ftp: 200 + i, effectiveFrom: `2026-02-${String(i).padStart(2, "0")}` }), `2026-02-${String(i).padStart(2, "0")}`).store;
+    }
+    expect(store.history.length).toBe(23); // + current = 24
+    expect(store.current.ftp).toBe(240); // newest change retained
+    // Oldest snapshots dropped; the earliest retained is well past the original 200.
+    expect(Math.min(...store.history.map((h) => h.ftp))).toBeGreaterThan(200);
+    expect(store.history.some((h) => h.ftp === 239)).toBe(true); // recent ones kept
+  });
 });
