@@ -77,12 +77,17 @@ retained + hardened). Remaining items need a decision or design call. Verdict: 8
   history write, and a stable uid on every payload) — 3 tests, the RV-2 regression guard.
   _[write/route.test.ts](app/api/write/route.test.ts)._ **Remaining:** the deleteEvent-based rollback of a
   partial set (a true rollback, beyond retry-safety), and coverage for the other mutating routes.
-- ◑ P3 `refactor` **RV-8** — split `anthropic-api.ts` (was 773 LOC): all pure prompt assembly moved to
-  `anthropic-prompts.ts` (618 LOC, now unit-tested — 5 new tests for the previously-untestable ride-
-  analysis/retrospective builders), leaving `anthropic-api.ts` a 211-LOC SDK call layer (+ a shared
-  `textOf` helper deduping 4 copies of response parsing). Public surface unchanged (builders + types
-  re-exported), so no call site moved; 520 tests green. **Remaining:** the big React views
-  (`Dashboard.tsx` 529, `Trends.tsx` 508) — separate, lower-risk UI splits. _[anthropic-prompts.ts](lib/anthropic-prompts.ts) · [anthropic-api.ts](lib/anthropic-api.ts)._
+- ☑ P3 `refactor` **RV-8** — three monoliths split, all behavior-preserving (verbatim JSX/prompt moves):
+  - `anthropic-api.ts` 773→211 LOC: pure prompt assembly → `anthropic-prompts.ts` (618, now unit-tested,
+    +5 tests), call layer keeps a shared `textOf` helper (deduped 4× response parsing). Public surface
+    re-exported, no call site moved.
+  - `Dashboard.tsx` 529→25 LOC: the dual-mode container split into a thin mode-switch + `TodayView` (186)
+    / `PlanView` (241), each owning only its own page state (the hooks were already mode-gated), plus the
+    tangled inline generator form → `BlockGenerator` (159).
+  - `Trends.tsx` 508→279 LOC: payload types → `trends/types.ts` (73); standalone chart sections +
+    helpers → `trends/sections.tsx` (171).
+  Verified: tsc + lint clean, 520 tests, all routes SSR 200. _[components/dashboard/](components/dashboard) ·
+  [components/trends/](components/trends) · [anthropic-prompts.ts](lib/anthropic-prompts.ts)._
 - ☐ P3 `cleanup` **RV-10** — `data/` accumulates one-shot rebuild backups
   (`score-log.json.pre-rebuild-*.bak`) forever; no rotation. Gitignored so harmless, low priority.
 
