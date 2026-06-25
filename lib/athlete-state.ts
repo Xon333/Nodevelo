@@ -10,6 +10,8 @@
 // headline from this; it never computes or overrides the state.
 
 import { DEFAULT_ATHLETE_STATE_WEIGHTS, type AthleteStateWeights } from "./calibration";
+import { round1 } from "./stats";
+import { isSteadyEnduranceRide } from "./trends";
 import type { AcwrResult, ActivitySummary, AthleteModel, AthleteState, SignalContribution, SyncData } from "./types";
 
 export interface AthleteStateInputs {
@@ -18,8 +20,8 @@ export interface AthleteStateInputs {
   execEwma: number | null; // overall execution EWMA, 1–10
   execTrend: "up" | "down" | "flat" | null;
   execSampleSize: number; // planned-ride sample behind the EWMA
-  decouplingLatest: number | null; // most recent ride's Pw:HR decoupling %
-  decouplingBaseline: number | null; // 90d rolling avg decoupling %
+  decouplingLatest: number | null; // latest QUALIFYING (steady-Z2, recent) ride's decoupling %; null otherwise
+  decouplingBaseline: number | null; // mean decoupling over qualifying Z2 rides (90d); null if too few
   rpeRecent: number | null; // mean session RPE, recent window
   rpeBaseline: number | null; // mean session RPE, longer baseline window
   offPlanPct: number | null; // 0–100
@@ -148,26 +150,40 @@ function meanRpe(activities: ActivitySummary[], sinceIso: string): number | null
   return rpes.length ? Math.round((rpes.reduce((s, v) => s + v, 0) / rpes.length) * 10) / 10 : null;
 }
 
+const DECOUPLING_RECENCY_DAYS = 14; // a qualifying ride older than this isn't "now" aerobic strain
+const DECOUPLING_BASELINE_DAYS = 90;
+const DECOUPLING_MIN_BASELINE = 3; // need a few like-for-like rides before the baseline is trustworthy
+
 export function athleteStateInputsFrom(
   sync: SyncData | null,
   model: AthleteModel,
-  baselines: { avgDecoupling90d: number | null }, // only the decoupling baseline is needed
-  acwr: AcwrResult | null
+  acwr: AcwrResult | null,
+  ftp: number
 ): AthleteStateInputs {
   const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
   const acts = sync?.activities ?? [];
-  // Most recent ride that carries a decoupling reading — the "now" aerobic-strain signal.
-  const latestDecoup = [...acts]
-    .filter((a) => a.decoupling !== null)
-    .sort((a, b) => b.date.localeCompare(a.date))[0]?.decoupling ?? null;
+  // Z2-GATED aerobic decoupling. A whole-ride decoupling on an interval day is a ride-STRUCTURE artifact
+  // (hard efforts first inflate first-half Pw:HR), not aerobic strain — and as a "lived negative" it could
+  // wrongly cap the state. So only steady-endurance rides count (the same like-for-like gate as the Trends
+  // Pw:HR), and the latest must be recent to be "now". Baseline = mean over qualifying rides in the window;
+  // too few → null → the signal sits out (better absent than misleading). evalDecoupling needs BOTH present.
+  const qualifying = acts.filter((a) => a.decoupling !== null && isSteadyEnduranceRide(a, ftp));
+  const latestQual = [...qualifying].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+  const decouplingLatest =
+    latestQual && latestQual.date >= daysAgo(DECOUPLING_RECENCY_DAYS) ? latestQual.decoupling : null;
+  const baseVals = qualifying
+    .filter((a) => a.date >= daysAgo(DECOUPLING_BASELINE_DAYS))
+    .map((a) => a.decoupling as number);
+  const decouplingBaseline =
+    baseVals.length >= DECOUPLING_MIN_BASELINE ? round1(baseVals.reduce((s, v) => s + v, 0) / baseVals.length) : null;
   return {
     tsb: sync?.fitness.tsb ?? null,
     acwrLevel: acwr?.level ?? null,
     execEwma: model.sampleSize > 0 ? model.overallExecEwma : null,
     execTrend: model.sampleSize > 0 ? model.overallTrend : null,
     execSampleSize: model.sampleSize,
-    decouplingLatest: latestDecoup,
-    decouplingBaseline: baselines.avgDecoupling90d,
+    decouplingLatest,
+    decouplingBaseline,
     rpeRecent: meanRpe(acts, daysAgo(14)),
     rpeBaseline: meanRpe(acts, daysAgo(90)),
     offPlanPct: model.behaviour.offPlanPct,

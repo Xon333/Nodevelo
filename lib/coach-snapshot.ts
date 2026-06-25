@@ -117,14 +117,20 @@ export interface CoachSnapshotInput extends CoachSignals {
 export function resolveCoachSignals(
   sync: SyncData | null,
   athleteModel: AthleteModel,
+  // Retained for the signal bundle's shape; the athlete-state decoupling now self-gates to qualifying
+  // Z2 rides from `sync` rather than reading a pre-rolled all-rides average, so this is no longer read here.
   baselines: RollingBaselines,
   acwrBandsOverride?: Partial<AcwrBands> | null,
   athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null,
   // Resolved local "today" so the ACWR / load-ramp windows anchor to the athlete's calendar day, not
   // the server's UTC date (they match activities on local date). Absent → the function's UTC default.
-  today?: string
+  today?: string,
+  // Current FTP — gates the athlete-state decoupling signal to the steady-endurance band (like the
+  // Trends Pw:HR). Absent → 0 → the band is skipped (duration + outdoor still apply).
+  ftp?: number
 ): CoachSignals {
   if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null };
+  void baselines; // see note above — kept in the signature, not used
   const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride), today);
   return {
     fitness: sync.fitness,
@@ -132,7 +138,7 @@ export function resolveCoachSignals(
     acwr,
     loadRamp: computeLoadRamp(sync.activities, today),
     athleteState: computeAthleteState(
-      athleteStateInputsFrom(sync, athleteModel, baselines, acwr),
+      athleteStateInputsFrom(sync, athleteModel, acwr, ftp ?? 0),
       resolveAthleteStateWeights(athleteStateWeightsOverride)
     ),
     weightTrend7dKg: weightTrendFromWellness(sync.wellness),
@@ -291,7 +297,7 @@ export interface CoachSnapshotSources {
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
   const athleteModel = buildAthleteModel(s.scoreEntries);
-  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date);
+  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date, s.ftp ?? 0);
   // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;
   return buildCoachSnapshot({

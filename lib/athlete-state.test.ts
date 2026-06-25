@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { computeAthleteState, type AthleteStateInputs } from "./athlete-state";
+import { athleteStateInputsFrom, computeAthleteState, type AthleteStateInputs } from "./athlete-state";
 import { DEFAULT_ATHLETE_STATE_WEIGHTS, resolveAthleteStateWeights } from "./calibration";
+import type { ActivitySummary, AthleteModel, SyncData } from "./types";
 
 // Neutral baseline: no news → a mid "steady" read. Tests tweak one axis at a time.
 const base: AthleteStateInputs = {
@@ -149,5 +150,41 @@ describe("computeAthleteState — fusion-weight overrides (ROADMAP §5 / #2 fold
     const amplified = computeAthleteState(fresh, resolveAthleteStateWeights({ tsb: { scale: 1.0 } }))!;
     const tsbOf = (s: typeof def) => s.drivers.find((d) => d.key === "tsb")!.effect;
     expect(tsbOf(amplified)).toBeGreaterThan(tsbOf(def));
+  });
+});
+
+describe("athleteStateInputsFrom — Z2-gated decoupling", () => {
+  const iso = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  const act = (over: Partial<ActivitySummary> & { date: string }): ActivitySummary => ({
+    id: over.date, type: "Ride", name: "r", movingTimeSec: 4000, avgWatts: 165, normalizedPower: 165,
+    maxWatts: 300, icuFtp: null, avgHr: 140, maxHr: 160, kj: 500, trainingLoad: 50, rpe: null,
+    carbsIngestedG: null, decoupling: 4, efficiencyFactor: null, description: null, avgCadence: null,
+    distanceMeters: null, elevationGain: null, powerZoneTimes: null, hrZoneTimes: null, ...over,
+  });
+  const model = { sampleSize: 0, overallExecEwma: 0, overallTrend: "flat", behaviour: { offPlanPct: 0 } } as unknown as AthleteModel;
+  const sync = (activities: ActivitySummary[]): SyncData =>
+    ({ syncedAt: "", activities, wellness: [], powerCurve: [], powerCurveAllTime: [], fitness: { ctl: null, atl: null, tsb: null } });
+
+  it("ignores an interval ride's decoupling, using the latest qualifying Z2 ride + a Z2 baseline", () => {
+    const activities = [
+      act({ date: iso(0), normalizedPower: 240, avgWatts: 235, decoupling: 8 }), // interval (0.96 FTP) → excluded
+      act({ date: iso(1), normalizedPower: 165, decoupling: 4 }), // Z2 → latest qualifying
+      act({ date: iso(4), normalizedPower: 160, decoupling: 5 }), // Z2
+      act({ date: iso(8), normalizedPower: 168, decoupling: 3 }), // Z2
+    ];
+    const inputs = athleteStateInputsFrom(sync(activities), model, null, 250);
+    expect(inputs.decouplingLatest).toBe(4); // the recent Z2 ride, NOT the interval ride's 8
+    expect(inputs.decouplingBaseline).toBe(4); // mean(4, 5, 3) over qualifying rides
+  });
+
+  it("sits the signal out (null) when there's no qualifying steady ride", () => {
+    const inputs = athleteStateInputsFrom(
+      sync([act({ date: iso(0), normalizedPower: 240, avgWatts: 235, decoupling: 8 })]), // only an interval ride
+      model,
+      null,
+      250
+    );
+    expect(inputs.decouplingLatest).toBeNull();
+    expect(inputs.decouplingBaseline).toBeNull();
   });
 });

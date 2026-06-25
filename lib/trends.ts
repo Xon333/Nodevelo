@@ -25,17 +25,27 @@ function median(xs: number[]): number {
 //   • ≥45 min — short rides don't yield a meaningful aerobic signal.
 // Uses Intervals.icu's icu_efficiency_factor when present, falling back to NP/HR. If FTP is
 // unknown the band is skipped and the duration floor still applies.
+const ENDURANCE_MIN_SEC = 45 * 60;
+
+// The like-for-like gate that makes an aerobic metric (Pw:HR / decoupling) comparable across rides:
+// OUTDOOR (excludes indoor/virtual, whose Pw:HR is distorted), steady-endurance band (~0.56–0.85 FTP —
+// hard/easy days aren't comparable), and ≥45 min. Shared by the Trends EF series and the athlete-state
+// decoupling signal so both apply the SAME definition. Metric presence (avgHr for EF, decoupling for the
+// state) is checked by each caller. When FTP is unknown the band is skipped (duration + outdoor still apply).
+export function isSteadyEnduranceRide(
+  a: { type: string; movingTimeSec: number; avgWatts: number | null; normalizedPower?: number | null },
+  ftp: number
+): boolean {
+  if (a.type !== "Ride") return false;
+  if (a.movingTimeSec < ENDURANCE_MIN_SEC) return false;
+  const power = a.normalizedPower ?? a.avgWatts;
+  if (power === null) return false;
+  return ftp <= 0 || (power / ftp >= 0.56 && power / ftp <= 0.85);
+}
+
 export function efSeries(activities: ActivitySummary[], ftp: number): { date: string; value: number }[] {
-  const MIN_SEC = 45 * 60;
-  const isEndurance = (w: number) => ftp <= 0 || (w / ftp >= 0.56 && w / ftp <= 0.85);
   return activities
-    .filter((a) => {
-      if (a.type !== "Ride") return false; // outdoor only — excludes VirtualRide (indoor)
-      if (a.avgHr === null || a.avgHr <= 0) return false;
-      if (a.movingTimeSec < MIN_SEC) return false;
-      const power = a.normalizedPower ?? a.avgWatts;
-      return power !== null && isEndurance(power);
-    })
+    .filter((a) => isSteadyEnduranceRide(a, ftp) && a.avgHr !== null && a.avgHr > 0)
     .map((a) => {
       const power = (a.normalizedPower ?? a.avgWatts) as number;
       const value = a.efficiencyFactor ?? Math.round((power / (a.avgHr as number)) * 100) / 100;

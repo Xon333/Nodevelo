@@ -82,7 +82,7 @@ export async function GET(req: Request) {
   const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp, 7, today) : null;
   // Signal fusion (§5): one glanceable state from the fused signals.
   const athleteState = computeAthleteState(
-    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr),
+    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), acwr, physStore?.current.ftp ?? profile.performance.ftp),
     resolveAthleteStateWeights(settings.athleteStateWeights)
   );
   // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/ask, so the
@@ -429,7 +429,7 @@ export async function POST(req: Request) {
     const analysisPending = todayAnalysis !== null && !todayAnalysis.coachNote;
     // Signal fusion (§5) recomputed on the fresh data so the glanceable state updates after a sync.
     const athleteState = computeAthleteState(
-      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), baselines, acwr),
+      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), acwr, physStore?.current.ftp ?? fallbackFtp),
       resolveAthleteStateWeights((await readBlockSettings()).athleteStateWeights)
     );
     // Rebuild the CoachSnapshot on the fresh data so the Today card updates after a sync without a
