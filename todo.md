@@ -15,9 +15,9 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 ## Open
 
 **RV-2026-06-24 — senior-dev general review (architecture + edge cases).** 10 findings from a
-full read of the deterministic core, sync orchestrator, routes, and Intervals client. Done: both P1s
-(RV-1, RV-2), the no-input items (RV-6 docs, RV-9 write-route test), and RV-3/RV-4 (HRV gated off but
-retained + hardened). Remaining items need a decision or design call. Verdict: 8.5/10.
+full read of the deterministic core, sync orchestrator, routes, and Intervals client. **9 of 10 shipped**
+(RV-1…RV-6, RV-8, RV-9, RV-5b). Only **RV-7** (AI spend cap) is left — de-prioritised: usage/spend is
+very low, so a hard cap isn't worth the friction yet. Verdict: 8.5/10.
 
 ### P1 — fixed this session
 
@@ -58,12 +58,12 @@ retained + hardened). Remaining items need a decision or design call. Verdict: 8
   against the real FTP; effective-dated physiology stays the fallback (and still drives zones + the change
   banner). 2 tests. _[score-log.ts](lib/score-log.ts) · [intervals-api.ts:228](lib/intervals-api.ts:228) ·
   [README.md:335](README.md:335)._
-- ☐ P3 `arch` **RV-5b** — `reconcile` appends to `history` with no dedup/bound; `physiology.json` grows
-  monotonically over years of FTP nudges. Cosmetic, and now even lower priority — RV-5 means scoring no
-  longer leans on the history (it's only a fallback + the zones/change-banner source). _[physiology.ts:168](lib/physiology.ts:168)._
-- ☐ P2 `feat` **RV-7** — AI spend is measured (`ai-usage.ts`) but never capped: `recordUsage` only
-  accumulates; nothing refuses a call past a threshold. No circuit breaker on a runaway loop. **Decision
-  needed:** soft monthly cap value + behaviour (warn vs hard-429 from the LLM routes). _[ai-usage.ts](lib/ai-usage.ts)._
+- ☑ P3 `arch` **RV-5b** — `reconcile` now caps physiology `history` at the most recent 23 superseded
+  snapshots (+ current = 24; ~2 years of monthly changes, far past the 182-day window). Pre-earliest
+  dates still anchor gracefully via `physiologyAsOf`. 1 test. _[physiology.ts](lib/physiology.ts)._
+- ☐ P3 `feat` **RV-7** — _Deferred (usage/spend is very low — revisit only if it grows)._ AI spend is
+  measured (`ai-usage.ts`) but never capped: `recordUsage` only accumulates; nothing refuses a call past
+  a threshold. If revisited, needs a monthly cap value + behaviour (warn vs hard-429). _[ai-usage.ts](lib/ai-usage.ts)._
 
 ### P3 — altitude / cleanup
 
@@ -71,12 +71,14 @@ retained + hardened). Remaining items need a decision or design call. Verdict: 8
   structural-mismatch guard intentionally launders a deliberately-short-but-strong session into a pass
   (false-positive accepted to dodge detection noise), and (b) order-based rep alignment mis-aligns every
   rep after a skipped middle rep. Comment-only; behaviour unchanged. _[interval-match.ts](lib/interval-match.ts)._
-- ◑ P3 `test` **RV-9** — no integration test crosses the route/IO boundary; every route's orchestration
-  (the part that corrupts data when wrong — RV-1/RV-2 both survived because of this) is untested. **Done:**
-  `/api/write` partial-failure test (createEvent fails mid-loop → asserts `blockSaved:false`, no block/
-  history write, and a stable uid on every payload) — 3 tests, the RV-2 regression guard.
-  _[write/route.test.ts](app/api/write/route.test.ts)._ **Remaining:** the deleteEvent-based rollback of a
-  partial set (a true rollback, beyond retry-safety), and coverage for the other mutating routes.
+- ☑ P3 `feat`+`test` **RV-9** — transactional block writes + calendar cleanup. Added `deleteEvent` /
+  `deleteEvents` to the Intervals client. `/api/write` now AUTO-ROLLS-BACK a partial write (deletes the
+  days that wrote, returns `rolledBack` / `rollbackFailed`) so a failure never leaves a half-block on the
+  calendar. Block days now store their `eventId`, so DELETE `/api/sync` removes the whole block's events
+  on discard, and a replacement write prunes the old block's dropped FUTURE events (past days keep their
+  marker; re-covered dates upsert in place via the stable uid). Pure id-selection in `block-events.ts`
+  (6 tests) + 2 write-route integration tests + the earlier partial-failure guard. _[block-events.ts](lib/block-events.ts) ·
+  [write/route.ts](app/api/write/route.ts) · [sync/route.ts:458](app/api/sync/route.ts)._
 - ☑ P3 `refactor` **RV-8** — three monoliths split, all behavior-preserving (verbatim JSX/prompt moves):
   - `anthropic-api.ts` 773→211 LOC: pure prompt assembly → `anthropic-prompts.ts` (618, now unit-tested,
     +5 tests), call layer keeps a shared `textOf` helper (deduped 4× response parsing). Public surface

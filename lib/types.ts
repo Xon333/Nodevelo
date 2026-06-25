@@ -272,6 +272,10 @@ export interface CurrentBlockDay {
   durationMin: number;
   workoutText?: string; // Intervals.icu step syntax — the coach's prescription
   prescription?: PrescribedInterval[]; // structured work intervals parsed from workoutText
+  // The Intervals.icu event id this day was written as. Stored so the block's planned-workout events
+  // can be removed from the calendar when the block is discarded or replaced (RV-9). Absent on blocks
+  // written before id-tracking, or when a day's write returned no id.
+  eventId?: number | null;
 }
 
 export interface CurrentBlock {

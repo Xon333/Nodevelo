@@ -435,6 +435,29 @@ export function isSuspectEmptySync(prev: SyncData | null, fresh: SyncData): bool
 
 // ---------- writes ----------
 
+// Delete one calendar event by id (DELETE /athlete/{id}/events/{eventId}). Used to roll back a
+// partially-written block and to clear a block's planned-workout events when it's discarded/replaced
+// (RV-9). Throws IntervalsApiError on failure so the bulk wrapper can report which ids didn't delete.
+export async function deleteEvent(eventId: number): Promise<void> {
+  await icuFetch(athletePath(`/events/${encodeURIComponent(String(eventId))}`), { method: "DELETE" });
+}
+
+// Best-effort bulk delete: deletes sequentially (don't hammer the API, mirroring the write loop) and
+// returns which ids succeeded vs. failed, so a caller can surface the rare leftover instead of throwing.
+export async function deleteEvents(eventIds: number[]): Promise<{ deleted: number[]; failed: number[] }> {
+  const deleted: number[] = [];
+  const failed: number[] = [];
+  for (const id of eventIds) {
+    try {
+      await deleteEvent(id);
+      deleted.push(id);
+    } catch {
+      failed.push(id);
+    }
+  }
+  return { deleted, failed };
+}
+
 export async function createEvent(event: IntervalsEventPayload): Promise<number | null> {
   // Upsert on the stable `uid` when the payload carries one. Block writes stamp a deterministic
   // `nodevelo-<date>` uid (see planDayToEvent), so a retried/partially-failed block write UPDATES the

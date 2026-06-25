@@ -5,11 +5,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // write a local block or archive history (no half-applied state), and on success every day POSTed
 // to Intervals.icu carries the stable `nodevelo-<date>` uid that makes the write idempotent.
 
-const h = vi.hoisted(() => ({ createEvent: vi.fn() }));
+const h = vi.hoisted(() => ({
+  createEvent: vi.fn(),
+  deleteEvents: vi.fn(async (ids: number[]) => ({ deleted: ids, failed: [] as number[] })),
+}));
 
 vi.mock("@/lib/intervals-api", () => ({
   isIntervalsConfigured: () => true,
   createEvent: h.createEvent,
+  deleteEvents: h.deleteEvents,
 }));
 vi.mock("@/lib/data-store", () => ({
   appendBlockHistory: vi.fn(async () => {}),
@@ -72,6 +76,33 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
     expect(store.writeCurrentBlock).toHaveBeenCalledTimes(1);
     const uids = h.createEvent.mock.calls.map((c) => (c[0] as { uid?: string }).uid);
     expect(uids).toEqual(["nodevelo-2026-06-15", "nodevelo-2026-06-16"]);
+  });
+
+  it("auto-rolls-back the days that wrote when a later day fails (RV-9)", async () => {
+    h.createEvent.mockResolvedValueOnce(101).mockRejectedValueOnce(new Error("502 upstream"));
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(false);
+    expect(h.deleteEvents).toHaveBeenCalledWith([101]); // the one event that wrote is deleted
+    expect(json.rolledBack).toBe(1);
+    expect(json.rollbackFailed).toEqual([]);
+  });
+
+  it("stores each day's event id and prunes the replaced block's dropped FUTURE events (RV-9)", async () => {
+    // An existing block with a far-future day the new plan doesn't re-cover → that day's event is pruned.
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      goal: "old",
+      lengthWeeks: 2,
+      startDate: "2026-06-10",
+      endDate: "2999-06-20",
+      overview: "",
+      createdAt: "2026-06-01T00:00:00Z",
+      days: [{ date: "2999-06-20", name: "Old", type: "Z2", durationMin: 60, eventId: 900 }],
+    });
+    h.createEvent.mockResolvedValueOnce(501).mockResolvedValueOnce(502);
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.days.map((d: { eventId?: number }) => d.eventId)).toEqual([501, 502]);
+    expect(h.deleteEvents).toHaveBeenCalledWith([900]); // old future day, dropped from the new plan
   });
 
   it("rejects a plan with no days (400, before any write)", async () => {

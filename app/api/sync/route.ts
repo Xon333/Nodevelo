@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { deleteEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { blockEventIds } from "@/lib/block-events";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
@@ -455,8 +456,20 @@ export async function POST(req: Request) {
   }
 }
 
-// DELETE clears the current block so a new one can be generated.
+// DELETE discards the active block so a new one can be generated. RV-9: it also removes the block's
+// planned-workout events from the Intervals.icu calendar — the whole plan is being thrown away, so its
+// markers shouldn't linger (the old behaviour orphaned them). Best-effort + configured-guarded so a
+// calendar hiccup never blocks the local clear; completed rides are separate activities, untouched.
 export async function DELETE() {
+  const block = await readCurrentBlock();
+  const ids = blockEventIds(block);
+  let eventsRemoved = 0;
+  let eventsFailed: number[] = [];
+  if (ids.length > 0 && isIntervalsConfigured()) {
+    const { deleted, failed } = await deleteEvents(ids);
+    eventsRemoved = deleted.length;
+    eventsFailed = failed;
+  }
   await writeCurrentBlock(null);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, eventsRemoved, eventsFailed });
 }
