@@ -227,9 +227,11 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       // kept as defensive fallbacks.
       normalizedPower: numPos(a.icu_weighted_avg_watts) ?? numPos(a.icu_normalized_power),
       maxWatts: num(a.icu_pm_p_max) ?? num(a.max_watts),
-      // The FTP intervals.icu applied to this ride (its own per-activity record, which can differ from
+      // The FTP intervals.icu APPLIED to this ride (its own per-activity record, which can differ from
       // the current settings FTP). The authoritative per-ride scoring anchor (RV-5); 0/absent → null so
       // scoring falls back to the effective-dated physiology store.
+      // Deliberately `icu_ftp`, NOT `icu_eftp`: eFTP is the per-ride *estimated* FTP (fluctuates with the
+      // day's effort) — not the athlete's actual set FTP. Never fall back to it here.
       icuFtp: numPos(a.icu_ftp),
       avgHr: num(a.average_heartrate),
       maxHr: num(a.max_heartrate),

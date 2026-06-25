@@ -58,10 +58,12 @@ export interface ActivitySummary {
   avgWatts: number | null;
   normalizedPower: number | null;
   maxWatts: number | null;
-  // The FTP Intervals.icu applied to THIS activity (icu_ftp) — its own record of the FTP that was live
+  // The FTP Intervals.icu APPLIED to THIS activity (icu_ftp) — its own record of the FTP that was live
   // when the ride happened, which can differ from the current settings FTP. The truest per-ride anchor
   // for ledger scoring (RV-5): it beats the effective-dated store, whose change-date is only as precise
   // as when we synced. null when absent (older rides / no power) → scoring falls back to physiologyAsOf.
+  // This is the actual set FTP, NOT icu_eftp (the per-ride *estimated* FTP) — eFTP is not the athlete's
+  // real FTP and must never feed scoring.
   icuFtp: number | null;
   avgHr: number | null;
   maxHr: number | null;
