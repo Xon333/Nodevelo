@@ -14,6 +14,25 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
+**BUG-2026-06-25 — interval-order misparse on multi-step repeat blocks.**
+- ☑ P1 `bug` `parsePrescription` expanded "Main Set 3x { Over 1m, Under 2m, … }" as each-step-×3
+  (`[O,O,O,U,U,U,…]`) instead of repeating the block in sequence (`[O,U,O,U,…]×3`). The order-based
+  interval matcher then scored every executed rep against the wrong target — a perfectly-ridden
+  over-under read as "mixed, 5 reps cut short," unders deflated to ~90%, overs inflated to 112–122%.
+  **Fix:** the parser now expands repeat blocks in execution order, then collapses consecutive-identical
+  reps for a compact label (single-step VO2/SIT blocks still read "5×5m"; flat matching unchanged for
+  those). The sync today-analysis re-parses the prescription from `workoutText`, so an already-written
+  block **self-heals on the next sync** (re-sync today, then Re-analyse for the note) — no re-generate.
+  3 parser tests incl. the exact reported session; the old test that encoded the bug was corrected.
+  _[prescription.ts](lib/prescription.ts) · [sync/route.ts:340](app/api/sync/route.ts)._
+- ☐ P3 `feat` **Follow-up (the lap-data idea — NOT the cause of the above).** Prefer device LAP markers
+  over intervals.icu auto-detection for the *executed* side when laps are present (a Wahoo auto-laps each
+  structured interval, so laps are a ground-truth record of the ridden structure; auto-detection can
+  merge/split differently). Would harden the matcher's rep-count + structural-mismatch logic. Needs care
+  to distinguish workout laps from incidental ones (e.g. the commute to/from the climb), and a clean
+  fallback to detection when no usable laps exist. Scoping TBD — separate change to the executed source
+  in [intervals-api.ts](lib/intervals-api.ts) + [interval-match.ts](lib/interval-match.ts).
+
 **RV-2026-06-24 — senior-dev general review (architecture + edge cases).** 10 findings from a
 full read of the deterministic core, sync orchestrator, routes, and Intervals client. **9 of 10 shipped**
 (RV-1…RV-6, RV-8, RV-9, RV-5b). Only **RV-7** (AI spend cap) is left — de-prioritised: usage/spend is

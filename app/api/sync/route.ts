@@ -4,6 +4,7 @@ import { blockEventIds } from "@/lib/block-events";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
+import { parsePrescription } from "@/lib/prescription";
 import { buildRideTrace } from "@/lib/trace";
 import {
   readAthleteProfile,
@@ -337,7 +338,14 @@ export async function POST(req: Request) {
 
           // --- I/O: compare the coach's prescription against the intervals curated in Intervals.icu,
           // and build the power-trace (downsampled streams + work bands).
-          const prescription = plannedDay?.prescription ?? [];
+          // Re-derive the prescription from the day's workout text rather than trusting the stored
+          // array: a block written before the repeat-block parser fix carries a mis-ordered prescription
+          // (over-unders flattened [O,O,U,U] instead of [O,U,O,U]), which mis-aligned every rep. Re-parsing
+          // self-heals the matching AND the PRESCRIBED chips on the next sync, no block re-write needed.
+          // Falls back to the stored array if a day has no workout text. FTP targets are %FTP-based.
+          const prescription = plannedDay?.workoutText
+            ? parsePrescription(plannedDay.workoutText, profile.performance.ftp)
+            : plannedDay?.prescription ?? [];
           let intervalComparison = null;
           let executed: ExecutedInterval[] = [];
           if (prescription.length > 0) {

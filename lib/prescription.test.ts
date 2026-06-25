@@ -39,13 +39,44 @@ describe("parsePrescription", () => {
     expect(parsePrescription("Warmup\n- 15m ramp 50-70%\n- 10m 55%", FTP)).toEqual([]);
   });
 
-  it("handles VO2 over/unders inside one block (two work efforts)", () => {
-    const wo = "Main Set 4x\n- 3m 110%\n- 3m 88%\n- 3m 55%";
+  it("expands a multi-step block in EXECUTION ORDER, not per-step (interval-order fix)", () => {
+    // "4x { 3m@110, 3m@88 }" is ridden over,under,over,under… — the prescription must alternate to
+    // match. The old parser produced [4×110, 4×88], which the order-based matcher then compared against
+    // the wrong executed reps (deflating the unders, inflating the overs, inventing "cut short" reps).
+    const wo = "Main Set 4x\n- 3m 110%\n- 3m 88%\n- 3m 55%"; // 55% recovery dropped (< work floor)
     const p = parsePrescription(wo, FTP);
-    expect(p.map((i) => [i.reps, i.targetPctFtp])).toEqual([
-      [4, 110],
-      [4, 88],
-    ]);
+    expect(p.map((i) => i.targetPctFtp)).toEqual([110, 88, 110, 88, 110, 88, 110, 88]);
+    expect(p.every((i) => i.reps === 1)).toBe(true); // varied block → one entry per rep, in order
+  });
+
+  it("repeats a real over-under SET in order — the reported 3×(4×1m/2m) session (regression)", () => {
+    const wo = [
+      "Warmup",
+      "- 35m ramp 50-75%",
+      "",
+      "Main Set 3x",
+      "- 1m 110%",
+      "- 2m 95%",
+      "- 1m 110%",
+      "- 2m 95%",
+      "- 1m 110%",
+      "- 2m 95%",
+      "- 1m 110%",
+      "- 3m 95%",
+      "- 6m 55%",
+    ].join("\n");
+    const p = parsePrescription(wo, FTP);
+    expect(p).toHaveLength(24); // 8 work steps × 3 sets, warmup + 55% recovery dropped
+    // Each set alternates over (1m @ 110%) / under (2m @ 95%), not grouped:
+    expect(p.slice(0, 8).map((i) => i.targetPctFtp)).toEqual([110, 95, 110, 95, 110, 95, 110, 95]);
+    expect(p.slice(0, 8).map((i) => i.durationSec)).toEqual([60, 120, 60, 120, 60, 120, 60, 180]);
+  });
+
+  it("collapses a single repeated work step (no recovery between) to a compact reps>1 label", () => {
+    // 5×5min VO2 with recovery valleys → the work steps are consecutive-identical → "5×5m", one chip.
+    const p = parsePrescription("Main Set 5x\n- 5m 110%\n- 5m 55%", FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 5, durationSec: 300, targetPctFtp: 110 });
   });
 
   it("parses seconds and resets reps after a blank line", () => {
