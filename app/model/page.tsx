@@ -1,11 +1,18 @@
 import CalibrationPanel from "@/components/CalibrationPanel";
 import CoachDirectivesCard from "@/components/CoachDirectivesCard";
 import StateDriversCard from "@/components/StateDriversCard";
+import IfBandOffsets from "@/components/IfBandOffsets";
+import { ifBandOffsetRows } from "@/lib/calibration";
+import { readPhysiology } from "@/lib/physiology";
+
+// Read the physiology store at request time so the IF-band view reflects the latest synced zones.
+export const dynamic = "force-dynamic";
 
 // The "what the second brain knows" page (ROADMAP #2 / anti-black-box). Aggregates the model state the
 // coach reasons from — what it thinks of you now (+ why), the standing directives (+ track record), and
 // what it has learned to calibrate. Read-only for now; contest/correct (manual override) lands next.
-export default function ModelPage() {
+export default async function ModelPage() {
+  const ifRows = ifBandOffsetRows((await readPhysiology())?.current.powerZonePct ?? []);
   return (
     <div className="space-y-6">
       <div>
@@ -18,6 +25,7 @@ export default function ModelPage() {
       <StateDriversCard />
       <CoachDirectivesCard />
       <CalibrationPanel />
+      <IfBandOffsets rows={ifRows} />
     </div>
   );
 }

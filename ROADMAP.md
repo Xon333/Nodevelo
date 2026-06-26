@@ -17,8 +17,9 @@ leverage. `← X` = blocked-on / derives-from; numeric IDs (#1–4, §5–7) are
 ### #2 · Per-athlete calibration — extend the framework  ⭐ (the keystone)
 Bring more parameters under the same `parameterise → derive-with-fallback → stamp` machinery. The
 marquee data-play — context-stamp the ledger, then auto-derive off it — has shipped its spine: the input
-stamps (`formState` + morning-check), the first derived edge (`deriveTsbDeepFatigue`), and the shared
-`deriveExecutionEdge` engine it now rides on (all in ARCHIVE). What's left:
+stamp (`formState`; the morning-check stamp was removed with the subjective-wellness revert), the first
+derived edge (`deriveTsbDeepFatigue`), and the shared `deriveExecutionEdge` engine it now rides on (all in
+ARCHIVE). What's left:
 - **Per-type IF cutoffs — open slivers:** surface the offsets on Settings (derived live from zones, not
   yet in `CalibrationStore`); anchor RaceSim. Shares the curve read with **Track A**.
 - **More honest auto-derivations off the engine** — each new edge is a *spec* over

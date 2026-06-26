@@ -412,3 +412,29 @@ export function deriveIfBandOffsets(powerZonePct: number[]): Record<string, numb
   }
   return out;
 }
+
+// Read-only display rows for the per-type IF-band offsets (so the athlete can see how their own zones
+// shift execution scoring — anti-black-box, ROADMAP #2). The offset VALUES come from deriveIfBandOffsets
+// (single source — can't drift from scoring); these rows add the zone-top context for rendering. One row
+// per anchored type; `offset` is 0 when the athlete's zone matches the default (within the deadband) or
+// no zones are synced.
+export interface IfBandOffsetRow {
+  type: WorkoutType;
+  anchorZone: string; // the power zone whose top anchors this type's IF bands, e.g. "Z2"
+  athleteTopPct: number | null; // the athlete's zone top as %FTP (null when no zones synced)
+  defaultTopPct: number; // the population zone top the bands were tuned against
+  offset: number; // the IF-band shift applied to this type (0 = population default)
+}
+export function ifBandOffsetRows(powerZonePct: number[]): IfBandOffsetRow[] {
+  const offsets = deriveIfBandOffsets(powerZonePct);
+  return (Object.entries(IF_ANCHOR_ZONE_INDEX) as [WorkoutType, number][]).map(([type, idx]) => {
+    const top = powerZonePct[idx];
+    return {
+      type,
+      anchorZone: `Z${idx + 1}`,
+      athleteTopPct: typeof top === "number" && Number.isFinite(top) ? top : null,
+      defaultTopPct: DEFAULT_POWER_ZONE_TOPS_PCT[idx],
+      offset: offsets[type] ?? 0,
+    };
+  });
+}

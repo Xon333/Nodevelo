@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, ifBandOffsetRows, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
 import type { CalibratedParameter, RideScoreEntry } from "./types";
 
 // Minimal quality-session ledger entry with a stamped TSB, for the deep-fatigue derivation tests.
@@ -390,5 +390,23 @@ describe("deriveIfBandOffsets (ROADMAP #2 — per-type IF cutoffs)", () => {
   it("shifts down for a lower-than-default zone edge", () => {
     // Z2 top 70 vs default 75 → -0.05.
     expect(deriveIfBandOffsets([55, 70, 90, 105, 120, 150])).toEqual({ Z2: -0.05 });
+  });
+});
+
+describe("ifBandOffsetRows (read-only display rows)", () => {
+  it("carries the zone-top context + the offset from deriveIfBandOffsets (single source)", () => {
+    const z2 = ifBandOffsetRows([55, 80, 90, 105, 120, 150]).find((r) => r.type === "Z2")!;
+    expect(z2).toMatchObject({ anchorZone: "Z2", athleteTopPct: 80, defaultTopPct: 75, offset: 0.05 });
+  });
+
+  it("reports a population-default zone as offset 0", () => {
+    const z2 = ifBandOffsetRows(DEFAULT_POWER_ZONE_TOPS_PCT).find((r) => r.type === "Z2")!;
+    expect(z2).toMatchObject({ athleteTopPct: 75, offset: 0 });
+  });
+
+  it("nulls the athlete top + zeroes the offset when no zones are synced", () => {
+    const rows = ifBandOffsetRows([]);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.athleteTopPct === null && r.offset === 0)).toBe(true);
   });
 });
