@@ -182,26 +182,41 @@ export function fetchPowerStream(activityId: string): Promise<number[]> {
   return fetchActivityStream(activityId, "watts");
 }
 
-// The activity's intervals as curated in Intervals.icu (where the athlete adjusts
-// detection). Best-effort: [] on failure. Field names tolerate API shape variation.
+// One interval/lap object → ExecutedInterval. Field names tolerate API shape variation; laps carry the
+// same metric keys as detected intervals (they're untyped, so `type` falls to "" → the matcher's power
+// band, not the WORK filter, selects the work efforts).
+function mapExecutedInterval(it: unknown): ExecutedInterval {
+  const iv = asRecord(it);
+  return {
+    type: str(iv.type).toUpperCase(),
+    durationSec: num(iv.moving_time) ?? num(iv.elapsed_time) ?? 0,
+    avgWatts: num(iv.average_watts) ?? num(iv.icu_average_watts),
+    npWatts: numPos(iv.weighted_average_watts) ?? numPos(iv.icu_weighted_avg_watts),
+    avgHr: num(iv.average_heartrate) ?? num(iv.icu_average_hr),
+    startIndex: num(iv.start_index),
+    endIndex: num(iv.end_index),
+  };
+}
+
+// The activity's executed structure for rep-by-rep matching. Prefers DEVICE LAPS when the ride recorded
+// them (a head unit auto-laps each structured effort, so laps are a ground-truth record of what was ridden;
+// Intervals' auto-detection can merge/split differently). Falls back to `icu_intervals` (auto-detected /
+// curated) when there are no usable laps. Incidental laps (warm-up, recoveries, the commute) are filtered
+// out downstream by matchPrescription's work-power band, so only the work efforts align (RV-6 follow-up).
+//
+// NOTE — the separate `laps` field is UNCONFIRMED against a live payload (Intervals' public docs fold laps
+// into `icu_intervals` via the per-activity "Keep All Laps" setting). This reads it defensively: absent →
+// byte-identical to the previous icu_intervals-only behaviour. Confirm the field against a real structured
+// ride before relying on the lap path. Best-effort: [] on failure.
 export async function fetchIntervals(activityId: string): Promise<ExecutedInterval[]> {
   if (!activityId) return [];
   try {
     const data = await icuFetch(`/activity/${encodeURIComponent(activityId)}/intervals`);
     const rec = asRecord(data);
+    const laps = Array.isArray(rec.laps) ? (rec.laps as unknown[]).map(mapExecutedInterval) : [];
+    if (laps.length > 1) return laps; // >1 = the device recorded structure; a single whole-ride lap has none
     const list = Array.isArray(data) ? data : Array.isArray(rec.icu_intervals) ? rec.icu_intervals : [];
-    return (list as unknown[]).map((it) => {
-      const iv = asRecord(it);
-      return {
-        type: str(iv.type).toUpperCase(),
-        durationSec: num(iv.moving_time) ?? num(iv.elapsed_time) ?? 0,
-        avgWatts: num(iv.average_watts) ?? num(iv.icu_average_watts),
-        npWatts: numPos(iv.weighted_average_watts) ?? numPos(iv.icu_weighted_avg_watts),
-        avgHr: num(iv.average_heartrate) ?? num(iv.icu_average_hr),
-        startIndex: num(iv.start_index),
-        endIndex: num(iv.end_index),
-      };
-    });
+    return (list as unknown[]).map(mapExecutedInterval);
   } catch {
     return [];
   }
