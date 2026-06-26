@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchActivities, fetchIntervals, fetchWellness, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
+import { fetchActivities, fetchWellness, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
 import type { PowerCurvePoint, SyncData } from "./types";
 
 const mkSync = (over: Partial<SyncData> = {}): SyncData => ({
@@ -37,48 +37,6 @@ describe("isSuspectEmptySync (CR-C don't wipe good data)", () => {
     const wellnessOnly = mkSync({ wellness: [{ date: "2026-06-20" } as SyncData["wellness"][number]] });
     expect(isSuspectEmptySync(wellnessOnly, mkSync())).toBe(true); // had wellness, now nothing → suspect
     expect(isSuspectEmptySync(withData, wellnessOnly)).toBe(false); // still has wellness → fine
-  });
-});
-
-describe("fetchIntervals — prefer device laps when present, else icu_intervals (RV-6 follow-up)", () => {
-  beforeEach(() => {
-    process.env.INTERVALS_API_KEY = "test-key";
-    process.env.INTERVALS_ATHLETE_ID = "i1";
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
-    delete process.env.INTERVALS_API_KEY;
-    delete process.env.INTERVALS_ATHLETE_ID;
-  });
-  const mockFetch = (body: unknown) => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
-    ) as unknown as typeof fetch;
-  };
-
-  it("uses the device laps (untyped) when the response carries >1 of them", async () => {
-    mockFetch({
-      icu_intervals: [{ type: "WORK", moving_time: 300, average_watts: 250 }],
-      laps: [
-        { moving_time: 240, average_watts: 300 },
-        { moving_time: 240, average_watts: 305 },
-      ],
-    });
-    const out = await fetchIntervals("a1");
-    expect(out).toHaveLength(2); // laps, not the single detected interval
-    expect(out[0].avgWatts).toBe(300);
-    expect(out[0].type).toBe(""); // laps are untyped → matcher's power band selects work efforts
-  });
-
-  it("falls back to icu_intervals when there are no laps (or only a single whole-ride lap)", async () => {
-    mockFetch({
-      icu_intervals: [{ type: "WORK", moving_time: 300, average_watts: 250 }],
-      laps: [{ moving_time: 3600, average_watts: 180 }], // one whole-ride lap = no structure
-    });
-    const out = await fetchIntervals("a1");
-    expect(out).toHaveLength(1);
-    expect(out[0].type).toBe("WORK");
-    expect(out[0].avgWatts).toBe(250);
   });
 });
 

@@ -20,14 +20,6 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
   the population bands — but DON'T FORGET to re-fit once the ledger carries enough stamped strain values to
   derive the high band honestly. Data-gated (chicken/egg). _[morning-check.ts](lib/morning-check.ts) · ROADMAP Inc 2._
 
-- 🔎 ☐ P3 `feat` **Lap-data — confirm the `laps` field against a live payload.** `fetchIntervals` now prefers
-  device laps (>1 in the response) for the executed side, else falls back to `icu_intervals` (shipped). But the
-  separate `laps` array is **unconfirmed** against a real `/activity/{id}/intervals` response — Intervals folds
-  laps into `icu_intervals` via the per-activity **"Keep All Laps"** setting, so that toggle may be the real
-  lever. Absent `laps` the path is byte-identical to before (can't regress). Confirm whether a structured ride
-  actually carries a `laps` array; if not, it's a harmless no-op and "Keep All Laps" is the fix.
-  _[intervals-api.ts](lib/intervals-api.ts)._
-
 ---
 
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).

@@ -27,11 +27,13 @@ the suite grew to ~558. Only RV2-15 (data-gated) and a lap-field confirmation re
   post-ride meal recommendation deleted — athlete fuels pre/intra only (RV2-14). RV2-1 closed as not-a-bug
   (`bucketZones` already drops zero-fill); RV2-12 accepted limitation (an NP scalar can't yield time-in-zone).
   _`125fde9` · `f9d2510` · `15789ea`._
-- **Interval-order misparse + lap-data (BUG-2026-06-25).** `parsePrescription` expanded `3x{Over,Under}` as
+- **Interval-order misparse (BUG-2026-06-25).** `parsePrescription` expanded `3x{Over,Under}` as
   each-step-×3 instead of repeating the block in sequence, so the order-based matcher scored every rep against
   the wrong target; it now expands in execution order then collapses identical reps for the label, and written
-  blocks self-heal on the next sync. `fetchIntervals` now prefers device laps for the executed side, else
-  `icu_intervals`. _[prescription.ts](lib/prescription.ts) · [intervals-api.ts](lib/intervals-api.ts) · `f81f4dc`._
+  blocks self-heal on the next sync. (A device-lap preference for the executed side was tried in `f81f4dc` and
+  **reverted** — Intervals.icu's one-click "use laps" already folds laps into `icu_intervals`, so the app stays
+  single-path on `icu_intervals` as before; no second fetch path to maintain.)
+  _[prescription.ts](lib/prescription.ts) · [intervals-api.ts](lib/intervals-api.ts)._
 - **ACC — second-brain state accuracy (athlete request).** Aerobic driver moved off whole-ride decoupling (a
   ride-structure artifact) to Intervals' Z2-isolated `icu_power_hr_z2` (higher = fresher; ≥15 Z2-min, latest
   ≤14d, baseline ≥3 rides). Weight trend moved to a least-squares/Theil–Sen slope over the trailing 14 days.
