@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzePowerProfile, formatPowerProfileForPrompt } from "./power-profile";
+import { analyzePowerProfile, formatPowerProfileForPrompt, powerProfileSeed } from "./power-profile";
 import type { PowerCurvePoint } from "./types";
 
 const FTP = 280;
@@ -27,6 +27,24 @@ describe("analyzePowerProfile — rider-type classification", () => {
   it("classifies a balanced curve as an all-rounder", () => {
     const p = analyzePowerProfile(curve({ 5: 1130, 60: 540, 300: 333 }), FTP, 70);
     expect(p?.riderType).toBe("all-rounder"); // nothing clears either edge
+  });
+});
+
+describe("powerProfileSeed (Track A — curve-shape retrospective seed)", () => {
+  it("names the easy-win weak point when there is one", () => {
+    const seed = powerProfileSeed(analyzePowerProfile(curve({ 5: 1000, 60: 480, 300: 310 }), FTP, 70));
+    expect(seed).toMatch(/neuromuscular/);
+    expect(seed).toMatch(/easy win/i);
+  });
+
+  it("falls back to the rider type when no easy win", () => {
+    const seed = powerProfileSeed(analyzePowerProfile(curve({ 5: 1130, 60: 540, 300: 333 }), FTP, 70));
+    expect(seed).toMatch(/all-rounder/);
+  });
+
+  it("is null when the profile isn't confident / absent", () => {
+    expect(powerProfileSeed(null)).toBeNull();
+    expect(powerProfileSeed(analyzePowerProfile([], FTP, 70))).toBeNull(); // empty curve → null profile
   });
 });
 

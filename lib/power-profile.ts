@@ -155,3 +155,14 @@ export function formatPowerProfileForPrompt(profile: PowerProfile | null): strin
   }
   return lines.join("\n");
 }
+
+// One deterministic, human-readable next-block seed from the curve SHAPE — the easy-win weak point if
+// there is one, else the rider type. Null when the profile isn't confident. Used by the retrospective
+// (Track A) so the curve read shows up alongside the compliance-based seeds.
+export function powerProfileSeed(profile: PowerProfile | null): string | null {
+  if (!profile || !profile.confident) return null;
+  if (profile.easyWin) {
+    return `Curve shape: ${SYSTEM_LABEL[profile.easyWin.system]} power is your most depressed system relative to your own engine — a light weekly touch next block could be an easy win (unless the goal points elsewhere).`;
+  }
+  return `Curve shape: a ${profile.riderType} profile (${RIDER_TYPE_BLURB[profile.riderType]}) — keep next-block emphasis aligned to your goal and this shape.`;
+}

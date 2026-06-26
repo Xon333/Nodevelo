@@ -489,6 +489,10 @@ export interface RetrospectiveInput {
   complianceByType: Record<string, number>;
   topSessions: Array<{ date: string; name: string; tss: number }>;
   avgDecoupling: number | null;
+  // Rider power-profile context (curve shape: rider type + relative-strength systems + easy-win weak
+  // point), pre-formatted by lib/power-profile.formatPowerProfileForPrompt. Empty string when the curve
+  // is too thin to say anything — the prompt then omits the section. (ROADMAP Track A.)
+  powerProfile?: string;
 }
 
 // The prose-retrospective prompt. Pure; generateRetrospective() sends it to the model.
@@ -510,6 +514,8 @@ export function buildRetrospectivePrompt(input: RetrospectiveInput): string {
     ? `Avg decoupling across block: ${input.avgDecoupling.toFixed(1)}%`
     : "";
 
+  const profileBlock = input.powerProfile ? `\nRIDER POWER PROFILE (curve shape):\n${input.powerProfile}\n` : "";
+
   return [
     "You are a cycling coach writing a concise retrospective for a completed training block. Be direct and coaching-like — no bullet points, no fluff, flowing prose only. Do not start with 'This block'.",
     "",
@@ -522,8 +528,8 @@ export function buildRetrospectivePrompt(input: RetrospectiveInput): string {
     typeLines || "  (no data)",
     "",
     `Top sessions: ${topLine || "(none)"}`,
-    "",
-    "Write 3–4 sentences covering: overall execution quality, which session types worked vs. fell short, one key physiological observation (CTL gain/decoupling), and one concrete priority for the next block.",
+    profileBlock,
+    "Write 3–4 sentences covering: overall execution quality, which session types worked vs. fell short, one key physiological observation (CTL gain/decoupling), and one concrete priority for the next block. Read the rider's curve SHAPE, not just compliance — if a session type's strength sits below the rider's own engine (or the easy-win weak point), weigh that in the next-block priority.",
   ]
     .filter((l) => l !== null)
     .join("\n");
@@ -564,16 +570,19 @@ export function buildStructuredRetrospectivePrompt(
     })
     .join("\n");
 
+  const profileBlock = input.powerProfile ? `\nRIDER POWER PROFILE (curve shape — context for adjusted_strategy):\n${input.powerProfile}\n` : "";
+
   return [
     `Completed block: "${input.goal}" — ${input.lengthWeeks} weeks (${input.startDate} → ${input.endDate}).`,
     `Volume ${input.plannedHours.toFixed(1)}h planned → ${input.actualHours.toFixed(1)}h actual (${input.overallCompliancePct}% compliance).`,
-    "",
+    profileBlock,
     "The block acted on these hypotheses (interventions). Each has now matured and been scored:",
     interventionLines,
     "",
     "For EACH numbered intervention above, return one reflection. Ground `hypothesis` and " +
       "`observation` strictly in the supplied baselines/outcomes — do not invent any metric, date, or " +
-      "number. Keep `root_cause` and `adjusted_strategy` concrete and actionable for the next block.",
+      "number. Keep `root_cause` and `adjusted_strategy` concrete and actionable for the next block; where " +
+      "the rider's curve shape above is relevant to an intervention's dimension, factor it into `adjusted_strategy`.",
   ].join("\n");
 }
 

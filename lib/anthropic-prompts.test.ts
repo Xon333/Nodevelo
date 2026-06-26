@@ -96,6 +96,14 @@ describe("buildRetrospectivePrompt / buildStructuredRetrospectivePrompt", () => 
     expect(p).toContain("Threshold: 95%");
   });
 
+  it("injects the rider power profile when present, and omits the section when absent (Track A)", () => {
+    const withProfile = buildRetrospectivePrompt(retroInput({ powerProfile: "- Rider type: puncheur — strong surges." }));
+    expect(withProfile).toContain("RIDER POWER PROFILE");
+    expect(withProfile).toContain("puncheur");
+    expect(withProfile).toContain("curve SHAPE"); // the instruction to weigh shape, not just compliance
+    expect(buildRetrospectivePrompt(retroInput())).not.toContain("RIDER POWER PROFILE"); // no profile → no section
+  });
+
   it("numbers each intervention for the structured reflection", () => {
     const interventions: ReflectionInterventionInput[] = [
       {

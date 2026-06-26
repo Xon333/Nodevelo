@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import {
   appendBlockHistory,
+  readAthleteProfile,
   readBlockHistory,
   readCurrentBlock,
   readInterventionLog,
   readLastSync,
   writeCurrentBlock,
 } from "@/lib/data-store";
+import { analyzePowerProfile, formatPowerProfileForPrompt, powerProfileSeed } from "@/lib/power-profile";
 import { writeRetrospective } from "@/lib/kb-loader";
 import {
   generateRetrospective,
@@ -36,10 +38,11 @@ export async function POST() {
     return NextResponse.json({ error: "Anthropic API is not configured." }, { status: 400 });
   }
 
-  const [block, sync, interventionLog] = await Promise.all([
+  const [block, sync, interventionLog, athleteProfile] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),
     readInterventionLog(),
+    readAthleteProfile(),
   ]);
 
   if (!block) {
@@ -105,6 +108,15 @@ export async function POST() {
     .slice(0, 3)
     .map((a) => ({ date: a.date, name: a.name, tss: a.trainingLoad as number }));
 
+  // Track A: read the rider's curve SHAPE (rider type + relative-strength systems + easy-win) into the
+  // retrospective, not just compliance. Recent (84-day) curve so it reflects the form this block produced;
+  // formatPowerProfileForPrompt → "" when the curve is too thin to say anything (the prompt then omits it).
+  const latestWeight =
+    [...sync.wellness].filter((w) => w.weightKg !== null).sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ??
+    athleteProfile.performance.weightKg;
+  const powerProfile = analyzePowerProfile(sync.powerCurve, athleteProfile.performance.ftp, latestWeight, "84-day");
+  const powerProfileText = formatPowerProfileForPrompt(powerProfile);
+
   const retrospective = await generateRetrospective({
     goal: block.goal,
     lengthWeeks: block.lengthWeeks,
@@ -118,6 +130,7 @@ export async function POST() {
     complianceByType: complianceMap,
     topSessions,
     avgDecoupling,
+    powerProfile: powerProfileText,
   });
 
   // Track D: structured reflections. Feed the model the hypotheses this block acted on (the matured
@@ -157,6 +170,7 @@ export async function POST() {
         complianceByType: complianceMap,
         topSessions,
         avgDecoupling,
+        powerProfile: powerProfileText,
         interventions: maturedInterventions,
       });
     } catch {
@@ -175,6 +189,9 @@ export async function POST() {
     if (gain >= 10) seeds.push("Strong CTL gain — consider progressing training load in next block");
     else if (gain <= 2) seeds.push("Minimal CTL gain — review session quality or increase effective volume");
   }
+  // Track A: a curve-shape seed (rider type / easy-win) so the next-block read isn't compliance-only.
+  const curveSeed = powerProfileSeed(powerProfile);
+  if (curveSeed) seeds.push(curveSeed);
 
   // Write markdown file.
   const fileId = `${block.startDate}_${slugify(block.goal)}`;

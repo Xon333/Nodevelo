@@ -82,8 +82,11 @@ headline against real use; possible score-over-time trend.
 ## Feature tracks (multi-session ⭐)
 
 ### Track A · Power-curve intelligence
-The population reference multiples → `#2`; feed the rider profile into the **block review / retrospective**
-(read curve shape, not just compliance); optionally persist a snapshot if rider-type-over-time is wanted.
+✅ The rider profile now feeds the **retrospective** (curve shape, not just compliance): the 84-day profile
+goes into both retrospective prompts + a deterministic curve-shape seed (`powerProfileSeed`). The profile
+already fed block generation. Left: the population reference multiples → `#2` (still local magic-numbers in
+`power-profile.ts`); optionally persist a per-block snapshot for *rider-type-over-time* (deferred — one
+block barely moves the curve, so the over-time read only pays off across a season).
 
 ### Track B · Session selection & variety
 Per-template scoring loop (grade each long ride vs its template's expected signal — the
