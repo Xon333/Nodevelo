@@ -12,6 +12,42 @@ exact commits.
 
 ---
 
+## Accuracy & hardening sweeps — Jun 24–25
+
+Three senior-dev deep-reads of the deterministic core plus an athlete-requested accuracy pass, all shipped;
+the suite grew to ~558. Only RV2-15 (data-gated) and a lap-field confirmation remain → [todo.md](todo.md).
+
+- **RV2 — accuracy review (engine deep-read, 15 findings; 13 shipped).** Theme: *windows that include their
+  own comparison point*, *divisors that assumed full history*, *open-top scoring bands*. Shipped: ACWR &
+  weekly-hours divisors use the days of history that exist + an explicit ≥14-day gate (RV2-2/3); aerobic + RPE
+  baselines exclude the recent window they're compared against, with min-sample floors (RV2-4/5); Theil–Sen
+  weight trend (RV2-6); HR zones with no LTHR/maxHR anchor return `[]` (RV2-7); VO2max/RaceSim penalise an
+  over-cooked effort (RV2-8); `today` threaded into athlete-state for replay (RV2-11); one shared heavy-fatigue
+  predicate (RV2-9); `stats.median` reuse (RV2-10); power-curve match tolerance clamped [5s,120s] (RV2-13);
+  post-ride meal recommendation deleted — athlete fuels pre/intra only (RV2-14). RV2-1 closed as not-a-bug
+  (`bucketZones` already drops zero-fill); RV2-12 accepted limitation (an NP scalar can't yield time-in-zone).
+  _`125fde9` · `f9d2510` · `15789ea`._
+- **Interval-order misparse + lap-data (BUG-2026-06-25).** `parsePrescription` expanded `3x{Over,Under}` as
+  each-step-×3 instead of repeating the block in sequence, so the order-based matcher scored every rep against
+  the wrong target; it now expands in execution order then collapses identical reps for the label, and written
+  blocks self-heal on the next sync. `fetchIntervals` now prefers device laps for the executed side, else
+  `icu_intervals`. _[prescription.ts](lib/prescription.ts) · [intervals-api.ts](lib/intervals-api.ts) · `f81f4dc`._
+- **ACC — second-brain state accuracy (athlete request).** Aerobic driver moved off whole-ride decoupling (a
+  ride-structure artifact) to Intervals' Z2-isolated `icu_power_hr_z2` (higher = fresher; ≥15 Z2-min, latest
+  ≤14d, baseline ≥3 rides). Weight trend moved to a least-squares/Theil–Sen slope over the trailing 14 days.
+  Decoupling stays in execution scoring + Trends. _[athlete-state.ts](lib/athlete-state.ts) · [nutrition.ts](lib/nutrition.ts) · [docs/specs/athlete-state.md](docs/specs/athlete-state.md)._
+- **RV — general review (10 findings, all closed).** Local-date threading through the readiness windows (RV-1);
+  idempotent block writes via a deterministic uid + auto-rollback of a partial write + block-discard cleanup
+  (RV-2/RV-9); HRV gated off-by-default and hardened for re-enable (RV-3/4); ledger anchored to each ride's own
+  `icu_ftp` (RV-5); physiology history capped at 24 snapshots (RV-5b); matcher tradeoffs documented (RV-6);
+  three monoliths split behaviour-preserving (RV-8). RV-7 (AI spend cap) closed won't-do — spend is cents.
+- **CR — xhigh review of the Jun-23 logic + a11y pass (15 findings, all shipped).** Rebuild never downgrades a
+  frozen `planned` entry or drops `formState`/`morningCheck` provenance (LEDGER-1/2), and is guarded behind a
+  one-shot marker (LEDGER-3); settings PUT preserves + clamps every band/weight override (SET-1/CAL-1);
+  durability-envelope split-brain fixed (CAL-3); zero-power / string-decoupling parse guards (API-1/2); a fasted
+  `0g` ride kept as a real fuel data-point (FUEL-1); shared `pick` helper (CAL-2); muted-contrast a11y sweep,
+  shared `athlete-state-ui`, `DECOUPLING_GOOD_BOUNDS` reuse, calibration-range validation (A11Y-1/2, UI-1/2, CAL-4).
+
 ## Per-athlete calibration framework — first pass (ROADMAP #2)
 
 The keystone framework + its first calibrated parameter. Three commits; tests grew to 333.
