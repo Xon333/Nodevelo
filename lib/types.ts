@@ -693,6 +693,7 @@ export interface TodayAnalysis {
   activityDescription: string | null; // athlete's note from Intervals.icu, fed to coach
   powerZoneTimes: number[] | null;
   hrZoneTimes: number[] | null;
+  powerZoneTopsPct: number[] | null; // athlete's zone tops as %FTP (as-of the ride) — boundaries for the IF band label
   executionScore: number | null; // 1-10 deterministic quality score
   coachNote: string; // Claude 2-3 sentence narrative
   intervalComparison: IntervalComparison | null; // prescription vs execution

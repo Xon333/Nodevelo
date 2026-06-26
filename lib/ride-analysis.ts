@@ -73,6 +73,9 @@ export interface TodayAnalysisInputs {
   // Already re-bucketed by the route from the raw streams (falls back to Intervals' own times).
   powerZoneTimes: number[] | null;
   hrZoneTimes: number[] | null;
+  // The athlete's power-zone tops as %FTP, as-of the ride's date (Intervals.icu's synced zone defs) — the
+  // boundary source of truth for the IF effort-band label. Null when no zones are on file.
+  powerZoneTopsPct: number[] | null;
   intervalComparison: IntervalComparison | null;
   trace: RideTrace | null;
   powerPRs: PowerPR[];
@@ -149,6 +152,7 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     activityDescription: activity.description,
     powerZoneTimes: input.powerZoneTimes,
     hrZoneTimes: input.hrZoneTimes,
+    powerZoneTopsPct: input.powerZoneTopsPct,
     executionScore,
     coachNote,
     intervalComparison,

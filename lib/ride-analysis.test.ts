@@ -73,6 +73,7 @@ describe("buildTodayAnalysis (CR-G)", () => {
     weightTrend7Day: 0,
     powerZoneTimes: [10, 20] as number[] | null,
     hrZoneTimes: null,
+    powerZoneTopsPct: null as number[] | null,
     intervalComparison: null,
     trace: null,
     powerPRs: [],

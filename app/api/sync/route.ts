@@ -376,6 +376,9 @@ export async function POST(req: Request) {
             weightTrend7Day: weightTrendFromWellness(lastSync.wellness) ?? 0,
             powerZoneTimes,
             hrZoneTimes,
+            // The athlete's synced zone tops (%FTP) as-of the ride — the IF band label's boundaries, so it
+            // reflects their own Intervals.icu zones and tracks any FTP/zone change (effective-dated).
+            powerZoneTopsPct: physiologyAsOf(physStore, todayActivity.date)?.powerZonePct ?? null,
             intervalComparison,
             trace,
             powerPRs,
