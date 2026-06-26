@@ -1,25 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Integration test for the morning-check route handlers (CR-8). The IO boundary (data-store) is
-// mocked in-memory; everything else — decision logic, the CR-2 apply guard, the proactive reschedule
-// — runs for real, so this exercises the *wiring* the unit tests can't (where CR-2/CR-3 lived).
+// Integration test for the morning-check route handlers. The IO boundary (data-store) is mocked
+// in-memory; the decision logic, the apply guard, and the proactive reschedule run for real.
 vi.mock("@/lib/data-store", () => ({
   readCurrentBlock: vi.fn(),
-  readLastSync: vi.fn(),
   readMorningChecks: vi.fn(),
   readTodayAnalysis: vi.fn(),
-  readBlockSettings: vi.fn(),
   writeMorningChecks: vi.fn(),
   writeCurrentBlock: vi.fn(),
 }));
 
 import * as store from "@/lib/data-store";
 import { GET, POST, PUT } from "@/app/api/morning-check/route";
-import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import type { CurrentBlock, MorningCheckEntry, MorningCheckLog, SyncData, TodayAnalysis } from "@/lib/types";
+import type { CurrentBlock, MorningCheckEntry, MorningCheckFlag, MorningCheckLog, TodayAnalysis } from "@/lib/types";
 
 const TODAY = "2026-06-20";
-const sync = { syncedAt: "", activities: [], wellness: [], powerCurve: [], fitness: { ctl: 50, atl: 60, tsb: -10 } } as unknown as SyncData;
 
 const block = (): CurrentBlock => ({
   goal: "Raise threshold",
@@ -35,8 +30,8 @@ const block = (): CurrentBlock => ({
   ],
 });
 
-const check = (decision: "proceed" | "proceed-easy" | "downgrade"): MorningCheckEntry => ({
-  date: TODAY, fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none", strain: 19, decision, setAt: "",
+const check = (decision: "proceed" | "downgrade", flag: MorningCheckFlag = "extreme-fatigue"): MorningCheckEntry => ({
+  date: TODAY, flag, decision, setAt: "",
 });
 
 const req = (method: string, body?: unknown) =>
@@ -46,40 +41,33 @@ const req = (method: string, body?: unknown) =>
   });
 
 beforeEach(() => {
-  vi.clearAllMocks(); // reset call history between tests (keeps the implementations set below)
+  vi.clearAllMocks();
   vi.mocked(store.readCurrentBlock).mockResolvedValue(block());
-  vi.mocked(store.readLastSync).mockResolvedValue(sync);
   vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
-  vi.mocked(store.readBlockSettings).mockResolvedValue(DEFAULT_BLOCK_SETTINGS);
   vi.mocked(store.writeMorningChecks).mockResolvedValue(undefined);
   vi.mocked(store.writeCurrentBlock).mockResolvedValue(undefined);
 });
 
 describe("POST /api/morning-check", () => {
-  it("computes + stores a downgrade for a wrecked check on a quality day", async () => {
-    const res = await POST(req("POST", { fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none", today: TODAY }));
+  it("computes + stores a downgrade for a flag on a quality day", async () => {
+    const res = await POST(req("POST", { flag: "ill", today: TODAY }));
     const json = await res.json();
     expect(json.decision).toBe("downgrade");
     expect(json.suggestion).not.toBeNull();
     const stored = vi.mocked(store.writeMorningChecks).mock.calls[0][0] as MorningCheckLog;
-    expect(stored.entries[0]).toMatchObject({ date: TODAY, decision: "downgrade" });
+    expect(stored.entries[0]).toMatchObject({ date: TODAY, flag: "ill", decision: "downgrade" });
   });
 
-  it("proceeds for a fresh check", async () => {
-    const res = await POST(req("POST", { fatigue: 1, sleep: 5, soreness: 1, motivation: 5, illness: "none", today: TODAY }));
-    expect((await res.json()).decision).toBe("proceed");
-  });
-
-  it("rejects an out-of-range rating (400)", async () => {
-    const res = await POST(req("POST", { fatigue: 9, sleep: 5, soreness: 1, motivation: 5, illness: "none", today: TODAY }));
+  it("rejects a missing/invalid flag (400)", async () => {
+    const res = await POST(req("POST", { flag: "meh", today: TODAY }));
     expect(res.status).toBe(400);
     expect(store.writeMorningChecks).not.toHaveBeenCalled();
   });
 });
 
-describe("PUT /api/morning-check — the CR-2 apply guard", () => {
-  it("rejects when today's check didn't recommend a downgrade", async () => {
+describe("PUT /api/morning-check — the apply guard", () => {
+  it("rejects when today's flag didn't recommend a downgrade", async () => {
     vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("proceed")], updatedAt: "" });
     const res = await PUT(req("PUT", { today: TODAY }));
     expect(res.status).toBe(400);
@@ -94,7 +82,7 @@ describe("PUT /api/morning-check — the CR-2 apply guard", () => {
     expect(store.writeCurrentBlock).not.toHaveBeenCalled();
   });
 
-  it("applies the downgrade when checked-in with a downgrade and no ride logged", async () => {
+  it("applies the downgrade when flagged with a downgrade and no ride logged", async () => {
     vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
     const res = await PUT(req("PUT", { today: TODAY }));
     expect((await res.json()).ok).toBe(true);
@@ -102,23 +90,12 @@ describe("PUT /api/morning-check — the CR-2 apply guard", () => {
     expect(written.days.find((d) => d.date === TODAY)!.type).not.toBe("VO2max"); // today downgraded
   });
 
-  it("caps today to a Z2 ride (no relocation) on a proceed-easy decision (RR-10)", async () => {
-    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("proceed-easy")], updatedAt: "" });
-    const res = await PUT(req("PUT", { today: TODAY }));
-    expect((await res.json()).ok).toBe(true);
-    const written = vi.mocked(store.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
-    const td = written.days.find((d) => d.date === TODAY)!;
-    expect(td).toMatchObject({ type: "Z2", durationMin: 70 }); // capped in place, same duration
-    expect(written.days.find((d) => d.date === "2026-06-21")!.type).toBe("Rest"); // stimulus NOT relocated onto the rest day
-  });
-
   it("deloads with a note naming the rest day it deliberately skipped (RR-1 UI)", async () => {
-    // A clear rest day exists but no easy day → deload, and the note explains the skipped rest day.
     const b: CurrentBlock = {
       ...block(),
       days: [
         { date: TODAY, name: "VO2 6x3", type: "VO2max", durationMin: 70 },
-        { date: "2026-06-21", name: "Rest", type: "Rest", durationMin: 0 }, // clear (next day isn't quality)
+        { date: "2026-06-21", name: "Rest", type: "Rest", durationMin: 0 },
         { date: "2026-06-22", name: "Strength", type: "Strength", durationMin: 45 }, // not easy → no swap slot
       ],
     };
@@ -127,7 +104,7 @@ describe("PUT /api/morning-check — the CR-2 apply guard", () => {
     const json = await (await PUT(req("PUT", { today: TODAY }))).json();
     expect(json.ok).toBe(true);
     expect(json.to).toBeNull();
-    expect(json.note).toContain("2026-06-21"); // names the skipped rest day instead of "nothing available"
+    expect(json.note).toContain("2026-06-21");
   });
 });
 

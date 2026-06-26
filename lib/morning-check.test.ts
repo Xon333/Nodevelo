@@ -1,142 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, strainScore, wellnessToMorningAnswers, type MorningCheckAnswers, type MorningCheckObjective } from "./morning-check";
-import type { MorningCheckEntry, WellnessEntry } from "./types";
-
-const fresh: MorningCheckAnswers = { fatigue: 1, sleep: 5, soreness: 1, motivation: 5, illness: "none" };
-const wrecked: MorningCheckAnswers = { fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none" };
-const moderate: MorningCheckAnswers = { fatigue: 3, sleep: 3, soreness: 3, motivation: 3, illness: "none" }; // strain 12
-
-const goodObjective: MorningCheckObjective = { isQualityDay: true, tsb: 2, readiness: "Build", acwr: "optimal" };
-const poorObjective: MorningCheckObjective = { isQualityDay: true, tsb: -28, readiness: "Recover", acwr: "high" };
-
-describe("strainScore", () => {
-  it("ranges fresh (4) to wrecked (20)", () => {
-    expect(strainScore(fresh)).toBe(4);
-    expect(strainScore(wrecked)).toBe(19);
-    expect(strainScore(moderate)).toBe(12);
-  });
-});
+import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock } from "./morning-check";
+import type { MorningCheckEntry } from "./types";
 
 describe("decideMorningCheck", () => {
-  it("proceeds when fresh on a quality day", () => {
-    expect(decideMorningCheck(fresh, goodObjective).decision).toBe("proceed");
+  it("downgrades a quality day on either flag", () => {
+    expect(decideMorningCheck("ill", { isQualityDay: true }).decision).toBe("downgrade");
+    expect(decideMorningCheck("extreme-fatigue", { isQualityDay: true }).decision).toBe("downgrade");
   });
 
-  it("downgrades on high reported strain alone, even with good objective signals", () => {
-    const r = decideMorningCheck(wrecked, goodObjective);
-    expect(r.decision).toBe("downgrade");
-    expect(r.reasons.join(" ")).toMatch(/strain/i);
+  it("names the flag in the reasons", () => {
+    expect(decideMorningCheck("ill", { isQualityDay: true }).reasons.join(" ")).toMatch(/ill/i);
+    expect(decideMorningCheck("extreme-fatigue", { isQualityDay: true }).reasons.join(" ")).toMatch(/fatigue/i);
   });
 
-  it("always downgrades on sickness; mild illness only with elevated strain/fatigue (CR-13)", () => {
-    expect(decideMorningCheck({ ...fresh, illness: "sick" }, goodObjective).decision).toBe("downgrade");
-    expect(decideMorningCheck({ ...fresh, illness: "mild" }, goodObjective).decision).toBe("proceed-easy"); // fresh + mild → cap intensity
-    expect(decideMorningCheck({ ...moderate, illness: "mild" }, goodObjective).decision).toBe("downgrade"); // mild + strain 12
-    expect(decideMorningCheck({ ...fresh, illness: "mild" }, poorObjective).decision).toBe("downgrade"); // mild + poor objective
-  });
-
-  it("proceed-easy caps intensity on mild illness with fresh legs + good objective (RR-10)", () => {
-    const r = decideMorningCheck({ ...fresh, illness: "mild" }, goodObjective);
-    expect(r.decision).toBe("proceed-easy");
-    expect(r.reasons.join(" ")).toMatch(/easy|neck-check/i);
-    // a downgrade outranks the easy cap when the body says more than a sniffle (high strain).
-    expect(decideMorningCheck({ ...wrecked, illness: "mild" }, goodObjective).decision).toBe("downgrade");
-  });
-
-  it("lets the objective signals tip the medium-strain band", () => {
-    expect(decideMorningCheck(moderate, goodObjective).decision).toBe("proceed"); // strain 12, objective good
-    const poor = decideMorningCheck(moderate, poorObjective);
-    expect(poor.decision).toBe("downgrade"); // same strain, but TSB/readiness/ACWR agree
-    expect(poor.reasons.join(" ")).toMatch(/TSB|readiness|ACWR/);
-  });
-
-  it("always proceeds on a non-quality day (nothing to downgrade)", () => {
-    expect(decideMorningCheck(wrecked, { ...poorObjective, isQualityDay: false }).decision).toBe("proceed");
-  });
-});
-
-describe("decideMorningCheck — calibration overrides (ROADMAP #2 fold-in)", () => {
-  it("omitting the calibration arg decides identically to the population defaults", () => {
-    // The fold-in must be behaviour-preserving: an absent override resolves to high=15/med=12, tsbDeep=-25.
-    expect(decideMorningCheck(moderate, poorObjective)).toEqual(
-      decideMorningCheck(moderate, poorObjective, { strainBands: { high: 15, med: 12 }, tsbDeepEdge: -25 })
-    );
-  });
-
-  it("a lower strain.high override downgrades a strain that the default would pass", () => {
-    // moderate = strain 12; default high=15 → no solo downgrade on good objective signals.
-    expect(decideMorningCheck(moderate, goodObjective).decision).toBe("proceed");
-    expect(decideMorningCheck(moderate, goodObjective, { strainBands: { high: 11, med: 8 } }).decision).toBe("downgrade");
-  });
-
-  it("a shallower tsbDeepEdge override flips the objective-poor read for a mid TSB", () => {
-    const o: MorningCheckObjective = { isQualityDay: true, tsb: -15, readiness: "Build", acwr: "optimal" };
-    // strain 12 (med) + tsb -15: default deep edge -25 → objective not poor → proceeds.
-    expect(decideMorningCheck(moderate, o).decision).toBe("proceed");
-    // raise the deep edge to -12 → tsb -15 now reads deep → strain-med + objective-poor → downgrade.
-    expect(decideMorningCheck(moderate, o, { tsbDeepEdge: -12 }).decision).toBe("downgrade");
+  it("proceeds on a non-quality day (nothing to downgrade), even with a flag", () => {
+    expect(decideMorningCheck("ill", { isQualityDay: false }).decision).toBe("proceed");
+    expect(decideMorningCheck("extreme-fatigue", { isQualityDay: false }).decision).toBe("proceed");
   });
 });
 
 describe("proactiveApplyBlock", () => {
-  const downgrade: MorningCheckEntry = { date: "2026-06-20", fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none", strain: 19, decision: "downgrade", setAt: "" };
+  const downgrade: MorningCheckEntry = { date: "2026-06-20", flag: "extreme-fatigue", decision: "downgrade", setAt: "" };
 
-  it("allows when the athlete checked in with a downgrade and hasn't ridden", () => {
+  it("allows when the athlete flagged a downgrade and hasn't ridden", () => {
     expect(proactiveApplyBlock(downgrade, false)).toBeNull();
   });
   it("blocks when today's ride is already logged", () => {
     expect(proactiveApplyBlock(downgrade, true)).toMatch(/already logged/);
   });
-  it("blocks when there's no check-in", () => {
-    expect(proactiveApplyBlock(null, false)).toMatch(/check-in first/);
+  it("blocks when there's no flag set", () => {
+    expect(proactiveApplyBlock(null, false)).toMatch(/flag/i);
   });
-  it("blocks when the check-in said proceed", () => {
+  it("blocks when the flag resolved to proceed", () => {
     expect(proactiveApplyBlock({ ...downgrade, decision: "proceed" }, false)).toMatch(/didn't recommend/);
-  });
-});
-
-describe("wellnessToMorningAnswers (ROADMAP #2, Inc 2 — sync-sourced morning read)", () => {
-  // A wellness row with only the fields the adapter reads; the rest are irrelevant to strain.
-  const wellness = (subjective: Partial<WellnessEntry>): WellnessEntry => ({
-    date: "2026-06-25", weightKg: null, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: null,
-    ctl: null, atl: null, soreness: null, fatigue: null, stress: null, mood: null, motivation: null, injury: null,
-    ...subjective,
-  });
-
-  it("returns null when no subjective field is logged", () => {
-    expect(wellnessToMorningAnswers(wellness({ stress: 4, mood: 4 }))).toBeNull(); // stress/mood don't feed strain
-  });
-
-  it("maps an Intervals 'fresh' row (all 1) to minimum strain", () => {
-    const a = wellnessToMorningAnswers(wellness({ fatigue: 1, soreness: 1, motivation: 1 }))!;
-    expect(strainScore(a)).toBe(6); // 1 + 1 + (6−3 neutral sleep) + (6−5 motivation flip)
-    expect(a.illness).toBe("none");
-  });
-
-  it("maps an Intervals 'wrecked' row (all 4) to high strain", () => {
-    const a = wellnessToMorningAnswers(wellness({ fatigue: 4, soreness: 4, motivation: 4 }))!;
-    expect(strainScore(a)).toBe(18); // 5 + 5 + 3 + 5 — clears the high band (15)
-  });
-
-  it("flips motivation: Intervals 4 (unmotivated) is MORE strain, not less", () => {
-    const motivated = strainScore(wellnessToMorningAnswers(wellness({ fatigue: 2, soreness: 2, motivation: 1 }))!);
-    const unmotivated = strainScore(wellnessToMorningAnswers(wellness({ fatigue: 2, soreness: 2, motivation: 4 }))!);
-    expect(unmotivated).toBeGreaterThan(motivated);
-  });
-
-  it("fills missing subjective fields with the neutral midpoint (a partial log still scores)", () => {
-    const a = wellnessToMorningAnswers(wellness({ fatigue: 4 }))!; // soreness/motivation absent → neutral
-    expect(strainScore(a)).toBe(14); // 5 + 3 + 3 + 3
   });
 });
 
 describe("mergeMorningCheck", () => {
   it("replaces an existing entry for the same date and keeps them date-sorted", () => {
-    const a: MorningCheckEntry = { date: "2026-06-19", fatigue: 1, sleep: 5, soreness: 1, motivation: 5, illness: "none", strain: 4, decision: "proceed", setAt: "" };
-    const b: MorningCheckEntry = { date: "2026-06-20", fatigue: 5, sleep: 1, soreness: 5, motivation: 2, illness: "none", strain: 18, decision: "downgrade", setAt: "" };
-    const bUpdated: MorningCheckEntry = { ...b, decision: "proceed", strain: 10 };
+    const a: MorningCheckEntry = { date: "2026-06-19", flag: "ill", decision: "downgrade", setAt: "" };
+    const b: MorningCheckEntry = { date: "2026-06-20", flag: "extreme-fatigue", decision: "downgrade", setAt: "" };
+    const bUpdated: MorningCheckEntry = { ...b, flag: "ill" };
     const merged = mergeMorningCheck([a, b], bUpdated);
     expect(merged).toHaveLength(2);
-    expect(merged[1]).toMatchObject({ date: "2026-06-20", decision: "proceed" });
+    expect(merged[1]).toMatchObject({ date: "2026-06-20", flag: "ill" });
   });
 });

@@ -76,15 +76,15 @@ describe("deriveExecutionEdge — derivation", () => {
     expect(p.value).toBe(-45);
   });
 
-  it("handles the 'higher = failure' side (e.g. high reported strain)", () => {
+  it("handles the 'higher = failure' side (e.g. a high-value stamped signal)", () => {
     const higherSpec: ExecutionEdgeSpec = {
       ...lowerSpec,
       failureSide: "higher",
       clampTo: [4, 20],
-      signal: (e) => e.morningCheck?.fatigue ?? null,
+      signal: (e) => e.tss ?? null, // any stamped numeric signal exercises the generic engine
     };
-    // failures at high strain (~16), successes at low strain (~6) → edge = median(under) = 16.
-    const hi = (s: number, score: number) => entry(0, score, { morningCheck: { fatigue: s, sleep: 3, soreness: 3 } });
+    // failures at high signal (~16), successes at low signal (~6) → edge = median(under) = 16.
+    const hi = (s: number, score: number) => entry(0, score, { tss: s });
     const entries = [hi(16, 2), hi(17, 3), hi(15, 4), hi(6, 8), hi(5, 9), hi(7, 7)];
     const p = deriveExecutionEdge(entries, higherSpec);
     expect(p.source).toBe("derived");

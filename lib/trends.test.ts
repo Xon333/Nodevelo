@@ -39,12 +39,6 @@ const well = (over: Partial<WellnessEntry>): WellnessEntry => ({
   kcalConsumed: null,
   ctl: null,
   atl: null,
-  soreness: null,
-  fatigue: null,
-  stress: null,
-  mood: null,
-  motivation: null,
-  injury: null,
   ...over,
 });
 

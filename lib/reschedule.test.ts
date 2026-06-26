@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEasyCap, applyProactiveReschedule, suggestProactiveReschedule, suggestReschedule, type DispositionByDate } from "./reschedule";
+import { applyProactiveReschedule, suggestProactiveReschedule, suggestReschedule, type DispositionByDate } from "./reschedule";
 import type { CurrentBlock, CurrentBlockDay, WorkoutType } from "./types";
 
 const day = (date: string, type: WorkoutType, durationMin: number): CurrentBlockDay => ({
@@ -123,22 +123,5 @@ describe("suggestProactiveReschedule / applyProactiveReschedule", () => {
     // Short quality day → recovery never exceeds the original duration.
     const short = block([day("2026-06-17", "SIT", 30), day("2026-06-18", "Threshold", 75)]);
     expect(applyProactiveReschedule(short, TODAY)!.days.find((d) => d.date === TODAY)).toMatchObject({ type: "Recovery", durationMin: 30 });
-  });
-});
-
-describe("applyEasyCap (RR-10)", () => {
-  it("caps a quality day to a same-duration Z2 ride, dropping the structured intervals", () => {
-    const b = block([
-      { date: "2026-06-17", name: "VO2 6x3", type: "VO2max", durationMin: 70, workoutText: "6x3m @ 320W" },
-      day("2026-06-18", "Rest", 0),
-    ]);
-    const td = applyEasyCap(b, TODAY)!.days.find((d) => d.date === TODAY)!;
-    expect(td).toMatchObject({ type: "Z2", durationMin: 70 });
-    expect(td.name).toContain("capped from VO2max");
-    expect(td.workoutText).toBeUndefined(); // hard intervals dropped — it's an easy endurance ride now
-  });
-
-  it("returns null when today isn't a quality day to cap", () => {
-    expect(applyEasyCap(block([day("2026-06-17", "Z2", 90)]), TODAY)).toBeNull();
   });
 });

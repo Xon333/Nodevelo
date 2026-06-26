@@ -6,18 +6,15 @@ import {
   isAcwrBandsOverridden,
   isAthleteStateWeightsOverridden,
   isDurabilityInsertEnvelopeOverridden,
-  isStrainBandsOverridden,
   isTsbModifierEdgesOverridden,
   resolveAcwrBands,
   resolveAthleteStateWeights,
   resolveDurabilityInsertEnvelope,
-  resolveStrainBands,
   resolveTsbModifierEdges,
   type AcwrBands,
   type AthleteStateWeights,
   type DeepPartial,
   type DurabilityInsertEnvelope,
-  type StrainBands,
   type TsbModifierEdges,
 } from "@/lib/calibration";
 
@@ -76,14 +73,6 @@ export async function PUT(req: Request) {
     updated.tsbModifierEdges = resolveTsbModifierEdges(b.tsbModifierEdges as Partial<TsbModifierEdges>);
   } else if (current.tsbModifierEdges) {
     updated.tsbModifierEdges = current.tsbModifierEdges;
-  }
-
-  // Morning-check strain-band override (ROADMAP #2): same clamp-or-preserve pattern. Read by the
-  // morning-check route — before SET-1 this (and the two below) were dropped on every save.
-  if (isStrainBandsOverridden(b.strainBands as Partial<StrainBands> | null)) {
-    updated.strainBands = resolveStrainBands(b.strainBands as Partial<StrainBands>);
-  } else if (current.strainBands) {
-    updated.strainBands = current.strainBands;
   }
 
   // Durability-insert envelope override (ROADMAP #2): read by the generate route's plan validation.

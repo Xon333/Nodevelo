@@ -51,12 +51,9 @@ export interface CoachSnapshot {
       // average IF hides. null when not an easy day or no zone data. See timeAboveZ2Fraction.
       aboveZ2Pct: number | null;
     } | null;
-    // The athlete's pre-session subjective read (ROADMAP #3), null until they check in today.
+    // The athlete's manual morning override (ROADMAP #3), null until they flag today.
     morningCheck: {
-      fatigue: number;
-      sleep: number;
-      soreness: number;
-      illness: MorningCheckEntry["illness"];
+      flag: MorningCheckEntry["flag"];
       decision: MorningCheckEntry["decision"];
     } | null;
   };
@@ -231,13 +228,7 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
             }
           : null,
       morningCheck: input.morningCheck
-        ? {
-            fatigue: input.morningCheck.fatigue,
-            sleep: input.morningCheck.sleep,
-            soreness: input.morningCheck.soreness,
-            illness: input.morningCheck.illness,
-            decision: input.morningCheck.decision,
-          }
+        ? { flag: input.morningCheck.flag, decision: input.morningCheck.decision }
         : null,
     },
     form: {
@@ -357,8 +348,9 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
 
   const mc = s.today.morningCheck;
   if (mc) {
+    const flagLabel = mc.flag === "ill" ? "feeling ill" : "extreme fatigue";
     lines.push(
-      `- Reported this morning: fatigue ${mc.fatigue}/5 · sleep ${mc.sleep}/5 · soreness ${mc.soreness}/5${mc.illness !== "none" ? ` · illness ${mc.illness}` : ""} → ${mc.decision === "downgrade" ? "recommended a downgrade" : "cleared to proceed"}.`
+      `- Flagged this morning: ${flagLabel} → ${mc.decision === "downgrade" ? "downgraded today's quality session" : "no change (not a quality day)"}.`
     );
   }
 

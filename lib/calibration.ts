@@ -91,35 +91,9 @@ export function isTsbModifierEdgesOverridden(override?: Partial<TsbModifierEdges
   );
 }
 
-// ---------- Morning-check strain bands (ROADMAP #2 — population-fallback fold-in) ----------
-// The subjective-strain thresholds decideMorningCheck downgrades a quality day against. Like the ACWR
-// and TSB-edge bands above — and unlike the decoupling cutoff — no honest per-athlete derivation exists
-// (we lack a labelled "this strain wrecked the session" signal), so they stay population-validated
-// defaults with a manual override, under the same resolve-with-fallback machinery. Strain is the 4
-// (fresh) … 20 (wrecked) score from morning-check's strainScore.
-export interface StrainBands {
-  high: number; // strain ≥ this → downgrade on its own
-  med: number; // strain ≥ this → downgrade only when the objective signals agree
-}
-
-// Population defaults — the literal edges decideMorningCheck shipped with, so an un-overridden athlete
-// is decided byte-identically.
-export const DEFAULT_STRAIN_BANDS: StrainBands = { high: 15, med: 12 };
-
-export function resolveStrainBands(override?: Partial<StrainBands> | null): StrainBands {
-  const o = override ?? {};
-  // Both edges live inside strain's 4–20 range; keep high ≥ med so a bad override can't make the
-  // "downgrade only with corroboration" band outrank the "downgrade outright" band.
-  const high = clamp(pick(o.high, DEFAULT_STRAIN_BANDS.high), 5, 20);
-  let med = clamp(pick(o.med, DEFAULT_STRAIN_BANDS.med), 4, 19);
-  if (med >= high) med = high - 1;
-  return { high, med };
-}
-
-export function isStrainBandsOverridden(override?: Partial<StrainBands> | null): boolean {
-  if (!override) return false;
-  return (["high", "med"] as const).some((k) => typeof override[k] === "number" && Number.isFinite(override[k] as number));
-}
+// Note: the morning-check subjective-strain bands + their derived edge (deriveStrainHigh /
+// resolveStrainBandsOverride) were removed with the subjective-wellness sync. The morning override is now a
+// manual ill / extreme-fatigue flag (see lib/morning-check.ts) with no per-athlete band to calibrate.
 
 // ---------- Durability-insert envelope (ROADMAP #2 — population-fallback fold-in) ----------
 // The KB §12 envelope a durability template's embedded hard efforts (threshold/VO2 work buried inside
@@ -273,8 +247,8 @@ const TSB_DISCRIMINATION_MARGIN = 4; // failures must sit ≥ this many TSB poin
 const TSB_DEEP_MIN = -45; // clamp the derived edge to a sane deep-fatigue range
 const TSB_DEEP_MAX = -12;
 
-// Confidence for a quality-execution edge (CS-7) — shared by the TSB deep-fatigue and strain-high specs;
-// not the generic confidenceFromN: quality FAILURES are rare and each is informative, so the bar is lower
+// Confidence for the TSB deep-fatigue edge (CS-7) — not the generic confidenceFromN: quality FAILURES are
+// rare and each is informative, so the bar is lower
 // than the sample-size default, but it also requires real CONTRAST (enough successes) rather than weighting
 // failure count alone. resolveCalibratedValue applies a derived value only at medium+, so the effective gate
 // to take effect is nUnder ≥ 5 AND nGood ≥ 3.
@@ -320,43 +294,6 @@ export function resolveTsbEdgesOverride(
   // ordering pass rewrite the manual value.
   if (isNum(o.productiveOverload)) deepFatigue = Math.min(deepFatigue, o.productiveOverload - 1);
   return { ...o, deepFatigue };
-}
-
-// ---------- Strain-high edge (ROADMAP #2, Inc 2) ----------
-// The morning-check strain edge is the second consumer of the shared correlation engine: the reported-
-// strain level at which quality execution falls apart for THIS athlete. Mirrors TSB deep-fatigue, but on
-// the FAILURE-HIGH side (high strain = bad). Only the `high` band is derived; `med` stays population/
-// override (a single failure side can't honestly place both bands). The composite strain is stamped on
-// each entry's morningCheck context at sync time (e.morningCheck.strain).
-const STRAIN_HIGH_SPEC: ExecutionEdgeSpec = {
-  types: TSB_QUALITY_TYPES, // same quality sessions worth protecting
-  signal: (e) => e.morningCheck?.strain ?? null,
-  underBar: TSB_UNDER_BAR,
-  goodBar: TSB_GOOD_BAR,
-  failureSide: "higher", // high reported strain = failure
-  discriminationMargin: 2, // failures must sit ≥ 2 strain points above successes (scale 4–20)
-  clampTo: [DEFAULT_STRAIN_BANDS.med, 19], // stay above med's default, below the 20 ceiling
-  confidence: qualityFailureConfidence,
-};
-
-export function deriveStrainHigh(entries: RideScoreEntry[]): CalibratedParameter {
-  return deriveExecutionEdge(entries, STRAIN_HIGH_SPEC);
-}
-
-// The effective strain-band override to feed resolveStrainBands. Precedence mirrors resolveTsbEdgesOverride
-// (manual > derived > population): a manually-pinned `high` is authoritative; otherwise the derived edge
-// fills it, kept strictly ABOVE a manually-set `med` so resolveStrainBands' ordering pass can't rewrite the
-// manual value. No signal → population `high` (byte-identical classification).
-export function resolveStrainBandsOverride(
-  entries: RideScoreEntry[],
-  settingsOverride?: Partial<StrainBands> | null
-): Partial<StrainBands> {
-  const o = settingsOverride ?? {};
-  const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-  if (isNum(o.high)) return { ...o }; // athlete pinned high — derived doesn't apply
-  let high = resolveCalibratedValue(deriveStrainHigh(entries), DEFAULT_STRAIN_BANDS.high);
-  if (isNum(o.med)) high = Math.max(high, o.med + 1); // keep derived high above a manual med
-  return { ...o, high };
 }
 
 // ---------- Per-parameter calibration framework (ROADMAP #2) ----------

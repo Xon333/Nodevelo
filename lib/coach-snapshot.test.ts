@@ -148,10 +148,10 @@ describe("buildCoachSnapshot", () => {
     expect(s.fuel.fuelingState).toBeNull();
   });
 
-  it("carries today's morning check into the snapshot", () => {
-    const morningCheck: MorningCheckEntry = { date: TODAY, fatigue: 4, sleep: 2, soreness: 4, motivation: 2, illness: "mild", strain: 16, decision: "downgrade", setAt: "" };
+  it("carries today's morning flag into the snapshot", () => {
+    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "ill", decision: "downgrade", setAt: "" };
     const s = buildCoachSnapshot(baseInput({ morningCheck }));
-    expect(s.today.morningCheck).toMatchObject({ fatigue: 4, illness: "mild", decision: "downgrade" });
+    expect(s.today.morningCheck).toMatchObject({ flag: "ill", decision: "downgrade" });
   });
 
   it("treats a stale today-analysis (different date) as no ride logged", () => {
@@ -195,7 +195,7 @@ describe("buildCoachSnapshotFromSources", () => {
       { date: "2026-06-19", disposition: "missed", reason: null, setAt: "" }, // a different day — must be ignored
     ];
     const morningChecks: MorningCheckEntry[] = [
-      { date: TODAY, fatigue: 2, sleep: 4, soreness: 2, motivation: 4, illness: "none", strain: 8, decision: "proceed", setAt: "" },
+      { date: TODAY, flag: "extreme-fatigue", decision: "proceed", setAt: "" },
     ];
     const s = buildCoachSnapshotFromSources(sources({ dispositions, morningChecks }));
     expect(s.date).toBe(TODAY);
@@ -222,12 +222,11 @@ describe("formatCoachSnapshot", () => {
     expect(out).toContain("target 2,800 kcal");
   });
 
-  it("renders the reported morning check when present", () => {
-    const morningCheck: MorningCheckEntry = { date: TODAY, fatigue: 4, sleep: 2, soreness: 4, motivation: 2, illness: "mild", strain: 16, decision: "downgrade", setAt: "" };
+  it("renders the morning flag when present", () => {
+    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "ill", decision: "downgrade", setAt: "" };
     const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ morningCheck })));
-    expect(out).toContain("Reported this morning: fatigue 4/5");
-    expect(out).toContain("illness mild");
-    expect(out).toContain("recommended a downgrade");
+    expect(out).toContain("Flagged this morning: feeling ill");
+    expect(out).toContain("downgraded today's quality session");
   });
 
   it("never renders the reserved (WIP) fuel slots", () => {

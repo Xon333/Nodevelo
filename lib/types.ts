@@ -96,18 +96,9 @@ export interface WellnessEntry {
   kcalConsumed: number | null;
   ctl: number | null;
   atl: number | null;
-  // Subjective self-report, synced straight from Intervals.icu's wellness screen so it's logged once
-  // (where the athlete already logs weight + kcal) rather than in a separate NodeVelo form. Raw 1–4
-  // ordinals as Intervals returns them — same order as its UI, where for ALL of these a HIGHER number is
-  // the WORSE state: soreness 1=low…4=extreme, fatigue 1=low…4=extreme, stress 1=low…4=extreme,
-  // mood 1=great…4=grumpy, motivation 1=highly motivated…4=unmotivated, injury 1=none…4=injured.
-  // null when the athlete hasn't logged that field. (Direction is interpreted by consumers, not here.)
-  soreness: number | null;
-  fatigue: number | null;
-  stress: number | null;
-  mood: number | null;
-  motivation: number | null;
-  injury: number | null;
+  // Note: subjective self-report (soreness/fatigue/stress/mood/motivation/injury) was synced briefly but
+  // removed — it was latent/dead and un-utilitarian. The morning read is now a manual "feeling ill /
+  // extreme fatigue" flag (see MorningCheckEntry); objective wellness above is what the load model uses.
 }
 
 export interface PowerCurvePoint {
@@ -321,9 +312,6 @@ export interface BlockSettings {
   // Optional manual override for the TSB adaptation-window edges resolveTsbModifier classifies form
   // against (ROADMAP #2). Absent = population defaults; set to personalise the fatigue-tolerance bands.
   tsbModifierEdges?: { deepFatigue: number; productiveOverload: number; balanced: number };
-  // Optional manual override for the morning-check subjective-strain bands (ROADMAP #2). Absent =
-  // population defaults; set to personalise where reported strain downgrades a quality day.
-  strainBands?: { high: number; med: number };
   // Optional manual override for the durability-insert envelope (ROADMAP #2): the %FTP floor above
   // which an embedded effort counts as a hard insert, and the %FTP / duration ceiling it must fall
   // within. Absent = population defaults (88% floor, ≤122% / ≤20 min).
@@ -447,14 +435,12 @@ export interface RideScoreEntry {
   // (planned rides only — off-plan rides skip the intensity-vs-type branch). (Decoupling was demoted out
   // of execution scoring — ACC-2026-06-25 — so it's no longer stamped here.)
   calibration?: { ifBandOffset?: number };
-  // Athlete-state CONTEXT frozen at scoring time (ROADMAP #2 — context-stamp the ledger): the state the
-  // athlete carried into this session, so a later state→subsequent-execution correlation can derive the
-  // override-only edges honestly (e.g. auto-derive the TSB adaptation window). Both are provenance only —
-  // they never feed the entry's own executionScore.
-  // `formState`: objective load (intervals.icu's own per-day CTL/ATL, authoritative). `morningCheck`: the
-  // day's subjective self-report. Each absent on pre-feature entries or when no data covers the date.
+  // Athlete-state CONTEXT frozen at scoring time (ROADMAP #2 — context-stamp the ledger): the objective
+  // load (intervals.icu's own per-day CTL/ATL, authoritative) the athlete carried into this session, so a
+  // later state→subsequent-execution correlation can derive the override-only edges honestly (e.g. the TSB
+  // adaptation window). Provenance only — never feeds the entry's own executionScore. Absent on pre-feature
+  // entries or when no wellness covers the date.
   formState?: RideFormState;
-  morningCheck?: RideMorningContext;
   // Fueling CONTEXT frozen at scoring time (ROADMAP Track C): the carbohydrate intake the athlete logged
   // for this ride, normalised to g/h, so a later carbs→execution/decoupling correlation can derive their
   // optimal intake. Provenance only — never feeds executionScore. Stamped only when a real (>0) intake was
@@ -470,22 +456,10 @@ export interface RideFormState {
   atl: number;
 }
 
-// The subjective morning self-report on a ride's date (1–5; fatigue/soreness higher = worse, sleep
-// higher = better). The first-person signal not captured by objective load. Stamped as context.
-export interface RideMorningContext {
-  fatigue: number;
-  sleep: number;
-  soreness: number;
-  // The composite strain (4–20) the day's read scored to — the signal deriveStrainHigh correlates
-  // against. Optional: pre-Inc-2 entries (form-era stamps) carry the raw fields but no composite.
-  strain?: number;
-}
-
 // Everything stamped onto a ledger entry as athlete-state context for a given date (ROADMAP #2). Resolved
-// per-date and frozen onto the entry; any field absent when no data covers that date.
+// per-date and frozen onto the entry; absent when no wellness covers that date.
 export interface RideEntryContext {
   formState?: RideFormState;
-  morningCheck?: RideMorningContext;
 }
 
 // ---------- Athlete model (the learning "second brain") ----------
@@ -780,25 +754,18 @@ export interface DispositionLog {
   updatedAt: string;
 }
 
-// ---------- Morning check-in (data/morning-check.json) ----------
-// The proactive counterpart to dispositions: a pre-session subjective read (the fatigue/sleep/
-// soreness signals the deliberately-absent HRV feed would give) that drives a deterministic
-// proceed-vs-downgrade decision. Editable per day, like dispositions (not an immutable ledger).
+// ---------- Morning override (data/morning-check.json) ----------
+// The proactive counterpart to dispositions: a one-tap manual flag — feeling ill or extremely fatigued —
+// that downgrades today's quality session. Editable per day, like dispositions (not an immutable ledger).
+// Objective fatigue is surfaced separately by computeReadiness/computeFatigueAlert; this is the athlete's
+// override for "I feel worse than the load model can see."
 
-export type IllnessLevel = "none" | "mild" | "sick";
-// "proceed-easy" = train today but cap intensity (mild illness, neck-check rule) — between an
-// unchanged proceed and a full downgrade that moves/defers the stimulus.
-export type MorningCheckDecision = "proceed" | "proceed-easy" | "downgrade";
+export type MorningCheckFlag = "ill" | "extreme-fatigue";
+export type MorningCheckDecision = "proceed" | "downgrade";
 
 export interface MorningCheckEntry {
   date: string; // YYYY-MM-DD
-  // All 1–5; higher = more of that thing (fatigue/soreness 5 = bad, sleep/motivation 5 = good).
-  fatigue: number;
-  sleep: number;
-  soreness: number;
-  motivation: number;
-  illness: IllnessLevel;
-  strain: number; // derived: fatigue + soreness + (6−sleep) + (6−motivation)
+  flag: MorningCheckFlag;
   decision: MorningCheckDecision;
   setAt: string;
 }

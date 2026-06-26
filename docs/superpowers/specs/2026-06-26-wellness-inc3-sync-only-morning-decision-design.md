@@ -1,7 +1,13 @@
 # Wellness Inc 3 — sync-only morning decision (retire the morning-check form)
 
+> ⚠️ **SUPERSEDED (2026-06-26)** by
+> [`2026-06-26-remove-subjective-wellness-manual-flag-design.md`](./2026-06-26-remove-subjective-wellness-manual-flag-design.md).
+> The direction changed: instead of sourcing the morning read from synced subjective wellness, the subjective
+> sync is removed entirely (reverting Inc 1 + Inc 2) in favour of a small manual "feeling ill / extreme
+> fatigue" button. Kept for history; do not implement this one.
+
 **Date:** 2026-06-26
-**Status:** design approved, pre-implementation
+**Status:** SUPERSEDED — not implemented
 **ROADMAP:** "Subjective wellness from Intervals.icu — retire the morning-check form" → Inc 3
 **Builds on:** Inc 1 (synced subjective wellness → `WellnessEntry`), Inc 2 (`wellnessToMorningAnswers` adapter + `deriveStrainHigh`/`resolveStrainBandsOverride`).
 

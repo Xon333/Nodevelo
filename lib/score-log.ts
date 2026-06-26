@@ -91,12 +91,11 @@ export function buildRideScores(
         : null;
     // Easy-ride discipline signal (Z2/Recovery only, applied in computeExecutionScore).
     const aboveZ2Frac = timeAboveZ2Fraction(act.powerZoneTimes);
-    // Context-stamp (ROADMAP #2): the state the athlete carried into this date (form + morning-check).
-    // Spread-ready so an entry stays context-free when no data covers the date (byte-identical to before).
+    // Context-stamp (ROADMAP #2): the objective form the athlete carried into this date.
+    // Spread-ready so an entry stays context-free when no wellness covers the date.
     const ctx = contextForDate?.(act.date) ?? null;
     const contextStamp = {
       ...(ctx?.formState ? { formState: ctx.formState } : {}),
-      ...(ctx?.morningCheck ? { morningCheck: ctx.morningCheck } : {}),
     };
 
     const planned = plannedByDate.get(act.date);
@@ -206,21 +205,15 @@ export function mergeScoreLogRebuild(fresh: RideScoreEntry[], existing: RideScor
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-MAX_ENTRIES);
 }
 
-// LEDGER-2: a rebuild re-scores from corrected activity data, but the frozen context provenance
-// (formState/morningCheck — stamped when the wellness/morning-check window still covered the date) can't
-// always be reconstructed: the wellness window is shorter than the activity window. Carry forward any
-// stamp the fresh entry lacks so a rebuild never silently deletes a correlation-engine data point. A
-// fresh stamp always wins when present; a context-free entry stays context-free (no undefined keys).
+// LEDGER-2: a rebuild re-scores from corrected activity data, but the frozen form provenance (stamped when
+// the wellness window still covered the date) can't always be reconstructed: the wellness window is shorter
+// than the activity window. Carry forward the stamp the fresh entry lacks so a rebuild never silently
+// deletes a correlation-engine data point. A fresh stamp always wins; a context-free entry stays so.
 function carryForwardContext(fresh: RideScoreEntry, prev: RideScoreEntry | undefined): RideScoreEntry {
   if (!prev) return fresh;
   const formState = fresh.formState ?? prev.formState;
-  const morningCheck = fresh.morningCheck ?? prev.morningCheck;
-  if (formState === fresh.formState && morningCheck === fresh.morningCheck) return fresh; // nothing to carry
-  return {
-    ...fresh,
-    ...(formState !== undefined ? { formState } : {}),
-    ...(morningCheck !== undefined ? { morningCheck } : {}),
-  };
+  if (formState === fresh.formState) return fresh; // nothing to carry
+  return { ...fresh, ...(formState !== undefined ? { formState } : {}) };
 }
 
 // Complete-riding-behaviour signal from ALL logged rides (planned + off-plan).

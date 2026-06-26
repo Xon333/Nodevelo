@@ -128,22 +128,13 @@ describe("buildRideScores", () => {
     expect(entry.calibration).toBeUndefined(); // off-plan skips the IF branch, so nothing is stamped
   });
 
-  it("freezes the athlete-state context (form + morning-check) as of the ride date (ROADMAP #2)", () => {
+  it("freezes the athlete-state form context as of the ride date (ROADMAP #2)", () => {
     const b = block([{ date: "2026-01-03", type: "Z2", durationMin: 60 }]);
     const acts = [activity({ date: "2026-01-03", avgWatts: 135, normalizedPower: 138 })];
     const contextForDate = (date: string) =>
-      date === "2026-01-03"
-        ? { formState: { tsb: -12, ctl: 50, atl: 62 }, morningCheck: { fatigue: 3, sleep: 4, soreness: 2 } }
-        : null;
+      date === "2026-01-03" ? { formState: { tsb: -12, ctl: 50, atl: 62 } } : null;
     const entry = buildRideScores(b, acts, ftp200, "2026-01-10", null, null, contextForDate)[0];
     expect(entry.formState).toEqual({ tsb: -12, ctl: 50, atl: 62 });
-    expect(entry.morningCheck).toEqual({ fatigue: 3, sleep: 4, soreness: 2 });
-    // Each field is independent — a resolver may carry only one (form here, no morning-check).
-    const formOnly = buildRideScores(b, acts, ftp200, "2026-01-10", null, null, () => ({
-      formState: { tsb: 5, ctl: 50, atl: 45 },
-    }))[0];
-    expect(formOnly.formState).toEqual({ tsb: 5, ctl: 50, atl: 45 });
-    expect(formOnly.morningCheck).toBeUndefined();
     // Absent when no resolver, or when the resolver has nothing for that date (byte-identical to before).
     expect(buildRideScores(b, acts, ftp200, "2026-01-10")[0].formState).toBeUndefined();
     expect(buildRideScores(b, acts, ftp200, "2026-01-10", null, null, () => null)[0].formState).toBeUndefined();
@@ -276,15 +267,14 @@ describe("mergeScoreLogRebuild (SYNC-2, LEDGER-1)", () => {
     expect(e?.plannedType).toBe("Threshold");
   });
 
-  it("carries forward frozen context (formState/morningCheck) the re-score can't reconstruct (LEDGER-2)", () => {
-    // The wellness/morning-check window is shorter than the activity window, so a rebuilt fresh entry for
-    // an old date has no context. The original stamp must survive — it's the correlation engine's input.
-    const existing = [mk("2026-01-03", { planned: false, plannedType: null, formState: { tsb: -12, ctl: 50, atl: 62 }, morningCheck: { fatigue: 3, sleep: 4, soreness: 2 } })];
+  it("carries forward frozen form context the re-score can't reconstruct (LEDGER-2)", () => {
+    // The wellness window is shorter than the activity window, so a rebuilt fresh entry for an old date has
+    // no context. The original form stamp must survive — it's the correlation engine's input.
+    const existing = [mk("2026-01-03", { planned: false, plannedType: null, formState: { tsb: -12, ctl: 50, atl: 62 } })];
     const fresh = [mk("2026-01-03", { planned: false, plannedType: null, executionScore: 8 })]; // re-scored, no context
     const e = mergeScoreLogRebuild(fresh, existing).find((x) => x.date === "2026-01-03");
     expect(e?.executionScore).toBe(8); // fresh re-score still wins
     expect(e?.formState).toEqual({ tsb: -12, ctl: 50, atl: 62 }); // provenance preserved
-    expect(e?.morningCheck).toEqual({ fatigue: 3, sleep: 4, soreness: 2 });
   });
 
   it("does not overwrite a fresh context stamp with the old one", () => {

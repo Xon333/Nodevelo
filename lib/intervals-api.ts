@@ -283,14 +283,6 @@ export async function fetchWellness(oldest: string, newest: string): Promise<Wel
       kcalConsumed: num(w.kcalConsumed),
       ctl: num(w.ctl),
       atl: num(w.atl),
-      // Subjective self-report (Intervals.icu 1–4, higher = worse — see WellnessEntry). Sourced here so
-      // the morning read comes from the athlete's existing Intervals.icu logging, not a separate form.
-      soreness: num(w.soreness),
-      fatigue: num(w.fatigue),
-      stress: num(w.stress),
-      mood: num(w.mood),
-      motivation: num(w.motivation),
-      injury: num(w.injury),
     };
   });
 }

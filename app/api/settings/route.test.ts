@@ -28,17 +28,6 @@ const lastWritten = (): BlockSettings => writeMock().mock.calls.at(-1)![0] as Bl
 beforeEach(() => vi.clearAllMocks());
 
 describe("PUT /api/settings — calibration override persistence (SET-1)", () => {
-  it("persists a strainBands override, clamped via the resolver", async () => {
-    readMock().mockResolvedValue(base());
-    await put({ strainBands: { high: 99, med: 2 } }); // out of range → clamped to high 20 / med 4
-    expect(lastWritten().strainBands).toEqual({ high: 20, med: 4 });
-  });
-
-  it("preserves an existing strainBands override when the PUT omits it (no silent wipe)", async () => {
-    readMock().mockResolvedValue(base({ strainBands: { high: 13, med: 8 } }));
-    await put({ polarisedApproach: false }); // unrelated change
-    expect(lastWritten().strainBands).toEqual({ high: 13, med: 8 });
-  });
 
   it("persists a durabilityInsertEnvelope override and preserves it when omitted", async () => {
     readMock().mockResolvedValue(base());
@@ -71,7 +60,6 @@ describe("PUT /api/settings — calibration override persistence (SET-1)", () =>
     readMock().mockResolvedValue(base());
     await put({ restDaysPerWeek: 2 });
     const out = lastWritten();
-    expect(out.strainBands).toBeUndefined();
     expect(out.durabilityInsertEnvelope).toBeUndefined();
     expect(out.athleteStateWeights).toBeUndefined();
   });

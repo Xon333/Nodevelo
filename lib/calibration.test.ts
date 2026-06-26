@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_STRAIN_BANDS, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveStrainHigh, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isStrainBandsOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveStrainBands, resolveStrainBandsOverride, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
+import { autoEwmaAlpha, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveDecouplingGood, deriveIfBandOffsets, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
 import type { CalibratedParameter, RideScoreEntry } from "./types";
 
 // Minimal quality-session ledger entry with a stamped TSB, for the deep-fatigue derivation tests.
@@ -95,38 +95,6 @@ describe("isTsbModifierEdgesOverridden", () => {
     expect(isTsbModifierEdgesOverridden(null)).toBe(false);
     expect(isTsbModifierEdgesOverridden({})).toBe(false);
     expect(isTsbModifierEdgesOverridden({ deepFatigue: -30 })).toBe(true);
-  });
-});
-
-describe("resolveStrainBands (ROADMAP #2 — morning-check strain)", () => {
-  it("returns population defaults with no override", () => {
-    expect(resolveStrainBands()).toEqual(DEFAULT_STRAIN_BANDS);
-    expect(resolveStrainBands(null)).toEqual(DEFAULT_STRAIN_BANDS);
-    expect(resolveStrainBands({})).toEqual(DEFAULT_STRAIN_BANDS);
-  });
-
-  it("merges a partial override onto the defaults", () => {
-    expect(resolveStrainBands({ high: 17 })).toEqual({ high: 17, med: 12 });
-  });
-
-  it("keeps high above med when an override inverts them", () => {
-    const b = resolveStrainBands({ high: 10, med: 14 });
-    expect(b.med).toBeLessThan(b.high);
-  });
-
-  it("ignores non-finite values and clamps to strain's 4–20 range", () => {
-    const b = resolveStrainBands({ high: Number.NaN, med: 99 });
-    expect(b.high).toBe(DEFAULT_STRAIN_BANDS.high);
-    expect(b.med).toBeLessThan(b.high);
-    expect(b.med).toBeGreaterThanOrEqual(4);
-  });
-});
-
-describe("isStrainBandsOverridden", () => {
-  it("detects a real override vs none", () => {
-    expect(isStrainBandsOverridden(null)).toBe(false);
-    expect(isStrainBandsOverridden({})).toBe(false);
-    expect(isStrainBandsOverridden({ high: 17 })).toBe(true);
   });
 });
 
@@ -303,77 +271,6 @@ describe("resolveTsbEdgesOverride (derived edge + manual override precedence)", 
     const edges = resolveTsbModifierEdges(resolveTsbEdgesOverride(entries, { productiveOverload: -15 }));
     expect(edges.productiveOverload).toBe(-15); // manual neighbour preserved, not nudged to −11
     expect(edges.deepFatigue).toBeLessThan(-15); // derived edge yielded below it
-  });
-});
-
-// Strain entry: stamps the composite strain on morningCheck (the signal deriveStrainHigh reads); the
-// base qEntry is a planned VO2max quality session, so it's eligible. Higher strain = the failure side.
-function sEntry(strain: number, executionScore: number, over: Partial<RideScoreEntry> = {}): RideScoreEntry {
-  return { ...qEntry(0, executionScore), morningCheck: { fatigue: 3, sleep: 3, soreness: 3, strain }, ...over };
-}
-
-describe("deriveStrainHigh (ROADMAP #2, Inc 2 — auto-derive from stamped strain context)", () => {
-  it("derives the high band from under-executed quality when strain discriminates", () => {
-    const entries = [
-      ...Array.from({ length: 4 }, () => sEntry(17, 3)), // failed quality at high strain
-      sEntry(8, 7), // nailed quality when fresh
-      sEntry(7, 8),
-    ];
-    const p = deriveStrainHigh(entries);
-    expect(p.source).toBe("derived");
-    expect(p.value).toBe(17); // median strain of the failures
-    expect(p.dataPoints).toBe(4);
-  });
-
-  it("stays on the default when there are no quality failures to learn from", () => {
-    expect(deriveStrainHigh([sEntry(8, 8), sEntry(7, 7)]).source).toBe("default");
-  });
-
-  it("refuses to derive when strain does NOT discriminate (failures aren't higher than successes)", () => {
-    const entries = [...Array.from({ length: 4 }, () => sEntry(13, 3)), sEntry(12, 7), sEntry(12, 8)];
-    expect(deriveStrainHigh(entries).source).toBe("default");
-  });
-
-  it("refuses to derive without successful sessions to contrast against", () => {
-    expect(deriveStrainHigh(Array.from({ length: 8 }, () => sEntry(17, 3))).source).toBe("default");
-  });
-
-  it("excludes off-plan, legacy, compromised and non-quality entries", () => {
-    const entries = [
-      sEntry(17, 3, { planned: false, plannedType: null }),
-      sEntry(17, 3, { legacy: true }),
-      sEntry(17, 3, { compromised: true }),
-      sEntry(17, 3, { inferredType: "Z2", plannedType: "Z2" }),
-    ];
-    expect(deriveStrainHigh([...entries, sEntry(8, 8)]).source).toBe("default"); // nothing eligible
-  });
-
-  it("clamps the derived high band below the 20 ceiling", () => {
-    const entries = [...Array.from({ length: 4 }, () => sEntry(30, 2)), sEntry(8, 8)];
-    expect(deriveStrainHigh(entries).value).toBe(19); // clamped from 30
-  });
-});
-
-describe("resolveStrainBandsOverride (derived high band + manual override precedence)", () => {
-  it("falls back to the population high default with no signal", () => {
-    expect(resolveStrainBandsOverride([])).toEqual({ high: DEFAULT_STRAIN_BANDS.high });
-  });
-
-  it("does not apply a low-confidence derivation (too few failures)", () => {
-    const entries = [...Array.from({ length: 3 }, () => sEntry(17, 3)), sEntry(8, 8)];
-    expect(resolveStrainBandsOverride(entries)).toEqual({ high: DEFAULT_STRAIN_BANDS.high });
-  });
-
-  it("applies a confident derived high, with any manual high winning", () => {
-    const entries = [...Array.from({ length: 8 }, () => sEntry(17, 3)), sEntry(8, 8), sEntry(7, 7), sEntry(6, 7)];
-    expect(resolveStrainBandsOverride(entries)).toEqual({ high: 17 }); // medium confidence
-    expect(resolveStrainBandsOverride(entries, { high: 13 })).toEqual({ high: 13 }); // manual high wins
-  });
-
-  it("keeps the derived high strictly above a manually-set med", () => {
-    // Derives a shallow high (~13) that would collide with a manual med of 14.
-    const entries = [...Array.from({ length: 5 }, () => sEntry(13, 3)), ...Array.from({ length: 3 }, () => sEntry(5, 8))];
-    expect(resolveStrainBandsOverride(entries, { med: 14 })).toEqual({ med: 14, high: 15 }); // bumped above med, not 13
   });
 });
 

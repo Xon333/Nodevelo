@@ -132,12 +132,6 @@ describe("weightTrendFromWellness", () => {
     kcalConsumed: null,
     ctl: null,
     atl: null,
-    soreness: null,
-    fatigue: null,
-    stress: null,
-    mood: null,
-    motivation: null,
-    injury: null,
   });
 
   it("returns the Theil–Sen slope as kg/7d over the trailing window", () => {

@@ -14,11 +14,8 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
-- 📌 ☐ P2 `audit` **RV2-15 — re-center the strain bands once `deriveStrainHigh` has real ledger stamps.**
-  The wellness strain adapter feeds a neutral `sleep=3` (no wearable autofill), so strain's live range is
-  6–18 not 4–20 and the `med 12 / high 15` bands were never re-centered. Safe today — the guards fall back to
-  the population bands — but DON'T FORGET to re-fit once the ledger carries enough stamped strain values to
-  derive the high band honestly. Data-gated (chicken/egg). _[morning-check.ts](lib/morning-check.ts) · ROADMAP Inc 2._
+_(empty — RV2-15 dropped: the subjective-wellness sync + strain edge it referenced were removed; the morning
+read is now a manual ill / extreme-fatigue flag. See [ARCHIVE.md](ARCHIVE.md).)_
 
 ---
 

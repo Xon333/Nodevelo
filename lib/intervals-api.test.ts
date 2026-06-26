@@ -181,19 +181,19 @@ describe("fetchWellness — subjective self-report mapping", () => {
       new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
     ) as unknown as typeof fetch;
 
-  it("maps the Intervals.icu subjective fields (soreness/fatigue/stress/mood/motivation/injury)", async () => {
+  it("maps the objective wellness fields the load model uses (weight/CTL/ATL/sleep/kcal)", async () => {
     globalThis.fetch = wellnessResponse([
-      { id: "2026-06-24", weight: 62.2, soreness: 2, fatigue: 3, stress: 1, mood: 1, motivation: 2, injury: 1 },
+      { id: "2026-06-24", weight: 62.2, ctl: 50, atl: 55, sleepSecs: 27000, sleepQuality: 3, kcalConsumed: 2600 },
     ]);
     const [w] = await fetchWellness("2026-06-01", "2026-06-24");
-    expect(w).toMatchObject({ soreness: 2, fatigue: 3, stress: 1, mood: 1, motivation: 2, injury: 1, weightKg: 62.2 });
+    expect(w).toMatchObject({ weightKg: 62.2, ctl: 50, atl: 55, sleepHours: 7.5, sleepQuality: 3, kcalConsumed: 2600 });
   });
 
-  it("leaves an unlogged subjective field null (athlete logged only weight)", async () => {
+  it("leaves an unlogged objective field null (athlete logged only weight)", async () => {
     globalThis.fetch = wellnessResponse([{ id: "2026-06-24", weight: 62.2 }]);
     const [w] = await fetchWellness("2026-06-01", "2026-06-24");
-    expect(w.soreness).toBeNull();
-    expect(w.motivation).toBeNull();
+    expect(w.ctl).toBeNull();
+    expect(w.kcalConsumed).toBeNull();
     expect(w.weightKg).toBe(62.2);
   });
 });

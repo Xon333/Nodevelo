@@ -1,50 +1,36 @@
 import { NextResponse } from "next/server";
-import { readBlockSettings, readCurrentBlock, readLastSync, readMorningChecks, readTodayAnalysis, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
-import { resolveStrainBands, resolveTsbModifierEdges } from "@/lib/calibration";
-import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock, type MorningCheckAnswers } from "@/lib/morning-check";
-import { applyEasyCap, applyProactiveReschedule, suggestProactiveReschedule } from "@/lib/reschedule";
-import { computeAcwr, computeReadiness } from "@/lib/readiness";
+import { readCurrentBlock, readMorningChecks, readTodayAnalysis, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
+import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock } from "@/lib/morning-check";
+import { applyProactiveReschedule, suggestProactiveReschedule } from "@/lib/reschedule";
 import { resolveToday } from "@/lib/date";
-import type { CurrentBlock, IllnessLevel, MorningCheckEntry, WorkoutType } from "@/lib/types";
+import type { CurrentBlock, MorningCheckEntry, MorningCheckFlag, WorkoutType } from "@/lib/types";
 
 const QUALITY = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
-const ILLNESS: IllnessLevel[] = ["none", "mild", "sick"];
+const FLAGS: MorningCheckFlag[] = ["ill", "extreme-fatigue"];
 
-// "today" is the CLIENT's local date (query param on GET, body field otherwise) so client + server
-// agree across the UTC day boundary — same discipline as /api/sync (resolveToday falls back to UTC).
+// "today" is the CLIENT's local date (query param on GET, body field otherwise) so client + server agree
+// across the UTC day boundary — same discipline as /api/sync (resolveToday falls back to UTC).
 
-// GET → the UI's state: today's stored check (if any), whether today is a quality day, and the
-// proactive reschedule target (so the form can preview the move before the athlete applies it).
+function isQualityToday(block: CurrentBlock | null, date: string): boolean {
+  const day = block?.days.find((d) => d.date === date) ?? null;
+  return !!day && day.durationMin > 0 && QUALITY.has(day.type);
+}
+
+// GET → today's stored flag (if any), whether today is a quality day, and the proactive reschedule target
+// (so the UI can preview the move before applying).
 export async function GET(req: Request) {
   const date = resolveToday(new URL(req.url).searchParams.get("today"));
   const [block, checks] = await Promise.all([readCurrentBlock(), readMorningChecks()]);
-  const todayDay = block?.days.find((d) => d.date === date) ?? null;
-  const isQualityDay = !!todayDay && todayDay.durationMin > 0 && QUALITY.has(todayDay.type);
   return NextResponse.json({
     check: checks.entries.find((e) => e.date === date) ?? null,
-    isQualityDay,
+    isQualityDay: isQualityToday(block, date),
     suggestion: suggestProactiveReschedule(block, date),
   });
 }
 
-function parseAnswers(b: Record<string, unknown>): MorningCheckAnswers | string {
-  const rating = (v: unknown): number | null => {
-    const n = typeof v === "number" ? v : Number(v);
-    return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null;
-  };
-  const fatigue = rating(b.fatigue);
-  const sleep = rating(b.sleep);
-  const soreness = rating(b.soreness);
-  const motivation = rating(b.motivation);
-  if (fatigue === null || sleep === null || soreness === null || motivation === null) {
-    return "fatigue, sleep, soreness and motivation must each be an integer 1–5.";
-  }
-  if (!ILLNESS.includes(b.illness as IllnessLevel)) return "illness must be none, mild or sick.";
-  return { fatigue, sleep, soreness, motivation, illness: b.illness as IllnessLevel };
-}
-
-// POST → submit the check-in. Computes the deterministic decision (subjective strain + the objective
-// form signals), stores it, and returns the decision + the proposed move. Does NOT auto-apply.
+// POST → set today's manual flag (feeling ill / extreme fatigue). Computes the deterministic decision
+// (either flag downgrades a quality day), stores it, and returns the decision + the proposed move. Does
+// NOT auto-apply.
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -53,46 +39,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const b = (body ?? {}) as Record<string, unknown>;
-  const answers = parseAnswers(b);
-  if (typeof answers === "string") return NextResponse.json({ error: answers }, { status: 400 });
+  if (!FLAGS.includes(b.flag as MorningCheckFlag)) {
+    return NextResponse.json({ error: "flag must be 'ill' or 'extreme-fatigue'." }, { status: 400 });
+  }
+  const flag = b.flag as MorningCheckFlag;
 
   const date = resolveToday(b.today);
-  const [block, sync, settings] = await Promise.all([readCurrentBlock(), readLastSync(), readBlockSettings()]);
-  const todayDay = block?.days.find((d) => d.date === date) ?? null;
-  const isQualityDay = !!todayDay && todayDay.durationMin > 0 && QUALITY.has(todayDay.type);
+  const block = await readCurrentBlock();
+  const { decision, reasons } = decideMorningCheck(flag, { isQualityDay: isQualityToday(block, date) });
 
-  const { decision, strain, reasons } = decideMorningCheck(
-    answers,
-    {
-      isQualityDay,
-      tsb: sync?.fitness.tsb ?? null,
-      readiness: sync ? computeReadiness(sync.fitness, sync.wellness)?.level ?? null : null,
-      acwr: sync ? computeAcwr(sync.activities, undefined, date)?.level ?? null : null,
-    },
-    {
-      strainBands: resolveStrainBands(settings.strainBands),
-      tsbDeepEdge: resolveTsbModifierEdges(settings.tsbModifierEdges).deepFatigue,
-    }
-  );
-
-  const entry: MorningCheckEntry = { date, ...answers, strain, decision, setAt: new Date().toISOString() };
+  const entry: MorningCheckEntry = { date, flag, decision, setAt: new Date().toISOString() };
   const log = await readMorningChecks();
   await writeMorningChecks({ entries: mergeMorningCheck(log.entries, entry), updatedAt: new Date().toISOString() });
 
   return NextResponse.json({
     decision,
     reasons,
-    // Both actionable decisions surface the session being acted on (downgrade moves it, proceed-easy
-    // caps it) so the UI can name it; a plain proceed has nothing to preview.
     suggestion: decision !== "proceed" ? suggestProactiveReschedule(block, date) : null,
   });
 }
 
-// PUT → athlete-confirmed apply: downgrade today + move/swap the quality stimulus. Local block only
-// (the Intervals.icu calendar mutation is a separate, larger step — so the note tells the athlete to
-// mirror it), matching the reactive /api/reschedule POST. Guarded: only applies when today's stored
-// check-in recommended a downgrade and the ride hasn't already been logged (the route is the contract,
-// not just the UI).
+// PUT → athlete-confirmed apply: downgrade today + move/swap/defer the quality stimulus. Local block only
+// (the Intervals.icu calendar mutation is a separate, larger step — the note tells the athlete to mirror
+// it), matching the reactive /api/reschedule POST. Guarded: only applies when today's stored flag
+// recommended a downgrade and the ride hasn't already been logged (the route is the contract, not just UI).
 export async function PUT(req: Request) {
   let body: unknown = null;
   try {
@@ -107,14 +77,6 @@ export async function PUT(req: Request) {
   const check = checks.entries.find((e) => e.date === date) ?? null;
   const blocked = proactiveApplyBlock(check, todayAnalysis?.activityDate === date);
   if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
-
-  // proceed-easy → cap today's intensity in place (no relocation); downgrade → move/swap/deload.
-  if (check!.decision === "proceed-easy") {
-    const capped = applyEasyCap(block, date);
-    if (!capped) return NextResponse.json({ error: "Today isn't a quality day to cap." }, { status: 400 });
-    await writeCurrentBlock({ ...block, days: capped.days });
-    return NextResponse.json({ ok: true, to: null, note: "Capped today to an easy Z2 ride. Mirror it on your Intervals.icu calendar." });
-  }
 
   const applied = applyProactiveReschedule(block, date);
   if (!applied) return NextResponse.json({ error: "Today isn't a quality day to downgrade." }, { status: 400 });

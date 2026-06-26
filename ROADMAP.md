@@ -32,37 +32,17 @@ stamps (`formState` + morning-check), the first derived edge (`deriveTsbDeepFati
   fallback; stamp on any ledger entry it scores; test that a fresh athlete scores identically.
 - *Owned elsewhere:* optimal carbs g/h `→ Track C`; ACWR band + EWMA α stay on their current path.
 
-### Subjective wellness from Intervals.icu — retire the morning-check form  ⭐ (active; resume here)
-Source the morning subjective read (soreness / fatigue / stress / mood / motivation / injury) from the
-Intervals.icu **wellness sync** instead of NodeVelo's own form: the athlete already logs it there next to
-weight + kcal, it gets richer for free with a wearable (HRV / readiness / resting-HR auto-fill), and it
-matches the "Intervals.icu is the synced SoT" pattern. **Decision: sync-only** — retire `MorningCheckIn` +
-`morning-check.json`; the proactive "downgrade today?" then needs the morning wellness logged in
-Intervals.icu + a sync (no instant in-app capture — an accepted tradeoff). Wellness *write-back* (so the app
-could still capture it) is a separate `← §7` API piece (only `createEvent` exists today).
-- ☑ **Inc 1 (shipped, `98464b9` → ARCHIVE):** the six subjective fields now map into `WellnessEntry` (raw
-  Intervals 1–4 ordinals, higher = worse).
-- ☑ **Inc 2 (shipped → ARCHIVE):** the ledger morning-context stamp now reads the subjective signals from
-  synced wellness (`wellnessToMorningAnswers` in `morning-check.ts`, wired in `app/api/sync/route.ts`) and
-  carries the composite `strain` on `RideMorningContext`. The strain edge rides the shared engine —
-  `deriveStrainHigh` + `resolveStrainBandsOverride` (one derived edge → the `high` band; `med` stays
-  population/override), mirroring `deriveTsbDeepFatigue` / `resolveTsbEdgesOverride`.
-- ☐ **Inc 3:** run `decideMorningCheck` at sync-time off synced wellness, **wiring `resolveStrainBandsOverride`**
-  into the live decision (it's built + tested but has no production caller yet — Inc 3 is the pure wiring);
-  **keep** the proactive reschedule apply (`PUT` / `applyProactiveReschedule` / `RescheduleBanner` — it just
-  triggers off the synced decision); remove `MorningCheckIn` + the form `POST` + `morning-check.json` (the
-  decision recomputes from wellness).
-- ✅ **Strain-scale decision — SETTLED (A):** map 1–4 → 1–5, **flip motivation** (Intervals higher = worse →
-  formula higher = better), keep the existing formula + bands + thresholds + their tests. stress/mood/injury
-  **deferred** — each becomes its own derived edge later only if it discriminates. B (native redefine) was
-  rejected: it needs re-tuned bands with no ledger data to tune against yet; A is the honest on-ramp since
-  `deriveStrainHigh` personalises the `high` band from real stamps as data accrues.
-- 🔎 **Confirmed vs the live payload (`data/last-sync.json`):** subjective fields populate 1–4 as documented;
-  **motivation** higher = worse (handled by the flip). **`sleepQuality` is null in every row** (no wearable
-  autofill) → the strain `sleep` term feeds the **neutral midpoint (3)**; wire `map5(w.sleepQuality)` and
-  confirm its direction only once a wearable starts filling it. **No illness/sickness field** (injury ≠ sick)
-  → the synced decision can't downgrade for reported illness (accepted limitation; `injury` ≥3 as a downgrade
-  trigger is a possible later add, deferred).
+### Morning override — a manual "feeling ill / extreme fatigue" flag  (shipped → ARCHIVE)
+**Reversed direction (2026-06-26).** The subjective-wellness sync pivot (Inc 1 + Inc 2) was removed — it was
+latent/dead and un-utilitarian, and a wearable will give objective morning-readiness (HRV / sleep /
+resting-HR) that's strictly better. The morning read is now a small Today **two-button flag** (feeling ill /
+extreme fatigue) that downgrades today's quality session; objective fatigue stays surfaced by `readiness`.
+Removed: the six subjective `WellnessEntry` fields, `wellnessToMorningAnswers`, the strain bands + edge
+(`deriveStrainHigh` / `resolveStrainBandsOverride`), the ledger morning stamp. Objective wellness
+(weight / CTL/ATL / HRV / sleep / kcal) is untouched. Spec:
+`docs/superpowers/specs/2026-06-26-remove-subjective-wellness-manual-flag-design.md`.
+- *Future:* when a wearable lands, objective morning-readiness slots into the same place (the load model /
+  athlete-state), replacing the manual flag for the fatigue case.
 
 ### Scoring-core gaps (route through #2 — they touch `execution-score.ts`)
 - **Off-plan aerobic signal — fill the gap decoupling left** ⭐ — decoupling was demoted out of execution

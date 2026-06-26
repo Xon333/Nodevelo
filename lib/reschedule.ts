@@ -148,18 +148,3 @@ export function applyProactiveReschedule(
   return { days, to: sug.to, deferred, skippedRestDay: sug.skippedRestDay };
 }
 
-// Proceed-easy cap (RR-10): the athlete trains today, but mild illness means no hard efforts — turn
-// today's quality session into a plain Z2 endurance ride of the same duration (the structured
-// intervals are dropped). Unlike the downgrade path the stimulus isn't relocated or deferred; it's a
-// deliberate easy day, the neck-check call. Returns null if today isn't a quality day to cap.
-export function applyEasyCap(block: CurrentBlock, today: string): { days: CurrentBlockDay[] } | null {
-  const todayDay = block.days.find((d) => d.date === today);
-  if (!todayDay || !isQuality(todayDay.type, todayDay.durationMin)) return null;
-  const capped: CurrentBlockDay = {
-    date: today,
-    name: `Easy ride (capped from ${todayDay.type} — mild illness)`,
-    type: "Z2",
-    durationMin: todayDay.durationMin,
-  };
-  return { days: block.days.map((d) => (d.date === today ? capped : d)) };
-}
