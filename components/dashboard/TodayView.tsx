@@ -10,7 +10,7 @@ import AthleteStateCard from "../AthleteStateCard";
 import CoachSnapshotCard from "../CoachSnapshotCard";
 import MorningCheckIn from "../MorningCheckIn";
 import TrendPulse from "../TrendPulse";
-import { PlannedToday, ReadinessBadge, RecentDataSummary, TodayRideCard } from "./today";
+import { EnergyAvailabilityTile, PlannedToday, ReadinessBadge, RecentDataSummary, TodayRideCard } from "./today";
 
 // The /today page body. Split out of the old dual-mode Dashboard (RV-8): it owns only the today-only
 // state (the coach-note post + the auto-sync-once latch) and reads the rest from SyncProvider, so the
@@ -89,6 +89,9 @@ export default function TodayView() {
               polarization={state.polarization}
               bare
             />
+            {/* Energy-availability proxy — am I chronically under-fuelling? A recovery input, so it sits
+                in the readiness glance beside the load signals. */}
+            <EnergyAvailabilityTile sync={state.lastSync} />
           </div>
         )}
       </Zone>

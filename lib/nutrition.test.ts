@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   adjustBuffer,
   calculateDailyTarget,
+  computeEnergyAvailability,
   estimateWorkoutBurnKcal,
   inRideCarbTarget,
   preRideCarbTarget,
@@ -174,5 +175,41 @@ describe("weightTrendFromWellness", () => {
       entry("2026-06-14", 75.0),
     ]);
     expect(Math.abs(trend as number)).toBeLessThan(0.2);
+  });
+});
+
+describe("computeEnergyAvailability", () => {
+  const w = (date: string, kcalConsumed: number | null, weightKg: number | null = 60): WellnessEntry => ({
+    date, weightKg, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed, ctl: null, atl: null,
+  });
+  const ride = (date: string, kj: number) => ({ date, kj });
+
+  it("averages (intake − burn)/kg over complete days and EXCLUDES today's partial intake", () => {
+    const wellness = [
+      w("2026-06-11", 3000), w("2026-06-12", 3000), w("2026-06-13", 3000), w("2026-06-14", 3000),
+      w("2026-06-15", 500), // today — still being logged; must not drag the mean down
+    ];
+    const acts = ["2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15"].map((d) => ride(d, 1200));
+    const ea = computeEnergyAvailability(wellness, acts, "2026-06-15")!;
+    expect(ea.eaKcalPerKg).toBe(30); // (3000 − 1200) / 60, today excluded
+    expect(ea.daysUsed).toBe(4);
+  });
+
+  it("withholds (null) below the minimum sample — no flaky single-day reading", () => {
+    const ea = computeEnergyAvailability([w("2026-06-13", 3000), w("2026-06-14", 3000)], [], "2026-06-15");
+    expect(ea).toBeNull();
+  });
+
+  it("reports the trend vs the prior equal window", () => {
+    const wellness = [
+      // prior window [06-01, 06-08): (2400 − 1200)/60 = 20
+      w("2026-06-04", 2400), w("2026-06-05", 2400), w("2026-06-06", 2400),
+      // current window [06-08, 06-15): (3000 − 1200)/60 = 30
+      w("2026-06-11", 3000), w("2026-06-12", 3000), w("2026-06-13", 3000),
+    ];
+    const acts = wellness.map((e) => ride(e.date, 1200));
+    const ea = computeEnergyAvailability(wellness, acts, "2026-06-15")!;
+    expect(ea.eaKcalPerKg).toBe(30);
+    expect(ea.trend).toBe(10); // 30 now vs 20 the prior week
   });
 });

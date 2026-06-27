@@ -14,6 +14,7 @@ import { executionScoreLabel } from "@/lib/execution-score";
 import { ifBandLabel } from "@/lib/zones";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { prDurationLabel } from "@/lib/pr";
+import { computeEnergyAvailability } from "@/lib/nutrition";
 import { isoDaysAgo, localToday as todayIso } from "@/lib/date";
 import RideTrace from "../RideTrace";
 import SessionDisposition from "../SessionDisposition";
@@ -487,6 +488,31 @@ export function RecentDataSummary({
   );
   if (bare) return tiles;
   return <Card title="Training status">{tiles}</Card>;
+}
+
+// ---------- Energy-availability tile (deterministic fuel proxy; ⭐ UI refinement) ----------
+
+export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
+  if (!sync) return null;
+  const ea = computeEnergyAvailability(sync.wellness, sync.activities, todayIso());
+  if (!ea) return null; // withheld until ≥3 complete logged days — no flaky single-day number
+  // Trend is vs the prior week; higher EA (more spare energy) is "up". No band — a body-weight proxy off
+  // self-logged intake can't honestly claim the clinical 30/45 kcal/kg cutoff; that's Track C calibration.
+  const arrow = ea.trend != null && ea.trend !== 0 ? trendArrow(ea.eaKcalPerKg, ea.eaKcalPerKg - ea.trend, true) : null;
+  return (
+    <div className="group relative mt-2 flex items-center justify-between gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        <span className="underline decoration-dotted underline-offset-2">Energy availability</span>
+        <MetricTip text={`Energy left for recovery after exercise — your logged intake minus ride burn, per kg body weight, averaged over the last ${ea.daysUsed} complete days (today is excluded — it's still being logged). A proxy, not a clinical figure: it's on body weight (not fat-free mass) and reads low if you under-log intake. The arrow is vs the prior week; a personalised "adequate" line comes once enough data accrues.`} />
+      </p>
+      <p className="shrink-0 font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+        {ea.eaKcalPerKg}
+        <span className="ml-0.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400"> kcal/kg</span>
+        {arrow && <span className="ml-1 text-[10px] font-normal text-cyan-600 dark:text-[#00d4ff]">{arrow}</span>}
+        <span className="ml-1.5 text-[10px] font-normal text-zinc-400 dark:text-zinc-500">{ea.daysUsed}d</span>
+      </p>
+    </div>
+  );
 }
 
 // ---------- Today's planned session (Zone 2 fallback before a ride is logged) ----------

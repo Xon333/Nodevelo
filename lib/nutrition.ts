@@ -163,6 +163,64 @@ export function weightTrendFromWellness(wellness: WellnessEntry[]): number | nul
   return Math.round(median(slopes) * 7 * 10) / 10; // express as kg/7d, 1 decimal
 }
 
+// ---------- Energy availability (deterministic proxy) ----------
+
+export interface EnergyAvailability {
+  eaKcalPerKg: number; // trailing-window mean of (logged intake − exercise burn) ÷ body mass, kcal/kg/day
+  daysUsed: number; // complete logged days backing the mean
+  trend: number | null; // kcal/kg vs the prior equal window (null if the prior window is too sparse)
+}
+
+const EA_MIN_DAYS = 3; // a few logged days before a trailing EA means anything (mirrors the other baselines)
+
+// Energy-availability PROXY: per-kg-body-mass energy left after exercise, averaged over recent COMPLETE
+// days. Deliberately simple ((intake − ride burn)/kg, kJ≈kcal as elsewhere) and honest about its limits:
+//   - TODAY is excluded — its intake is still being logged, so a partial day would read falsely low.
+//   - it uses body weight, not fat-free mass, so it is NOT the clinical 30/45 kcal/kg·FFM threshold — it's
+//     a trend signal ("am I fuelling more or less than usual?"), which is why this returns a delta, not a band.
+//   - under-logged intake reads low (the UI says so). Needs ≥ EA_MIN_DAYS complete logged days, else null
+//     (withheld, not a flaky single-day number). A personalised "adequate" line is Track C / §6 calibration.
+export function computeEnergyAvailability(
+  wellness: WellnessEntry[],
+  activities: Array<{ date: string; kj: number | null }>,
+  today: string,
+  windowDays = 7,
+): EnergyAvailability | null {
+  const burnByDate = new Map<string, number>();
+  for (const a of activities) {
+    if (a.kj == null) continue;
+    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + a.kj);
+  }
+  // Most recent weigh-in as the fallback for a day with logged intake but no weight that day.
+  const fallbackWeight = wellness
+    .filter((w) => w.weightKg !== null)
+    .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? null;
+  if (fallbackWeight === null) return null;
+
+  const dayBefore = (n: number) => new Date(Date.parse(today) - n * 86_400_000).toISOString().slice(0, 10);
+  const cutCur = dayBefore(windowDays); // [cutCur, today)
+  const cutPrev = dayBefore(windowDays * 2); // [cutPrev, cutCur)
+
+  const cur: number[] = [];
+  const prev: number[] = [];
+  for (const w of wellness) {
+    if (w.date >= today || w.kcalConsumed === null) continue; // complete logged days only
+    const weight = w.weightKg ?? fallbackWeight;
+    if (weight <= 0) continue;
+    const ea = (w.kcalConsumed - (burnByDate.get(w.date) ?? 0)) / weight;
+    if (w.date >= cutCur) cur.push(ea);
+    else if (w.date >= cutPrev) prev.push(ea);
+  }
+  if (cur.length < EA_MIN_DAYS) return null;
+  const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length;
+  const curMean = mean(cur);
+  return {
+    eaKcalPerKg: Math.round(curMean),
+    daysUsed: cur.length,
+    trend: prev.length >= EA_MIN_DAYS ? Math.round(curMean - mean(prev)) : null,
+  };
+}
+
 // ---------- Reference table injected into the AI prompt ----------
 
 export interface NutritionReferenceRow {
