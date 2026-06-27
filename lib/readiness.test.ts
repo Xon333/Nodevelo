@@ -137,6 +137,7 @@ describe("computeRollingBaselines weekly hours (RV2-3 divisor)", () => {
     }));
     const b = computeRollingBaselines(activities, []);
     expect(b.avgWeeklyHours90d).toBe(7);
+    expect(b.ridesPerWeek90d).toBe(7); // 20 rides / (20/7 wk) — same window/divisor as hours
   });
 });
 

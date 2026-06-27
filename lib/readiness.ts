@@ -281,6 +281,7 @@ export function computeRollingBaselines(
   avgCadence90d: number | null;
   avgCtl90d: number | null;
   avgWeeklyHours90d: number | null;
+  ridesPerWeek90d: number | null;
 } {
   const cutoff = new Date(Date.parse(today) - 90 * 86_400_000).toISOString().slice(0, 10);
 
@@ -303,6 +304,8 @@ export function computeRollingBaselines(
   const totalHours90d = recent.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
   const weeks90d = historyDays(recent.map((a) => a.date), today, 90) / 7;
   const avgWeeklyHours90d = recent.length ? Math.round((totalHours90d / weeks90d) * 10) / 10 : null;
+  // Rides/week over the same window/divisor as the hours tile (RV2-3) — training consistency.
+  const ridesPerWeek90d = recent.length ? Math.round((recent.length / weeks90d) * 10) / 10 : null;
 
   return {
     avgTss90d: avg(tssList),
@@ -310,5 +313,6 @@ export function computeRollingBaselines(
     avgCadence90d: avg(cadList),
     avgCtl90d: avg(ctlList),
     avgWeeklyHours90d,
+    ridesPerWeek90d,
   };
 }

@@ -102,6 +102,7 @@ const DEFAULT_BASELINES: RollingBaselines = {
   avgCadence90d: null,
   avgTss90d: null,
   avgWeeklyHours90d: null,
+  ridesPerWeek90d: null,
   updatedAt: new Date(0).toISOString(),
 };
 

@@ -93,12 +93,17 @@ export async function GET() {
   const latestWeight = (sync?.wellness ?? [])
     .filter((w) => w.weightKg !== null)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
+  // w/kg @ threshold — a current snapshot (FTP now ÷ latest weight), not a 90-day rolling baseline, so it's
+  // resolved here from the synced FTP + most recent weigh-in rather than stored in the rolling-baselines file.
+  const weightKg = latestWeight?.weightKg ?? null;
+  const wkgAtThreshold = ftp != null && weightKg != null && weightKg > 0 ? Math.round((ftp / weightKg) * 10) / 10 : null;
   const recent = sync
     ? {
-        latestWeightKg: latestWeight?.weightKg ?? null,
+        latestWeightKg: weightKg,
         weightTrend7Day: weightTrendFromWellness(sync.wellness),
         load7Day: load7Day > 0 ? Math.round(load7Day) : null,
         lastKcalConsumed: lastKcal?.kcalConsumed ?? null,
+        wkgAtThreshold,
       }
     : null;
 

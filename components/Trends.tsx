@@ -35,7 +35,7 @@ export default function Trends() {
   const noData = !data.syncedAt;
   const efTrend = trendDir(data.ef, true);
   const ctlTrend = trendDir(data.ctl, true);
-  const cards = baselineCards(data.baselines);
+  const cards = baselineCards(data.baselines, data.recent?.wkgAtThreshold ?? null);
 
   const kcal = (v: number) => `${Math.round(v).toLocaleString()} kcal`;
   const energySeries: MultiSeries[] = [

@@ -37,6 +37,7 @@ export interface RecentSnapshot {
   weightTrend7Day: number | null;
   load7Day: number | null;
   lastKcalConsumed: number | null;
+  wkgAtThreshold: number | null; // current FTP ÷ latest weight — the cyclist's headline fitness number
 }
 
 export interface ValidationData {

@@ -168,7 +168,7 @@ describe("buildCoachSnapshot", () => {
 });
 
 describe("buildCoachSnapshotFromSources", () => {
-  const baselines: RollingBaselines = { avgTss90d: null, avgDecoupling90d: null, avgCadence90d: null, avgCtl90d: null, avgWeeklyHours90d: null, updatedAt: "" };
+  const baselines: RollingBaselines = { avgTss90d: null, avgDecoupling90d: null, avgCadence90d: null, avgCtl90d: null, avgWeeklyHours90d: null, ridesPerWeek90d: null, updatedAt: "" };
   const sync = { syncedAt: "", fitness: { ctl: 60, atl: 70, tsb: -10 }, activities: [], wellness: [], powerCurve: [] } as unknown as SyncData;
   const interventionLog = { records: [], updatedAt: "" } as unknown as InterventionLog;
   const blockWith = (durationMin: number) =>

@@ -158,14 +158,16 @@ export function WeeklyVolumeBars({ weeks }: { weeks: TrendsData["weeklyHours"] }
   );
 }
 
-export function baselineCards(b: RollingBaselines) {
+export function baselineCards(b: RollingBaselines, wkgAtThreshold: number | null) {
   const cards: Array<{ label: string; value: string }> = [];
-  // Avg CTL removed — redundant with the CTL graph. Replaced with weekly volume: a higher-value,
-  // training-behaviour metric Intervals doesn't foreground the same way. All four tiles are now
-  // 90-day rolling so the card reads on one consistent horizon (MR-2).
-  if (b.avgTss90d != null) cards.push({ label: "Avg load / ride", value: String(Math.round(b.avgTss90d)) });
+  // Curated to single numbers that aren't already a chart elsewhere on Trends (athlete-chosen set):
+  // w/kg @ threshold · weekly hours · rides/week · avg load/ride. Avg CTL stays out (the CTL graph
+  // shows it); cadence + decoupling were dropped — decoupling's story is the Pw:HR chart, cadence is
+  // low decision-value. (avgDecoupling90d is still computed for the calibration cutoff; avgCadence90d
+  // is now card-unused — a candidate to retire from the store later.)
+  if (wkgAtThreshold != null) cards.push({ label: "w/kg @ threshold", value: wkgAtThreshold.toFixed(1) });
   if (b.avgWeeklyHours90d != null) cards.push({ label: "Weekly hours", value: `${b.avgWeeklyHours90d.toFixed(1)} h` });
-  if (b.avgDecoupling90d != null) cards.push({ label: "Avg decoupling", value: `${b.avgDecoupling90d.toFixed(1)}%` });
-  if (b.avgCadence90d != null) cards.push({ label: "Avg cadence", value: `${Math.round(b.avgCadence90d)} rpm` });
+  if (b.ridesPerWeek90d != null) cards.push({ label: "Rides / week", value: b.ridesPerWeek90d.toFixed(1) });
+  if (b.avgTss90d != null) cards.push({ label: "Avg load / ride", value: String(Math.round(b.avgTss90d)) });
   return cards;
 }
