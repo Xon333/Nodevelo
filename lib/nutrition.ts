@@ -192,11 +192,23 @@ export function computeEnergyAvailability(
     if (a.kj == null) continue;
     burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + a.kj);
   }
-  // Most recent weigh-in as the fallback for a day with logged intake but no weight that day.
-  const fallbackWeight = wellness
+  // Weigh-ins ascending; a day with intake but no weight anchors to the nearest weigh-in ON OR BEFORE it
+  // (never a future weight — EC-4), falling back to the earliest when the day predates them all (the
+  // physiologyAsOf convention). Weight moves slowly, so this only nudges edge days, but it keeps a past
+  // day's EA from being divided by a weight logged after it.
+  const weighIns = wellness
     .filter((w) => w.weightKg !== null)
-    .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? null;
-  if (fallbackWeight === null) return null;
+    .map((w) => ({ date: w.date, kg: w.weightKg as number }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (weighIns.length === 0) return null;
+  const weightAsOf = (date: string): number => {
+    let kg = weighIns[0].kg; // before the first weigh-in → anchor to the earliest
+    for (const wi of weighIns) {
+      if (wi.date <= date) kg = wi.kg;
+      else break;
+    }
+    return kg;
+  };
 
   const dayBefore = (n: number) => new Date(Date.parse(today) - n * 86_400_000).toISOString().slice(0, 10);
   const cutCur = dayBefore(windowDays); // [cutCur, today)
@@ -210,7 +222,7 @@ export function computeEnergyAvailability(
     // counting it would give a misleading negative EA that drags the mean. (Differs from FUEL-1, which keeps a
     // logged 0 g of *per-ride* carbs — you can ride fasted, but you can't have a 0-kcal day.)
     if (w.date >= today || w.kcalConsumed === null || w.kcalConsumed <= 0) continue;
-    const weight = w.weightKg ?? fallbackWeight;
+    const weight = w.weightKg ?? weightAsOf(w.date);
     if (weight <= 0) continue;
     const ea = (w.kcalConsumed - (burnByDate.get(w.date) ?? 0)) / weight;
     if (w.date >= cutCur) cur.push(ea);

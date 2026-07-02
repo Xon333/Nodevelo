@@ -212,6 +212,16 @@ describe("computeEnergyAvailability", () => {
     expect(ea.daysUsed).toBe(3);
   });
 
+  it("anchors a no-weight day to the nearest PRIOR weigh-in, not a future one (EC-4)", () => {
+    const wellness = [
+      w("2026-06-05", null, 60), // prior weigh-in
+      w("2026-06-14", null, 70), // later weigh-in (most-recent overall)
+      w("2026-06-09", 3000, null), w("2026-06-10", 3000, null), w("2026-06-11", 3000, null),
+    ];
+    const ea = computeEnergyAvailability(wellness, [], "2026-06-15")!;
+    expect(ea.eaKcalPerKg).toBe(50); // 3000 / 60 (prior); the most-recent 70 kg would give 43
+  });
+
   it("reports the trend vs the prior equal window", () => {
     const wellness = [
       // prior window [06-01, 06-08): (2400 − 1200)/60 = 20
