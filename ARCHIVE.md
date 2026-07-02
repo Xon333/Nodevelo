@@ -12,6 +12,30 @@ exact commits.
 
 ---
 
+## Directive demote — the validation loop acts (#4, demote half) (2026-07-02)
+
+ROADMAP #4's second half: `synthesizeCoachingDirectives` (`lib/synthesis.ts`) now DEMOTES a coaching
+directive whose past nudges have a proven-poor track record, instead of only annotating the hit-rate.
+Completes the loop end-to-end (the measurement half — planned-vs-actual + FTP-retest — shipped the same day).
+
+- **Demote rule:** a directive is demoted only when its dimension has BOTH ≥3 decisive
+  (validated|refuted) matured verdicts AND a hit-rate ≤34% — one noisy 28-day window can't bury a
+  directive. Demoted directives are reframed ("past X nudges have a poor track record here — try a
+  different lever, don't just repeat it") and sunk below the still-trusted ones; the measured *evidence*
+  stays visible (a real weak point is never hidden — calibrated-honesty pillar), only the failed
+  *suggestion* is de-emphasised. The block header flags how many are de-prioritised.
+- **Thresholds** exported as `DIRECTIVE_DEMOTE_DEFAULTS` (taken as a defaulted param) — population
+  defaults now, a #2 per-athlete calibration hook later (same shape as `FTP_RETEST_DEFAULTS`).
+- **Feeds both LLM surfaces** unchanged: the generation prompt's directive block and the CoachSnapshot
+  directives (Today card + Ask-Coach). Backward-compatible — the new config is an optional 3rd arg, so
+  the two existing call sites (`coach-snapshot.ts`, `generate/route.ts`) needed no change.
+- **Dormant until data:** `intervention-log.json` is empty, so nothing demotes on the real corpus yet —
+  the demote path is proven by 6 new unit tests; the live `/api/ask` smoke confirmed the non-demote path
+  renders directives identically to before ("Execution trending down", "Z2 trending down") and the coach
+  answers coherently. #4 is now code-complete but won't visibly act until real verdicts mature.
+
+---
+
 ## FTP-retest advisory + planned-vs-actual (#4, measurement half) (2026-07-02)
 
 ROADMAP #4's measurement half — the validation loop starts ACTING on execution data. Spec:

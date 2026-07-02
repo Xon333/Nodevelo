@@ -39,8 +39,9 @@ pillar 3 (two-memory split, structurally enforced), pillar 4 (immutable ledger).
 honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real differentiator.
 
 **Strict findings (severity):**
-- ⚠️ **Learning loop dormant for lack of first-party data** (above). #4 *measures* but doesn't yet
-  *demote*; per-athlete calibration/correlation sit on defaults below their gates.
+- ⚠️ **Learning loop dormant for lack of first-party data** (above). #4 is now mechanism-complete — it
+  both *measures* and *demotes* — but `intervention-log.json` is empty, so there are 0 matured verdicts
+  to act on; per-athlete calibration/correlation likewise sit on defaults below their gates.
 - ⚠️ **Planned corpus isn't durable across blocks** — **Resolved 2026-07-02** — see "Durable planned
   corpus" in [ARCHIVE.md](ARCHIVE.md): `block-history` now retains per-day prescriptions, so adherence
   history survives block roll-off + rebuilds. The backfill half (legacy pre-app months) was investigated
@@ -65,8 +66,9 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
 
 **Priorities (data > features):**
 1. **Turn the loop over.** Retain block prescriptions (`block-history`) — ✅ done, 2026-07-02 (SUB-1).
-   Left: close #4 (low hit-rate → *demote*, not just annotate); reduce friction so
-   generate→ride→score→learn actually accrues.
+   #4 measurement + demote mechanisms — ✅ done, 2026-07-02 (both halves). Left: reduce friction so
+   generate→ride→score→learn actually accrues the first matured verdicts (the loop is code-complete but
+   dormant until data).
 2. **Test the `sync` + `generate` routes** — protect the ledger from silent reconciliation/scoring bugs. ✅ done, 2026-07-02 (SUB-3).
 3. **Off-machine backup of `data/`** + branch discipline for the shared checkout.
 4. **Periodization / season scope** — ✅ done (see "Macro periodization & season scope" below); event-aware
@@ -196,14 +198,16 @@ Removed: the six subjective `WellnessEntry` fields, `wellnessToMorningAnswers`, 
 - **Power-zone source of truth** — decide: keep zones strictly Intervals.icu vs. a sanctioned local
   override in the calibration framework. (Lean strict-consistency.)
 
-### #4 · Validation loop → auto-down-weight  (time-gated ~4wk)
-`intervention-log.json` has no matured verdicts yet. Once data exists, a low hit-rate in
-`lib/synthesis.ts` should **demote** a directive (today it only annotates). Ties Track B template-scoring + #2.
-✅ The measurement half shipped 2026-07-02 — planned-vs-actual per session type (Trends) + the
-execution-driven FTP-retest advisory (overdelivery→stale-low only; CoachSnapshot/Today card/Trends;
-never writes FTP locally — `physiology.json` stays the synced SoT) → see "FTP-retest advisory +
-planned-vs-actual" in [ARCHIVE.md](ARCHIVE.md). Its thresholds (`FTP_RETEST_DEFAULTS`,
-`lib/plan-vs-actual.ts`) are population defaults — a `← #2` calibration hook.
+### #4 · Validation loop → auto-down-weight  (mechanism-complete; dormant until data)
+✅ Both halves shipped 2026-07-02 — the loop is code-complete end to end. Measurement: planned-vs-actual
+per session type + the execution-driven FTP-retest advisory. Demote: `synthesizeCoachingDirectives` now
+**demotes** a directive whose past nudges have a proven-poor track record (≥3 decisive verdicts, ≤34%
+validated) — reframing it and sinking it below still-trusted ones, not just annotating — see "Directive
+demote" and "FTP-retest advisory + planned-vs-actual" in [ARCHIVE.md](ARCHIVE.md). **Nothing left to
+build; dormant until data:** `intervention-log.json` is still empty, so no matured verdicts exist to
+demote against yet — the loop won't visibly act until real generate→ride→score verdicts accrue over ~4wk
+horizons (a friction/usage problem, not code). Thresholds (`FTP_RETEST_DEFAULTS`,
+`DIRECTIVE_DEMOTE_DEFAULTS`) are population defaults — `← #2` hooks. Ties Track B template-scoring + #2.
 
 ### #1 · CoachSnapshot — fill the reserved slots
 ✅ The energy-availability read now fills both slots (`fuelingState` = low/adequate/ample band,
