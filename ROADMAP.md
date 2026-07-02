@@ -91,19 +91,21 @@ immutable-ledger guarantees.
 dates — supersede vs version? match granularity — date-only (today) vs workout-id / intervals? mark
 re-matched historical entries distinctly from live-frozen ones?
 
-### SUB-2 · Legacy backfill importer ⭐
+### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 **Problem.** The prior ~6 months (100 legacy rides) followed real structure, but the app has no
-prescription to grade them against → excluded from execution learning. Single biggest unlock for the
-current data situation.
-**Athlete confirmed (2026-07-01): the legacy rides were structured workouts**, not free rides — so this
-resolves the key open question below in the *feasible* direction: the planned targets for that window
-should genuinely be recoverable from Intervals.icu's own calendar/workout events, not just for a
-partial subset.
-**Sketch.** Reconstruct planned days from Intervals.icu's own calendar/workout events (they carry the
-planned targets) across the legacy window → retroactively grade → turn legacy into corpus.
-🧠 **Brainstorm:** how to avoid mis-grading the rare genuinely-unstructured ride that slipped into the
-window? flag backfilled entries as lower-trust (distinct from live-scored)? one-shot opt-in import vs
-ongoing?
+prescription to grade them against → excluded from execution learning.
+**Live-API check (2026-07-02) falsified the "whole window recoverable" assumption.** Queried
+Intervals.icu's actual `/events` endpoint against the 100 legacy dates: only **28 have a same-date
+calendar event at all** (22 with a machine-parseable `workout_doc.steps`); **72 have none** — Jan/Feb
+(29 rides) has zero calendar events in the window. Athlete's read: the legacy structure was Z2 +
+2 interval sessions/week, and only the interval days tended to get a named calendar entry — Z2 was
+routine enough not to warrant one. So the calendar recovers roughly the hard-day subset, not the
+window.
+**Decision (2026-07-02):** paused as an engineering effort — 22–28% recovery doesn't clearly justify
+an importer. Athlete will handle any legacy relabeling manually (e.g. renaming calendar events) if they
+want specific rides gradable. Revisit only if that manual path proves painful enough to reopen, or a
+better recovery signal surfaces (the ride's own executed profile, without an independent prescription,
+is circular and was not pursued).
 
 ### SUB-3 · Route tests (`sync` + `generate`)
 The 494-line `sync` + 272-line `generate` routes (reconciliation, scoring orchestration, tool-use parsing)
