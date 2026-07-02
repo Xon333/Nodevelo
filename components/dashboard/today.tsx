@@ -260,7 +260,11 @@ export function TodayRideCard({
       {(analysis.powerZoneTimes || analysis.trace || analysis.activityDecoupling != null || (analysis.intervalComparison && analysis.intervalComparison.reps.length > 0)) && (
         <details className="mt-3">
           <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Power execution
+            {/* EC-7: "Power execution" only with real power content; a decoupling-only ride (no
+                zones/trace/intervals) is aerobic drift, not power execution — label it honestly. */}
+            {analysis.powerZoneTimes || analysis.trace || (analysis.intervalComparison && analysis.intervalComparison.reps.length > 0)
+              ? "Power execution"
+              : "Aerobic drift"}
             {analysis.intervalComparison && analysis.intervalComparison.reps.length > 0 && (
               <span className="ml-1.5 font-mono text-[11px] font-normal normal-case text-zinc-500 dark:text-zinc-400">
                 {analysis.intervalComparison.completed}/{analysis.intervalComparison.total} · {analysis.intervalComparison.effectiveAdherencePct}%

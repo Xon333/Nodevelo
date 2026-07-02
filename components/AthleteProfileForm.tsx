@@ -485,6 +485,7 @@ export default function AthleteProfileForm() {
                   <option value="vo2max">vo2max</option>
                   <option value="anaerobic">anaerobic</option>
                   <option value="durability">durability</option>
+                  <option value="sharpen">sharpen</option>
                 </select>
               </label>
               <button
