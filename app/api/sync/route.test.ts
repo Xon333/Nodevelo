@@ -324,3 +324,40 @@ describe("POST /api/sync — ledger wiring", () => {
     expect(json.compromisedDates).toContain("2026-06-21");
   });
 });
+
+describe("POST /api/sync — ledger rebuild one-shot (LEDGER-3)", () => {
+  const seedRebuildScenario = () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-06-20", executionScore: 9, ftpUsed: 250 })];
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-20", name: "Threshold 3x12", type: "Threshold", durationMin: 75, workoutText: "Main Set 3x\n- 12m 95%" }] })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a20", date: "2026-06-20" })] }));
+  };
+
+  it("re-scores past entries when requested and unmarked, then persists the marker", async () => {
+    seedRebuildScenario();
+    const json = await (await postSync({ today: TODAY, rebuildLedger: true })).json();
+    // Fresh wins under rebuild: the entry is re-scored against the current FTP resolution (200),
+    // no longer the frozen 250.
+    expect(scoreEntries.find((e) => e.date === "2026-06-20")?.ftpUsed).toBe(200);
+    expect(store.writeLedgerRebuild).toHaveBeenCalledOnce();
+    expect(json.warnings.some((w: string) => /Ledger rebuilt/.test(w))).toBe(true);
+  });
+
+  it("refuses a repeat rebuild once the marker is set", async () => {
+    seedRebuildScenario();
+    vi.mocked(store.readLedgerRebuild).mockResolvedValue({ rebuiltAt: "2026-06-01T00:00:00.000Z" });
+    const json = await (await postSync({ today: TODAY, rebuildLedger: true })).json();
+    expect(scoreEntries.find((e) => e.date === "2026-06-20")?.ftpUsed).toBe(250); // frozen entry kept
+    expect(store.writeLedgerRebuild).not.toHaveBeenCalled();
+    expect(json.warnings.some((w: string) => /already rebuilt/.test(w))).toBe(true);
+  });
+
+  it("force re-runs a rebuild past the marker", async () => {
+    seedRebuildScenario();
+    vi.mocked(store.readLedgerRebuild).mockResolvedValue({ rebuiltAt: "2026-06-01T00:00:00.000Z" });
+    await postSync({ today: TODAY, rebuildLedger: true, force: true });
+    expect(scoreEntries.find((e) => e.date === "2026-06-20")?.ftpUsed).toBe(200);
+    expect(store.writeLedgerRebuild).toHaveBeenCalledOnce();
+  });
+});
