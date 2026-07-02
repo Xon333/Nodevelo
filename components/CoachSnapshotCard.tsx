@@ -15,7 +15,7 @@ export default function CoachSnapshotCard({ snapshot }: { snapshot: CoachSnapsho
     fuel.fuelingState !== null ? `energy avail. ${fuel.fuelingState}` : null,
   ].filter((b): b is string => b !== null);
 
-  if (!form.tsbModifier && fuelBits.length === 0) return null;
+  if (!form.tsbModifier && fuelBits.length === 0 && !snapshot.ftpRetest) return null;
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
@@ -33,6 +33,11 @@ export default function CoachSnapshotCard({ snapshot }: { snapshot: CoachSnapsho
       )}
       {fuelBits.length > 0 && (
         <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">Fuel: {fuelBits.join(" · ")}</p>
+      )}
+      {snapshot.ftpRetest && (
+        <p className="mt-1 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+          <span className="font-semibold">FTP check:</span> {snapshot.ftpRetest.evidence}
+        </p>
       )}
     </div>
   );
