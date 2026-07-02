@@ -10,6 +10,8 @@ import {
 } from "@/lib/data-store";
 import { analyzePowerProfile, formatPowerProfileForPrompt, powerProfileSeed } from "@/lib/power-profile";
 import { writeRetrospective } from "@/lib/kb-loader";
+import { utcToday } from "@/lib/date";
+import { truncateBlockDays } from "@/lib/score-log";
 import {
   generateRetrospective,
   generateStructuredRetrospective,
@@ -252,6 +254,10 @@ export async function POST() {
     structuredReflections,
     model: block.model,
     promptVersion: block.promptVersion,
+    // SUB-1: truncation is a no-op here in practice — a retrospective only runs on a finished block
+    // (isBlockFinished), so every day is already in the past — but applying it uniformly keeps one code
+    // path instead of special-casing this call site.
+    days: truncateBlockDays(block.days, utcToday()),
   };
   await appendBlockHistory(historyEntry);
   await writeCurrentBlock(null);

@@ -7,6 +7,7 @@ import { buildInterventions, mergeInterventions } from "@/lib/intervention";
 import { planDayToEvent } from "@/lib/plan-parser";
 import { staleEventIds } from "@/lib/block-events";
 import { utcToday } from "@/lib/date";
+import { truncateBlockDays } from "@/lib/score-log";
 import { parsePrescription } from "@/lib/prescription";
 import type { CurrentBlock, CurrentBlockDay, GeneratedPlan, PlannedDay, WriteResult } from "@/lib/types";
 import { WORKOUT_TYPES } from "@/lib/types";
@@ -102,6 +103,9 @@ export async function POST(req: Request) {
       model: existing.model,
       promptVersion: existing.promptVersion,
       durabilityTemplate: existing.durabilityTemplate,
+      // SUB-1: archive only the lived portion — the days the superseded block actually covered while
+      // live, not the un-lived future the new block is about to overwrite.
+      days: truncateBlockDays(existing.days, utcToday()),
     });
   }
 
