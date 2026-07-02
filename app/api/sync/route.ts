@@ -46,7 +46,8 @@ import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, calStampFor, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
-import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights } from "@/lib/calibration";
+import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue } from "@/lib/calibration";
+import { DEFAULT_DECOUPLING_GOOD } from "@/lib/execution-score";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { resolveToday, utcToday } from "@/lib/date";
@@ -218,8 +219,16 @@ export async function POST(req: Request) {
       ? Math.round((steadyDecoup.reduce((s, a) => s + (a.decoupling as number), 0) / steadyDecoup.length) * 10) / 10
       : null;
     const priorCal = await readCalibration();
+    const decouplingGood = deriveDecouplingGood(priorCal.decouplingGood, steadyDecoupMean, steadyDecoup.length);
     const calibration = {
-      decouplingGood: deriveDecouplingGood(priorCal.decouplingGood, steadyDecoupMean, steadyDecoup.length),
+      decouplingGood,
+      // Track C: carbs optimum from the same steady-ride set, classified against the athlete's own
+      // RESOLVED durability reference (calibrated when trusted, population default otherwise).
+      carbsOptimum: deriveCarbsOptimum(
+        priorCal.carbsOptimum,
+        steadyDecoup,
+        resolveCalibratedValue(decouplingGood, DEFAULT_DECOUPLING_GOOD)
+      ),
       updatedAt: new Date().toISOString(),
     };
     await writeCalibration(calibration);

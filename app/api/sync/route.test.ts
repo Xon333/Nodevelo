@@ -279,6 +279,14 @@ describe("POST /api/sync — ledger wiring", () => {
     expect(json.coachSnapshot).not.toBeNull();
   });
 
+  it("writes a carbsOptimum calibration parameter on sync (Track C wiring)", async () => {
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21" })] }));
+    await postSync();
+    const written = vi.mocked(store.writeCalibration).mock.calls.at(-1)![0];
+    expect(written.carbsOptimum).toBeDefined();
+    expect(written.carbsOptimum!.source).toBe("default"); // fixture rides carry no carbs_ingested
+  });
+
   it("keeps existing ledger entries immutable per date and scores only new dates", async () => {
     scoreEntries = [mkScoreEntry({ date: "2026-06-20", executionScore: 9, ftpUsed: 250 })];
     vi.mocked(store.readCurrentBlock).mockResolvedValue(
