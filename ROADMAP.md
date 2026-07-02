@@ -24,10 +24,12 @@ entries but only **13 `planned`** (planned rides are the only ones that teach th
 in-window). It's that the **first in-app block was written 2026-06-15**, so only rides on/after that
 date match an app prescription; the prior ~6 months are real training but **un-prescribed from the
 app's view**, so they're `legacy` and excluded from execution/adherence learning by design ("no plan
-to be off"). Compounding it: `buildRideScores` knows only the CURRENT block and **no `block-history`
-retains per-day prescriptions**, so historical planned rides can't be re-matched on a ledger rebuild
-(only frozen-in-place entries survive — LEDGER-1). `intervention-log.json` / `block-history.json`
-don't exist yet → **#4 validation has 0 records**; the athlete model runs at n=1–8 per type (below the
+to be off"). Compounding it *(at audit time)*: `buildRideScores` knew only the CURRENT block and no
+`block-history` retained per-day prescriptions, so historical planned rides couldn't be re-matched on a
+ledger rebuild (only frozen-in-place entries survived — LEDGER-1). **Resolved 2026-07-02** — see
+"Durable planned corpus" in [ARCHIVE.md](ARCHIVE.md); fixes future corpus *shrinkage*, not the
+pre-2026-06-15 numbers above (that's SUB-2, paused, below). `intervention-log.json` doesn't exist yet →
+**#4 validation has 0 records**; the athlete model runs at n=1–8 per type (below the
 ≥3-obs trend gate and the correlation engine's discrimination gate) → most learning returns population
 defaults.
 
@@ -39,9 +41,10 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
 **Strict findings (severity):**
 - ⚠️ **Learning loop dormant for lack of first-party data** (above). #4 *measures* but doesn't yet
   *demote*; per-athlete calibration/correlation sit on defaults below their gates.
-- ⚠️ **Planned corpus isn't durable across blocks** — retain per-day prescriptions (`block-history`)
-  so adherence history survives block roll-off + rebuilds; consider a backfill path for the legacy
-  months where a plan genuinely existed. (The legacy rides *can* already feed FTP-independent trends —
+- ⚠️ **Planned corpus isn't durable across blocks** — **Resolved 2026-07-02** — see "Durable planned
+  corpus" in [ARCHIVE.md](ARCHIVE.md): `block-history` now retains per-day prescriptions, so adherence
+  history survives block roll-off + rebuilds. The backfill half (legacy pre-app months) was investigated
+  and **paused** — see SUB-2 below. (The legacy rides *can* already feed FTP-independent trends —
   Pw:HR, polarization, volume baselines — which need no prescription.)
 - ⚠️ **Test coverage lopsided** — ~all 49 suites are `lib/*`; the 494-line `sync` + 272-line `generate`
   routes (reconciliation, scoring orchestration, tool-use parsing) are the highest-stakes, least-tested
@@ -61,35 +64,26 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
   a stale count is a recurring failure mode worth staying alert to as work continues.
 
 **Priorities (data > features):**
-1. **Turn the loop over.** Retain block prescriptions (`block-history`); close #4 (low hit-rate →
-   *demote*, not just annotate); reduce friction so generate→ride→score→learn actually accrues.
+1. **Turn the loop over.** Retain block prescriptions (`block-history`) — ✅ done, 2026-07-02 (SUB-1).
+   Left: close #4 (low hit-rate → *demote*, not just annotate); reduce friction so
+   generate→ride→score→learn actually accrues.
 2. **Test the `sync` + `generate` routes** — protect the ledger from silent reconciliation/scoring bugs.
 3. **Off-machine backup of `data/`** + branch discipline for the shared checkout.
 4. **Periodization / season scope** — ✅ done (see "Macro periodization & season scope" below); event-aware
    *race* planning (`6a`, the surfacing layer once an athlete adds an event) remains open.
 
-_Expanded below: **Data substrate** (priorities 1–3, still brainstorm stubs — open questions flagged 🧠
-— for the athlete to react to before we plan) and **Macro periodization & season scope** (priority 4,
-since shipped — expanded section now records what's live + the tracked debt, not open questions)._
+_Expanded below: **Data substrate** (priority 1's block-history half shipped 2026-07-02, its backfill
+half paused; priorities 2–3 still plain open items, no open design questions) and **Macro periodization &
+season scope** (priority 4, since shipped — expanded section now records what's live + the tracked debt,
+not open questions)._
 
 ---
 
-## Data substrate — turn the loop over ⭐ (audit P1–3 · brainstorm)
+## Data substrate — turn the loop over ⭐ (audit P1–3)
 
-The foundation: most of the learning engine is dormant for lack of first-party data, and the planned
-corpus isn't durable. Build this once → it unblocks `#2`, `#4`, **and** macro periodization below.
-
-### SUB-1 · Durable planned corpus (`block-history` + per-day prescriptions)
-**Problem.** `buildRideScores` matches rides only against the CURRENT block; no `block-history` keeps
-per-day prescriptions, so a planned ride whose block rolled off can't be re-matched on a rebuild (only
-frozen-in-place entries survive — LEDGER-1) and the trainable corpus can *shrink*. Today: 13 planned vs
-100 legacy.
-**Sketch.** Archive each written block (prescriptions + achieved-load summary + retro) to `block-history`;
-have `buildRideScores` match against ALL historical blocks, not just `current-block`. Keep the
-immutable-ledger guarantees.
-🧠 **Brainstorm:** archive at write-time or at block completion? an edited/regenerated block over the same
-dates — supersede vs version? match granularity — date-only (today) vs workout-id / intervals? mark
-re-matched historical entries distinctly from live-frozen ones?
+The foundation: most of the learning engine is dormant for lack of first-party data. SUB-1 (block-history
+durability) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md); SUB-2 (legacy backfill) investigated and
+paused same day. SUB-3/SUB-4 below remain open, plain backlog items — no open design questions on either.
 
 ### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 **Problem.** The prior ~6 months (100 legacy rides) followed real structure, but the app has no

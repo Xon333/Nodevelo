@@ -12,6 +12,56 @@ exact commits.
 
 ---
 
+## SUB-1 · Durable planned corpus (block-history) (2026-07-02)
+
+Closed the 2026-06-30 audit's "planned corpus isn't durable across blocks" finding: `buildRideScores`
+matched a ride only against the *live* current block, so a ride whose block had since rolled over,
+finished, or been discarded was stuck `planned:false` forever — indistinguishable from a ride with no
+plan at all, even though a plan genuinely existed. 5 tasks via subagent-driven development, every task
+approved on first review pass, plus one final-review fix batch — 6 commits, 619 tests (up from 611).
+Design/build records: [design](docs/superpowers/specs/2026-07-02-block-history-durable-corpus-design.md) ·
+[plan](docs/superpowers/plans/2026-07-02-block-history-durable-corpus.md).
+
+- **`BlockHistoryEntry` gained per-day prescriptions.** New optional `days?: CurrentBlockDay[]` field
+  (verbatim reuse of the live-block day type), populated by a new pure helper `truncateBlockDays(days,
+  asOfDate)` that keeps only the *lived* portion — a superseded or discarded block's un-lived future was
+  never a real plan, so archiving it would just manufacture match ambiguity. `lib/types.ts`,
+  `lib/score-log.ts`.
+- **`buildRideScores` matches against historical blocks, not just the current one.** New optional
+  `history?: BlockHistoryEntry[]` param, seeded oldest-first so the live current block always wins a
+  date collision, else the most-recently-created historical block wins — with a guard so a block can't
+  retroactively claim to have prescribed an already-past day (`createdAt` must be ≤ the day it prescribes).
+  The one production call site (`app/api/sync/route.ts`) threads the already-in-scope `blockHistory`
+  variable through — no new I/O. `lib/score-log.ts`.
+- **All three block-death paths now archive `days`** — write-time supersede and retrospective completion
+  already called `appendBlockHistory`, just gained the field; **discard** (`DELETE` on `/api/sync`)
+  previously archived *nothing at all*, silently losing any days already ridden against a block the
+  athlete threw away. Now archives the lived portion (skipped entirely when zero days were lived — a
+  same-day discard has nothing worth preserving). `app/api/write/route.ts`,
+  `app/api/retrospective/route.ts`, `app/api/sync/route.ts`.
+- **Design choice: history-aware *first*-scoring, not a rebuild-trigger.** The ledger's existing rebuild
+  merge (`mergeScoreLogRebuild`) already permitted an off-plan→planned upgrade with zero changes — the
+  gap was only that `buildRideScores` never had a historical prescription to find. Making it history-aware
+  on every normal sync (not just on the rare, deliberately-manual full rebuild) means a ride gets scored
+  correctly the *first* time, so nothing is ever frozen wrong and nothing needs retroactive fixing. No new
+  ledger mechanism; LEDGER-1/2/3 composed with, not modified.
+- **Final whole-branch review (Fable 5) caught 3 real cross-task interactions no per-task review could
+  see**, all fixed in one batch (commit `8c2d32e`): `appendBlockHistory`'s pre-existing 20-entry cap
+  (`lib/data-store.ts`) would have evicted real history within a season once discard-archival raised churn
+  — raised to 200; `app/api/generate/route.ts` read `blockHistory[0]?.structuredReflections` blindly,
+  which could now be a reflections-less discard entry, silently dropping Track D context on a common
+  reroll flow — fixed to search for the most recent entry that actually has reflections (matching the
+  robust pattern already used by the retrospective GET); and archiving a same-day zero-lived-days discard
+  was creating noise entries on athlete-visible surfaces (`PlanView`'s block-history list, the Trends block
+  timeline) — guarded to skip archiving when nothing was lived. The design spec's claims about pruning,
+  discard "costing nothing," and "nothing here is athlete-visible" were corrected in place as dated notes
+  once the review falsified them.
+- **Sibling item paused, not shipped:** SUB-2 (legacy backfill importer) → see ROADMAP.md "Data substrate"
+  for why (a live Intervals.icu API check found only 22–28% of the pre-app legacy corpus has calendar
+  backing, not the whole window as originally assumed).
+
+---
+
 ## Season/block goals-flow: Goals/Weakpoints centralization + Season/Block hierarchy + block-completion prompt (2026-07-01)
 
 Three approved specs, built together in dependency order (Task 1–3 foundational, 4–5 depend on the new

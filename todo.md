@@ -14,18 +14,14 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
-- ☐ P1 `feat` **SUB-2 — legacy backfill importer, next up.** Single biggest unlock for the learning loop:
-  ~100 legacy rides (the prior 6 months) have no prescription to grade against, so they're excluded from
-  execution learning — and the athlete has now confirmed those rides were structured workouts, so the
-  planned targets should genuinely be recoverable from Intervals.icu's own calendar/workout events across
-  the whole window, not a partial subset. No plan written yet. Full detail → [ROADMAP.md](ROADMAP.md),
-  "SUB-2 · Legacy backfill importer" under "Data substrate — turn the loop over."
 - ☐ P3 `polish` **Goals form's Focus dropdown omits `sharpen`.** The API/engine both accept it; only the
   `/profile` picker is short one option, so a `sharpen`-focused season period can't have a goal directly
   authored via the UI yet. One-line fix: add `<option value="sharpen">`. _[AthleteProfileForm.tsx](components/AthleteProfileForm.tsx)._
 
 _Season/block goals-flow (Goals/Weakpoints centralization + Season/Block hierarchy + block-completion
-prompt) + FB-2026-06-30 (Today + Profile sweep) + the EA→CoachSnapshot wire-up shipped → [ARCHIVE.md](ARCHIVE.md)._
+prompt) + FB-2026-06-30 (Today + Profile sweep) + the EA→CoachSnapshot wire-up + SUB-1 (block-history
+durable corpus) shipped → [ARCHIVE.md](ARCHIVE.md). SUB-2 (legacy backfill) investigated and paused →
+[ROADMAP.md](ROADMAP.md) "Data substrate"._
 
 **EC-2026-06-27 — edge-case sweep (EA/baseline tiles + a read-audit of the off-plan-aerobic & durability
 scoring diffs).** None ship yet; ordered by blast radius. The fixed trust-consistency cases (EA fasted-0,
