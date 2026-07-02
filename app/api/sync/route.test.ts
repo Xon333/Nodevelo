@@ -397,3 +397,35 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     expect((await res.json()).warnings.some((w: string) => /Intervention validation failed: corrupt log/.test(w))).toBe(true);
   });
 });
+
+describe("POST /api/sync — today-ride analysis path", () => {
+  const seedTodayRide = () => {
+    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock()); // planned Threshold on TODAY
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity()] })); // ride on TODAY
+  };
+
+  it("writes the deterministic analysis, patches today's ledger entry, and flags the LLM note pending", async () => {
+    seedTodayRide();
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(store.writeTodayAnalysis).toHaveBeenCalledOnce();
+    expect(json.todayAnalysis).not.toBeNull();
+    expect(json.todayAnalysis.activityDate).toBe(TODAY);
+    expect(json.analysisPending).toBe(true); // no coach note yet — client must call /api/analyze
+    // The interval-aware score is patched onto today's ledger entry in a second transactional
+    // updateScoreLog call, so the Today card and the ledger can't disagree.
+    expect(store.updateScoreLog).toHaveBeenCalledTimes(2);
+    expect(scoreEntries.find((e) => e.date === TODAY)?.executionScore).toBe(json.todayAnalysis.executionScore);
+  });
+
+  it("surfaces an analysis failure as a warning while the sync itself succeeds", async () => {
+    seedTodayRide();
+    vi.mocked(api.fetchPowerStream).mockRejectedValueOnce(new Error("stream 500"));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect((await res.json()).warnings.some((w: string) => /Ride analysis failed: stream 500/.test(w))).toBe(true);
+    expect(store.writeTodayAnalysis).not.toHaveBeenCalled();
+  });
+});
