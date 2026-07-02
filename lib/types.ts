@@ -655,9 +655,13 @@ export interface CalibratedParameter {
 }
 
 // The calibration store. Derived (regenerated on sync), one field per calibrated parameter; grows as
-// parameters are brought under the framework (Phase 1 ships `decouplingGood`).
+// parameters are brought under the framework (Phase 1 shipped `decouplingGood`; Track C added
+// `carbsOptimum`).
 export interface CalibrationStore {
   decouplingGood: CalibratedParameter;
+  // Track C: in-ride carbs optimum (g/h) on steady long endurance rides. OPTIONAL — a calibration.json
+  // written before this field existed parses back as undefined (not null); read sites must tolerate it.
+  carbsOptimum?: CalibratedParameter;
   updatedAt: string;
 }
 

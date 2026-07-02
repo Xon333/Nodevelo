@@ -4,9 +4,9 @@
 // overridden (auto-deriving injury-risk bands isn't possible without injury data, so we don't
 // pretend to). Pure + deterministic + defensive — every output is clamped to a sane range.
 
-import type { CalibratedParameter, CalibrationStore, RideScoreEntry, WorkoutType } from "./types";
+import type { ActivitySummary, CalibratedParameter, CalibrationStore, RideScoreEntry, WorkoutType } from "./types";
 import { clamp } from "./stats";
-import { deriveExecutionEdge, type ExecutionEdgeSpec } from "./correlation";
+import { deriveExecutionEdge, deriveOptimum, type ExecutionEdgeSpec, type OptimumSpec } from "./correlation";
 
 export interface AcwrBands {
   optimalLow: number; // below this = under-reaching ("low")
@@ -371,6 +371,67 @@ export function deriveDecouplingGood(
     locked: false, // never auto-freeze — keep adapting to the rolling window
     manualOverride,
   };
+}
+
+// ---------- In-ride carbs optimum (ROADMAP Track C — first optimum-shape consumer) ----------
+// The g/h band tied to the athlete's BEST long steady rides, classified against their OWN calibrated
+// durability reference (decouplingGood) — the two parameters compound. Provenance + display only for
+// now: it does NOT alter the fueling table (that's §6 surfacing). Classification is deliberately
+// endurance-only: decoupling is meaningless on interval days, and fueling is load-bearing from ~90 min.
+
+export const CARBS_OPTIMUM_BOUNDS = { min: 30, max: 120 } as const; // g/h — the KB's physiological range
+// The literal in-ride target nutrition.ts prescribes for >90-min endurance rides today — the population
+// default the derived optimum replaces only once it clears the confidence gate.
+export const DEFAULT_CARBS_OPTIMUM = 75;
+
+const CARBS_MIN_DURATION_SEC = 90 * 60; // fueling genuinely load-bearing (nutrition's >90-min tier)
+const CARBS_BAD_DECOUPLING_DELTA = 2; // pp beyond the athlete's typical drift = clearly-poor durability
+const CARBS_DISCRIMINATION_MARGIN = 10; // g/h — good rides must carry meaningfully more fuel than bad
+
+const CARBS_OPTIMUM_SPEC: OptimumSpec = {
+  badSide: "lower", // the credited failure mode is UNDER-fueling
+  discriminationMargin: CARBS_DISCRIMINATION_MARGIN,
+  clampTo: [CARBS_OPTIMUM_BOUNDS.min, CARBS_OPTIMUM_BOUNDS.max],
+  // Mirrors qualityFailureConfidence's spirit: bad long rides are rare and informative; require real
+  // contrast. resolveCalibratedValue applies medium+ → effective gate is ≥5 good AND ≥3 bad rides.
+  confidence: (nGood, nBad) => (nGood < 5 || nBad < 3 ? "low" : nGood < 10 ? "medium" : "high"),
+};
+
+// `steadyRides` is the sync route's already-filtered steady-endurance set (decoupling present, 90-day
+// window, isSteadyEnduranceRide) — reusing it keeps one definition of "steady" and avoids an import
+// cycle with trends.ts. This adds only the fueling-specific gates.
+export function deriveCarbsOptimum(
+  prior: CalibratedParameter | undefined | null,
+  steadyRides: Array<Pick<ActivitySummary, "carbsIngestedG" | "decoupling" | "movingTimeSec">>,
+  decouplingGoodPct: number
+): CalibratedParameter {
+  const badAt = decouplingGoodPct + CARBS_BAD_DECOUPLING_DELTA;
+  const obs = steadyRides
+    .filter(
+      (a) =>
+        a.movingTimeSec >= CARBS_MIN_DURATION_SEC &&
+        typeof a.carbsIngestedG === "number" &&
+        a.carbsIngestedG > 0 && // 0/null = not logged, same convention as fuelStampFor
+        typeof a.decoupling === "number" &&
+        // Deadband: rides between "good" and "clearly bad" are ambiguous — keep them out of both classes.
+        (a.decoupling <= decouplingGoodPct || a.decoupling >= badAt)
+    )
+    .map((a) => ({
+      signal: Math.round(((a.carbsIngestedG as number) / (a.movingTimeSec / 3600)) * 10) / 10, // g/h, as fuelStampFor rounds
+      good: (a.decoupling as number) <= decouplingGoodPct,
+    }));
+
+  const derived = deriveOptimum(obs, CARBS_OPTIMUM_SPEC);
+  const now = derived.lastUpdated;
+  const manualOverride = prior?.manualOverride ?? null;
+  if (derived.source === "default") {
+    // Same gap semantics as deriveDecouplingGood: a quiet window refreshes, it doesn't discard.
+    if (prior?.source === "derived" && Number.isFinite(prior.value)) {
+      return { ...prior, manualOverride, lastUpdated: now };
+    }
+    return { ...derived, manualOverride };
+  }
+  return { ...derived, manualOverride };
 }
 
 // ---------- Per-type IF-band calibration (ROADMAP #2) ----------
