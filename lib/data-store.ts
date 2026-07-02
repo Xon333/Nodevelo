@@ -107,7 +107,11 @@ export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void
   const history = await readBlockHistory();
   // Deduplicate by id to avoid duplicates on retry.
   const filtered = history.filter((h) => h.id !== entry.id);
-  await writeJson("block-history.json", [entry, ...filtered].slice(0, 20));
+  // SUB-1: raised from 20 — discarded/superseded blocks now archive too (not just completed ones), so
+  // churn is higher than "one entry per real block"; 20 was evicting real history (compliance, retro,
+  // reflections, and now per-day prescriptions) well within a season. 200 gives ample headroom at
+  // negligible local-JSON cost.
+  await writeJson("block-history.json", [entry, ...filtered].slice(0, 200));
 }
 
 export async function readTodayAnalysis(): Promise<TodayAnalysis | null> {

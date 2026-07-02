@@ -493,19 +493,25 @@ export async function DELETE() {
     eventsFailed = failed;
   }
   if (block) {
-    await appendBlockHistory({
-      id: block.createdAt,
-      goal: block.goal,
-      startDate: block.startDate,
-      endDate: block.endDate,
-      lengthWeeks: block.lengthWeeks,
-      overview: block.overview,
-      createdAt: block.createdAt,
-      model: block.model,
-      promptVersion: block.promptVersion,
-      durabilityTemplate: block.durabilityTemplate,
-      days: truncateBlockDays(block.days, utcToday()),
-    });
+    const livedDays = truncateBlockDays(block.days, utcToday());
+    // SUB-1: only archive when something was actually lived — a same-day discard (regenerated before
+    // any day passed) has nothing worth preserving, and archiving it anyway shows a noise entry (no
+    // compliance, no hours, empty days) on the athlete-visible Plan history + Trends block timeline.
+    if (livedDays.length > 0) {
+      await appendBlockHistory({
+        id: block.createdAt,
+        goal: block.goal,
+        startDate: block.startDate,
+        endDate: block.endDate,
+        lengthWeeks: block.lengthWeeks,
+        overview: block.overview,
+        createdAt: block.createdAt,
+        model: block.model,
+        promptVersion: block.promptVersion,
+        durabilityTemplate: block.durabilityTemplate,
+        days: livedDays,
+      });
+    }
   }
   await writeCurrentBlock(null);
   return NextResponse.json({ ok: true, eventsRemoved, eventsFailed });

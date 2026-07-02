@@ -216,12 +216,13 @@ export function mergeScoreLog(existing: RideScoreEntry[], fresh: RideScoreEntry[
 
 // Rebuild merge (SYNC-2): re-scored `fresh` entries win on overlapping dates, so a corrected NP/decoupling
 // re-flows into the score — with ONE invariant a plain fresh-wins merge violates (LEDGER-1): a rebuild must
-// never downgrade a frozen `planned` ride to off-plan. buildRideScores only knows the CURRENT block, and
-// block history keeps no per-day prescription, so a historical planned ride (its block has rolled off) is
-// re-derived as off-plan; letting that win would corrupt the planned/execution axis the rebuild exists to
-// correct. We can't re-score it correctly either (its plan is gone — no planned duration/type to recompute
-// compliance), so the honest choice is to keep the frozen entry there. Off-plan rides, current-block rides,
-// dates the current block now re-plans, and brand-new dates all re-score normally.
+// never downgrade a frozen `planned` ride to off-plan. buildRideScores now also matches against archived
+// history (SUB-1), so most rolled-off-block rides re-derive correctly — but the guard still matters for a
+// history entry with no `days` (archived before SUB-1, or evicted by the archive's size cap) or one whose
+// prescription was truncated away; letting a wrongly-off-plan re-derivation win in that case would corrupt
+// the planned/execution axis the rebuild exists to correct, so the honest choice is to keep the frozen
+// entry there. Off-plan rides, current-block rides, dates the current block now re-plans, and brand-new
+// dates all re-score normally.
 export function mergeScoreLogRebuild(fresh: RideScoreEntry[], existing: RideScoreEntry[]): RideScoreEntry[] {
   const byDate = new Map<string, RideScoreEntry>();
   for (const e of existing) byDate.set(e.date, e);
