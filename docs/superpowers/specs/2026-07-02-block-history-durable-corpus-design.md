@@ -43,7 +43,11 @@ date so the corpus never develops the hole in the first place, not to repair exi
 - Repairing already-frozen-wrong entries — none exist yet; shipping before 2026-07-12 makes this moot.
 - A provenance/trust-tier field distinguishing "matched live" vs "matched via history" — no consumer
   exists today (see §4).
-- `block-history` pruning/cap — grows ~13 entries/year (one per 2-4wk block); negligible.
+- `block-history` pruning/cap — **correction (final review, 2026-07-02): this claim was wrong.**
+  `appendBlockHistory` (`lib/data-store.ts`) already caps at 20 entries (pre-existing, not part of this
+  design), and discard/supersede archiving (§6) pushes churn well above "one per real block" — 20 was
+  evicting real history within a season. Fixed by raising the cap to 200, not by adding new pruning logic,
+  so the "no new mechanism" spirit of this non-goal holds even though the premise didn't.
 
 ## 3. Approach — history-aware first-scoring
 
@@ -121,9 +125,14 @@ Three places a block "dies" today; two already call `appendBlockHistory`, one do
 3. **Discard** (`DELETE` in `app/api/sync/route.ts`, ~line 480-495) — today calls `writeCurrentBlock(null)`
    directly with **no** `appendBlockHistory` call at all, silently losing any days already ridden against
    a since-discarded block. This is the one behavior change beyond "add a field": start archiving here
-   too, with the same lived-portion truncation. "Discard" means "stop prescribing from this block," not
-   "the sessions I already rode against it didn't happen" — truncation already excludes the rejected
-   future days, so archiving the past ones costs nothing and closes a real corpus leak.
+   too, with the same lived-portion truncation, **but only when at least one day was actually lived** — a
+   same-day discard (regenerated before any day passed) truncates to zero days and is skipped entirely.
+   "Discard" means "stop prescribing from this block," not "the sessions I already rode against it didn't
+   happen" — truncation already excludes the rejected future days, so archiving the lived past closes a
+   real corpus leak. **Correction (final review, 2026-07-02): "costs nothing" was wrong** — the archive
+   already feeds two athlete-visible surfaces (§12), and every discard consumes a slot in the (now-larger)
+   cap above; a zero-lived-days entry is pure noise on both fronts with no offsetting corpus value, hence
+   the added guard.
 
 ## 7. Edge cases & degradation
 
@@ -141,11 +150,15 @@ Three places a block "dies" today; two already call `appendBlockHistory`, one do
 ## 8. Error handling
 
 No new failure modes. `days` is an added field on records already written through the existing atomic
-write + per-file lock + `.bak` snapshot pattern (`lib/json-store.ts`); `appendBlockHistory` calls are
-already best-effort within their routes. The discard path's new archive call follows the same pattern as
-the other two — a failure there should not block the block deletion itself (matches the existing
-"best-effort, never fail the primary action on archival" posture used elsewhere, e.g. the event-cleanup
-comment in `app/api/write/route.ts:152-158`).
+write + per-file lock + `.bak` snapshot pattern (`lib/json-store.ts`).
+
+**Correction (final review, 2026-07-02):** the claim that an archive failure "should not block the block
+deletion" was wrong — describes intent this design never implemented. All three archive calls (including
+the discard path's new one) are bare, unwrapped `await`s, matching the file's existing pattern (the
+`deleteEvents` calendar call above the discard site isn't wrapped either). A local JSON write failing
+there surfaces as a normal request failure, ordered *before* `writeCurrentBlock(null)` clears the block —
+fail-before-destructive-clear, so a failure is retryable and never silently loses the block's local state.
+This is the right behavior; the doc, not the code, was wrong.
 
 ## 9. Testing
 
@@ -176,5 +189,11 @@ otherwise silently lose.
 
 - Provenance/trust-tier marking on `RideScoreEntry` (§3's non-goals — no consumer today; purely additive
   to add later as `matchSource?: "live" | "history"` if one appears).
-- `block-history` pruning or size cap.
-- Any UI change (nothing here is athlete-visible; it only affects what the ledger silently gets right).
+- `block-history` pruning or size cap beyond raising the pre-existing one (see §2 correction).
+- **New** UI — no screen, component, or copy was added or changed by this design. **Correction (final
+  review, 2026-07-02): the original claim ("nothing here is athlete-visible") was wrong** — `days` rides
+  along on `BlockHistoryEntry` records that two pre-existing, unmodified surfaces already render:
+  `/api/history` → `PlanView`'s block-history list, and `/api/trends`'s block timeline. This design didn't
+  add those surfaces, but archiving a discard (§6) does make a new *kind* of entry appear there — the
+  zero-lived-days guard added in §6 is what actually keeps that surface clean, not the absence of a
+  consumer.
