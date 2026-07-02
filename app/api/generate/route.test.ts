@@ -27,7 +27,7 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
   const actual = await orig<typeof import("@/lib/anthropic-api")>();
   return {
     ...actual,
-    isAnthropicConfigured: () => true,
+    isAnthropicConfigured: vi.fn(() => true),
     generateTrainingBlock: vi.fn(async () => ({ toolInput: h.toolInput, raw: "", truncated: false })),
   };
 });
@@ -59,6 +59,7 @@ vi.mock("@/lib/data-store", () => ({
 }));
 
 import * as store from "@/lib/data-store";
+import * as anthropic from "@/lib/anthropic-api";
 import { POST } from "@/app/api/generate/route";
 
 const profile = {
@@ -97,5 +98,29 @@ describe("POST /api/generate — Track B wiring", () => {
   it("does not require a RaceSim for a flat, non-terrain goal", async () => {
     const json = await (await gen("Improve 40k TT power on the flats")).json();
     expect(json.plan.warnings.some((w: string) => /RaceSim/.test(w))).toBe(false);
+  });
+});
+
+describe("POST /api/generate — request validation", () => {
+  it("400 when Anthropic is not configured, without calling the model", async () => {
+    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValueOnce(false);
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/ANTHROPIC_API_KEY/);
+    expect(anthropic.generateTrainingBlock).not.toHaveBeenCalled();
+  });
+
+  it("400 on a non-JSON body", async () => {
+    const res = await POST(new Request("http://t/api/generate", { method: "POST", body: "not json" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Invalid JSON body.");
+  });
+
+  it("400 on invalid block params, naming the offending field", async () => {
+    const post = (body: unknown) =>
+      POST(new Request("http://t/api/generate", { method: "POST", body: JSON.stringify(body) }));
+    expect((await (await post({ lengthWeeks: 3, goal: "x", startDate: "2026-06-15" })).json()).error).toMatch(/lengthWeeks/);
+    expect((await (await post({ lengthWeeks: 2, goal: "  ", startDate: "2026-06-15" })).json()).error).toMatch(/goal/);
+    expect((await (await post({ lengthWeeks: 2, goal: "x", startDate: "15-06-2026" })).json()).error).toMatch(/startDate/);
   });
 });
