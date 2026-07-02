@@ -418,6 +418,11 @@ export interface BlockHistoryEntry {
   model?: string;
   promptVersion?: number;
   durabilityTemplate?: string; // Track B: durability template (A–E) used — for rotation + scoring
+  // SUB-1: the block's per-day prescriptions, truncated to dates on/before the archive date (its "lived"
+  // portion — a superseded/discarded block's un-lived future was never a real plan). Verbatim CurrentBlockDay
+  // reuse — buildRideScores applies the same durationMin > 0 filter it already applies to the live block.
+  // Absent on entries archived before this field existed; they contribute nothing to historical matching.
+  days?: CurrentBlockDay[];
 }
 
 // ---------- Readiness / fatigue signals (computed at sync time) ----------

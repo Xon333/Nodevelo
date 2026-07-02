@@ -8,7 +8,7 @@ import { computeExecutionScore, resolveCompliance, timeAboveZ2Fraction, type Sco
 import { aerobicEffPct, z2PwHrBaselineBefore } from "./aerobic";
 import { inferWorkoutType } from "./ride-classify";
 import { round1, round2 } from "./stats";
-import type { ActivitySummary, BehaviourSummary, CurrentBlock, CurrentBlockDay, RideEntryContext, RideScoreEntry } from "./types";
+import type { ActivitySummary, BehaviourSummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, RideEntryContext, RideScoreEntry } from "./types";
 
 const MAX_ENTRIES = 400; // ~6 months of all rides
 
@@ -46,6 +46,13 @@ export function fuelStampFor(act: ActivitySummary): { fuel: { carbsGPerH: number
   if (grams == null || !Number.isFinite(grams) || grams < 0 || act.movingTimeSec <= 0) return {};
   const carbsGPerH = round1(grams / (act.movingTimeSec / 3600));
   return { fuel: { carbsGPerH } };
+}
+
+// SUB-1: a block's "lived" days as of its archive date — the days it actually covered while live, not
+// the un-lived future of a superseded/discarded block. Archiving only the lived portion keeps a later
+// block's overlapping dates from ever having two competing historical prescriptions.
+export function truncateBlockDays(days: CurrentBlockDay[], asOfDate: string): CurrentBlockDay[] {
+  return days.filter((d) => d.date <= asOfDate);
 }
 
 export function buildRideScores(

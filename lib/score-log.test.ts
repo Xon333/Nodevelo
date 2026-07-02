@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRideScores, fuelStampFor, mergeScoreLog, mergeScoreLogRebuild, summariseBehaviour } from "./score-log";
+import { buildRideScores, fuelStampFor, mergeScoreLog, mergeScoreLogRebuild, summariseBehaviour, truncateBlockDays } from "./score-log";
 import type { ActivitySummary, CurrentBlock, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
@@ -370,5 +370,26 @@ describe("summariseBehaviour", () => {
     expect(b.unplannedRides).toBe(1);
     expect(b.offPlanPct).toBe(50);
     expect(b.unplannedAvgQuality).toBe(6);
+  });
+});
+
+describe("truncateBlockDays", () => {
+  const days = [
+    { date: "2026-06-15", name: "Z2 day", type: "Z2" as const, durationMin: 90 },
+    { date: "2026-06-16", name: "Threshold day", type: "Threshold" as const, durationMin: 60 },
+    { date: "2026-06-17", name: "Recovery day", type: "Recovery" as const, durationMin: 45 },
+  ];
+
+  it("keeps days on or before the cutoff, inclusive", () => {
+    expect(truncateBlockDays(days, "2026-06-16").map((d) => d.date)).toEqual(["2026-06-15", "2026-06-16"]);
+  });
+
+  it("drops all days when the cutoff is before the block started", () => {
+    expect(truncateBlockDays(days, "2026-06-01")).toEqual([]);
+  });
+
+  it("keeps every day when the cutoff is on/after the block's last day", () => {
+    expect(truncateBlockDays(days, "2026-06-17")).toHaveLength(3);
+    expect(truncateBlockDays(days, "2026-07-01")).toHaveLength(3);
   });
 });
