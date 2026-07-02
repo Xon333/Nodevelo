@@ -270,7 +270,6 @@ export function computeRollingBaselines(
     date: string;
     trainingLoad: number | null;
     decoupling: number | null;
-    avgCadence: number | null;
     movingTimeSec: number;
   }>,
   wellness: WellnessEntry[],
@@ -278,7 +277,6 @@ export function computeRollingBaselines(
 ): {
   avgTss90d: number | null;
   avgDecoupling90d: number | null;
-  avgCadence90d: number | null;
   avgCtl90d: number | null;
   avgWeeklyHours90d: number | null;
   ridesPerWeek90d: number | null;
@@ -289,7 +287,6 @@ export function computeRollingBaselines(
 
   const tssList = recent.map((a) => a.trainingLoad).filter((v): v is number => v !== null);
   const decoupList = recent.map((a) => a.decoupling).filter((v): v is number => v !== null);
-  const cadList = recent.map((a) => a.avgCadence).filter((v): v is number => v !== null);
 
   const avg = (arr: number[]) => arr.length ? Math.round((arr.reduce((s, v) => s + v, 0) / arr.length) * 10) / 10 : null;
 
@@ -310,7 +307,6 @@ export function computeRollingBaselines(
   return {
     avgTss90d: avg(tssList),
     avgDecoupling90d: avg(decoupList),
-    avgCadence90d: avg(cadList),
     avgCtl90d: avg(ctlList),
     avgWeeklyHours90d,
     ridesPerWeek90d,

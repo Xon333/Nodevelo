@@ -633,7 +633,6 @@ export interface PhysiologyStore {
 export interface RollingBaselines {
   avgCtl90d: number | null;
   avgDecoupling90d: number | null;
-  avgCadence90d: number | null;
   avgTss90d: number | null;
   avgWeeklyHours90d: number | null; // rolling 90-day mean weekly ride hours (window-consistent with the others)
   ridesPerWeek90d: number | null; // rolling 90-day mean rides/week — training consistency (same window as hours)

@@ -164,7 +164,7 @@ export function baselineCards(b: RollingBaselines, wkgAtThreshold: number | null
   // w/kg @ threshold · weekly hours · rides/week · avg load/ride. Avg CTL stays out (the CTL graph
   // shows it); cadence + decoupling were dropped — decoupling's story is the Pw:HR chart, cadence is
   // low decision-value. (avgDecoupling90d is still computed for the calibration cutoff; avgCadence90d
-  // is now card-unused — a candidate to retire from the store later.)
+  // was card-unused and has been retired from the baselines store — EC-8.)
   // w/kg's denominator (FTP) ages; flag "stale FTP" when >90d so it agrees with Profile's warning.
   if (wkgAtThreshold != null) {
     cards.push({ label: wkgStale ? "w/kg @ threshold · stale FTP" : "w/kg @ threshold", value: wkgAtThreshold.toFixed(1) });

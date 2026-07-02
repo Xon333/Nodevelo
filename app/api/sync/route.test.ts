@@ -178,7 +178,6 @@ beforeEach(() => {
   vi.mocked(store.readRollingBaselines).mockResolvedValue({
     avgCtl90d: null,
     avgDecoupling90d: null,
-    avgCadence90d: null,
     avgTss90d: null,
     avgWeeklyHours90d: null,
     ridesPerWeek90d: null,

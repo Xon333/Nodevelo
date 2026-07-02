@@ -126,7 +126,6 @@ export async function writeTodayAnalysis(analysis: TodayAnalysis | null): Promis
 const DEFAULT_BASELINES: RollingBaselines = {
   avgCtl90d: null,
   avgDecoupling90d: null,
-  avgCadence90d: null,
   avgTss90d: null,
   avgWeeklyHours90d: null,
   ridesPerWeek90d: null,
