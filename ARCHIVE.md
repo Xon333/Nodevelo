@@ -12,6 +12,31 @@ exact commits.
 
 ---
 
+## Route tests (`sync` + `generate`) — SUB-3 (2026-07-02)
+
+Closed the 2026-06-30 audit's "test coverage lopsided" finding: the two highest-stakes, least-tested
+routes now have wiring-level characterization coverage. Executed via subagent-driven development, 10
+tasks, every task approved on first review pass. Plan:
+[plan](docs/superpowers/plans/2026-07-02-sub3-route-tests.md).
+
+- **`app/api/sync/route.test.ts` created — 19 tests.** GET cache/filtering; POST config/empty-sync
+  guards + 401/502 error mapping; POST happy-path + per-date ledger immutability + disposition
+  stamping; ledger-rebuild one-shot gating (runs once / marker refuses repeats / force overrides);
+  physiology reconcile wiring; best-effort failures (quirk/intervention/analysis) surfaced as warnings
+  not hard-fails; today-ride deterministic-analysis path (write + ledger patch + pending flag); DELETE
+  discard (lived-days archive, calendar cleanup, same-day noise guard).
+- **`app/api/generate/route.test.ts` extended +9 → 11 tests.** Request validation (400
+  not-configured/non-JSON/invalid-params); structured-payload failure paths (502 null / 502
+  schema-invalid / thrown→502); truncation-first + day-count-shortfall warnings; provenance +
+  audit-trail stamping; best-effort season-replan (a persistence failure never blocks generation).
+- **Architecture: I/O mocked only at the module boundary** (`intervals-api` network, `data-store`/
+  `physiology` fs, `anthropic-api` LLM); the pure pipeline (score-log, sync-ledger, disposition,
+  readiness, coach-snapshot, validators, plan-schema) runs for real — so these prove the wiring, not
+  the already-unit-tested internals. Handlers invoked directly as functions with a `Request`, no server.
+- Full suite 647 tests (58 files), up from 619 pre-SUB-3.
+
+---
+
 ## SUB-1 · Durable planned corpus (block-history) (2026-07-02)
 
 Closed the 2026-06-30 audit's "planned corpus isn't durable across blocks" finding: `buildRideScores`

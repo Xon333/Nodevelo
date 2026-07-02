@@ -48,7 +48,7 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
   Pw:HR, polarization, volume baselines — which need no prescription.)
 - ⚠️ **Test coverage lopsided** — ~all 49 suites are `lib/*`; the 494-line `sync` + 272-line `generate`
   routes (reconciliation, scoring orchestration, tool-use parsing) are the highest-stakes, least-tested
-  code, and they guard the immutable ledger everything learns from.
+  code, and they guard the immutable ledger everything learns from. **Resolved 2026-07-02** — see "Route tests (sync + generate)" in [ARCHIVE.md](ARCHIVE.md).
 - 🔸 **No periodization above the block** (as of this 2026-06-30 audit) — no season/macrocycle scope, no
   cross-block progression, no taper/peak logic (`6a` deferred). The planner optimises 2–4 weeks in
   isolation; previous-block insight only flows as retrospective `next_block_seeds`, and there are no
@@ -67,13 +67,13 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
 1. **Turn the loop over.** Retain block prescriptions (`block-history`) — ✅ done, 2026-07-02 (SUB-1).
    Left: close #4 (low hit-rate → *demote*, not just annotate); reduce friction so
    generate→ride→score→learn actually accrues.
-2. **Test the `sync` + `generate` routes** — protect the ledger from silent reconciliation/scoring bugs.
+2. **Test the `sync` + `generate` routes** — protect the ledger from silent reconciliation/scoring bugs. ✅ done, 2026-07-02 (SUB-3).
 3. **Off-machine backup of `data/`** + branch discipline for the shared checkout.
 4. **Periodization / season scope** — ✅ done (see "Macro periodization & season scope" below); event-aware
    *race* planning (`6a`, the surfacing layer once an athlete adds an event) remains open.
 
 _Expanded below: **Data substrate** (priority 1's block-history half shipped 2026-07-02, its backfill
-half paused; priorities 2–3 still plain open items, no open design questions) and **Macro periodization &
+half paused; priority 3 still a plain open item, no open design questions) and **Macro periodization &
 season scope** (priority 4, since shipped — expanded section now records what's live + the tracked debt,
 not open questions)._
 
@@ -83,7 +83,7 @@ not open questions)._
 
 The foundation: most of the learning engine is dormant for lack of first-party data. SUB-1 (block-history
 durability) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md); SUB-2 (legacy backfill) investigated and
-paused same day. SUB-3/SUB-4 below remain open, plain backlog items — no open design questions on either.
+paused same day; SUB-3 (route tests) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md). SUB-4 below remains open, a plain backlog item — no open design questions.
 
 ### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 **Problem.** The prior ~6 months (100 legacy rides) followed real structure, but the app has no
@@ -100,10 +100,6 @@ an importer. Athlete will handle any legacy relabeling manually (e.g. renaming c
 want specific rides gradable. Revisit only if that manual path proves painful enough to reopen, or a
 better recovery signal surfaces (the ride's own executed profile, without an independent prescription,
 is circular and was not pursued).
-
-### SUB-3 · Route tests (`sync` + `generate`)
-The 494-line `sync` + 272-line `generate` routes (reconciliation, scoring orchestration, tool-use parsing)
-are the highest-stakes, least-tested code — and they guard the immutable ledger everything learns from.
 
 ### SUB-4 · `data/` durability + branch discipline
 Off-machine backup of `data/` (the immutable ledger sits on one disk behind homegrown `.bak` files);
