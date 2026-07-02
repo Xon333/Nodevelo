@@ -229,3 +229,37 @@ describe("GET /api/sync", () => {
     expect(json.partialDates).toEqual(["2026-06-21"]);
   });
 });
+
+describe("POST /api/sync — guards + error mapping", () => {
+  it("400 when Intervals.icu is not configured", async () => {
+    vi.mocked(api.isIntervalsConfigured).mockReturnValue(false);
+    const res = await postSync();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/INTERVALS_API_KEY/);
+    expect(api.runFullSync).not.toHaveBeenCalled();
+  });
+
+  it("502 + keeps previous data when upstream returns a suspect empty sync (CR-C)", async () => {
+    vi.mocked(store.readLastSync).mockResolvedValue(
+      mkSync({
+        activities: [mkActivity({ date: "2026-06-18" })],
+        wellness: [{ date: "2026-06-18", weightKg: 75, hrv: null, sleepHours: 7, sleepQuality: null, kcalConsumed: null, ctl: 50, atl: 55 }],
+      })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync()); // no activities AND no wellness
+    const res = await postSync();
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/no activities or wellness/);
+    expect(store.writeLastSync).not.toHaveBeenCalled(); // previous store untouched
+  });
+
+  it("maps an Intervals 401 to 401 and any other failure to 502", async () => {
+    vi.mocked(api.runFullSync).mockRejectedValueOnce(new api.IntervalsApiError("Unauthorized", 401));
+    expect((await postSync()).status).toBe(401);
+
+    vi.mocked(api.runFullSync).mockRejectedValueOnce(new Error("boom"));
+    const res = await postSync();
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe("boom");
+  });
+});
