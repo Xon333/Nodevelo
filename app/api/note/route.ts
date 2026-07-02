@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError } from "@/lib/log";
 import { createEvent, isIntervalsConfigured } from "@/lib/intervals-api";
 
 // POST — write the coach analysis back to Intervals.icu calendar as a NOTE event.
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ ok: true, eventId });
   } catch (err) {
+    logError("/api/note", "create-event", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to post note" },
       { status: 502 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError } from "@/lib/log";
 import {
   listKnowledgeFiles,
   listRetrospectives,
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
     const [files, retrospectives] = await Promise.all([listKnowledgeFiles(), listRetrospectives()]);
     return NextResponse.json({ files, retrospectives });
   } catch (err) {
+    logError("/api/knowledge", "read", err, { file, retro });
     const message = err instanceof Error ? err.message : "Failed to read knowledge base.";
     return NextResponse.json({ error: message }, { status: 404 });
   }
@@ -53,6 +55,7 @@ export async function PUT(req: Request) {
     }
     return NextResponse.json({ error: "file or retro is required." }, { status: 400 });
   } catch (err) {
+    logError("/api/knowledge", "write", err, { file, retro });
     const message = err instanceof Error ? err.message : "Failed to save file.";
     return NextResponse.json({ error: message }, { status: 400 });
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError } from "@/lib/log";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
 import { readBlockSettings, readCurrentBlock, readDispositions, readInterventionLog, readLastSync, readMorningChecks, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
 import { readPhysiology } from "@/lib/physiology";
@@ -93,6 +94,7 @@ export async function POST(req: Request) {
         for await (const chunk of gen) controller.enqueue(encoder.encode(chunk));
         controller.close();
       } catch (err) {
+        logError("/api/ask", "stream", err);
         controller.error(err);
       }
     },

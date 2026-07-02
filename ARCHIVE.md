@@ -12,6 +12,18 @@ exact commits.
 
 ---
 
+## Structured logging — P8 half (2026-07-02)
+
+Silent-catch observability gap closed: `lib/log.ts` (`logError`/`logWarn`, JSON lines shaped
+`{t, route, step, status, message}` to `console.error`/`warn` — ROADMAP P8's shape) + `lib/log.test.ts`.
+Routed through the 17 substrate-facing call sites that used to swallow real failures across `write`,
+`note`, `ask`, `disposition`, `retrospective`, `knowledge`, `generate`, `import`, `sync`. Deliberately
+skipped: client-input-validation catches (`400 Invalid JSON body` — already visible to the caller) and
+benign no-body-fallback branches (`morning-check`, `analyze`, `sync`'s optional `?today` parse) — neither
+is a substrate failure. AI-route cost guard (P8's other half) remains open.
+
+---
+
 ## Edge-case sweep EC-2026-06-27 — closeout (2026-07-02)
 
 The EA/baseline edge-case + off-plan-aerobic/durability scoring read-audit, fully resolved.

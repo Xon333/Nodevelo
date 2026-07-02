@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError, logWarn } from "@/lib/log";
 import { deleteEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { blockEventIds } from "@/lib/block-events";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
@@ -232,6 +233,7 @@ export async function POST(req: Request) {
     try {
       await writeQuirks(extractQuirks(lastSync.activities));
     } catch (e) {
+      logWarn("/api/sync", "quirk-extraction", e instanceof Error ? e.message : "unknown error");
       warnings.push(`Quirk extraction failed: ${e instanceof Error ? e.message : "unknown error"}`);
     }
 
@@ -303,6 +305,7 @@ export async function POST(req: Request) {
       if (changed) await writeInterventionLog(updatedInterventions);
     } catch (e) {
       // Never fail a sync on the validation pass — but surface it instead of swallowing silently.
+      logWarn("/api/sync", "intervention-validation", e instanceof Error ? e.message : String(e));
       warnings.push(`Intervention validation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
@@ -417,13 +420,15 @@ export async function POST(req: Request) {
                 )
               );
             }
-          } catch {
+          } catch (e) {
             // Best-effort — the ledger already has a coarse entry from buildRideScores.
+            logWarn("/api/sync", "ride-trace-match", e instanceof Error ? e.message : String(e));
           }
           // The coach note + its Intervals.icu auto-post now happen in /api/analyze (the deferred
           // LLM step), so this deterministic block returns without an AI call.
         } catch (e) {
           // Don't fail the whole sync on the deterministic analysis — but surface it.
+          logWarn("/api/sync", "ride-analysis", e instanceof Error ? e.message : String(e));
           warnings.push(`Ride analysis failed: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
@@ -472,6 +477,7 @@ export async function POST(req: Request) {
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";
+    logError("/api/sync", "sync", err, { status });
     return NextResponse.json({ error: message }, { status });
   }
 }

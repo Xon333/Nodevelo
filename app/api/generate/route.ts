@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError, logWarn } from "@/lib/log";
 import {
   blockDates,
   buildAthleteDataSection,
@@ -231,7 +232,9 @@ export async function POST(req: Request) {
       currentSeasonPeriod = currentPeriod(replanned, today);
       const line = formatSeasonContext(replanned, today);
       if (line) seasonContext = `\n${line}`;
-    } catch { /* season layer is best-effort */ }
+    } catch (err) {
+      logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
+    }
 
     // Live training zones from the physiology store, rendered for the prompt (these used to
     // live in athlete_profile.md but are now synced from Intervals.icu).
@@ -322,6 +325,7 @@ export async function POST(req: Request) {
     };
     return NextResponse.json({ plan });
   } catch (err) {
+    logError("/api/generate", "generate", err);
     const message = err instanceof Error ? err.message : "Generation failed.";
     return NextResponse.json({ error: message }, { status: 502 });
   }

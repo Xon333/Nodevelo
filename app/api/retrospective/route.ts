@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logWarn } from "@/lib/log";
 import {
   appendBlockHistory,
   readAthleteProfile,
@@ -175,7 +176,8 @@ export async function POST() {
         powerProfile: powerProfileText,
         interventions: maturedInterventions,
       });
-    } catch {
+    } catch (err) {
+      logWarn("/api/retrospective", "structured-reflections", err instanceof Error ? err.message : String(err));
       structuredReflections = []; // never block the retrospective on the structured call
     }
   }

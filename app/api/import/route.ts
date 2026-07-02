@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { logWarn } from "@/lib/log";
 import { writeJsonFile } from "@/lib/json-store";
 
 // Restore from a bundle produced by GET /api/export. Destructive — it overwrites the only source
@@ -46,7 +47,8 @@ export async function POST(req: Request) {
     try {
       await writeJsonFile(rel, JSON.parse(content));
       restored++;
-    } catch {
+    } catch (err) {
+      logWarn("/api/import", "restore-data-file", err instanceof Error ? err.message : String(err), { rel });
       skipped.push(rel); // malformed JSON in the bundle — leave the live file untouched
     }
   }
@@ -62,7 +64,8 @@ export async function POST(req: Request) {
       await fs.mkdir(path.dirname(full), { recursive: true });
       await fs.writeFile(full, content as string, "utf-8");
       restored++;
-    } catch {
+    } catch (err) {
+      logWarn("/api/import", "restore-kb-file", err instanceof Error ? err.message : String(err), { rel });
       skipped.push(rel);
     }
   }

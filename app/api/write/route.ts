@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
 import { appendBlockHistory, readAthleteProfile, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, writeCurrentBlock, writeInterventionLog } from "@/lib/data-store";
 import { currentPeriod } from "@/lib/season";
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       const eventId = await createEvent(planDayToEvent(day));
       results.push({ date: day.date, name: day.name, ok: true, eventId });
     } catch (err) {
+      logError("/api/write", "create-event", err, { date: day.date });
       results.push({
         date: day.date,
         name: day.name,
@@ -174,8 +176,8 @@ export async function POST(req: Request) {
         updatedAt: new Date().toISOString(),
       });
     }
-  } catch {
-    // Non-critical.
+  } catch (err) {
+    logWarn("/api/write", "record-interventions", err instanceof Error ? err.message : String(err));
   }
 
   return NextResponse.json({ results, blockSaved: true, currentBlock });

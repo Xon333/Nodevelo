@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logWarn } from "@/lib/log";
 import { readDispositions, updateDispositions, updateScoreLog } from "@/lib/data-store";
 import { applyDispositions, mergeDisposition } from "@/lib/disposition";
 import type { CompromiseReason, DispositionEntry, SessionDisposition } from "@/lib/types";
@@ -44,8 +45,8 @@ export async function POST(req: Request) {
   // can't lose a concurrent sync's freshly-written scores.
   try {
     await updateScoreLog((cur) => applyDispositions(cur, entries));
-  } catch {
-    // best-effort — the next sync will re-derive
+  } catch (err) {
+    logWarn("/api/disposition", "re-stamp-ledger", err instanceof Error ? err.message : String(err), { date });
   }
 
   return NextResponse.json({ disposition: entry });

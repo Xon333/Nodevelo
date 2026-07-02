@@ -267,8 +267,9 @@ could fire. What's left:
 
 ## Platform & performance  (local-first single-user)
 
-- **P8** — structured logging (`{route, step, status, ms}` instead of silent `catch`); AI-route cost
-  guard (in-memory token-bucket on `/api/generate` + `/api/ask`).
+- **P8** — ✅ structured logging done, 2026-07-02 (`lib/log.ts`, routed through the substrate-facing
+  silent catches — see [ARCHIVE.md](ARCHIVE.md)). Left: AI-route cost guard (in-memory token-bucket on
+  `/api/generate` + `/api/ask`).
 - **P9** — PWA install (`manifest.ts` + service worker); stream `/api/generate` (blocks 1–2 min today).
 
 ---
