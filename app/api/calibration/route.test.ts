@@ -10,7 +10,7 @@ vi.mock("@/lib/data-store", () => ({
 
 import * as store from "@/lib/data-store";
 import { GET, POST } from "@/app/api/calibration/route";
-import { DECOUPLING_GOOD_BOUNDS } from "@/lib/calibration";
+import { CARBS_OPTIMUM_BOUNDS, DECOUPLING_GOOD_BOUNDS } from "@/lib/calibration";
 import type { CalibrationStore } from "@/lib/types";
 
 const base = (): CalibrationStore => ({
@@ -70,6 +70,31 @@ describe("POST /api/calibration", () => {
   it("rejects an invalid JSON body", async () => {
     const res = await POST(new Request("http://x/api/calibration", { method: "POST", body: "{not json" }));
     expect(res.status).toBe(400);
+  });
+
+  it("clamps a carbsOptimum manualOverride into its own bounds", async () => {
+    const res = await post({ param: "carbsOptimum", manualOverride: 300 });
+    const json = await res.json();
+    expect(json.calibration.carbsOptimum.manualOverride).toBe(CARBS_OPTIMUM_BOUNDS.max);
+
+    const res2 = await post({ param: "carbsOptimum", manualOverride: 5 });
+    const json2 = await res2.json();
+    expect(json2.calibration.carbsOptimum.manualOverride).toBe(CARBS_OPTIMUM_BOUNDS.min);
+  });
+
+  it("creates carbsOptimum from a blank when the stored file predates the field (migration)", async () => {
+    // base() has no carbsOptimum — the pre-existing-file case (parses back undefined, not null).
+    const res = await post({ param: "carbsOptimum", manualOverride: 90 });
+    const json = await res.json();
+    expect(json.calibration.carbsOptimum.manualOverride).toBe(90);
+    expect(json.calibration.carbsOptimum.source).toBe("default"); // seeded from defaultParameter()
+    expect(json.calibration.decouplingGood.value).toBe(4); // sibling untouched
+  });
+
+  it("clears a carbsOptimum override with null", async () => {
+    const res = await post({ param: "carbsOptimum", manualOverride: null });
+    const json = await res.json();
+    expect(json.calibration.carbsOptimum.manualOverride).toBeNull();
   });
 });
 

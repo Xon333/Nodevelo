@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { readCalibration, updateCalibration } from "@/lib/data-store";
-import { DECOUPLING_GOOD_BOUNDS } from "@/lib/calibration";
+import { CARBS_OPTIMUM_BOUNDS, DECOUPLING_GOOD_BOUNDS, defaultParameter } from "@/lib/calibration";
 import { clamp } from "@/lib/stats";
 
 // Contest/correct for the Model page (ROADMAP #2): set or clear a manual override on a calibrated
-// scoring parameter. Only `decouplingGood` is a learned CalibratedParameter today; its override must
-// stay inside the same sane band deriveDecouplingGood clamps the derived value to (the shared
-// DECOUPLING_GOOD_BOUNDS, CAL-4), so a bad value can't distort scoring. The next sync preserves the
-// override (deriveDecouplingGood reads prior.manualOverride).
+// scoring parameter. Each param's override is clamped into the same sane band its derivation uses, so
+// a bad value can't distort what reads it. The next sync preserves overrides (each derive reads
+// prior.manualOverride).
+
+const PARAM_BOUNDS = {
+  decouplingGood: DECOUPLING_GOOD_BOUNDS,
+  carbsOptimum: CARBS_OPTIMUM_BOUNDS,
+} as const;
+type ParamName = keyof typeof PARAM_BOUNDS;
 
 export async function GET() {
   return NextResponse.json({ calibration: await readCalibration() });
@@ -22,7 +27,9 @@ export async function POST(req: Request) {
   }
   const b = (body ?? {}) as Record<string, unknown>;
 
-  if (b.param !== "decouplingGood") {
+  const param = b.param as ParamName;
+  const bounds = typeof param === "string" ? PARAM_BOUNDS[param] : undefined;
+  if (!bounds) {
     return NextResponse.json({ error: "Unknown calibration parameter." }, { status: 400 });
   }
 
@@ -32,14 +39,15 @@ export async function POST(req: Request) {
   if (raw === null) {
     manualOverride = null;
   } else if (typeof raw === "number" && Number.isFinite(raw)) {
-    manualOverride = clamp(raw, DECOUPLING_GOOD_BOUNDS.min, DECOUPLING_GOOD_BOUNDS.max);
+    manualOverride = clamp(raw, bounds.min, bounds.max);
   } else {
     return NextResponse.json({ error: "manualOverride must be a number or null." }, { status: 400 });
   }
 
   const calibration = await updateCalibration((cur) => ({
     ...cur,
-    decouplingGood: { ...cur.decouplingGood, manualOverride },
+    // A store written before the param existed parses back with the field undefined — seed a blank.
+    [param]: { ...(cur[param] ?? defaultParameter()), manualOverride },
     updatedAt: new Date().toISOString(),
   }));
 
