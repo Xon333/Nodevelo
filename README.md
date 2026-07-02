@@ -541,7 +541,7 @@ and only phrases them in natural language — it never calculates nutrition.
 ## Development
 
 ```bash
-npm test       # vitest (611 tests across 57 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, …)
+npm test       # vitest (670 tests across 59 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, planned-vs-actual, …)
 npm run lint
 npm run build
 ```

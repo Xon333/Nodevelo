@@ -12,6 +12,28 @@ exact commits.
 
 ---
 
+## Edge-case sweep EC-2026-06-27 — closeout (2026-07-02)
+
+The EA/baseline edge-case + off-plan-aerobic/durability scoring read-audit, fully resolved.
+
+- **EC-1** — aerobic Pw:HR baseline outdoor-filtered (VirtualRide excluded); **EC-2** — durability effort
+  timing made stream-sample-index based (immune to smart-recording / paused time). (Shipped earlier in the sweep.)
+- **EC-3** — `computeExecutionScore` now gates `durabilityDelivery` on `gradedByDurability`, so a lone
+  delivery grade (template A / none) can't double-count on top of the interval-adherence axis in the
+  immutable ledger. +1 test.
+- **EC-4** — energy-availability anchors a no-weigh-in day to the nearest weigh-in ON/BEFORE it (not the
+  most-recent overall, which could post-date the day) — the `physiologyAsOf` convention. +1 test.
+- **EC-7** — the Today "Power execution" drill-down titles itself "Aerobic drift" when only decoupling is
+  present (no zones/trace/intervals), instead of mislabeling drift as power execution.
+- **EC-8** — retired the computed-but-unused `avgCadence90d` from the rolling-baselines compute / type /
+  default / fixtures.
+- **`sharpen` Focus option** added to the `/profile` goals form (the API + season engine already accepted it).
+- Consciously **accepted, no fix:** EC-5 (EA trend sensitive to rest-day composition — kept a soft arrow;
+  a per-athlete band is Track C) and EC-6 (new baseline fields hide until the first post-deploy sync —
+  inherent to the derive-on-sync model).
+
+---
+
 ## Directive demote — the validation loop acts (#4, demote half) (2026-07-02)
 
 ROADMAP #4's second half: `synthesizeCoachingDirectives` (`lib/synthesis.ts`) now DEMOTES a coaching
