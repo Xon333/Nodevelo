@@ -60,6 +60,7 @@ vi.mock("@/lib/data-store", () => ({
 
 import * as store from "@/lib/data-store";
 import * as anthropic from "@/lib/anthropic-api";
+import { GENERATION_MODEL, PROMPT_VERSION } from "@/lib/anthropic-api";
 import { POST } from "@/app/api/generate/route";
 
 const profile = {
@@ -122,5 +123,50 @@ describe("POST /api/generate — request validation", () => {
     expect((await (await post({ lengthWeeks: 3, goal: "x", startDate: "2026-06-15" })).json()).error).toMatch(/lengthWeeks/);
     expect((await (await post({ lengthWeeks: 2, goal: "  ", startDate: "2026-06-15" })).json()).error).toMatch(/goal/);
     expect((await (await post({ lengthWeeks: 2, goal: "x", startDate: "15-06-2026" })).json()).error).toMatch(/startDate/);
+  });
+});
+
+describe("POST /api/generate — generation outcomes", () => {
+  it("502 when the model returns no structured payload", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: null, raw: "prose", truncated: false } as never);
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/did not return a structured plan/);
+  });
+
+  it("502 when the payload fails schema validation", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: { bogus: true }, raw: "", truncated: false } as never);
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/failed structured validation/);
+  });
+
+  it("maps a thrown generation failure to 502 with its message", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockRejectedValueOnce(new Error("Anthropic 500"));
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe("Anthropic 500");
+  });
+
+  it("surfaces truncation as the FIRST warning and flags the day-count shortfall", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: h.toolInput, raw: "", truncated: true } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.warnings[0]).toMatch(/token limit/);
+    expect(json.plan.warnings).toContain("Expected 14 days, got 2.");
+  });
+
+  it("stamps provenance + the audit trail on the plan", async () => {
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.model).toBe(GENERATION_MODEL);
+    expect(json.plan.promptVersion).toBe(PROMPT_VERSION);
+    expect(json.plan.raw).toBe(JSON.stringify(h.toolInput, null, 2));
+    expect(json.plan.blockParams).toMatchObject({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15" });
+  });
+
+  it("a season-replan persistence failure never blocks generation (best-effort)", async () => {
+    vi.mocked(store.writeSeasonPlan).mockRejectedValueOnce(new Error("disk full"));
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(200);
+    expect((await res.json()).plan).toBeDefined();
   });
 });
