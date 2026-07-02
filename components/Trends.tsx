@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, timeAgo } from "@/lib/client-api";
+import { localToday } from "@/lib/date";
 import Sparkline from "./Sparkline";
 import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
 import { Card, StatTile } from "./ui";
@@ -20,7 +21,7 @@ export default function Trends() {
   const syncedAt = state?.lastSync?.syncedAt ?? null;
   const { data, error } = useQuery({
     queryKey: ["trends", syncedAt],
-    queryFn: () => api<TrendsData>("/api/trends"),
+    queryFn: () => api<TrendsData>(`/api/trends?today=${localToday()}`),
   });
 
   if (error) {

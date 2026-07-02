@@ -1,6 +1,7 @@
 // Shape of the /api/trends payload, shared by the Trends page and its extracted section components.
 // Lifted out of the old 508-line Trends.tsx (RV-8).
 import type { Insight, RollingBaselines, WorkoutType } from "@/lib/types";
+import type { FtpRetestSignal, TypePlanVsActual } from "@/lib/plan-vs-actual";
 import type { SparkPoint } from "../Sparkline";
 
 export type Point = SparkPoint;
@@ -70,6 +71,9 @@ export interface TrendsData {
   recentInterventions: InterventionRow[];
   weeklyHours: Array<{ date: string; hours: number }>;
   zones: number[];
+  // #4: prescription-vs-delivery per planned session type (trailing 90d) + the FTP-retest advisory.
+  planVsActual: TypePlanVsActual[];
+  ftpRetest: FtpRetestSignal | null;
   behaviour: { avgWeeklyHours: number | null; offPlanPct: number } | null;
   syncedAt: string | null;
 }

@@ -12,11 +12,13 @@ import { summariseValidation } from "@/lib/intervention";
 import { weightTrendFromWellness } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
 import { efSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
+import { resolveToday } from "@/lib/date";
+import { aggregatePlanVsActual, detectFtpRetest } from "@/lib/plan-vs-actual";
 
 // GET assembles the long-term, second-brain-derived trends. It deliberately does
 // NOT reproduce intervals.icu's raw PMC/power-curve charts — only signals that
 // tie training execution to the athlete's own blocks and adaptation.
-export async function GET() {
+export async function GET(req: Request) {
   const [sync, profile, history, baselines, scoreLog, interventionLog, physiology] = await Promise.all([
     readLastSync(),
     readAthleteProfile(),
@@ -28,7 +30,9 @@ export async function GET() {
   ]);
 
   const ftp = profile.performance.ftp;
-  const today = new Date().toISOString().slice(0, 10);
+  // Client-supplied local date (AGENTS.md: "today" must be the athlete's local day, not server UTC);
+  // falls back to UTC when absent. Also anchors the #4 planned-vs-actual / retest windows below.
+  const today = resolveToday(new URL(req.url).searchParams.get("today"));
   // Pw:HR efficiency-factor trend — outdoor, steady-endurance, ≥45-min rides only (lib/trends).
   const ef = efSeries(sync?.activities ?? [], ftp);
 
@@ -147,6 +151,11 @@ export async function GET() {
     weeklyHours,
     zones,
     behaviour: { avgWeeklyHours: model.behaviour.weeklyHours, offPlanPct: model.behaviour.offPlanPct },
+    // #4 planned-vs-actual: per-type prescription-vs-delivery (trailing 90d) + the execution-driven
+    // FTP-retest advisory — the same detector the CoachSnapshot carries, so the two surfaces agree.
+    // FTP source mirrors the snapshot paths: physiology SoT first, profile fallback.
+    planVsActual: aggregatePlanVsActual(scoreLog.entries, today),
+    ftpRetest: detectFtpRetest(scoreLog.entries, today, physiology?.current.ftp ?? ftp),
     syncedAt: sync?.syncedAt ?? null,
   });
 }
