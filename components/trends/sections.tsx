@@ -174,3 +174,50 @@ export function baselineCards(b: RollingBaselines, wkgAtThreshold: number | null
   if (b.avgTss90d != null) cards.push({ label: "Avg load / ride", value: String(Math.round(b.avgTss90d)) });
   return cards;
 }
+
+// #4 planned-vs-actual: prescription (type + FTP-derived IF band) vs delivery (mean IF, completion,
+// execution) per planned session type over the trailing 90 days, straight off the immutable ledger.
+// The FTP-retest advisory (the same deterministic detector the CoachSnapshot carries) renders beneath
+// when triggered — advisory only: the athlete re-tests in Intervals.icu and the new FTP syncs back.
+export function PlanVsActual({ rows, ftpRetest }: { rows: TrendsData["planVsActual"]; ftpRetest: TrendsData["ftpRetest"] }) {
+  if (rows.length === 0) return null;
+  const f2 = (v: number) => v.toFixed(2);
+  return (
+    <div>
+      <ul className="space-y-1.5">
+        {rows.map((r) => (
+          <li key={r.type} className="rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${TYPE_STYLES[r.type]?.cell ?? "bg-zinc-400"}`} />
+              <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{r.type}</span>
+              <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">n={r.n}</span>
+              <span className="ml-auto font-mono text-[11px] text-zinc-600 dark:text-zinc-300">
+                {r.targetIf && (
+                  <span className="text-zinc-500 dark:text-zinc-400">
+                    target IF {f2(r.targetIf.lo)}–{f2(r.targetIf.hi)} ·{" "}
+                  </span>
+                )}
+                {r.meanIf !== null ? (
+                  <span className={r.targetIf && r.meanIf > r.targetIf.hi ? "font-semibold text-amber-600 dark:text-amber-400" : ""}>
+                    actual {f2(r.meanIf)}
+                  </span>
+                ) : (
+                  "actual —"
+                )}
+              </span>
+            </div>
+            <p className="mt-0.5 pl-3.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+              {r.meanCompliancePct !== null ? `${r.meanCompliancePct}% completion · ` : ""}exec {r.meanExecution}/10
+            </p>
+          </li>
+        ))}
+      </ul>
+      {ftpRetest && (
+        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-300">
+          <span className="font-semibold">FTP check: </span>
+          {ftpRetest.evidence}
+        </p>
+      )}
+    </div>
+  );
+}

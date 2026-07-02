@@ -8,7 +8,7 @@ import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
 import { Card, StatTile } from "./ui";
 import { useSync } from "./SyncProvider";
 import type { TrendsData } from "./trends/types";
-import { BlockTimeline, ScoreBars, WeeklyVolumeBars, baselineCards, trendDir } from "./trends/sections";
+import { BlockTimeline, PlanVsActual, ScoreBars, WeeklyVolumeBars, baselineCards, trendDir } from "./trends/sections";
 
 // The /trends page — a fetch-and-lay-out shell. The payload type, the standalone chart sections
 // (block timeline, execution-score bars, weekly-volume bars) and their helpers live in ./trends/*
@@ -249,17 +249,28 @@ export default function Trends() {
         </div>
       )}
 
-      {/* Weekly volume — the landing view for the Today trend-pulse "Weekly volume" tile (UX-2).
-          Half-width to match the Execution-quality card; the right column is left empty by design. */}
-      {data.weeklyHours.length >= 2 && (
+      {/* Weekly volume (the landing view for the Today trend-pulse tile, UX-2) paired with the #4
+          planned-vs-actual read — the formerly empty right column now earns its keep. */}
+      {(data.weeklyHours.length >= 2 || data.planVsActual.length > 0) && (
         <div className="grid gap-3 lg:grid-cols-2">
-          <Card
-            title="Weekly volume"
-            hint="ride hours · complete weeks"
-            tip="Total ride hours per complete week over the last ~16 weeks (the in-progress week is excluded). Bar height and blue shade both track weekly training volume — your consistency and ramp at a glance."
-          >
-            <WeeklyVolumeBars weeks={data.weeklyHours} />
-          </Card>
+          {data.weeklyHours.length >= 2 && (
+            <Card
+              title="Weekly volume"
+              hint="ride hours · complete weeks"
+              tip="Total ride hours per complete week over the last ~16 weeks (the in-progress week is excluded). Bar height and blue shade both track weekly training volume — your consistency and ramp at a glance."
+            >
+              <WeeklyVolumeBars weeks={data.weeklyHours} />
+            </Card>
+          )}
+          {data.planVsActual.length > 0 && (
+            <Card
+              title="Planned vs actual"
+              hint="by session type · last 90 days"
+              tip="Prescription vs delivery for each planned session type over the trailing 90 days: the FTP-derived target IF band (Threshold/VO2max), your mean ridden IF, completion and execution. Consistently delivering above the band at high completion triggers the FTP re-test advisory."
+            >
+              <PlanVsActual rows={data.planVsActual} ftpRetest={data.ftpRetest} />
+            </Card>
+          )}
         </div>
       )}
 
