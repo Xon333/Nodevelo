@@ -265,7 +265,7 @@ export async function POST(req: Request) {
         const formState = formStateForDate(date) ?? undefined;
         return formState ? { formState } : null;
       };
-      const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor, resolvedCal, contextForDate);
+      const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor, resolvedCal, contextForDate, blockHistory);
       // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
       const dispositions = (await readDispositions()).entries;
       // One-shot guard (LEDGER-3): the rebuild runs at most once. A normal sync never requests it; a
