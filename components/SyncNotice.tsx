@@ -7,7 +7,7 @@ import { useSync } from "./SyncProvider";
 // nav-rail text never gave (and mobile never showed at all). Errors (a failed/refused sync, incl. the
 // 502 empty-sync guard that keeps prior data, or a failed initial load) show red with a Retry; the
 // non-fatal `warnings[]` from a sub-step (quirk mining, intervention validation, ride analysis, coach
-// note) show amber. Dismissal is keyed to the message, so a *new* problem re-surfaces after dismiss;
+// note, off-machine backup) show amber. Dismissal is keyed to the message, so a *new* problem re-surfaces after dismiss;
 // a clean re-sync clears the state on its own.
 export default function SyncNotice() {
   const { state, syncing, syncError, loadError, syncWarnings, doSync } = useSync();

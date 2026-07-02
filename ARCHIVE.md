@@ -12,6 +12,23 @@ exact commits.
 
 ---
 
+## Off-machine backup (2026-07-02, SUB-4 half)
+
+`lib/backup.ts`: `buildBackupBundle()` (the same data/ + knowledge-base/ bundle GET /api/export already
+produced — extracted so both share one implementation instead of two) and `snapshotBackup()`, wired into
+`/api/sync`'s POST as a best-effort last step. Writes a timestamped snapshot to `NODEVELO_BACKUP_DIR`
+(write-then-rename, same atomicity idiom as `json-store.ts`) and rotates to the newest 14. Deliberately
+env-gated with no same-machine default: unset, it's a no-op rather than a same-disk "backup" that
+wouldn't buy anything the existing `.bak`/manual-export coverage doesn't already give — "off-machine"
+only happens once the directory actually points at something that leaves the machine (a synced
+Dropbox/iCloud/Drive folder, a mounted NAS), which is the athlete's infrastructure to choose, not this
+app's. A misconfigured-after-the-fact destination (e.g. an unmounted sync folder) surfaces through the
+existing sync `warnings[]` → `SyncNotice` path rather than failing the sync. `export/route.ts` now calls
+the shared bundle builder instead of carrying its own copy of the collect/walk logic. Branch discipline
+(SUB-4's other half) remains open.
+
+---
+
 ## Route tests for the destructive write routes (2026-07-02, extends SUB-3)
 
 SUB-3 covered `sync` + `generate`; this closes the same gap on the routes that can overwrite a store

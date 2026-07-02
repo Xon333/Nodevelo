@@ -54,8 +54,9 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
   cross-block progression, no taper/peak logic (`6a` deferred). The planner optimises 2–4 weeks in
   isolation; previous-block insight only flows as retrospective `next_block_seeds`, and there are no
   completed blocks yet. **Resolved 2026-07-01** — see "Macro periodization & season scope" below.
-- 🔸 **Local-first durability** rests on homegrown `.bak` files on one machine (no off-machine backup of
-  `data/`); trunk-based with a concurrent agent is operationally fragile.
+- 🔸 **Local-first durability** rests on homegrown `.bak` files on one machine. **Off-machine backup
+  resolved 2026-07-02** — see "Off-machine backup" in [ARCHIVE.md](ARCHIVE.md). Trunk-based with a
+  concurrent agent is still operationally fragile (branch discipline, SUB-4's other half).
 - 🔸 **Observability + cost guard absent (P8)** — silent `catch`es, unbounded AI routes; generation
   blocks 1–2 min with no streaming (P9).
 - 🔸 **Fueling is per-session, not periodised**; strength is a stub (5 kcal/min); recovery is
@@ -70,7 +71,8 @@ honesty" UX (provenance stamps, confidence tiers, withheld thin reads) is a real
    generate→ride→score→learn actually accrues the first matured verdicts (the loop is code-complete but
    dormant until data).
 2. **Test the `sync` + `generate` routes** — protect the ledger from silent reconciliation/scoring bugs. ✅ done, 2026-07-02 (SUB-3).
-3. **Off-machine backup of `data/`** + branch discipline for the shared checkout.
+3. ✅ **Off-machine backup of `data/`** done, 2026-07-02 (SUB-4, half). Left: branch discipline for the
+   shared checkout.
 4. **Periodization / season scope** — ✅ done (see "Macro periodization & season scope" below); event-aware
    *race* planning (`6a`, the surfacing layer once an athlete adds an event) remains open.
 
@@ -85,7 +87,9 @@ not open questions)._
 
 The foundation: most of the learning engine is dormant for lack of first-party data. SUB-1 (block-history
 durability) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md); SUB-2 (legacy backfill) investigated and
-paused same day; SUB-3 (route tests) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md). SUB-4 below remains open, a plain backlog item — no open design questions.
+paused same day; SUB-3 (route tests) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md). SUB-4's backup half
+shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md); its branch-discipline half remains open below, a plain
+backlog item — no open design questions.
 
 ### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 **Problem.** The prior ~6 months (100 legacy rides) followed real structure, but the app has no
@@ -104,8 +108,9 @@ better recovery signal surfaces (the ride's own executed profile, without an ind
 is circular and was not pursued).
 
 ### SUB-4 · `data/` durability + branch discipline
-Off-machine backup of `data/` (the immutable ledger sits on one disk behind homegrown `.bak` files);
-lightweight branch discipline for the shared trunk checkout.
+✅ Off-machine backup done, 2026-07-02 → [ARCHIVE.md](ARCHIVE.md). Left: lightweight branch discipline
+for the shared trunk checkout (the immutable ledger sits behind homegrown `.bak` files on one disk *and*
+a trunk shared with a concurrent agent session — two different fragility axes, only the first is closed).
 
 ---
 

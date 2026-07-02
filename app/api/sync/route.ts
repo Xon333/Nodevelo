@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
+import { snapshotBackup } from "@/lib/backup";
 import { deleteEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { blockEventIds } from "@/lib/block-events";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
@@ -473,6 +474,17 @@ export async function POST(req: Request) {
       tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
       athleteStateWeightsOverride: settingsForSnap.athleteStateWeights,
     });
+
+    // SUB-4: best-effort off-machine snapshot. A no-op (not a failure) when NODEVELO_BACKUP_DIR isn't
+    // set; a configured destination that stops working (e.g. an unmounted sync folder) surfaces.
+    const backup = await snapshotBackup();
+    if (!backup.ok && backup.reason === "not configured") {
+      logWarn("/api/sync", "backup-snapshot", "NODEVELO_BACKUP_DIR not set — off-machine backup disabled");
+    } else if (!backup.ok) {
+      logError("/api/sync", "backup-snapshot", backup.reason);
+      warnings.push(`Off-machine backup failed: ${backup.reason}`);
+    }
+
     return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), athleteState, coachSnapshot, calibration });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
