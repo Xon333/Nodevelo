@@ -429,3 +429,53 @@ describe("POST /api/sync — today-ride analysis path", () => {
     expect(store.writeTodayAnalysis).not.toHaveBeenCalled();
   });
 });
+
+describe("DELETE /api/sync — discard block", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("archives only the lived days, removes calendar events, and clears the block", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        days: [
+          { date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 75, eventId: 11 },
+          { date: "2026-06-21", name: "Endurance", type: "Z2", durationMin: 90, eventId: 12 },
+          { date: "2026-06-25", name: "VO2max", type: "VO2max", durationMin: 60, eventId: 13 },
+        ],
+      })
+    );
+    vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11, 12, 13], failed: [] });
+    const json = await (await DELETE()).json();
+    expect(api.deleteEvents).toHaveBeenCalledWith([11, 12, 13]);
+    expect(store.appendBlockHistory).toHaveBeenCalledOnce();
+    const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
+    expect(archived.days?.map((d) => d.date)).toEqual(["2026-06-20", "2026-06-21"]); // future 06-25 dropped
+    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+    expect(json).toMatchObject({ ok: true, eventsRemoved: 3, eventsFailed: [] });
+  });
+
+  it("does not archive a same-day discard with no lived days (SUB-1 noise guard)", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        startDate: "2026-06-23",
+        days: [{ date: "2026-06-23", name: "Threshold", type: "Threshold", durationMin: 75 }],
+      })
+    );
+    const json = await (await DELETE()).json();
+    expect(store.appendBlockHistory).not.toHaveBeenCalled();
+    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+    expect(json.ok).toBe(true);
+  });
+
+  it("handles no active block", async () => {
+    const json = await (await DELETE()).json();
+    expect(api.deleteEvents).not.toHaveBeenCalled();
+    expect(store.appendBlockHistory).not.toHaveBeenCalled();
+    expect(json).toMatchObject({ ok: true, eventsRemoved: 0 });
+  });
+});
