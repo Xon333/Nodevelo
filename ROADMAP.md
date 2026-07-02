@@ -198,9 +198,12 @@ Removed: the six subjective `WellnessEntry` fields, `wellnessToMorningAnswers`, 
 
 ### #4 · Validation loop → auto-down-weight  (time-gated ~4wk)
 `intervention-log.json` has no matured verdicts yet. Once data exists, a low hit-rate in
-`lib/synthesis.ts` should **demote** a directive (today it only annotates). Plus: surface
-planned-vs-actual per session type and, on a consistent gap, **flag an FTP re-test** in Intervals.icu
-(never write FTP locally — `physiology.json` stays the synced SoT). Ties Track B template-scoring + #2.
+`lib/synthesis.ts` should **demote** a directive (today it only annotates). Ties Track B template-scoring + #2.
+✅ The measurement half shipped 2026-07-02 — planned-vs-actual per session type (Trends) + the
+execution-driven FTP-retest advisory (overdelivery→stale-low only; CoachSnapshot/Today card/Trends;
+never writes FTP locally — `physiology.json` stays the synced SoT) → see "FTP-retest advisory +
+planned-vs-actual" in [ARCHIVE.md](ARCHIVE.md). Its thresholds (`FTP_RETEST_DEFAULTS`,
+`lib/plan-vs-actual.ts`) are population defaults — a `← #2` calibration hook.
 
 ### #1 · CoachSnapshot — fill the reserved slots
 ✅ The energy-availability read now fills both slots (`fuelingState` = low/adequate/ample band,

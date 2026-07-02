@@ -12,6 +12,37 @@ exact commits.
 
 ---
 
+## FTP-retest advisory + planned-vs-actual (#4, measurement half) (2026-07-02)
+
+ROADMAP #4's measurement half — the validation loop starts ACTING on execution data. Spec:
+[design](docs/superpowers/specs/2026-07-02-ftp-retest-planned-vs-actual-design.md) · plan:
+[plan](docs/superpowers/plans/2026-07-02-ftp-retest-planned-vs-actual.md).
+
+- **`lib/plan-vs-actual.ts` created** (pure, unit-tested): `aggregatePlanVsActual` — per-type n /
+  mean IF / target band / completion / execution over the trailing 90d of planned, non-legacy,
+  non-compromised ledger entries — and `detectFtpRetest` — the overdelivery→stale-low advisory
+  (≥4 FTP-anchored sessions in 42d, ≥75% individually above their frozen band top at ≥85% completion,
+  mean overshoot ≥2% FTP, all scored against the *current* FTP so a re-test resets the window).
+  Underdelivery deliberately excluded (fatigue-confounded). Thresholds exported as
+  `FTP_RETEST_DEFAULTS` — a #2 per-athlete calibration hook.
+- **`FTP_ANCHORED_IF_BANDS` exported from `lib/execution-score.ts`** (behaviour-preserving refactor):
+  scorer, detector and the Trends target-band column share one source and can't drift.
+- **CoachSnapshot gains `ftpRetest`** via `CoachSignals`/`resolveCoachSignals` → the `/api/ask` prompt
+  ("FTP check: …" in `formatCoachSnapshot`), the Today card (amber advisory on `CoachSnapshotCard`),
+  and `/api/generate`'s resolution (not rendered in the generation prompt by design — the planner must
+  not compensate for unvalidated physiology).
+- **`/api/trends`** now resolves the client's local `?today=` (AGENTS.md local-today class) and ships
+  `planVsActual` + `ftpRetest`; new "Planned vs actual" card beside Weekly volume
+  (`components/trends/sections.tsx`). Complements — doesn't replace — the age-based >90d stale-FTP
+  warnings (Profile banner, Trends w/kg tile): execution flag = threshold moved; age flag = the
+  fallback when no anchored quality work exists to measure.
+- Advisory ONLY: nothing writes FTP or `physiology.json` (locked design decision). Live-smoked against
+  the real corpus (flag correctly null — mean IF Threshold 0.79 vs band 0.82–0.92, VO2max 0.82 vs
+  0.90–1.10, nothing over; table renders 4 type rows on Trends) + a live `/api/ask` run (coherent,
+  grounded in FTP 288W, no invented flag).
+
+---
+
 ## Route tests (`sync` + `generate`) — SUB-3 (2026-07-02)
 
 Closed the 2026-06-30 audit's "test coverage lopsided" finding: the two highest-stakes, least-tested
