@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 // The "what the second brain knows" page (ROADMAP #2 / anti-black-box). Aggregates the model state the
 // coach reasons from — what it thinks of you now (+ why), the standing directives (+ track record), and
-// what it has learned to calibrate. Read-only for now; contest/correct (manual override) lands next.
+// what it has learned to calibrate. State drivers and directives are read-only; the calibration panel
+// (CalibrationPanel) is contest/correct — a manual override on a learned parameter, via /api/calibration.
 export default async function ModelPage() {
   const ifRows = ifBandOffsetRows((await readPhysiology())?.current.powerZonePct ?? []);
   return (

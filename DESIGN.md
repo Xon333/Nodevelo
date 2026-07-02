@@ -150,7 +150,7 @@ default: summary first, detail on demand (`<details>` for blocks, `MetricTip`/`I
 | **Plan** | "What's my block, and what's next?" | Active block hero (calendar + progress) | Goals · this-week debrief | Block history → `<details>`; generation form collapses while a block is active (expanded, it shows a season-context readout above the length/goal/weakpoint fields) |
 | **Trends** | "Am I improving over time?" | Last-7-days glance + coach insights | the trend charts (Pw:HR · CTL · execution · volume · fueling) — **review depth is intentional here** | Block-history long-view (hero) |
 | **Profile** | "Who am I — what does the coach plan around?" | Rider-profile read (power-curve shape) | PRs · goals & weakpoints (add/edit/delete form) · season objective/events · nutrition | — (goals/weakpoints edited directly here now, not via Knowledge) |
-| **Model** | "What does the brain know about me — and why?" | What drives your state (ranked drivers) | coaching directives + track record · per-athlete calibration | contest/correct (manual override) — next |
+| **Model** | "What does the brain know about me — and why?" | What drives your state (ranked drivers) | coaching directives + track record · per-athlete calibration (contest/correct via a manual override, inline in the card) | — |
 | **Settings** | "Tune generation + platform behaviour" | Block-generation knobs | AI usage · backup | — |
 
 **Bespoke-per-use-case elements** (don't force these into a generic `StatTile`): the readiness gauge
