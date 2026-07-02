@@ -13,6 +13,7 @@ function snapshot(overrides: Partial<CoachSnapshot> = {}): CoachSnapshot {
     state: null,
     directives: null,
     disposition: null,
+    ftpRetest: null,
     ...overrides,
   };
 }

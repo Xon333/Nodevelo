@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildCoachSnapshot, buildCoachSnapshotFromSources, formatCoachSnapshot, formatFormFuelLine, resolveTsbModifier, type CoachSnapshotInput } from "./coach-snapshot";
 import { resolveTsbModifierEdges } from "./calibration";
-import type { AthleteState, CurrentBlock, DispositionEntry, InterventionLog, MorningCheckEntry, RollingBaselines, SyncData, TodayAnalysis } from "./types";
+import type { AthleteState, CurrentBlock, DispositionEntry, InterventionLog, MorningCheckEntry, RideScoreEntry, RollingBaselines, SyncData, TodayAnalysis } from "./types";
 
 const TODAY = "2026-06-20";
 
@@ -60,6 +60,7 @@ function baseInput(overrides: Partial<CoachSnapshotInput> = {}): CoachSnapshotIn
     directives: "Prioritise threshold durability; under-delivering on VO2max.",
     disposition: null,
     morningCheck: null,
+    ftpRetest: null,
     ...overrides,
   };
 }
@@ -232,6 +233,38 @@ describe("buildCoachSnapshotFromSources", () => {
     const s = buildCoachSnapshotFromSources(sources({ sync: syncWithEA }));
     expect(s.fuel.intakeVsNeed).toBe(32); // (2240 intake − 0 burn) / 70 kg
     expect(s.fuel.fuelingState).toBe("adequate");
+  });
+
+  // #4: the FTP-retest advisory rides CoachSignals so every snapshot consumer resolves it identically.
+  // Fixture: 4 in-window Threshold rides at IF 0.96 (band top 0.92), full completion, scored against
+  // the sources() FTP of 280 → n=4, all over, mean overshoot +0.04 → fires.
+  const overRide = (date: string): RideScoreEntry => ({
+    date,
+    executionScore: 8,
+    plannedType: "Threshold",
+    inferredType: "Threshold",
+    planned: true,
+    legacy: false,
+    compliancePct: 100,
+    intensityFactor: 0.96,
+    ftpUsed: 280,
+    durationMin: 75,
+    tss: 90,
+  });
+
+  it("resolves the FTP-retest advisory from the ledger and formats it end-to-end (#4)", () => {
+    const scoreEntries = [overRide("2026-06-13"), overRide("2026-06-15"), overRide("2026-06-17"), overRide("2026-06-19")];
+    const s = buildCoachSnapshotFromSources(sources({ scoreEntries }));
+    expect(s.ftpRetest).toMatchObject({ n: 4, overCount: 4 });
+    const out = formatCoachSnapshot(s);
+    expect(out).toContain("- FTP check:");
+    expect(out).toContain("re-test in Intervals.icu");
+  });
+
+  it("stays null on a thin ledger and renders no FTP-check line (#4)", () => {
+    const s = buildCoachSnapshotFromSources(sources({ scoreEntries: [overRide("2026-06-13")] }));
+    expect(s.ftpRetest).toBeNull();
+    expect(formatCoachSnapshot(s)).not.toContain("FTP check");
   });
 });
 

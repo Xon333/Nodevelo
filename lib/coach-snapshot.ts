@@ -24,6 +24,7 @@ import type {
 } from "./types";
 import { computeAcwr, computeLoadRamp, computeReadiness } from "./readiness";
 import { timeAboveZ2Fraction } from "./execution-score";
+import { detectFtpRetest, type FtpRetestSignal } from "./plan-vs-actual";
 import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
 import { computeEnergyAvailability, eaLevel, weightTrendFromWellness, type EnergyAvailability } from "./nutrition";
 import { utcToday } from "./date";
@@ -81,6 +82,10 @@ export interface CoachSnapshot {
   state: { score: number; band: AthleteState["band"]; recommendation: AthleteState["recommendation"]; headline: string } | null;
   directives: string | null; // synthesized coaching directives block (may be empty string → null)
   disposition: { kind: DispositionEntry["disposition"]; reason: DispositionEntry["reason"] } | null;
+  // Execution-driven FTP-retest advisory (ROADMAP #4): non-null only when recent FTP-anchored quality
+  // sessions consistently over-delivered vs the FTP-derived band (lib/plan-vs-actual.ts). Advisory
+  // ONLY — nudges an Intervals.icu re-test; never writes FTP locally (physiology.json stays the SoT).
+  ftpRetest: FtpRetestSignal | null;
 }
 
 // The form/fuel/state half of the snapshot input — the signals both /api/ask and /api/generate
@@ -94,6 +99,9 @@ export interface CoachSignals {
   athleteState: AthleteState | null;
   weightTrend7dKg: number | null;
   energyAvailability: EnergyAvailability | null;
+  // Execution-driven FTP-retest advisory (#4) — resolved here so /ask, /sync and /generate can't
+  // drift (CR-9). Null below the overdelivery gates (thin data / nothing over / no current FTP).
+  ftpRetest: FtpRetestSignal | null;
 }
 
 // The non-signal half (the IO/context the route owns); the form/fuel/state signals are inherited from
@@ -125,9 +133,14 @@ export function resolveCoachSignals(
   athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null,
   // Resolved local "today" so the ACWR / load-ramp windows anchor to the athlete's calendar day, not
   // the server's UTC date (they match activities on local date). Absent → the function's UTC default.
-  today?: string
+  today?: string,
+  // #4: the frozen ledger + the FTP currently configured (physiology SoT with profile fallback) —
+  // the retest detector's inputs. Omitted → the advisory resolves null (same silent-degradation
+  // contract as the optional `today` above; the failure direction is conservative: flag absent).
+  scoreEntries: RideScoreEntry[] = [],
+  currentFtp: number | null = null
 ): CoachSignals {
-  if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null, energyAvailability: null };
+  if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null, energyAvailability: null, ftpRetest: null };
   void baselines; // see note above — kept in the signature, not used
   const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride), today);
   return {
@@ -143,6 +156,7 @@ export function resolveCoachSignals(
     // Same proxy the Today EA tile shows — anchored to the resolved local day so today's still-logging
     // intake is excluded. Null until ≥3 complete logged days; then it fills the fuel slots below.
     energyAvailability: computeEnergyAvailability(sync.wellness, sync.activities, today ?? utcToday()),
+    ftpRetest: detectFtpRetest(scoreEntries, today ?? utcToday(), currentFtp),
   };
 }
 
@@ -268,6 +282,7 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
     disposition: input.disposition
       ? { kind: input.disposition.disposition, reason: input.disposition.reason }
       : null,
+    ftpRetest: input.ftpRetest,
   };
 }
 
@@ -292,7 +307,7 @@ export interface CoachSnapshotSources {
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
   const athleteModel = buildAthleteModel(s.scoreEntries);
-  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date);
+  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date, s.scoreEntries, s.ftp);
   // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;
   return buildCoachSnapshot({
@@ -390,6 +405,7 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
 
   if (s.state) lines.push(`- Fused state: ${s.state.headline} (${s.state.score}/100, ${s.state.recommendation}).`);
   if (s.ftp) lines.push(`- FTP: ${s.ftp} W.`);
+  if (s.ftpRetest) lines.push(`- FTP check: ${s.ftpRetest.evidence}`);
   if (s.directives) lines.push(`- Coaching directives: ${s.directives}`);
 
   const guard = dispositionGuard(s.disposition);
