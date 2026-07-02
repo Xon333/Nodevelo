@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRideScores, fuelStampFor, mergeScoreLog, mergeScoreLogRebuild, summariseBehaviour, truncateBlockDays } from "./score-log";
-import type { ActivitySummary, CurrentBlock, RideScoreEntry, WorkoutType } from "./types";
+import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
   return {
@@ -40,6 +40,22 @@ function block(days: Array<{ date: string; type: WorkoutType; durationMin: numbe
     endDate: days[days.length - 1]?.date ?? "2026-01-14",
     overview: "",
     createdAt: new Date().toISOString(),
+    days: days.map((d) => ({ date: d.date, name: `${d.type} day`, type: d.type, durationMin: d.durationMin })),
+  };
+}
+
+function historyEntry(
+  createdAt: string,
+  days: Array<{ date: string; type: WorkoutType; durationMin: number }>
+): BlockHistoryEntry {
+  return {
+    id: createdAt,
+    goal: "Test",
+    startDate: days[0]?.date ?? "2026-01-01",
+    endDate: days[days.length - 1]?.date ?? "2026-01-14",
+    lengthWeeks: 2,
+    overview: "",
+    createdAt,
     days: days.map((d) => ({ date: d.date, name: `${d.type} day`, type: d.type, durationMin: d.durationMin })),
   };
 }
@@ -148,6 +164,44 @@ describe("buildRideScores", () => {
     // Absent when nothing was logged (null) — most rides, byte-identical to before.
     const none = [activity({ date: "2026-01-03", avgWatts: 135, normalizedPower: 138, carbsIngestedG: null })];
     expect(buildRideScores(b, none, ftp200, "2026-01-10")[0].fuel).toBeUndefined();
+  });
+
+  it("matches a ride against a historical block's day when no current block covers that date", () => {
+    const hist = [historyEntry("2026-01-01T00:00:00.000Z", [{ date: "2026-01-05", type: "Threshold", durationMin: 60 }])];
+    const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
+    const scores = buildRideScores(null, acts, ftp200, "2026-01-10", null, undefined, undefined, hist);
+    expect(scores[0].planned).toBe(true);
+    expect(scores[0].plannedType).toBe("Threshold");
+  });
+
+  it("prefers the current block over a historical block covering the same date", () => {
+    const b = block([{ date: "2026-01-05", type: "Z2", durationMin: 90 }]);
+    const hist = [historyEntry("2026-01-01T00:00:00.000Z", [{ date: "2026-01-05", type: "Threshold", durationMin: 60 }])];
+    const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
+    const scores = buildRideScores(b, acts, ftp200, "2026-01-10", null, undefined, undefined, hist);
+    expect(scores[0].plannedType).toBe("Z2");
+  });
+
+  it("does not match a historical day whose block was created after the ride's date", () => {
+    // Created 2026-01-06, but claims to prescribe 2026-01-05 — a block can't retroactively plan a past day.
+    const hist = [historyEntry("2026-01-06T00:00:00.000Z", [{ date: "2026-01-05", type: "Threshold", durationMin: 60 }])];
+    const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
+    const scores = buildRideScores(null, acts, ftp200, "2026-01-10", "2025-01-01", undefined, undefined, hist);
+    expect(scores[0].planned).toBe(false);
+  });
+
+  it("prefers the most-recently-created historical block when two both cover the same date", () => {
+    const older = historyEntry("2026-01-01T00:00:00.000Z", [{ date: "2026-01-05", type: "Z2", durationMin: 90 }]);
+    const newer = historyEntry("2026-01-03T00:00:00.000Z", [{ date: "2026-01-05", type: "Threshold", durationMin: 60 }]);
+    const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
+    const scores = buildRideScores(null, acts, ftp200, "2026-01-10", null, undefined, undefined, [older, newer]);
+    expect(scores[0].plannedType).toBe("Threshold");
+  });
+
+  it("ignores a history entry with no days without crashing", () => {
+    const noD: BlockHistoryEntry = { ...historyEntry("2026-01-01T00:00:00.000Z", []), days: undefined };
+    const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
+    expect(() => buildRideScores(null, acts, ftp200, "2026-01-10", null, undefined, undefined, [noD])).not.toThrow();
   });
 });
 

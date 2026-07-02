@@ -72,10 +72,22 @@ export function buildRideScores(
   calibration?: ScoringCalibration | null,
   // ROADMAP #2 context-stamp: the athlete-state context (form + morning-check) as of a ride's date,
   // frozen onto each entry as provenance for a later state→execution correlation. Omitted → no stamp.
-  contextForDate?: ((date: string) => RideEntryContext | null) | null
+  contextForDate?: ((date: string) => RideEntryContext | null) | null,
+  // SUB-1: historical blocks' archived prescriptions, so a ride whose block has since rolled off can
+  // still match. Seeded before the current block, oldest first, so a live block always wins on a date
+  // collision and among history entries the most-recently-created wins (Map overwrite semantics). A
+  // historical day only counts if its block's createdAt is on/before the day itself — a block can't
+  // retroactively claim to have prescribed an already-past day.
+  history?: BlockHistoryEntry[]
 ): RideScoreEntry[] {
   // Prescribed sessions, by date (only days that actually plan a ride).
   const plannedByDate = new Map<string, CurrentBlockDay>();
+  const sortedHistory = [...(history ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  for (const h of sortedHistory) {
+    if (!h.days) continue;
+    const createdDate = h.createdAt.slice(0, 10);
+    for (const d of h.days) if (d.durationMin > 0 && createdDate <= d.date) plannedByDate.set(d.date, d);
+  }
   if (block) for (const d of block.days) if (d.durationMin > 0) plannedByDate.set(d.date, d);
 
   // One entry per date; if a date has two rides, keep the longer (the key session).
