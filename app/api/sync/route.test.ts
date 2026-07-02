@@ -263,3 +263,64 @@ describe("POST /api/sync — guards + error mapping", () => {
     expect((await res.json()).error).toBe("boom");
   });
 });
+
+describe("POST /api/sync — ledger wiring", () => {
+  it("persists the fresh sync + derived stores on a normal sync", async () => {
+    const fresh = mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21" })] });
+    vi.mocked(api.runFullSync).mockResolvedValue(fresh);
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect(store.writeLastSync).toHaveBeenCalledWith(fresh);
+    expect(store.writeRollingBaselines).toHaveBeenCalledOnce();
+    expect(store.writeCalibration).toHaveBeenCalledOnce();
+    expect(store.writeQuirks).toHaveBeenCalledOnce();
+    const json = await res.json();
+    expect(json.warnings).toEqual([]);
+    expect(json.athleteState).not.toBeNull();
+    expect(json.coachSnapshot).not.toBeNull();
+  });
+
+  it("keeps existing ledger entries immutable per date and scores only new dates", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-06-20", executionScore: 9, ftpUsed: 250 })];
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        days: [
+          { date: "2026-06-20", name: "Threshold 3x12", type: "Threshold", durationMin: 75, workoutText: "Main Set 3x\n- 12m 95%" },
+          { date: "2026-06-21", name: "Endurance", type: "Z2", durationMin: 90, workoutText: "- 90m 65%" },
+        ],
+      })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({
+        activities: [
+          mkActivity({ id: "a20", date: "2026-06-20" }),
+          mkActivity({ id: "a21", date: "2026-06-21", movingTimeSec: 5400, avgWatts: 130, normalizedPower: 135 }),
+        ],
+      })
+    );
+    await postSync();
+    // Existing wins: the frozen 06-20 entry survives untouched (immutable per date) even though the
+    // fresh sync re-scored that date.
+    expect(scoreEntries.find((e) => e.date === "2026-06-20")).toMatchObject({ executionScore: 9, ftpUsed: 250 });
+    // The new date joins the ledger, scored as planned against the current FTP fallback (200).
+    const e21 = scoreEntries.find((e) => e.date === "2026-06-21");
+    expect(e21).toBeDefined();
+    expect(e21?.planned).toBe(true);
+    expect(e21?.ftpUsed).toBe(200);
+  });
+
+  it("stamps athlete dispositions onto the merged ledger and filters them from the response scores", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-21", name: "Endurance", type: "Z2", durationMin: 90, workoutText: "- 90m 65%" }] })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21" })] }));
+    vi.mocked(store.readDispositions).mockResolvedValue({
+      entries: [{ date: "2026-06-21", disposition: "compromised", reason: "sickness", setAt: "" }],
+      updatedAt: "",
+    });
+    const json = await (await postSync()).json();
+    expect(scoreEntries.find((e) => e.date === "2026-06-21")?.compromised).toBe(true);
+    expect(json.scores.map((e: RideScoreEntry) => e.date)).not.toContain("2026-06-21");
+    expect(json.compromisedDates).toContain("2026-06-21");
+  });
+});
