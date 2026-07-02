@@ -10,6 +10,16 @@ import { EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
 // absolute cutoffs [2, 4, 7, 10], so an uncalibrated score is byte-identical to before.
 export const DEFAULT_DECOUPLING_GOOD = 4;
 
+// The "sweet spot" whole-ride IF bands for the FTP-anchored quality types — the range the scorer
+// awards +2 for. Exported as the SINGLE source for ROADMAP #4's planned-vs-actual read and the
+// FTP-retest overdelivery detector (lib/plan-vs-actual.ts), so the "expected IF" those surfaces show
+// can never drift from what scoring rewards. Per-athlete calibration shifts these via ifBandOffsets
+// at the point of use (see the switch below / the detector).
+export const FTP_ANCHORED_IF_BANDS = {
+  Threshold: { lo: 0.82, hi: 0.92 },
+  VO2max: { lo: 0.9, hi: 1.1 },
+} as const;
+
 // Per-athlete scoring calibration (ROADMAP #2) threaded into the score. Every field is optional and
 // defaults to the population behaviour, so an uncalibrated/default-zoned athlete scores identically.
 export interface ScoringCalibration {
@@ -111,18 +121,22 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
         else if (IF >= 0.70 + o) score -= 2;
         else score -= 1;
         break;
-      case "Threshold":
-        if (IF >= 0.82 + o && IF <= 0.92 + o) score += 2;
+      case "Threshold": {
+        const b = FTP_ANCHORED_IF_BANDS.Threshold;
+        if (IF >= b.lo + o && IF <= b.hi + o) score += 2;
         else if (IF >= 0.78 + o && IF <= 0.96 + o) score += 1;
         else if (IF < 0.74 + o || IF > 1.05 + o) score -= 2;
         else score -= 1;
         break;
-      case "VO2max":
-        if (IF >= 0.90 + o && IF <= 1.10 + o) score += 2;
+      }
+      case "VO2max": {
+        const b = FTP_ANCHORED_IF_BANDS.VO2max;
+        if (IF >= b.lo + o && IF <= b.hi + o) score += 2;
         else if (IF >= 0.86 + o && IF <= 1.15 + o) score += 1;
         else if (IF < 0.80 + o) score -= 2;
         else if (IF > 1.20 + o) score -= 1; // sustained way over VO2 isn't the prescribed session either (RV2-8)
         break;
+      }
       case "SIT":
         if (IF >= 1.00 + o) score += 2;
         else if (IF >= 0.90 + o) score += 1;

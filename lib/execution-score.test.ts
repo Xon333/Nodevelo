@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeExecutionScore, executionScoreLabel, resolveCompliance, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
+import { computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
 
 const base: ExecutionScoreInput = {
   compliancePct: null,
@@ -323,5 +323,17 @@ describe("timeAboveZ2Fraction", () => {
   it("ignores non-finite / negative buckets defensively", () => {
     // z1=2000 ok, z2=NaN→0, z3=2000 ok, z4=-50→0 → total 4000, above 2000 → 0.5
     expect(timeAboveZ2Fraction([2000, NaN, 2000, -50, 0, 0, 0])).toBe(0.5);
+  });
+});
+
+// #4: the exported FTP-anchored bands must be the very numbers the scorer's +2 sweet-spot tier uses —
+// this pins export↔scorer so the retest detector / Trends "target IF" can never drift from scoring.
+describe("FTP_ANCHORED_IF_BANDS export (#4)", () => {
+  it("matches the scorer's +2 sweet-spot behaviour at the band edges", () => {
+    for (const [type, band] of Object.entries(FTP_ANCHORED_IF_BANDS)) {
+      const at = (IF: number) => computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: IF, plannedType: type })!;
+      expect(at(band.lo)).toBe(at(band.hi)); // both sweet-spot edges score identically (+2 tier)
+      expect(at(band.hi)).toBeGreaterThan(at(band.hi + 0.05)); // just above the top drops out of the tier
+    }
   });
 });
