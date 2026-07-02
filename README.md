@@ -54,6 +54,7 @@ Five design decisions define the whole app — everything else follows from them
 | [todo.md](todo.md) | Lean live punch-list for incoming bugs / feedback |
 | [DESIGN.md](DESIGN.md) | Design source of truth — tokens, type ladder, per-page hierarchy |
 | `AGENTS.md` · `CLAUDE.md` | Operating constraints for AI coding agents |
+| [WORKFLOW.md](WORKFLOW.md) | Personal cheat sheet — daily commands, session workflow |
 
 ---
 

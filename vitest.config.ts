@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import path from "node:path";
 
 // The `@/` path alias (matches tsconfig) so tests can import route handlers + components, not just
@@ -9,5 +9,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Concurrent sessions leave test files under .claude/worktrees/* — without this, a root
+    // `npm test` globs them too and reports false failures for another session's WIP.
+    exclude: [...configDefaults.exclude, "**/.claude/**"],
   },
 });

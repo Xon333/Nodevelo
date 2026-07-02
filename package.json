@@ -5,10 +5,13 @@
   "scripts": {
     "dev": "next dev -H 127.0.0.1",
     "dev:lan": "next dev -H 0.0.0.0",
+    "dev:preview": "next dev -H 127.0.0.1 -p 3100",
     "build": "next build",
     "start": "next start -H 127.0.0.1",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "tsc --noEmit && npm run lint && npm test",
+    "reset:today": "curl -sf -X POST http://127.0.0.1:3000/api/dev/reset-today && echo 'today-analysis.json cleared' || echo 'Dev server not running on :3000 — start it with npm run dev'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
