@@ -361,3 +361,39 @@ describe("POST /api/sync — ledger rebuild one-shot (LEDGER-3)", () => {
     expect(store.writeLedgerRebuild).toHaveBeenCalledOnce();
   });
 });
+
+describe("POST /api/sync — physiology reconcile + best-effort warnings", () => {
+  it("reconciles incoming sport-settings into the physiology store", async () => {
+    const snapshot = {
+      effectiveFrom: TODAY,
+      capturedAt: "2026-06-22T08:00:00.000Z",
+      source: "intervals" as const,
+      ftp: 260,
+      lthr: 165,
+      maxHr: 190,
+      powerZonePct: [55, 75, 90, 105, 120, 150],
+      hrZones: [120, 140, 155, 165, 175, 190],
+      hrZonesAreBpm: true,
+      powerZoneNames: [],
+      hrZoneNames: [],
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue(snapshot);
+    await postSync();
+    // First-ever snapshot: reconcile (real) seeds the store with it as current, empty history.
+    expect(phys.writePhysiology).toHaveBeenCalledWith({ current: snapshot, history: [] });
+  });
+
+  it("surfaces a quirk-extraction failure as a warning without failing the sync", async () => {
+    vi.mocked(store.writeQuirks).mockRejectedValueOnce(new Error("disk full"));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect((await res.json()).warnings.some((w: string) => /Quirk extraction failed: disk full/.test(w))).toBe(true);
+  });
+
+  it("surfaces an intervention-validation failure as a warning without failing the sync", async () => {
+    vi.mocked(store.readScoreLog).mockRejectedValueOnce(new Error("corrupt log"));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect((await res.json()).warnings.some((w: string) => /Intervention validation failed: corrupt log/.test(w))).toBe(true);
+  });
+});
