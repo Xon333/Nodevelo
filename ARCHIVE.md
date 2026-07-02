@@ -12,6 +12,28 @@ exact commits.
 
 ---
 
+## Carbs-optimum derivation — Track C first leg (2026-07-02)
+
+The optimum shape joins the shared correlation engine, and carbs g/h becomes the framework's third
+calibrated parameter. `deriveOptimum` (`lib/correlation.ts`) mirrors `deriveExecutionEdge` with the roles
+flipped — the median signal of the athlete's *successes*, credited only when failures exist to contrast
+against AND sit ≥ a margin away on the expected side (successes alone are habit, not signal — same
+"don't calibrate to where they train" refusal as the edge). First consumer: `deriveCarbsOptimum`
+(`lib/calibration.ts`) classifies steady long endurance rides (the sync route's existing steady-ride set,
+≥90 min, `carbs_ingested` logged) good/bad by decoupling against the athlete's own resolved
+`decouplingGood` ±2pp deadband — the two calibrated parameters compound — with a 10 g/h discrimination
+margin, a [30, 120] clamp, `DEFAULT_CARBS_OPTIMUM = 75` (the literal `inRideCarbTarget` >90-min endurance
+value), and the same quiet-window/`manualOverride` preservation semantics as `deriveDecouplingGood`.
+Wired: `CalibrationStore.carbsOptimum` (optional — pre-existing stores parse back `undefined`, the
+migration-flag gotcha), derived each sync, `/api/calibration` generalised to a param→bounds map, and a
+second contest/correct row on the `/model` panel (config-driven `ParamRow` refactor; verified live —
+the on-disk store predating the field renders the default row correctly). **Deliberate non-goal:** the
+fueling table (`inRideCarbTarget`) is untouched — surfacing a learned optimum into prescriptions is §6.
+Dormant until fueling data accrues, by design. Plan:
+`docs/superpowers/plans/2026-07-02-carbs-optimum-derivation.md`. +20 tests (742 total, 66 files).
+
+---
+
 ## Off-machine backup (2026-07-02, SUB-4 half)
 
 `lib/backup.ts`: `buildBackupBundle()` (the same data/ + knowledge-base/ bundle GET /api/export already

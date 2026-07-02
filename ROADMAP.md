@@ -258,10 +258,11 @@ regression `deriveTsbDeepFatigue` now rides on; "build the derivation once, reus
 the calibration edges). The carbs **input is now stamped** too (`fuel.carbsGPerH`, from intervals.icu
 `carbs_ingested`) — sparse until athletes fill it in, accumulating like `formState` did before its edge
 could fire. What's left:
-- **Optimum-derivation shape** — the engine's `deriveExecutionEdge` finds a *failure edge*; carbs needs
-  an *optimum* (the g/h band tied to the best outcomes). Add that shape, then per ride type correlate
-  `fuel.carbsGPerH` against decoupling / RPE-vs-IF divergence / interval completion / next-day TSB →
-  converge on optimal g/h, stored as a calibrated parameter `← #2`.
+- ✅ **Optimum-derivation shape — engine + first consumer shipped, 2026-07-02** (`deriveOptimum` in
+  `lib/correlation.ts`; `carbsOptimum` derived each sync from steady long rides classified against the
+  athlete's own `decouplingGood`, overridable on `/model` — see ARCHIVE). Dormant until `carbs_ingested`
+  data accrues (like every calibrated param). Left: per-ride-type optimums + richer outcome signals
+  (RPE-vs-IF divergence, interval completion, next-day TSB) once the endurance read proves out.
 - **Contextual post-ride prompts** (deterministic thresholds, LLM phrases the number) — also the nudge
   that gets `carbs_ingested` filled in, which feeds the derivation above.
 - **Pre-ride loading loop** — day-before carb bump before long durability, then *learn whether it
