@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveExecutionEdge, type ExecutionEdgeSpec } from "./correlation";
+import { deriveExecutionEdge, deriveOptimum, type ExecutionEdgeSpec, type OptimumSpec } from "./correlation";
 import type { RideScoreEntry, WorkoutType } from "./types";
 
 // Minimal entry whose stamped signal lives in formState.tsb (the deep-fatigue case) by default.
@@ -113,5 +113,86 @@ describe("deriveExecutionEdge — population filter", () => {
     const entries = [entry(-30, 2), entry(-30, 2, { planned: false }), ...goods];
     const p = deriveExecutionEdge(entries, lowerSpec);
     expect(p.dataPoints).toBe(1); // the off-plan one was dropped
+  });
+});
+
+// ---------- deriveOptimum (Track C) ----------
+
+// Carbs-shaped spec: failures (bad outcomes) are expected at LOWER signal values (under-fueling).
+const optimumSpec: OptimumSpec = {
+  badSide: "lower",
+  discriminationMargin: 10,
+  clampTo: [30, 120],
+  confidence: (nGood, nBad) => (nGood < 5 || nBad < 3 ? "low" : nGood < 10 ? "medium" : "high"),
+};
+
+const good = (signal: number) => ({ signal, good: true });
+const bad = (signal: number) => ({ signal, good: false });
+
+describe("deriveOptimum — guards", () => {
+  it("returns a default-source blank with no observations", () => {
+    const p = deriveOptimum([], optimumSpec);
+    expect(p.source).toBe("default");
+    expect(Number.isNaN(p.value)).toBe(true);
+    expect(p.dataPoints).toBe(0);
+  });
+
+  it("returns blank when there are successes but no failures to contrast against", () => {
+    // An athlete who always fuels ~75 and always succeeds: the optimum would be habit, not signal.
+    const p = deriveOptimum([good(70), good(75), good(80), good(75), good(70)], optimumSpec);
+    expect(p.source).toBe("default");
+    expect(p.dataPoints).toBe(5); // honest about how many successes were seen
+  });
+
+  it("returns blank when the signal does not discriminate (bad median too close to good median)", () => {
+    // goods ~75, bads ~70 → 70 is NOT ≤ 75 - margin(10)
+    const p = deriveOptimum([good(70), good(75), good(80), bad(68), bad(72)], optimumSpec);
+    expect(p.source).toBe("default");
+  });
+
+  it("returns blank when failures sit on the WRONG side (bad median above good median)", () => {
+    // bads fueled MORE than goods — under-fueling isn't the driver here.
+    const p = deriveOptimum([good(60), good(64), good(68), bad(90), bad(95)], optimumSpec);
+    expect(p.source).toBe("default");
+  });
+});
+
+describe("deriveOptimum — derivation", () => {
+  it("derives the successes' median signal when the signal discriminates (badSide lower)", () => {
+    const obs = [good(70), good(80), good(90), bad(30), bad(40), bad(50)]; // medGood 80, medBad 40
+    const p = deriveOptimum(obs, optimumSpec);
+    expect(p.source).toBe("derived");
+    expect(p.value).toBe(80);
+    expect(p.dataPoints).toBe(3); // the successes the value rests on
+    expect(p.manualOverride).toBeNull();
+    expect(p.locked).toBe(false);
+  });
+
+  it("clamps the derived value to the spec bounds", () => {
+    const obs = [good(140), good(150), good(160), bad(60), bad(70), bad(80)];
+    const p = deriveOptimum(obs, optimumSpec);
+    expect(p.value).toBe(120); // clamped to max
+  });
+
+  it("supports badSide 'higher' (failures at higher signal values)", () => {
+    const spec: OptimumSpec = { ...optimumSpec, badSide: "higher", clampTo: [0, 200] };
+    const obs = [good(60), good(70), good(80), bad(95), bad(100), bad(105)]; // medBad 100 ≥ medGood 70 + 10
+    const p = deriveOptimum(obs, spec);
+    expect(p.source).toBe("derived");
+    expect(p.value).toBe(70);
+  });
+
+  it("passes both class sizes to the confidence gate", () => {
+    // 5 good / 3 bad → exactly at the medium gate of the spec above.
+    const obs = [good(70), good(75), good(80), good(85), good(90), bad(30), bad(40), bad(50)];
+    const p = deriveOptimum(obs, optimumSpec);
+    expect(p.confidence).toBe("medium");
+  });
+
+  it("drops non-finite signals before classifying", () => {
+    const obs = [good(70), good(80), good(90), { signal: NaN, good: true }, bad(30), bad(40), bad(50)];
+    const p = deriveOptimum(obs, optimumSpec);
+    expect(p.value).toBe(80); // NaN observation ignored
+    expect(p.dataPoints).toBe(3);
   });
 });

@@ -74,3 +74,52 @@ export function deriveExecutionEdge(entries: RideScoreEntry[], spec: ExecutionEd
     manualOverride: null,
   };
 }
+
+// ---------- The OPTIMUM shape (ROADMAP Track C) ----------
+// deriveExecutionEdge finds where things BREAK (median of failures); deriveOptimum finds where things
+// WORK (median of successes). Same honesty guards, mirrored: successes alone are habit, not signal —
+// failures must exist to contrast against, and must sit a margin away on the expected side, or we stay
+// on the population default. Generic over observations (not RideScoreEntry) because optimum consumers
+// classify outcomes off different substrates (carbs classifies steady rides by decoupling, not by
+// ledger executionScore).
+
+export interface OptimumObservation {
+  signal: number; // the stamped input being calibrated (e.g. carbs g/h)
+  good: boolean; // outcome class, decided by the caller (e.g. decoupling ≤ the athlete's reference)
+}
+
+export interface OptimumSpec {
+  // Which side of the optimum the BAD outcomes must sit for the signal to be credited as the driver:
+  //   "lower"  → failures at LOWER signal values (under-fueling degrades late-ride durability)
+  //   "higher" → failures at HIGHER signal values
+  badSide: "lower" | "higher";
+  discriminationMargin: number; // bad median must sit ≥ this many signal units away from the good median
+  clampTo: readonly [min: number, max: number]; // sanity-bound the derived optimum
+  confidence: (nGood: number, nBad: number) => CalibratedParameter["confidence"];
+}
+
+// Derive a per-athlete optimum from classified observations. Never throws; a non-discriminating or
+// one-sided sample returns a default-source blank (dataPoints = successes seen) instead.
+export function deriveOptimum(obs: OptimumObservation[], spec: OptimumSpec): CalibratedParameter {
+  const now = new Date().toISOString();
+  const finite = obs.filter((o) => Number.isFinite(o.signal));
+  const good = finite.filter((o) => o.good).map((o) => o.signal);
+  const bad = finite.filter((o) => !o.good).map((o) => o.signal);
+  if (good.length === 0 || bad.length === 0) return blank(good.length, now);
+
+  const medGood = median(good);
+  const medBad = median(bad);
+  const discriminates =
+    spec.badSide === "lower" ? medBad <= medGood - spec.discriminationMargin : medBad >= medGood + spec.discriminationMargin;
+  if (!discriminates) return blank(good.length, now);
+
+  return {
+    value: clamp(medGood, spec.clampTo[0], spec.clampTo[1]),
+    source: "derived",
+    confidence: spec.confidence(good.length, bad.length),
+    dataPoints: good.length, // the successes the value rests on
+    lastUpdated: now,
+    locked: false, // keep re-deriving as the rolling window evolves
+    manualOverride: null,
+  };
+}
