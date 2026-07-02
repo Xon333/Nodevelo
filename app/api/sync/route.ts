@@ -7,6 +7,7 @@ import { matchPrescription } from "@/lib/interval-match";
 import { parsePrescription } from "@/lib/prescription";
 import { buildRideTrace } from "@/lib/trace";
 import {
+  appendBlockHistory,
   readAthleteProfile,
   readBlockHistory,
   readBlockSettings,
@@ -40,13 +41,13 @@ import { isSteadyEnduranceRide } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
-import { buildRideScores, calStampFor, mergeScoreLog, mergeScoreLogRebuild } from "@/lib/score-log";
+import { buildRideScores, calStampFor, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
-import { resolveToday } from "@/lib/date";
+import { resolveToday, utcToday } from "@/lib/date";
 import type { ExecutedInterval, RideEntryContext, TodayAnalysis } from "@/lib/types";
 
 // A sync fires several sequential Intervals.icu requests (each network-bounded to 20s in the API
@@ -479,6 +480,8 @@ export async function POST(req: Request) {
 // planned-workout events from the Intervals.icu calendar — the whole plan is being thrown away, so its
 // markers shouldn't linger (the old behaviour orphaned them). Best-effort + configured-guarded so a
 // calendar hiccup never blocks the local clear; completed rides are separate activities, untouched.
+// SUB-1: archive the lived portion before clearing — "discard" rejects the block's un-lived future, not
+// the days already ridden against it, which stay real coaching history the matcher can still use.
 export async function DELETE() {
   const block = await readCurrentBlock();
   const ids = blockEventIds(block);
@@ -488,6 +491,21 @@ export async function DELETE() {
     const { deleted, failed } = await deleteEvents(ids);
     eventsRemoved = deleted.length;
     eventsFailed = failed;
+  }
+  if (block) {
+    await appendBlockHistory({
+      id: block.createdAt,
+      goal: block.goal,
+      startDate: block.startDate,
+      endDate: block.endDate,
+      lengthWeeks: block.lengthWeeks,
+      overview: block.overview,
+      createdAt: block.createdAt,
+      model: block.model,
+      promptVersion: block.promptVersion,
+      durabilityTemplate: block.durabilityTemplate,
+      days: truncateBlockDays(block.days, utcToday()),
+    });
   }
   await writeCurrentBlock(null);
   return NextResponse.json({ ok: true, eventsRemoved, eventsFailed });
