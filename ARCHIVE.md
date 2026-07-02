@@ -12,6 +12,22 @@ exact commits.
 
 ---
 
+## Route tests for the destructive write routes (2026-07-02, extends SUB-3)
+
+SUB-3 covered `sync` + `generate`; this closes the same gap on the routes that can overwrite a store
+outright with zero prior coverage: `app/api/import` (restores `data/` + `knowledge-base/` from an
+uploaded bundle — the highest-risk route in the app), `profile`, `season`, `calibration`, `knowledge`.
+43 new tests, same pattern as `settings`/`sync` (data layer mocked at the module boundary, route handler
+called directly against a constructed `Request`). Each suite targets the write path's actual risk, not
+just line coverage: `import` gets dedicated path-traversal coverage (relative and absolute `rel` keys
+must never reach `writeJsonFile`/`fs.writeFile` — `fs` mocked too, since `KB_DIR` has no env override to
+redirect to a throwaway dir); `season` guards engine-drafted `periods` surviving an athlete-owned PUT;
+`profile` guards a partial nutrition/goals/weakpoints update not clobbering the other two; `calibration`
+guards the manual-override clamp (the same "disable-the-safety-cap" shape SET-1 caught for
+`BlockSettings`). `export` stayed out of scope — GET-only, never mutates.
+
+---
+
 ## Structured logging — P8 half (2026-07-02)
 
 Silent-catch observability gap closed: `lib/log.ts` (`logError`/`logWarn`, JSON lines shaped
