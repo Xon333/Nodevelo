@@ -61,6 +61,17 @@ describe("computeExecutionScore", () => {
     );
   });
 
+  it("ignores a durability-delivery grade when the template embeds no efforts (EC-3: no double-count)", () => {
+    // Template A (pure accumulation) prescribes no efforts, so a delivery grade must not move the score —
+    // otherwise it stacks on the full interval-adherence axis and double-counts in the frozen ledger.
+    const steady = { ...base, compliancePct: 100, intensityFactor: 0.7, plannedType: "Z2" as const, variabilityIndex: 1.05 };
+    const templateA = computeExecutionScore({ ...steady, durabilityTemplate: "A" })!;
+    expect(computeExecutionScore({ ...steady, durabilityTemplate: "A", durabilityDelivery: -2 })!).toBe(templateA);
+    // Same guard when no durability template is attached at all.
+    const noTemplate = computeExecutionScore(steady)!;
+    expect(computeExecutionScore({ ...steady, durabilityDelivery: -2 })!).toBe(noTemplate);
+  });
+
   it("rewards a hard, variable RaceSim and penalises a soft one", () => {
     const hard = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.86, plannedType: "RaceSim" });
     const soft = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.62, plannedType: "RaceSim" });

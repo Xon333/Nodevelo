@@ -180,8 +180,12 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
   // --- Track B: durability effort delivery (±2) --- did the template's prescribed efforts actually
   // happen, at the right intensity + timing (gradeDurabilityDelivery, computed by the today path from the
   // ride's intervals)? Absent → no effect (no interval data, or template A).
-  if (input.durabilityDelivery != null && Number.isFinite(input.durabilityDelivery)) {
-    score += Math.max(-2, Math.min(2, Math.round(input.durabilityDelivery)));
+  // Gated on gradedByDurability (an efforts-embedding template B–E + a finite grade), not just a finite
+  // grade: a lone durabilityDelivery on template A / no template would otherwise stack on the full
+  // interval-adherence axis and double-count in the immutable ledger (EC-3). gradedByDurability already
+  // implies the finite check above.
+  if (gradedByDurability) {
+    score += Math.max(-2, Math.min(2, Math.round(input.durabilityDelivery as number)));
   }
 
   // --- Off-plan aerobic quality (±2) --- intrinsic rides only.
