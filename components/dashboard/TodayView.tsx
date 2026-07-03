@@ -20,6 +20,7 @@ export default function TodayView() {
 
   const [notePosting, setNotePosting] = useState(false);
   const [notePosted, setNotePosted] = useState(false);
+  const [notePostFailed, setNotePostFailed] = useState(false);
   const autoSyncDone = useRef(false);
 
   // Auto-sync once on Today when the cached data is stale.
@@ -36,6 +37,7 @@ export default function TodayView() {
   const postNote = async () => {
     if (!state.todayAnalysis) return;
     setNotePosting(true);
+    setNotePostFailed(false);
     try {
       await api("/api/note", {
         method: "POST",
@@ -48,7 +50,7 @@ export default function TodayView() {
       });
       setNotePosted(true);
     } catch {
-      // best-effort — don't show error for note post failure
+      setNotePostFailed(true); // S1-3: a button that quietly returns to rest on failure is a lie
     } finally {
       setNotePosting(false);
     }
@@ -109,6 +111,7 @@ export default function TodayView() {
               onPostNote={state.configured ? postNote : undefined}
               notePosting={notePosting}
               notePosted={notePosted}
+              notePostFailed={notePostFailed}
               bare
               hideCoachNote
             />

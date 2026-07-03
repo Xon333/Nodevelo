@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useId } from "react";
 import type { AthleteState } from "@/lib/types";
 import { BAND_COLOR, DIR, driverEffectClass } from "./athlete-state-ui";
 
@@ -16,8 +17,16 @@ const BAND_BAR: Record<AthleteState["band"], string> = {
 
 export default function AthleteStateCard({ state }: { state: AthleteState }) {
   const band = state.band[0].toUpperCase() + state.band.slice(1);
+  const detailId = useId();
   return (
-    <div className="group relative flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800">
+    // tabIndex + group-focus-within: the band/drivers detail below opens on keyboard focus as well
+    // as hover (Constitution §6) — tabbing to the card reveals it visually; aria-describedby hands
+    // the same content to assistive tech regardless of the visual reveal state.
+    <div
+      tabIndex={0}
+      aria-describedby={detailId}
+      className="group relative flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+    >
       <div className="flex items-baseline gap-0.5">
         <span className={`font-mono text-3xl font-bold leading-none ${BAND_COLOR[state.band]}`}>{state.score}</span>
         <span className="text-[10px] text-zinc-500 dark:text-zinc-400">/100</span>
@@ -49,8 +58,12 @@ export default function AthleteStateCard({ state }: { state: AthleteState }) {
         </div>
       </div>
 
-      {/* Hover detail: band + recommendation + the drivers that moved the score. */}
-      <div className="pointer-events-none absolute left-0 top-full z-30 mt-1 w-72 max-w-[90vw] rounded-lg border border-zinc-200 bg-white p-3 text-left opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900">
+      {/* Hover/focus detail: band + recommendation + the drivers that moved the score. */}
+      <div
+        id={detailId}
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-30 mt-1 w-72 max-w-[90vw] rounded-lg border border-zinc-200 bg-white p-3 text-left opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-900"
+      >
         <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           {band} <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">· {state.recommendation}</span>
         </p>

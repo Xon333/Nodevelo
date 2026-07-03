@@ -10,6 +10,7 @@ import { useSync } from "../SyncProvider";
 import PlanPreview from "../PlanPreview";
 import RescheduleBanner from "../RescheduleBanner";
 import SeasonRoadmap from "../SeasonRoadmap";
+import { LoadFailed, useMountLoad } from "../ui";
 import BlockGenerator from "./BlockGenerator";
 import {
   BlockHistory,
@@ -56,72 +57,74 @@ export default function PlanView() {
   // cutting the Plan page in half; it expands on demand (and is always open with no block).
   const [genOpen, setGenOpen] = useState(false);
 
+  // Degraded-state flags (S1-3): each best-effort fetch fails *visibly* — a LoadFailed line in the
+  // slot with a retry — instead of the section silently not existing.
+  const [historyFailed, setHistoryFailed] = useState(false);
+  const [prefillFailed, setPrefillFailed] = useState(false);
+  const [seasonCtxFailed, setSeasonCtxFailed] = useState(false);
+
   const loadBlockHistory = useCallback(async () => {
+    // Flags only touched after the await, so the mount effect never setStates synchronously.
     try {
       const h = await api<BlockHistoryEntry[]>("/api/history");
       setBlockHistory(h);
+      setHistoryFailed(false);
     } catch {
-      // history is best-effort
+      setHistoryFailed(true);
     }
   }, []);
 
   // Plan-only data: goal/weakpoint prefill + block history (Today doesn't need them).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await api<{
-          athleteMd: AthleteMdSnapshot;
-          goals: Array<{ goal: string; target: string; focus: string }>;
-          weakpoints: Array<{ weakpoint: string; detail: string }>;
-        }>("/api/profile");
-        if (!cancelled) {
-          setAthleteMd(response.athleteMd);
-          setGoalsForProgress(response.goals);
-          setRawGoals(response.goals);
-          if (response.weakpoints.length > 0) {
-            setWeakpointsText(response.weakpoints.map((w) => w.weakpoint).join("\n"));
-          }
-        }
-      } catch {
-        // profile prefill is best-effort
+  const loadPrefill = useCallback(async () => {
+    try {
+      const response = await api<{
+        athleteMd: AthleteMdSnapshot;
+        goals: Array<{ goal: string; target: string; focus: string }>;
+        weakpoints: Array<{ weakpoint: string; detail: string }>;
+      }>("/api/profile");
+      setAthleteMd(response.athleteMd);
+      setGoalsForProgress(response.goals);
+      setRawGoals(response.goals);
+      if (response.weakpoints.length > 0) {
+        setWeakpointsText(response.weakpoints.map((w) => w.weakpoint).join("\n"));
       }
-      void loadBlockHistory();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadBlockHistory]);
+      setPrefillFailed(false);
+    } catch {
+      setPrefillFailed(true);
+    }
+  }, []);
+
+  useMountLoad(loadPrefill);
+  useMountLoad(loadBlockHistory);
 
   // Season context for the generator: pre-fills length + narrows the goal pre-fill to what's relevant
   // this focus period, and surfaces a readout so the athlete can see why (Season/Block hierarchy).
-  // Independent fetch from the profile effect above — non-fatal on failure, same as SeasonRoadmap.tsx.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
-        if (cancelled) return;
-        const today = localToday();
-        const period = currentPeriod(plan, today);
-        if (period) {
-          setLengthWeeks(suggestedBlockWeeks(period, today));
-          setSeasonReadout(formatSeasonContext(plan, today));
-          if (rawGoals.length > 0) {
-            const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, period.focus);
-            setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
-          }
-        } else if (rawGoals.length > 0) {
-          setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+  // Independent fetch from the profile prefill above; on failure the form falls back to today's
+  // defaults — but the failure itself is shown (S1-3), since a silently missing season context
+  // changes what gets generated.
+  const loadSeasonCtx = useCallback(async () => {
+    try {
+      const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
+      const today = localToday();
+      const period = currentPeriod(plan, today);
+      if (period) {
+        setLengthWeeks(suggestedBlockWeeks(period, today));
+        setSeasonReadout(formatSeasonContext(plan, today));
+        if (rawGoals.length > 0) {
+          const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, period.focus);
+          setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
         }
-      } catch {
-        // season context is optional — the form just falls back to today's defaults
+      } else if (rawGoals.length > 0) {
+        setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setSeasonCtxFailed(false);
+    } catch {
+      setSeasonCtxFailed(true);
+    }
   }, [rawGoals]);
+
+  // Re-runs when rawGoals lands (the callback's dep), matching the old effect's behaviour.
+  useMountLoad(loadSeasonCtx);
 
   // Elapsed counter ticks while a generation is in flight. The reset to 0 lives in generate()
   // (where the run starts) rather than in this effect, so no setState fires synchronously here.
@@ -240,6 +243,11 @@ export default function PlanView() {
         </div>
       )}
 
+      {/* Degraded prefill notices — the generator still works, but the athlete should know the
+          fields aren't reflecting their profile/season right now. */}
+      {prefillFailed && <LoadFailed what="your profile prefill (goals & weakpoints)" retry={() => void loadPrefill()} />}
+      {seasonCtxFailed && <LoadFailed what="the season context for the generator" retry={() => void loadSeasonCtx()} />}
+
       {/* Block generation — collapses to a thin bar when a block is active so it no longer
           cuts the page in half; always open when there's no block to generate against. */}
       <BlockGenerator
@@ -277,7 +285,11 @@ export default function PlanView() {
         />
       )}
 
-      <BlockHistory history={blockHistory} />
+      {historyFailed ? (
+        <LoadFailed what="block history" retry={() => void loadBlockHistory()} />
+      ) : (
+        <BlockHistory history={blockHistory} />
+      )}
     </div>
   );
 }

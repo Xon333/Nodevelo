@@ -1,31 +1,83 @@
+"use client";
+
 // Shared presentational primitives so cards, stat tiles, and dividers look
 // identical across the dashboard, trends, and profile pages.
 
-import type { ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 
-// One-line explanation shown on hover over a metric/title. `align` flips the tooltip to the
+// One-line explanation shown on hover/focus over a metric/title. `align` flips the tooltip to the
 // right edge so it doesn't clip when the anchor sits near a container's right. Wrap the trigger
-// element in `group relative`; the tip fades in on group-hover.
-export function MetricTip({ text, align = "left" }: { text: string; align?: "left" | "right" }) {
+// element in `group relative`; the tip fades in on group-hover AND group-focus-within — hover is
+// the mouse accelerator, focus is the keyboard door (UX-CONSTITUTION §6: never hover alone). Give
+// the trigger element `tabIndex` (or use InfoDot, whose trigger is a focusable span) and pass `id`
+// wired to the trigger's `aria-describedby` so assistive tech gets the text too.
+export function MetricTip({ text, align = "left", id }: { text: string; align?: "left" | "right"; id?: string }) {
   return (
     <span
+      id={id}
+      role="tooltip"
       className={`pointer-events-none absolute ${
         align === "right" ? "right-0" : "left-0"
-      } top-full z-30 mt-1 w-64 max-w-[80vw] rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-normal normal-case leading-snug text-zinc-600 opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300`}
+      } top-full z-30 mt-1 w-64 max-w-[80vw] rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-normal normal-case leading-snug text-zinc-600 opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300`}
     >
       {text}
     </span>
   );
 }
 
-// Small ⓘ hover affordance next to a label/value — shows a MetricTip on hover. The consistent
-// "what is this number?" hint used across cards, tiles, and stats.
+// Small ⓘ affordance next to a label/value — shows a MetricTip on hover or keyboard focus. The
+// consistent "what is this number?" hint used across cards, tiles, and stats. The trigger is a
+// focusable span, not a `<button>`: InfoDot is nested inside other clickable buttons in several
+// call sites (e.g. TrendPulse's tile buttons), and a `<button>` can't validly contain a `<button>`
+// (invalid HTML → a hydration error). `tabIndex` makes it Tab-reachable, `aria-describedby` hands
+// the text to assistive tech, and there's no click behavior to lose — the reveal is purely
+// hover/focus, so no activation semantics (role="button") are implied.
 export function InfoDot({ text, align }: { text: string; align?: "left" | "right" }) {
+  const id = useId();
   return (
-    <span className="group relative inline-flex cursor-help align-middle text-zinc-500 dark:text-zinc-400">
-      <span className="text-[10px] opacity-60">ⓘ</span>
-      <MetricTip text={text} align={align} />
+    <span className="group relative inline-flex align-middle text-zinc-500 dark:text-zinc-400">
+      <span
+        tabIndex={0}
+        aria-label="Explain this metric"
+        aria-describedby={id}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") e.currentTarget.blur();
+        }}
+        className="cursor-help text-[10px] opacity-60"
+      >
+        ⓘ
+      </span>
+      <MetricTip id={id} text={text} align={align} />
     </span>
+  );
+}
+
+// Fetch-on-mount for a best-effort loader that owns a visible failed state — the other half of the
+// LoadFailed convention below. `load` must be a stable useCallback that touches state only after
+// its first await (post-microtask), so the effect never sets state synchronously; the same `load`
+// doubles as LoadFailed's retry.
+export function useMountLoad(load: () => Promise<void>) {
+  useEffect(() => {
+    void load();
+  }, [load]);
+}
+
+// Quiet degraded-state line for a best-effort slot whose fetch failed (UX-CONSTITUTION §5: failure
+// must be distinguishable from absence — a card that silently vanishes hides breakage). Renders in
+// the slot the content would have occupied; `retry` re-runs the fetch.
+export function LoadFailed({ what, retry }: { what: string; retry?: () => void }) {
+  return (
+    <p className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+      <span className="mr-1.5 text-amber-600 dark:text-amber-400" aria-hidden>
+        ⚠
+      </span>
+      Couldn&apos;t load {what}.
+      {retry && (
+        <button onClick={retry} className="ml-1.5 font-medium text-cyan-700 hover:underline dark:text-[#00d4ff]">
+          Retry
+        </button>
+      )}
+    </p>
   );
 }
 

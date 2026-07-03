@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import type { CompromiseReason, DispositionEntry, SessionDisposition as Disp } from "@/lib/types";
+import { LoadFailed, useMountLoad } from "./ui";
 
 // One small attribution row on the ride card: the fact the system can't infer — whether a
 // session was completed, cut short, or compromised (and why). "Compromised" is the one that
@@ -17,25 +18,27 @@ const REASONS: CompromiseReason[] = ["equipment", "sickness", "weather", "other"
 export default function SessionDisposition({ date }: { date: string }) {
   const [current, setCurrent] = useState<DispositionEntry | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await api<{ disposition: DispositionEntry | null }>(`/api/disposition?date=${date}`);
-        if (!cancelled) setCurrent(r.disposition);
-      } catch {
-        if (!cancelled) setCurrent(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // A failed load used to render as "no disposition set" — indistinguishable from a real unset
+  // state, and a tap from there would write blind over whatever is saved (S1-3).
+  const load = useCallback(async () => {
+    try {
+      const r = await api<{ disposition: DispositionEntry | null }>(`/api/disposition?date=${date}`);
+      setCurrent(r.disposition);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
+    }
   }, [date]);
+
+  useMountLoad(load);
 
   const set = async (disposition: Disp, reason: CompromiseReason | null = null) => {
     if (saving) return;
     setSaving(true);
+    setSaveError(false);
     try {
       const r = await api<{ disposition: DispositionEntry }>("/api/disposition", {
         method: "POST",
@@ -43,12 +46,18 @@ export default function SessionDisposition({ date }: { date: string }) {
       });
       setCurrent(r.disposition);
     } catch {
-      // non-critical
+      setSaveError(true);
     } finally {
       setSaving(false);
     }
   };
 
+  if (loadFailed)
+    return (
+      <div className="mt-3">
+        <LoadFailed what="session attribution" retry={() => void load()} />
+      </div>
+    );
   if (current === undefined) return null;
 
   const chip = (active: boolean) =>
@@ -76,6 +85,7 @@ export default function SessionDisposition({ date }: { date: string }) {
           ))}
         </>
       )}
+      {saveError && <span className="text-[11px] text-red-600 dark:text-red-400">Couldn&apos;t save — tap again.</span>}
     </div>
   );
 }

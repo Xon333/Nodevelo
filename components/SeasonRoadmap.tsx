@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import { roadmapView } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
+import { LoadFailed, useMountLoad } from "./ui";
 
 const FOCUS_COLOR: Record<SeasonFocus, string> = {
   "aerobic-base": "#00d4ff", threshold: "#f5a623", vo2max: "#ff49c8", anaerobic: "#a06bff", durability: "#38d39f", sharpen: "#7fd8ea",
@@ -15,17 +16,20 @@ const FOCUS_COLOR: Record<SeasonFocus, string> = {
 // there's no season plan yet or it has zero periods — mirrors this codebase's other best-effort tiles.
 export default function SeasonRoadmap() {
   const [plan, setPlan] = useState<SeasonPlan | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
-        if (!cancelled) setPlan(plan);
-      } catch { /* season is optional context */ }
-    })();
-    return () => { cancelled = true; };
+  const [failed, setFailed] = useState(false);
+  // No plan / zero periods stays silent (absence); a fetch failure renders visibly (S1-3).
+  const load = useCallback(async () => {
+    try {
+      const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
+      setPlan(plan);
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
   }, []);
+  useMountLoad(load);
 
+  if (failed) return <LoadFailed what="the season roadmap" retry={() => void load()} />;
   if (!plan || plan.periods.length === 0) return null;
   const today = localToday();
   const view = roadmapView(plan, today);

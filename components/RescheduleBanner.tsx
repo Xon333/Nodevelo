@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { useSync, type AppState } from "./SyncProvider";
+import { LoadFailed, useMountLoad } from "./ui";
 
 interface Suggestion {
   from: string;
@@ -19,34 +20,36 @@ export default function RescheduleBanner() {
   const [s, setS] = useState<Suggestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await api<{ suggestion: Suggestion | null }>("/api/reschedule");
-        if (!cancelled) setS(r.suggestion);
-      } catch {
-        // best-effort
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    try {
+      const r = await api<{ suggestion: Suggestion | null }>("/api/reschedule");
+      setS(r.suggestion);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true); // visible failure (S1-3): no suggestion ≠ couldn't check
+    }
   }, []);
 
-  if (!s || dismissed) return null;
+  useMountLoad(load);
+
+  if (dismissed) return null;
+  if (loadFailed) return <LoadFailed what="the reschedule check" retry={() => void load()} />;
+  if (!s) return null;
 
   const apply = async () => {
     if (!s.to || busy) return;
     setBusy(true);
+    setApplyError(null);
     try {
       await api("/api/reschedule", { method: "POST", body: JSON.stringify({ from: s.from, to: s.to }) });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);
       setS(null);
     } catch {
-      // ignore — leave the banner up to retry
+      setApplyError("Couldn't apply the move — try again.");
     } finally {
       setBusy(false);
     }
@@ -80,6 +83,7 @@ export default function RescheduleBanner() {
       >
         Dismiss
       </button>
+      {applyError && <p className="w-full text-[11px] text-red-600 dark:text-red-400">{applyError}</p>}
     </div>
   );
 }

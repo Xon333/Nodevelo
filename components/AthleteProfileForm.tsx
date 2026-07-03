@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { Card } from "./ui";
+import { Card, LoadFailed, useMountLoad } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonEvent, SeasonFocus, SeasonPlan } from "@/lib/types";
@@ -162,26 +162,25 @@ export default function AthleteProfileForm() {
     };
   }, []);
 
+  const [seasonLoadFailed, setSeasonLoadFailed] = useState(false);
+
   // Season is athlete-owned intent (objective + target events) that the macro-periodization
   // engine reads and re-plans around — an independent fetch from a separate store/route, mirrored
-  // from the identical pattern in SeasonRoadmap.tsx. Failure here is non-fatal: the section just
-  // starts from empty defaults, same as a first-time athlete who's never set a season yet.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
-        if (cancelled) return;
-        setObjective(plan.objective);
-        setEvents(plan.events);
-      } catch {
-        // non-fatal — the form just starts from empty defaults
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // from the identical pattern in SeasonRoadmap.tsx. A load failure must NOT fall back to an empty
+  // form (S1-3): saving blanks over an unreadable-but-saved season would silently destroy it — the
+  // section shows the failure and offers retry instead.
+  const loadSeason = useCallback(async () => {
+    try {
+      const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
+      setObjective(plan.objective);
+      setEvents(plan.events);
+      setSeasonLoadFailed(false);
+    } catch {
+      setSeasonLoadFailed(true);
+    }
   }, []);
+
+  useMountLoad(loadSeason);
 
   const saveNutrition = async () => {
     const parsed: Record<string, number> = {};
@@ -562,6 +561,10 @@ export default function AthleteProfileForm() {
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           What you&apos;re training for, and any target events — the coach plans the season arc around these.
         </p>
+        {seasonLoadFailed ? (
+          <LoadFailed what="your season (objective & events)" retry={() => void loadSeason()} />
+        ) : (
+          <>
         <label className="block">
           <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Objective</span>
           <input
@@ -638,6 +641,8 @@ export default function AthleteProfileForm() {
           {seasonSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
           {seasonSaveState.state === "error" && <span className="text-xs text-red-600">{seasonSaveState.message}</span>}
         </div>
+          </>
+        )}
       </Section>
 
       {/* Nutrition formula — bottom */}

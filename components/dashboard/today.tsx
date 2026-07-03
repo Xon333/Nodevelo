@@ -18,6 +18,7 @@ import { formatPrescriptionLabel } from "@/lib/prescription";
 import { computeEnergyAvailability, eaLevel } from "@/lib/nutrition";
 import { isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
 import Link from "next/link";
+import { useId } from "react";
 import RideTrace from "../RideTrace";
 import SessionDisposition from "../SessionDisposition";
 import { Card, InfoDot, MetricTip } from "../ui";
@@ -34,6 +35,9 @@ export function ReadinessBadge({
   fatigueAlert: FatigueAlert | null;
   loadRamp: LoadRampAlert | null;
 }) {
+  // Tips open on keyboard focus too (tabIndex + group-focus-within), not hover alone — the
+  // Constitution §6 rule; ids wire the text to assistive tech.
+  const tipId = useId();
   if (!readiness) return null;
   return (
     <div className="space-y-1.5">
@@ -47,6 +51,8 @@ export function ReadinessBadge({
       )}
       {loadRamp?.triggered && (
         <div
+          tabIndex={0}
+          aria-describedby={`${tipId}-ramp`}
           className={`group relative flex items-start gap-2 rounded-lg border px-3 py-2.5 ${
             loadRamp.level === "high"
               ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/60"
@@ -66,15 +72,19 @@ export function ReadinessBadge({
             <span className="font-semibold">Load ramp — </span>{loadRamp.reason}
           </p>
           <span className="ml-auto shrink-0 self-start text-xs opacity-40">ⓘ</span>
-          <MetricTip text="Flags when this week's training load jumps well above last week's — a common injury-risk signal." />
+          <MetricTip id={`${tipId}-ramp`} text="Flags when this week's training load jumps well above last week's — a common injury-risk signal." />
         </div>
       )}
-      <div className={`group relative flex items-center gap-2.5 rounded-lg border px-3 py-2 ${READINESS_STYLES[readiness.level]}`}>
+      <div
+        tabIndex={0}
+        aria-describedby={`${tipId}-readiness`}
+        className={`group relative flex items-center gap-2.5 rounded-lg border px-3 py-2 ${READINESS_STYLES[readiness.level]}`}
+      >
         <span className="text-xs font-semibold uppercase tracking-wider opacity-60">Readiness</span>
         <span className="text-sm font-semibold">{readiness.level}</span>
         <span className="text-xs opacity-70">— {readiness.reason}</span>
         <span className="ml-auto shrink-0 text-xs opacity-40">ⓘ</span>
-        <MetricTip text="Reads your form (TSB) and acute-fatigue load (ATL/CTL) to suggest whether to build, hold, or recover today. (HRV is not yet in the loop — it's gated off until an overnight source exists.)" />
+        <MetricTip id={`${tipId}-readiness`} text="Reads your form (TSB) and acute-fatigue load (ATL/CTL) to suggest whether to build, hold, or recover today. (HRV is not yet in the loop — it's gated off until an overnight source exists.)" />
       </div>
     </div>
   );
@@ -87,6 +97,7 @@ export function TodayRideCard({
   onPostNote,
   notePosting,
   notePosted,
+  notePostFailed,
   bare,
   hideCoachNote,
 }: {
@@ -94,12 +105,15 @@ export function TodayRideCard({
   onPostNote?: () => void;
   notePosting?: boolean;
   notePosted?: boolean;
+  notePostFailed?: boolean; // last post attempt failed — the button says so and retries (S1-3)
   bare?: boolean;
   hideCoachNote?: boolean; // rendered separately (e.g. in the trend-pulse column)
 }) {
   const plannedStyle = analysis.plannedType
     ? TYPE_STYLES[analysis.plannedType as keyof typeof TYPE_STYLES] ?? TYPE_STYLES.Z2
     : null;
+  // Keyboard/AT access for the metric-strip + decoupling tips (focus reveals; hover stays).
+  const tipId = useId();
 
   // Compliance % removed — execution (the duration/completion-aware 1–10 shown above) is the
   // single completion-anchored index; a separate macro % only duplicated the same story.
@@ -210,6 +224,8 @@ export function TodayRideCard({
           {metrics.map((m) => (
             <div
               key={m.label}
+              tabIndex={m.tip ? 0 : undefined}
+              aria-describedby={m.tip ? `${tipId}-${m.label.replace(/\s+/g, "-")}` : undefined}
               className={`group relative rounded bg-zinc-100 px-2.5 py-1.5 dark:bg-zinc-900${m.tip ? " cursor-help" : ""}`}
             >
               <p className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">
@@ -220,7 +236,7 @@ export function TodayRideCard({
                 {m.value}
                 {m.sub && <span className="ml-1 font-sans text-[10px] font-normal text-zinc-500 dark:text-zinc-400">{m.sub}</span>}
               </p>
-              {m.tip && <MetricTip text={m.tip} />}
+              {m.tip && <MetricTip id={`${tipId}-${m.label.replace(/\s+/g, "-")}`} text={m.tip} />}
             </div>
           ))}
         </div>
@@ -242,14 +258,16 @@ export function TodayRideCard({
             <button
               onClick={onPostNote}
               disabled={notePosting || notePosted}
-              title="Post coach note to Intervals.icu"
+              title={notePostFailed ? "Posting failed — click to retry" : "Post coach note to Intervals.icu"}
               className={`ml-auto shrink-0 whitespace-nowrap rounded border px-2 py-1 text-[10px] font-medium transition-colors ${
                 notePosted
                   ? "border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
-                  : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+                  : notePostFailed
+                    ? "border-red-300 text-red-700 hover:border-red-400 dark:border-red-700 dark:text-red-400 dark:hover:border-red-600"
+                    : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
               }`}
             >
-              {notePosted ? "✓ Posted" : notePosting ? "Posting…" : "↑ Post to Intervals.icu"}
+              {notePosted ? "✓ Posted" : notePosting ? "Posting…" : notePostFailed ? "✕ Failed — retry" : "↑ Post to Intervals.icu"}
             </button>
           )}
         </div>
@@ -276,14 +294,18 @@ export function TodayRideCard({
 
           {/* Decoupling (C): relocated here from the metric strip — context, not a scored signal. */}
           {analysis.activityDecoupling != null && (
-            <div className="group relative inline-flex items-center gap-1.5 rounded bg-zinc-100 px-2.5 py-1.5 dark:bg-zinc-900">
+            <div
+              tabIndex={0}
+              aria-describedby={`${tipId}-decoupling`}
+              className="group relative inline-flex items-center gap-1.5 rounded bg-zinc-100 px-2.5 py-1.5 dark:bg-zinc-900"
+            >
               <span className="flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">
                 Decoupling <span className="opacity-60">ⓘ</span>
               </span>
               <span className="font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 {analysis.activityDecoupling.toFixed(1)}%
               </span>
-              <MetricTip text="Aerobic drift — how much power-to-HR drifted across the ride. Context only: it's no longer part of your execution score (too noisy per-ride), kept as a steady-ride durability reference. Lower is better; ~5%+ on a steady endurance ride hints at fatigue or under-fuelling." />
+              <MetricTip id={`${tipId}-decoupling`} text="Aerobic drift — how much power-to-HR drifted across the ride. Context only: it's no longer part of your execution score (too noisy per-ride), kept as a steady-ride durability reference. Lower is better; ~5%+ on a steady endurance ride hints at fatigue or under-fuelling." />
             </div>
           )}
 
@@ -434,6 +456,7 @@ export function RecentDataSummary({
   polarization?: IntensityDistribution | null;
   bare?: boolean;
 }) {
+  const tipId = useId();
   if (!sync) return null;
   const cutoff7 = isoDaysAgo(7);
   const cutoff14 = isoDaysAgo(14);
@@ -451,10 +474,10 @@ export function RecentDataSummary({
   // rest on Trends.
   const tiles = (
     <div className="grid grid-cols-3 gap-2">
-      <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+      <div tabIndex={0} aria-describedby={`${tipId}-tsb`} className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
         <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           <span className="underline decoration-dotted underline-offset-2">TSB (form)</span>
-          <MetricTip text="Training Stress Balance = fitness (CTL, 42-day load) minus fatigue (ATL, 7-day load) — your 'form'. Negative means you're carrying training fatigue; positive means you're fresh/tapered. Rough guide: −10 to −30 is productive overload, around 0 is balanced, +5 to +25 is race-ready freshness, below −30 risks digging a hole." />
+          <MetricTip id={`${tipId}-tsb`} text="Training Stress Balance = fitness (CTL, 42-day load) minus fatigue (ATL, 7-day load) — your 'form'. Negative means you're carrying training fatigue; positive means you're fresh/tapered. Rough guide: −10 to −30 is productive overload, around 0 is balanced, +5 to +25 is race-ready freshness, below −30 risks digging a hole." />
         </p>
         <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#ff49c8]">
           {sync.fitness.tsb?.toFixed(1) ?? "—"}
@@ -462,10 +485,11 @@ export function RecentDataSummary({
         </p>
       </div>
       {acwr && (
-        <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+        <div tabIndex={0} aria-describedby={`${tipId}-acwr`} className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             <span className="underline decoration-dotted underline-offset-2">ACWR</span>
             <MetricTip
+              id={`${tipId}-acwr`}
               text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Below 0.8 you're detraining (losing fitness); 0.8–1.3 is the safe progression sweet spot; >1.5 is a spike with raised injury risk. You're at ${acwr.ratio.toFixed(2)} (${acwr.level}).`}
             />
           </p>
@@ -476,10 +500,11 @@ export function RecentDataSummary({
         </div>
       )}
       {polarization && (
-        <div className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+        <div tabIndex={0} aria-describedby={`${tipId}-polarization`} className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             <span className="underline decoration-dotted underline-offset-2">Polarization</span>
             <MetricTip
+              id={`${tipId}-polarization`}
               align="right"
               text="Share of training time spent easy / moderate / hard (by ride power vs FTP) over the last 7 days. ~80% easy is the endurance-base target — most of your time should be in the first number."
             />
@@ -499,6 +524,7 @@ export function RecentDataSummary({
 // ---------- Energy-availability tile (deterministic fuel proxy; ⭐ UI refinement) ----------
 
 export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
+  const tipId = useId();
   if (!sync) return null;
   const ea = computeEnergyAvailability(sync.wellness, sync.activities, todayIso());
   if (!ea) return null; // withheld until ≥3 complete logged days — no flaky single-day number
@@ -514,10 +540,14 @@ export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
         ? "text-cyan-700 dark:text-[#00d4ff]"
         : "text-zinc-500 dark:text-zinc-400";
   return (
-    <div className="group relative mt-2 flex items-center justify-between gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+    <div
+      tabIndex={0}
+      aria-describedby={`${tipId}-ea`}
+      className="group relative mt-2 flex items-center justify-between gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900"
+    >
       <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         <span className="underline decoration-dotted underline-offset-2">Energy availability</span>
-        <MetricTip text={`Energy left for recovery after exercise — your logged intake minus exercise burn (all activities with power/energy data, kJ≈kcal), per kg body weight, averaged over the last ${ea.daysUsed} complete days (today is excluded — it's still being logged). A proxy, not a clinical figure: it's on body weight (not fat-free mass) and reads low if you under-log intake. The low / adequate / ample read is a rough reference on a body-weight basis (the clinical 30/45 kcal/kg cutoffs are defined on fat-free mass), not a diagnosis. The arrow is vs the prior week.`} />
+        <MetricTip id={`${tipId}-ea`} text={`Energy left for recovery after exercise — your logged intake minus exercise burn (all activities with power/energy data, kJ≈kcal), per kg body weight, averaged over the last ${ea.daysUsed} complete days (today is excluded — it's still being logged). A proxy, not a clinical figure: it's on body weight (not fat-free mass) and reads low if you under-log intake. The low / adequate / ample read is a rough reference on a body-weight basis (the clinical 30/45 kcal/kg cutoffs are defined on fat-free mass), not a diagnosis. The arrow is vs the prior week.`} />
       </p>
       <p className="shrink-0 font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-200">
         {ea.eaKcalPerKg}

@@ -88,18 +88,14 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
 function DarkToggle() {
   const [dark, setDark] = useState(false);
 
-  // Read the persisted/preferred theme once on mount and apply it. This intentionally syncs React
-  // state to an external source (localStorage + matchMedia): there's no anti-FOUC inline script
-  // setting the dark class pre-hydration, so a lazy useState initializer would read the theme on
-  // the client only and trip a hydration mismatch. Starting at `false` and correcting here is the
-  // mismatch-free path, so the set-state-in-effect rule is suppressed for this one call.
+  // The pre-paint inline script in app/layout.tsx applies the theme class before hydration
+  // (UX S1-5 — no more light flash); this only syncs the toggle's glyph to the class already on
+  // <html>. Server HTML renders the light glyph, so a lazy initializer would trip a hydration
+  // mismatch — correcting one glyph post-hydration is invisible since the page itself painted in
+  // the right theme.
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = stored ? stored === "dark" : prefersDark;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time external-source sync; see comment above
-    setDark(isDark);
-    document.documentElement.classList.toggle("dark", isDark);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-time sync to the class the layout script set pre-paint; see comment above
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   const toggle = () => {

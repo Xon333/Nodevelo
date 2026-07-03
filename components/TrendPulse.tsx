@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/client-api";
-import { InfoDot, TrendTile } from "./ui";
+import { InfoDot, LoadFailed, TrendTile, useMountLoad } from "./ui";
 
 interface Pt {
   value: number;
@@ -92,23 +92,27 @@ function ZoneTile({ zones, onClick }: { zones: number[]; onClick: () => void }) 
 export default function TrendPulse({ vertical }: { vertical?: boolean }) {
   const router = useRouter();
   const [data, setData] = useState<TrendsResp | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const d = await api<TrendsResp>("/api/trends");
-        if (!cancelled) setData(d);
-      } catch {
-        // pulse is best-effort
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // Best-effort, but a failure must be visible (S1-3): without the flag, a broken /api/trends
+  // rendered the "Sync to populate trends" empty state — a lie that hides breakage.
+  const load = useCallback(async () => {
+    // State only touched after the await (post-microtask), so the effect that calls this doesn't
+    // setState synchronously; the flag starts false and success re-clears it after a retry.
+    try {
+      const d = await api<TrendsResp>("/api/trends");
+      setData(d);
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
   }, []);
 
+  useMountLoad(load);
+
   const go = () => router.push("/trends");
+
+  if (failed) return <LoadFailed what="the trend pulse" retry={() => void load()} />;
 
   if (!data || !data.syncedAt) {
     return (

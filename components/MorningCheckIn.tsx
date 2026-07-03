@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import { useSync, type AppState } from "./SyncProvider";
+import { LoadFailed, useMountLoad } from "./ui";
 
 type Flag = "ill" | "extreme-fatigue";
 type Decision = "proceed" | "downgrade";
@@ -35,33 +36,40 @@ export default function MorningCheckIn() {
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await api<CheckState>(`/api/morning-check?today=${localToday()}`);
-        if (!cancelled) setData(r);
-      } catch {
-        // best-effort — the override is optional
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async () => {
+    try {
+      const r = await api<CheckState>(`/api/morning-check?today=${localToday()}`);
+      setData(r);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true); // visible failure (S1-3) — quiet absence would hide a broken endpoint
+    }
   }, []);
+
+  useMountLoad(load);
 
   // Only relevant before a quality session that hasn't been ridden yet.
   const rideLogged = state?.todayAnalysis?.activityDate === localToday();
-  if (dismissed || !data || !data.isQualityDay || rideLogged) return null;
+  if (dismissed || rideLogged) return null;
+  if (loadFailed)
+    return (
+      <div className="mb-2">
+        <LoadFailed what="the morning check-in" retry={() => void load()} />
+      </div>
+    );
+  if (!data || !data.isQualityDay) return null;
 
   const submit = async (flag: Flag) => {
     setBusy(true);
+    setActionError(null);
     try {
       const r = await api<SubmitResult>("/api/morning-check", { method: "POST", body: JSON.stringify({ flag, today: localToday() }) });
       setResult(r);
     } catch {
-      // ignore — leave the buttons up to retry
+      setActionError("Couldn't submit — try again.");
     } finally {
       setBusy(false);
     }
@@ -69,13 +77,14 @@ export default function MorningCheckIn() {
 
   const apply = async () => {
     setBusy(true);
+    setActionError(null);
     try {
       await api("/api/morning-check", { method: "PUT", body: JSON.stringify({ today: localToday() }) });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);
       setDismissed(true);
     } catch {
-      // leave it up to retry
+      setActionError("Couldn't apply the change — try again.");
     } finally {
       setBusy(false);
     }
@@ -126,6 +135,7 @@ export default function MorningCheckIn() {
             {downgrade ? "Proceed anyway" : "Dismiss"}
           </button>
         </div>
+        {actionError && <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">{actionError}</p>}
       </div>
     );
   }
@@ -145,6 +155,7 @@ export default function MorningCheckIn() {
       <button onClick={() => submit("extreme-fatigue")} disabled={busy} className={btn}>
         Extreme fatigue
       </button>
+      {actionError && <p className="w-full text-[11px] text-red-600 dark:text-red-400">{actionError}</p>}
     </div>
   );
 }

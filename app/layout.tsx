@@ -38,10 +38,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    // suppressHydrationWarning: the head script below adds `.dark` before React hydrates; React
+    // must accept the DOM class rather than patch it back to the server-rendered one.
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${chakra.variable} ${jetbrains.variable} ${warriot.variable} h-full antialiased`}
     >
+      <head>
+        {/* Theme before first paint (UX S1-5): dark is the canonical theme, and the old
+            useEffect-applied class flashed light on every load. Runs synchronously during HTML
+            parsing — same sources as Nav's DarkToggle (localStorage "theme", else OS preference). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem("theme");var d=s?s==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark")}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="min-h-full">
         <QueryProvider>
           <SyncProvider>
