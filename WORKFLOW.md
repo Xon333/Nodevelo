@@ -37,3 +37,16 @@ this is just the daily-use summary.
   active (full policy in CLAUDE.md).
 - **Migration flags / "today" dates / LLM-path smoke tests** — the 3 recurring bug classes, now in
   AGENTS.md. Check them on relevant changes.
+
+## First block turnover — runbook
+
+Attended runbook for 2026-07-12 or the first sync after. Run once; after completion, this section can be deleted or kept as reference.
+
+1. **Backup first:** `GET /api/export` → save the bundle off-machine. The retro clears `current-block.json` — this is the undo.
+2. Sync (`POST /api/sync`) so the final rides are scored into the ledger.
+3. `POST /api/retrospective` — **read the generated retro** (live LLM smoke run per AGENTS.md; judge the narrative + seeds for sanity).
+4. Verify: `data/block-history.json` exists, entry has `days` (28), `seasonFocus`/`seasonPhase` (per Task 1), `nextBlockSeeds` non-empty.
+5. Generate + preview + write the next block on `/plan`.
+6. Verify: `data/intervention-log.json` now exists with this block's directives + baselines; `current-block.json` is the new block.
+7. Confirm `/today` shows the new block's first session; the block-completion nudge is gone.
+   - **If any step fails:** stop, `POST /api/import` the backup, report — do not improvise against live data.
