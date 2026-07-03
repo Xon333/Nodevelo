@@ -275,4 +275,18 @@ describe("/api/retrospective POST", () => {
     expect(res.status).toBe(400);
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
   });
+
+  it("archives and clears an unfinished block — no server-side guard exists (characterization)", async () => {
+    // isBlockFinished (lib/date.ts) is a UI-only nudge on /today — this route never calls it. Push
+    // endDate far into the future to make the block unambiguously unfinished relative to any realistic
+    // "today", then assert the route runs to completion exactly as it would on a finished block.
+    h.readCurrentBlock.mockResolvedValueOnce({ ...block, endDate: "2027-06-28" });
+
+    const res = await post();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.fileId).toBe("2026-06-15_build-ftp");
+    expect(store.appendBlockHistory).toHaveBeenCalledTimes(1);
+    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+  });
 });
