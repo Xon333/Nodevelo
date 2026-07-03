@@ -12,6 +12,38 @@ exact commits.
 
 ---
 
+## Ledger interval-adherence at birth (2026-07-03)
+
+The root-cause fix for the gap the SIT execution-score fix (below) surfaced: the immutable ledger's
+batch builder (`score-log.ts`) never computed or received interval-target adherence for *any* ride, so
+every Threshold/VO2max/SIT/RaceSim day was permanently scored off whole-ride duration/IF the moment it
+rolled past "today" — a coarser proxy than the reps actually ridden, and irreversible once frozen. That
+gap is why the SIT 2/10 entry needed a manual one-off correction: even after the scoring formula was
+fixed, the frozen entry had no adherence input to honestly re-derive from.
+
+Shipped: `RideScoreEntry.intervals?: { adherencePct, structuralMismatch, completed, total }`
+(`lib/types.ts`) — the same prescription-vs-executed comparison the "today" path already computed, now
+frozen onto the ledger entry via a shared mapper, `intervalStampFrom()` (`lib/score-log.ts`). It feeds
+`computeExecutionScore` as the primary signal on planned interval days (an
+`adherencePct`/`structuralMismatch` pair, not a pass-through raw comparison). `buildRideScores` gained an
+`adherenceForDate` lookup param to source it. On `POST /api/sync`, a bounded **birth-time fetch** picks
+up rides that synced a day or more late: it finds planned interval days not yet in the ledger, fetches
+each ride's executed intervals (capped at 6 dates per sync, newest first — logged + surfaced as a sync
+warning past the cap), and stamps the comparison so the entry is born interval-aware instead of frozen
+coarse forever. A fetch failure per date falls back silently to the coarse whole-ride score rather than
+failing the sync. The same stamp lookup also serves the existing one-shot ledger rebuild path, letting a
+corrected scoring formula re-score already-frozen entries from their stamped adherence data with no
+re-fetch.
+
+**Deliberate exclusion, not an oversight:** Z2/Recovery days and any day carrying a Track B durability
+template are never looked up on this axis — they're graded by their own systems
+(`gradeDurabilityDelivery` for durability; steady duration-compliance for Z2/Recovery) and this stamp
+would be meaningless for them. Closes the "Ledger scoring lacks interval-level adherence for
+non-durability interval types" item that was tracked in [ROADMAP.md](ROADMAP.md) "Scoring-core gaps."
+Plan: `docs/superpowers/plans/2026-07-03-ledger-interval-adherence.md`.
+
+---
+
 ## SIT execution-score fix — sprint overshoot + unreachable IF band (2026-07-03)
 
 A flawless 6/6, full-duration sprint day (131% of a 432W target) scored 2/10 "Poor". Two compounding

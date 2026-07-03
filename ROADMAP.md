@@ -204,23 +204,6 @@ Removed: the six subjective `WellnessEntry` fields, `wellnessToMorningAnswers`, 
   (`lib/aerobic.ts`, shared with the athlete-state driver), ±2 in `computeExecutionScore` for intrinsic
   rides. Baseline is per-ride strictly-before (no self-reference); a thin-Z2 ride or missing baseline → no
   effect. Applies in the ledger + the Today card.
-- **Ledger scoring lacks interval-level adherence for non-durability interval types.** Principle: any ride
-  with a matched interval prescription should score primarily off interval-target execution
-  (`adherencePct`), not whole-ride duration/IF — durability rides (Track B templates B–E) are the
-  deliberate exception, already on their own `gradeDurabilityDelivery` system. Today that principle only
-  holds in the ephemeral **today** path (`ride-analysis.ts`, via `matchPrescription`); `score-log.ts`'s
-  batch ledger builder never computes/passes `adherencePct` for *any* type — Threshold/VO2max/SIT/RaceSim
-  rides are permanently scored off whole-ride compliance + IF the moment they roll past "today," a
-  coarser proxy than the reps actually ridden. Surfaced by the SIT 2/10 bug (2026-07-03, → ARCHIVE): even
-  after the scoring-formula fix, the frozen ledger entry needed a manual one-off correction because the
-  ledger never had the adherence signal to begin with — the next sync alone wouldn't have fixed it. Fix
-  shape: persist `intervalComparison`/`adherencePct` at ledger-write time (today path already computes
-  it) so `buildRideScores` can pass it through like the today path does, instead of re-deriving from
-  whole-ride signals only. (Track B's own today-only limit on `gradeDurabilityDelivery` is the same root
-  cause, noted separately above.) **Implementation plan ready:**
-  [ledger-interval-adherence](docs/superpowers/plans/2026-07-03-ledger-interval-adherence.md) — every
-  planned interval entry born coarse is a permanent fidelity loss (immutable ledger), so this is
-  time-sensitive at ~2–3 frozen entries/week.
 - **Recovery-specific Z2 cap** — give Recovery its own "dialed-in" cap (above Z1, not Z2) *if* the
   lenient shared aerobic cap proves too soft in real use.
 - **Power-zone source of truth** — decide: keep zones strictly Intervals.icu vs. a sanctioned local

@@ -257,6 +257,15 @@ The interval matcher is deliberately defensive about detection noise:
 - **Extras.** Work efforts beyond the prescribed count (a mid-ride added interval) are surfaced
   as bonus context rather than silently dropped.
 
+Ledger entries for planned interval days are now born interval-aware too, not just the ephemeral
+"today" analysis. On sync, a bounded birth-time fetch (capped at 6 dates, newest first; best-effort —
+any per-date failure falls back silently to coarse whole-ride scoring) picks up rides that synced a
+day or more late, so a Threshold/VO2max/SIT/RaceSim day isn't frozen coarse forever just because the
+athlete didn't sync same-day. The adherence signal that scored an entry is frozen onto it
+(`RideScoreEntry.intervals`), so a later ledger rebuild can re-score from the frozen stamp without
+re-fetching. The durability exception stands: Track B templates (B–E) and Z2/Recovery days are still
+graded by their own system and never reach this path.
+
 ### Breakthrough (power-PR) recognition (`lib/pr.ts`)
 
 On each sync, the freshly-synced power curve is compared against the curve as it stood on the
@@ -499,7 +508,7 @@ deliberate cornering practice.
 | `workout-validate.ts` | KB-grounded protocol validation of generated workouts (SIT/VO2max/threshold bands) |
 | `interval-match.ts` | Prescription vs. executed-interval adherence (avg-watts, duration-aware, structural-mismatch + extras) |
 | `execution-score.ts` | Deterministic 1–10 ride quality score |
-| `score-log.ts` | Build + immutably merge the per-ride execution ledger |
+| `score-log.ts` | Build + immutably merge the per-ride execution ledger + interval-adherence stamps at birth |
 | `disposition.ts` | Apply athlete session attributions (compromised excluded from metrics) onto the ledger |
 | `ride-classify.ts` | Infer a ride's workout type from its intensity/structure |
 | `pr.ts` | Power-PR detection — freshly-synced curve vs the previous sync's curve |
