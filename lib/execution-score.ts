@@ -83,7 +83,19 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
 
   // --- Execution: interval-target adherence (±2) takes precedence over duration when
   // an interval workout was prescribed; hitting the watts matters more than ride length.
-  if (adherencePct !== null && !gradedByDurability) {
+  if (adherencePct !== null && !gradedByDurability && plannedType === "SIT") {
+    // All-out sprint: the target is a floor to clear, not a pace to hold near. Sustained overshoot on a
+    // Threshold/VO2max effort is a real risk (going out too hard to finish the interval), but a 30s
+    // maximal rep carries no such risk — the full-length recovery between reps is the whole point of the
+    // rest windows, and clearing the target by a lot is a stronger sprint, not a blown pacing plan.
+    // Only undershoot (didn't clear the bar) signals a problem.
+    const a = adherencePct;
+    if (a >= 95) score += 2;
+    else if (a >= 90) score += 1;
+    else if (a >= 85) score += 0;
+    else if (a >= 80) score -= 1;
+    else score -= 2;
+  } else if (adherencePct !== null && !gradedByDurability) {
     const a = adherencePct;
     if (a >= 95 && a <= 106) score += 2; // nailed the targets
     else if ((a >= 90 && a < 95) || (a > 106 && a <= 112)) score += 1;
@@ -137,11 +149,12 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
         else if (IF > 1.20 + o) score -= 1; // sustained way over VO2 isn't the prescribed session either (RV2-8)
         break;
       }
-      case "SIT":
-        if (IF >= 1.00 + o) score += 2;
-        else if (IF >= 0.90 + o) score += 1;
-        else score -= 1;
-        break;
+      // SIT deliberately has no case here: whole-ride NP/FTP is the wrong signal for a session built
+      // from a handful of 30s max efforts diluted by a long warmup + full-recovery windows — even a
+      // flawless sprint day can't push whole-ride IF near the 0.90+ this band used to require, so it
+      // silently capped every well-ridden SIT session at -1 regardless of execution (BUG-2026-07-03).
+      // adherencePct (above) already grades SIT quality directly and correctly; this axis would only
+      // double-count it. VI is excluded from SIT for the same short-effort/long-recovery reason (below).
       case "RaceSim":
         // Race-sim is hard + surgy — reward a genuinely high, variable effort; penalise a soft one.
         // (No zone anchor, so `o` is always 0 here; kept uniform for clarity.)

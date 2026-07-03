@@ -78,6 +78,28 @@ describe("computeExecutionScore", () => {
     expect(hard!).toBeGreaterThan(soft!);
   });
 
+  it("rewards a SIT day for clearing the target hard, not penalising overshoot (BUG-2026-07-03)", () => {
+    // 6/6 reps at full duration, avg 131% of a 432W target — a genuine sprint PR, not a pacing failure.
+    // Regression: this used to score 2/10 ("Poor") — a -2 "blew past it" penalty on the generic band,
+    // stacked with a -1 from a whole-ride-IF band that a short-sprint/long-recovery day can't clear.
+    const score = computeExecutionScore({ ...base, adherencePct: 131, intensityFactor: 0.82, plannedType: "SIT" });
+    expect(score).toBeGreaterThanOrEqual(7);
+  });
+
+  it("still penalises a SIT day that undershoots the sprint target", () => {
+    const nailed = computeExecutionScore({ ...base, adherencePct: 100, plannedType: "SIT" })!;
+    const undershot = computeExecutionScore({ ...base, adherencePct: 60, plannedType: "SIT" })!;
+    expect(undershot).toBeLessThan(nailed);
+  });
+
+  it("doesn't grade SIT on whole-ride IF — the band is unreachable by a short-sprint/long-recovery day", () => {
+    // A low whole-ride IF is EXPECTED on a SIT day (mostly warmup/recovery); it must not drag the score
+    // down when there's no adherence signal to fall back on.
+    const lowWholeRideIf = computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.4, plannedType: "SIT" });
+    const noIfSignal = computeExecutionScore({ ...base, compliancePct: 100, plannedType: "SIT" });
+    expect(lowWholeRideIf).toBe(noIfSignal);
+  });
+
   it("scores a well-executed steady Z2 ride near the top", () => {
     const score = computeExecutionScore({
       ...base,
