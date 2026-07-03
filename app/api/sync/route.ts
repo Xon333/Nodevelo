@@ -43,14 +43,14 @@ import { isSteadyEnduranceRide } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
-import { buildRideScores, calStampFor, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
+import { buildRideScores, calStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { resolveToday, utcToday } from "@/lib/date";
-import type { ExecutedInterval, RideEntryContext, TodayAnalysis } from "@/lib/types";
+import type { ActivitySummary, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
 
 // A sync fires several sequential Intervals.icu requests (each network-bounded to 20s in the API
 // client) plus, on a ride day, per-ride stream/interval fetches. Cap the whole handler so a slow
@@ -278,7 +278,99 @@ export async function POST(req: Request) {
         const formState = formStateForDate(date) ?? undefined;
         return formState ? { formState } : null;
       };
-      const fresh = buildRideScores(block, lastSync.activities, ftpForDate, today, offPlanFloor, resolvedCal, contextForDate, blockHistory);
+
+      // Birth-time interval-adherence fetch (the late-sync gap): buildRideScores only ever gets
+      // interval-aware scoring for TODAY (the richer today-patch below, which fetches per-ride
+      // intervals for the day's own activity). A ride synced a day or more late never got that
+      // treatment — it was born coarse (duration/IF only) and stayed that way forever, since a
+      // ledger entry is immutable per date. Best-effort fetch a small, bounded number of recently
+      // missed planned interval dates here so they're BORN with adherence data instead.
+      const existingLedger = await readScoreLog();
+      const existingByDate = new Map<string, RideScoreEntry>(existingLedger.entries.map((e) => [e.date, e]));
+
+      // Same planned-day-by-date map buildRideScores builds internally (not exported — replicated
+      // here deliberately; this task's scope is this route file only, not lib/score-log.ts).
+      const plannedByDate = new Map<string, CurrentBlockDay>();
+      const sortedHistory = [...blockHistory].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      for (const h of sortedHistory) {
+        if (!h.days) continue;
+        const createdDate = h.createdAt.slice(0, 10);
+        for (const d of h.days) if (d.durationMin > 0 && createdDate <= d.date) plannedByDate.set(d.date, d);
+      }
+      if (block) for (const d of block.days) if (d.durationMin > 0) plannedByDate.set(d.date, d);
+
+      // The date's longest ride (mirrors buildRideScores' own "two rides one date, longer wins" rule),
+      // and the FTP basis that ride will actually be scored against — shared by the gating pass (to
+      // check the re-parsed prescription is non-empty) and the fetch pass, so the two can never
+      // compute a different prescription for the same date.
+      const longestRideOn = (date: string): ActivitySummary | null => {
+        const dayActivities = lastSync.activities.filter(
+          (a) => a.date === date && (a.type === "Ride" || a.type === "VirtualRide")
+        );
+        if (dayActivities.length === 0) return null;
+        return dayActivities.reduce((longest, a) => (a.movingTimeSec > longest.movingTimeSec ? a : longest));
+      };
+      const prescriptionFor = (day: CurrentBlockDay, act: ActivitySummary): PrescribedInterval[] => {
+        const ftp = act.icuFtp ?? ftpForDate(day.date);
+        return day.workoutText ? parsePrescription(day.workoutText, ftp) : day.prescription ?? [];
+      };
+
+      // Candidates: genuine interval days (not Z2/Recovery/durability — those don't grade on
+      // adherence at all), not already frozen in the ledger (immutability preserved by construction),
+      // strictly before today (today owns the richer today-path), with a non-empty re-parsed
+      // prescription (nothing worth fetching for otherwise).
+      const candidateDates: string[] = [];
+      for (const [date, day] of plannedByDate) {
+        if (day.type === "Z2" || day.type === "Recovery" || Boolean(day.durabilityTemplate)) continue;
+        if (existingByDate.has(date)) continue;
+        if (date >= today) continue;
+        const act = longestRideOn(date);
+        if (!act) continue; // defensive — shouldn't happen for a planned date, but nothing to fetch
+        if (prescriptionFor(day, act).length === 0) continue;
+        candidateDates.push(date);
+      }
+      candidateDates.sort((a, b) => b.localeCompare(a)); // newest first
+      const totalQualifying = candidateDates.length;
+      if (totalQualifying > 6) {
+        logWarn("/api/sync", "birth-adherence", `capped at 6 of ${totalQualifying} candidate dates`);
+        warnings.push(`Interval-adherence birth-fetch capped at 6 of ${totalQualifying} eligible past dates.`);
+      }
+      const cappedDates = candidateDates.slice(0, 6);
+
+      const fetchedStamps = new Map<string, RideScoreEntry["intervals"]>();
+      for (const date of cappedDates) {
+        try {
+          const act = longestRideOn(date);
+          if (!act) continue; // defensive — already checked during gating, but never trust it twice
+          const planned = plannedByDate.get(date)!;
+          const prescription = prescriptionFor(planned, act);
+          const executed = await fetchIntervals(act.id);
+          const comparison = matchPrescription(prescription, executed);
+          if (comparison) fetchedStamps.set(date, intervalStampFrom(comparison));
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          logWarn("/api/sync", "birth-adherence", `fetch failed for ${date}: ${message}`);
+          warnings.push(`Interval-adherence fetch failed for ${date}: ${message} — entry born coarse.`);
+        }
+      }
+
+      // Fetched (fresh) first; frozen stamps second — serves the rebuild path, where `fresh` re-scores
+      // overlapping dates and needs the frozen adherence stamp an existing entry already carries
+      // instead of re-fetching it.
+      const adherenceForDate = (date: string): RideScoreEntry["intervals"] | null =>
+        fetchedStamps.get(date) ?? existingByDate.get(date)?.intervals ?? null;
+
+      const fresh = buildRideScores(
+        block,
+        lastSync.activities,
+        ftpForDate,
+        today,
+        offPlanFloor,
+        resolvedCal,
+        contextForDate,
+        blockHistory,
+        adherenceForDate
+      );
       // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
       const dispositions = (await readDispositions()).entries;
       // One-shot guard (LEDGER-3): the rebuild runs at most once. A normal sync never requests it; a
@@ -426,6 +518,9 @@ export async function POST(req: Request) {
                         // the per-type IF offset for a planned day; off-plan rides skip it (intensity-vs-type
                         // branch is circular for them), so they stamp nothing.
                         ...calStampFor(resolvedCal, e.planned ? e.plannedType : null, !e.planned),
+                        // Freeze the adherence input that produced this richer score (the direct SIT-bug
+                        // fix): without this, a re-derivation later has no adherence data to work from.
+                        ...(intervalComparison ? { intervals: intervalStampFrom(intervalComparison) } : {}),
                       }
                     : e
                 )

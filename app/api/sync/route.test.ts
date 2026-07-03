@@ -398,6 +398,10 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
   });
 
   it("surfaces an intervention-validation failure as a warning without failing the sync", async () => {
+    // readScoreLog is now also called once earlier, at birth-adherence candidate-gating time (SUB-3
+    // birth-time fetch) — queue that first call to resolve normally so only the SECOND call (the one
+    // this test actually exercises, feeding buildAthleteModel for intervention validation) rejects.
+    vi.mocked(store.readScoreLog).mockResolvedValueOnce({ entries: scoreEntries, updatedAt: "" });
     vi.mocked(store.readScoreLog).mockRejectedValueOnce(new Error("corrupt log"));
     const res = await postSync();
     expect(res.status).toBe(200);
@@ -427,6 +431,20 @@ describe("POST /api/sync — today-ride analysis path", () => {
     expect(scoreEntries.find((e) => e.date === TODAY)?.executionScore).toBe(json.todayAnalysis.executionScore);
   });
 
+  it("persists the interval-adherence stamp alongside the today-patch's executionScore (SIT-bug fix)", async () => {
+    seedTodayRide(); // mkBlock's Threshold day parses to a non-empty 3-rep prescription
+    await postSync();
+    // fetchIntervals defaults to [] in this suite, so matchPrescription still returns a real (non-null)
+    // comparison — 0 of 3 reps matched — proving the today-patch now freezes that comparison's stamp
+    // rather than silently dropping it (the exact gap that once forced a manual ledger correction).
+    expect(scoreEntries.find((e) => e.date === TODAY)?.intervals).toEqual({
+      adherencePct: 0,
+      structuralMismatch: false,
+      completed: 0,
+      total: 3,
+    });
+  });
+
   it("surfaces an analysis failure as a warning while the sync itself succeeds", async () => {
     seedTodayRide();
     vi.mocked(api.fetchPowerStream).mockRejectedValueOnce(new Error("stream 500"));
@@ -434,6 +452,127 @@ describe("POST /api/sync — today-ride analysis path", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).warnings.some((w: string) => /Ride analysis failed: stream 500/.test(w))).toBe(true);
     expect(store.writeTodayAnalysis).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/sync — birth-time interval-adherence fetch (late-sync gap)", () => {
+  // A few days before TODAY (2026-06-22) — a planned Threshold day that never got interval-aware
+  // scoring because it wasn't "today" on the sync that first recorded it (a late-synced ride).
+  const PAST_DATE = "2026-06-19";
+
+  const pastThresholdDay = {
+    date: PAST_DATE,
+    name: "Threshold 3x12",
+    type: "Threshold" as const,
+    durationMin: 75,
+    workoutText: "Main Set 3x\n- 12m 95%",
+  };
+
+  const seedPastCandidate = () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [pastThresholdDay] }));
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: [mkActivity({ id: "past1", date: PAST_DATE })] })
+    );
+  };
+
+  it("fetches intervals exactly once for a fresh past planned Threshold date and stamps the merged entry", async () => {
+    seedPastCandidate();
+    vi.mocked(api.fetchIntervals).mockResolvedValue([
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100 },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300 },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500 },
+    ]);
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect(api.fetchIntervals).toHaveBeenCalledTimes(1);
+    expect(api.fetchIntervals).toHaveBeenCalledWith("past1");
+    const entry = scoreEntries.find((e) => e.date === PAST_DATE);
+    expect(entry).toBeDefined();
+    expect(entry?.intervals).toEqual({
+      adherencePct: 100,
+      structuralMismatch: false,
+      completed: 3,
+      total: 3,
+    });
+    // Adherence-aware score: full duration + power match nets full marks (as the today-path proves
+    // for an identical prescription/execution shape).
+    expect(entry?.executionScore).toBeGreaterThan(0);
+  });
+
+  it("caps at 6 candidate dates (newest first) and warns when more qualify", async () => {
+    // 7 distinct past Threshold dates, all fresh candidates — one more than the cap.
+    const dates = ["2026-06-10", "2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15", "2026-06-16"];
+    const days = dates.map((date) => ({ ...pastThresholdDay, date }));
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days }));
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: dates.map((date) => mkActivity({ id: `a-${date}`, date })) })
+    );
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // Exactly 6 fetched — the newest 6 of the 7 (2026-06-11..16), oldest (06-10) dropped.
+    expect(api.fetchIntervals).toHaveBeenCalledTimes(6);
+    expect(api.fetchIntervals).not.toHaveBeenCalledWith("a-2026-06-10");
+    for (const date of dates.slice(1)) expect(api.fetchIntervals).toHaveBeenCalledWith(`a-${date}`);
+    expect(json.warnings.some((w: string) => /capped at 6 of 7/.test(w))).toBe(true);
+  });
+
+  it("does not fetch intervals for a date already present in the ledger", async () => {
+    scoreEntries = [mkScoreEntry({ date: PAST_DATE, executionScore: 7, ftpUsed: 200 })];
+    seedPastCandidate();
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect(api.fetchIntervals).not.toHaveBeenCalled();
+    // Frozen entry untouched (immutable per date).
+    expect(scoreEntries.find((e) => e.date === PAST_DATE)).toMatchObject({ executionScore: 7, ftpUsed: 200 });
+  });
+
+  it("survives a fetchIntervals rejection: sync succeeds, entry still present (coarse), warning logged", async () => {
+    seedPastCandidate();
+    vi.mocked(api.fetchIntervals).mockRejectedValueOnce(new Error("upstream 500"));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const entry = scoreEntries.find((e) => e.date === PAST_DATE);
+    expect(entry).toBeDefined(); // built by the normal buildRideScores path regardless
+    expect(entry?.intervals).toBeUndefined(); // no stamp — the fetch never landed
+    expect(json.warnings.some((w: string) => /birth-adherence/i.test(w) || /upstream 500/.test(w))).toBe(true);
+  });
+
+  it("rebuild run: a frozen adherence stamp on an existing entry reaches the re-score and survives the merge", async () => {
+    // Seed an existing entry that already carries a frozen `intervals` stamp (as if a prior today-patch
+    // or birth-fetch put it there) but a stale/coarse executionScore that predates it.
+    scoreEntries = [
+      mkScoreEntry({
+        date: PAST_DATE,
+        executionScore: 3, // stale/coarse — as if scored before adherence was known
+        ftpUsed: 250,
+        intervals: { adherencePct: 100, structuralMismatch: false, completed: 3, total: 3 },
+      }),
+    ];
+    // The activity ran well SHORT of the planned 75min (45min → 60% duration compliance, which alone
+    // would land in computeExecutionScore's "-1" bucket). The frozen stamp's adherencePct: 100 sits in
+    // the "+2" bucket instead — so the two branches produce provably DIFFERENT deltas, and only a
+    // re-score that actually consulted adherenceForDate (not duration compliance) lands on the higher one.
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [pastThresholdDay] }));
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: [mkActivity({ id: "past1", date: PAST_DATE, movingTimeSec: 2700 })] })
+    );
+    const json = await (await postSync({ today: TODAY, rebuildLedger: true })).json();
+    expect(store.writeLedgerRebuild).toHaveBeenCalledOnce();
+    // fetchIntervals must NOT be called for this date under rebuild — the frozen stamp is reused via
+    // the lookup's second branch, not re-fetched.
+    expect(api.fetchIntervals).not.toHaveBeenCalledWith("past1");
+    const entry = scoreEntries.find((e) => e.date === PAST_DATE);
+    expect(entry?.intervals).toEqual({ adherencePct: 100, structuralMismatch: false, completed: 3, total: 3 });
+    // Re-scored against the current FTP resolution (200) under rebuild, proving fresh (not frozen) won.
+    expect(entry?.ftpUsed).toBe(200);
+    // Proves the frozen stamp actually drove the re-score, not just duration compliance: computeExecutionScore
+    // on this exact fixture (IF 0.95, VI 190/180, Threshold) gives 6 fed 60% duration-only compliance, vs 9
+    // fed adherencePct: 100 (verified by hand against lib/execution-score.ts) — an unambiguous, exact
+    // discriminator between "adherenceForDate was consulted" and "it wasn't".
+    expect(entry?.executionScore).toBe(9);
+    expect(json.warnings.some((w: string) => /Ledger rebuilt/.test(w))).toBe(true);
   });
 });
 
