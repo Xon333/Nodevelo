@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RideScoreEntry, WorkoutType } from "@/lib/types";
 
 // Integration test for /api/write (RV-9, regression for RV-2). Proves the route's partial-failure
 // safety at the IO boundary the pure tests can't reach: a mid-loop createEvent failure must NOT
@@ -165,5 +166,73 @@ describe("/api/write season stamp (MACRO)", () => {
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.seasonFocus).toBeUndefined();
     expect(json.currentBlock.seasonPhase).toBeUndefined();
+  });
+});
+
+describe("/api/write intervention recording (learning loop, first-ever write)", () => {
+  // Same low-scoring-VO2max fixture pattern as lib/athlete-model.test.ts: 4 observations clears
+  // MIN_OBSERVATIONS (3), and execEwma < 5.5 fires an "alert" insight on dimension "VO2max".
+  const scoreEntry = (type: WorkoutType, executionScore: number, date: string): RideScoreEntry => ({
+    date,
+    executionScore,
+    plannedType: type,
+    inferredType: type,
+    planned: true,
+    legacy: false,
+    compliancePct: 100,
+    intensityFactor: null,
+    ftpUsed: 288,
+    durationMin: 60,
+    tss: null,
+  });
+
+  it("first-ever write with no existing log + non-empty directives creates one record per insight with a baseline snapshot and correct block linkage", async () => {
+    h.createEvent.mockResolvedValue(200);
+    // Genuine on-disk default for a never-yet-written intervention-log.json (lib/data-store.ts:207-210) —
+    // not the file's placeholder `{ records: [], updatedAt: "" }`.
+    (store.readInterventionLog as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      records: [],
+      updatedAt: new Date(0).toISOString(),
+    });
+    (store.readScoreLog as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      entries: [
+        scoreEntry("VO2max", 4, "2026-05-01"),
+        scoreEntry("VO2max", 5, "2026-05-03"),
+        scoreEntry("VO2max", 4, "2026-05-06"),
+        scoreEntry("VO2max", 5, "2026-05-08"),
+      ],
+    });
+
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(true);
+
+    expect(store.writeInterventionLog).toHaveBeenCalledTimes(1);
+    const written = (store.writeInterventionLog as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      records: Array<{
+        dimension: string;
+        blockStartDate: string;
+        baselineExecEwma: number | null;
+        baselinePhys: number | null;
+        physMetric: string;
+      }>;
+      updatedAt: string;
+    };
+    expect(written.records.length).toBeGreaterThan(0);
+    const vo2 = written.records.find((r) => r.dimension === "VO2max");
+    expect(vo2).toBeDefined();
+    expect(vo2!.blockStartDate).toBe("2026-06-15"); // dates[0] of this file's shared `plan` fixture
+    expect(vo2!.baselineExecEwma).not.toBeNull();
+    expect(typeof vo2!.baselinePhys === "number" || vo2!.baselinePhys === null).toBe(true);
+    expect(typeof vo2!.physMetric).toBe("string");
+    expect(vo2!.physMetric.length).toBeGreaterThan(0);
+  });
+
+  it("empty directives (no insights fire) succeeds without ever calling writeInterventionLog", async () => {
+    h.createEvent.mockResolvedValue(200);
+    // readScoreLog default from this file's top-level mock is already { entries: [] }, which can't
+    // clear MIN_OBSERVATIONS for any dimension — deriveInsights returns [].
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(store.writeInterventionLog).not.toHaveBeenCalled();
   });
 });
