@@ -5,6 +5,7 @@ import { readBlockSettings, readCurrentBlock, readDispositions, readIntervention
 import { readPhysiology } from "@/lib/physiology";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { resolveToday } from "@/lib/date";
+import { formatPrescriptionLabel } from "@/lib/prescription";
 
 export const maxDuration = 60;
 
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
   // forward-looking questions ("how should I do tomorrow's SIT?") use the real plan, not guesses (PW-6).
   const day = block?.days.find((d) => d.date === today && d.durationMin > 0) ?? null;
   const session = day
-    ? { name: day.name, type: day.type, durationMin: day.durationMin, intervals: (day.prescription ?? []).map((p) => p.label) }
+    ? { name: day.name, type: day.type, durationMin: day.durationMin, intervals: (day.prescription ?? []).map(formatPrescriptionLabel) }
     : null;
   const dayMs = 86_400_000;
   const nextDay =
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
         name: nextDay.name,
         type: nextDay.type,
         durationMin: nextDay.durationMin,
-        intervals: (nextDay.prescription ?? []).map((p) => p.label),
+        intervals: (nextDay.prescription ?? []).map(formatPrescriptionLabel),
       }
     : null;
 

@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { carriesEmbeddedIntensity, parsePrescription } from "./prescription";
+import { carriesEmbeddedIntensity, formatPrescriptionLabel, parsePrescription } from "./prescription";
+import type { PrescribedInterval } from "./types";
 
 const FTP = 288;
+
+describe("formatPrescriptionLabel", () => {
+  // Derives the chip from structural fields so a stale stored `label` (pre-3801d6b blocks showed 30s as
+  // "1m") is never trusted at the point of use.
+  it("formats sub-minute reps as seconds, not a rounded-up minute", () => {
+    expect(formatPrescriptionLabel({ reps: 6, durationSec: 30, targetWatts: 432 })).toBe("6×30s @ 432W");
+  });
+  it("drops the reps prefix for a single effort and handles exact/mixed minutes", () => {
+    expect(formatPrescriptionLabel({ reps: 1, durationSec: 1200, targetWatts: 288 })).toBe("20m @ 288W");
+    expect(formatPrescriptionLabel({ reps: 3, durationSec: 90, targetWatts: 346 })).toBe("3×1m30s @ 346W");
+  });
+  it("ignores a stale stored label — it reads only the structural fields", () => {
+    const stale: PrescribedInterval = { reps: 6, durationSec: 30, targetWatts: 432, targetPctFtp: 150, label: "6×1m @ 432W" };
+    expect(formatPrescriptionLabel(stale)).toBe("6×30s @ 432W");
+  });
+});
 
 describe("carriesEmbeddedIntensity", () => {
   it("flags a durability ride with a real dose of threshold/VO2 work", () => {

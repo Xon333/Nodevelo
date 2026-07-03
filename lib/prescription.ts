@@ -36,6 +36,15 @@ function durLabel(s: number): string {
   return s < 60 ? `${s}s` : s % 60 === 0 ? `${s / 60}m` : `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
+// Derive an interval's display label from its structural fields — the single source of truth for
+// the "6×30s @ 432W" chip. Prefer this over the stored `label` string anywhere it's rendered: blocks
+// generated before the durLabel fix (3801d6b) carry a stale label (30s mis-shown as "1m") even though
+// their durationSec is correct, and rescheduled days copy the prescription verbatim. Deriving at the
+// point of use means a stale stored string can never be trusted.
+export function formatPrescriptionLabel(iv: Pick<PrescribedInterval, "reps" | "durationSec" | "targetWatts">): string {
+  return `${iv.reps > 1 ? `${iv.reps}×` : ""}${durLabel(iv.durationSec)} @ ${iv.targetWatts}W`;
+}
+
 // Threshold-and-above work, distinctly past sweet-spot/tempo — what a durability template embeds
 // (B threshold, C VO2) inside an otherwise-easy ride. The %FTP floor is the calibration-framework
 // durability-insert envelope's `embeddedHardPct` (population default 88%); EMBEDDED_MIN_SEC is the
@@ -112,7 +121,7 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
     }
   }
   for (const iv of out) {
-    iv.label = `${iv.reps > 1 ? `${iv.reps}×` : ""}${durLabel(iv.durationSec)} @ ${iv.targetWatts}W`;
+    iv.label = formatPrescriptionLabel(iv);
   }
   return out;
 }

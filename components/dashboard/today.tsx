@@ -14,6 +14,7 @@ import { executionScoreLabel } from "@/lib/execution-score";
 import { ifBandLabel } from "@/lib/zones";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { prDurationLabel } from "@/lib/pr";
+import { formatPrescriptionLabel } from "@/lib/prescription";
 import { computeEnergyAvailability, eaLevel } from "@/lib/nutrition";
 import { isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
 import Link from "next/link";
@@ -577,7 +578,7 @@ export function PlannedToday({ block }: { block: CurrentBlock | null }) {
               key={i}
               className="rounded bg-zinc-100 px-2 py-0.5 font-mono text-[11px] text-zinc-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff] dark:ring-1 dark:ring-[#00d4ff]/30"
             >
-              {iv.label}
+              {formatPrescriptionLabel(iv)}
             </span>
           ))}
         </div>
