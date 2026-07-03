@@ -12,6 +12,32 @@ exact commits.
 
 ---
 
+## SIT execution-score fix — sprint overshoot + unreachable IF band (2026-07-03)
+
+A flawless 6/6, full-duration sprint day (131% of a 432W target) scored 2/10 "Poor". Two compounding
+bugs in `computeExecutionScore`, both SIT-specific: (1) the generic `adherencePct` overshoot band
+penalised clearing a sprint target hard the same as a bad Threshold/VO2max overshoot ("blew past it,
+won't recover well") — the wrong lens for a 30s max effort, which has no sustainability risk within the
+rep (the 4-minute recovery windows exist precisely so each rep can be maximal); (2) the whole-ride
+NP/FTP band for SIT required IF ≥ 0.90, structurally unreachable given the workout's own shape (long
+warmup/recovery diluting a few 30s efforts), silently capping every well-executed SIT day at −1
+regardless of quality. Fix: SIT's adherence axis now only penalises undershoot (not clearing the bar);
+the unreachable whole-ride-IF case was dropped, since `adherencePct` already grades sprint quality
+directly and correctly. +3 tests (`lib/execution-score.test.ts`) lock the regression. The 2026-07-03
+ledger entry (frozen at the buggy 2) needed a one-off manual correction — re-derived via the actual fixed
+functions with the ride's real stored inputs, not hand math — because a normal sync never touches an
+already-scored ledger date (`mergeScoreLog`: existing wins, immutable per date); this surfaced the
+broader **ledger scoring lacks interval-level adherence for non-durability interval types** gap now
+tracked in [ROADMAP.md](ROADMAP.md) (Scoring-core gaps).
+
+Also fixed same session, unrelated: prescription **display** labels could show a stale duration
+(`"6×1m"` for a `durationSec: 30` session) on blocks generated before an earlier label-rounding fix —
+`formatPrescriptionLabel` now derives the label from structural fields at the point of use (Today card +
+the ask-coach interval context) instead of trusting the stored `label` string, so a stale stored value
+can never surface again.
+
+---
+
 ## Carbs-optimum derivation — Track C first leg (2026-07-02)
 
 The optimum shape joins the shared correlation engine, and carbs g/h becomes the framework's third
