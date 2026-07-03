@@ -490,6 +490,19 @@ export interface RideScoreEntry {
   // optimal intake. Provenance only — never feeds executionScore. Stamped only when a real (>0) intake was
   // logged in intervals.icu (carbs_ingested); absent otherwise (most rides, until the athlete fills it in).
   fuel?: { carbsGPerH: number };
+  // Interval-adherence signal frozen at scoring time (ROADMAP scoring-core gap): the prescription-vs-
+  // executed comparison that scored THIS entry, persisted so (a) the frozen score is reproducible and
+  // (b) a one-shot rebuild can re-score a corrected formula without re-fetching per-ride intervals
+  // (the SIT 2/10 lesson). Unlike formState/fuel this DOES feed executionScore — it is the primary
+  // signal on planned interval days. adherencePct is effectiveAdherencePct (power × duration);
+  // structuralMismatch true means duration was untrustworthy and scoring fell back (input treated null).
+  // Absent on: off-plan rides, steady/durability days, entries born before this shipped, fetch failures.
+  intervals?: {
+    adherencePct: number;
+    structuralMismatch: boolean;
+    completed: number;
+    total: number;
+  };
 }
 
 // Form (fitness/fatigue/balance) as of a ride's date — the slow-moving load state from the synced
