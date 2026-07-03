@@ -8,7 +8,7 @@ import { computeExecutionScore, resolveCompliance, timeAboveZ2Fraction, type Sco
 import { aerobicEffPct, z2PwHrBaselineBefore } from "./aerobic";
 import { inferWorkoutType } from "./ride-classify";
 import { round1, round2 } from "./stats";
-import type { ActivitySummary, BehaviourSummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, RideEntryContext, RideScoreEntry } from "./types";
+import type { ActivitySummary, BehaviourSummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, RideEntryContext, RideScoreEntry } from "./types";
 
 const MAX_ENTRIES = 400; // ~6 months of all rides
 
@@ -48,6 +48,18 @@ export function fuelStampFor(act: ActivitySummary): { fuel: { carbsGPerH: number
   return { fuel: { carbsGPerH } };
 }
 
+// Interval-adherence stamp (ROADMAP scoring-core gap): maps the prescription-vs-execution comparison
+// down to the four fields the ledger freezes as `intervals`. One mapping, used by this module AND the
+// sync route's today-patch, so the two capture points can never diverge on what "the stamp" means.
+export function intervalStampFrom(cmp: IntervalComparison): RideScoreEntry["intervals"] {
+  return {
+    adherencePct: cmp.effectiveAdherencePct,
+    structuralMismatch: cmp.structuralMismatch,
+    completed: cmp.completed,
+    total: cmp.total,
+  };
+}
+
 // SUB-1: a block's "lived" days as of its archive date — the days it actually covered while live, not
 // the un-lived future of a superseded/discarded block. Archiving only the lived portion keeps a later
 // block's overlapping dates from ever having two competing historical prescriptions.
@@ -78,7 +90,15 @@ export function buildRideScores(
   // collision and among history entries the most-recently-created wins (Map overwrite semantics). A
   // historical day only counts if its block's createdAt is on/before the day itself — a block can't
   // retroactively claim to have prescribed an already-past day.
-  history?: BlockHistoryEntry[]
+  history?: BlockHistoryEntry[],
+  // Interval-adherence signal (ROADMAP scoring-core gap): resolves the prescription-vs-execution stamp
+  // for a planned interval day, so the ledger can score off the same adherence signal the "today" path
+  // already uses instead of coarse whole-ride duration/IF alone (the SIT 2/10 lesson — a frozen entry
+  // with no adherence input can't be honestly re-derived later). Only ever consulted for a planned day
+  // that isn't Z2/Recovery and doesn't carry a durabilityTemplate — durability rides are graded by a
+  // wholly different system (see computeExecutionScore's gradedByDurability) and must never even reach
+  // this lookup. Omitted → byte-identical to before (no stamp, adherence never engages).
+  adherenceForDate?: ((date: string) => RideScoreEntry["intervals"] | null) | null
 ): RideScoreEntry[] {
   // Prescribed sessions, by date (only days that actually plan a ride).
   const plannedByDate = new Map<string, CurrentBlockDay>();
@@ -123,12 +143,23 @@ export function buildRideScores(
 
     if (planned) {
       const durationCompliancePct = planned.durationMin > 0 ? Math.round((actualMin / planned.durationMin) * 100) : null;
+      // Interval-adherence stamp (scoring-core gap): only ever looked up for a genuine interval day —
+      // Z2/Recovery are steady rides with no target reps to adhere to, and a durability long ride is
+      // graded by the delivery-grade system instead (computeExecutionScore's gradedByDurability). Mirrors
+      // EXPECTS_EMBEDDED_EFFORTS's intent but is deliberately broader: ANY durabilityTemplate routes a day
+      // away from this axis, not just the embeds-efforts subset — the lookup must never even be invoked.
+      const isDurabilityOrSteady = planned.type === "Z2" || planned.type === "Recovery" || Boolean(planned.durabilityTemplate);
+      const stamp = isDurabilityOrSteady ? null : (adherenceForDate?.(act.date) ?? null);
       const executionScore = computeExecutionScore({
         compliancePct: durationCompliancePct,
         intensityFactor,
         plannedType: planned.type,
         variabilityIndex,
         aboveZ2Frac,
+        // Interval-target adherence (scoring-core gap): a structural plan/detection mismatch means the
+        // duration comparison was untrustworthy, not that the session failed — treat it as no signal
+        // (same as no lookup) rather than let a bogus adherence number drive the score.
+        adherencePct: stamp && !stamp.structuralMismatch ? stamp.adherencePct : null,
         // Track B: a durability long ride carries its template — makes the above-Z2 rule template-aware
         // (B–E embed efforts, so above-Z2 time isn't a lapse). The effort-delivery grade needs interval
         // timing the ledger doesn't fetch, so that lands on the today path only.
@@ -153,6 +184,10 @@ export function buildRideScores(
           ...calStampFor(calibration, planned.type, false),
           ...contextStamp,
           ...fuelStampFor(act),
+          // Frozen even when structuralMismatch suppressed it from scoring THIS time — the comparison is
+          // still real provenance for a later rebuild/correlation (structuralMismatch means duration was
+          // untrustworthy, not that the whole comparison is worthless).
+          ...(stamp ? { intervals: stamp } : {}),
         };
       }
     } else {
@@ -241,8 +276,16 @@ export function mergeScoreLogRebuild(fresh: RideScoreEntry[], existing: RideScor
 function carryForwardContext(fresh: RideScoreEntry, prev: RideScoreEntry | undefined): RideScoreEntry {
   if (!prev) return fresh;
   const formState = fresh.formState ?? prev.formState;
-  if (formState === fresh.formState) return fresh; // nothing to carry
-  return { ...fresh, ...(formState !== undefined ? { formState } : {}) };
+  // Interval-adherence stamp (scoring-core gap): the re-score's lookup may not cover this date either
+  // (same reconstruction gap as formState) — carry the frozen stamp forward so a rebuild never silently
+  // loses the adherence provenance the SIT 2/10 lesson exists to prevent. A fresh stamp always wins.
+  const intervals = fresh.intervals ?? prev.intervals;
+  if (formState === fresh.formState && intervals === fresh.intervals) return fresh; // nothing to carry
+  return {
+    ...fresh,
+    ...(formState !== undefined ? { formState } : {}),
+    ...(intervals !== undefined ? { intervals } : {}),
+  };
 }
 
 // Complete-riding-behaviour signal from ALL logged rides (planned + off-plan).

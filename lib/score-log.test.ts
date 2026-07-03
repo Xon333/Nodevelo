@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildRideScores, fuelStampFor, mergeScoreLog, mergeScoreLogRebuild, summariseBehaviour, truncateBlockDays } from "./score-log";
-import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, RideScoreEntry, WorkoutType } from "./types";
+import { buildRideScores, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, summariseBehaviour, truncateBlockDays } from "./score-log";
+import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, IntervalComparison, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
   return {
@@ -203,6 +203,126 @@ describe("buildRideScores", () => {
     const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
     expect(() => buildRideScores(null, acts, ftp200, "2026-01-10", null, undefined, undefined, [noD])).not.toThrow();
   });
+
+  describe("adherenceForDate (scoring-core gap: interval-target adherence in the ledger)", () => {
+    // Threshold day, planned 60min, ridden exactly 60min → clean 100% duration compliance (+2 in the
+    // duration branch) when no adherence stamp is supplied. A lookup returning a well-under-target
+    // adherencePct (50 — deep in the `else score -= 2` bucket, nowhere near a rounding boundary) must
+    // swap the scoring axis from duration to interval adherence and pull the score down.
+    const thresholdBlock = block([{ date: "2026-01-05", type: "Threshold", durationMin: 60 }]);
+    const thresholdActs = [activity({ date: "2026-01-05", movingTimeSec: 3600, avgWatts: 180, normalizedPower: 182 })];
+
+    it("engages the adherence axis when the lookup returns a stamp, and stamps `intervals` on the entry", () => {
+      const control = buildRideScores(thresholdBlock, thresholdActs, ftp200, "2026-01-10")[0];
+      const stamp = { adherencePct: 50, structuralMismatch: false, completed: 3, total: 4 };
+      const withAdherence = buildRideScores(
+        thresholdBlock,
+        thresholdActs,
+        ftp200,
+        "2026-01-10",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        (date: string) => (date === "2026-01-05" ? stamp : null)
+      )[0];
+      expect(withAdherence.executionScore).not.toBe(control.executionScore);
+      expect(withAdherence.intervals).toEqual(stamp);
+    });
+
+    it("treats a structurally-mismatched stamp as null input to scoring, but still persists it as provenance", () => {
+      const control = buildRideScores(thresholdBlock, thresholdActs, ftp200, "2026-01-10")[0];
+      const stamp = { adherencePct: 50, structuralMismatch: true, completed: 4, total: 4 };
+      const withMismatch = buildRideScores(
+        thresholdBlock,
+        thresholdActs,
+        ftp200,
+        "2026-01-10",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        (date: string) => (date === "2026-01-05" ? stamp : null)
+      )[0];
+      expect(withMismatch.executionScore).toBe(control.executionScore); // score unaffected — same as no lookup
+      expect(withMismatch.intervals).toEqual(stamp); // but the stamp still lands on the entry
+    });
+
+    it("never consults the lookup for a Z2 day, a Recovery day, or a day with a durabilityTemplate", () => {
+      const throwingLookup = (): RideScoreEntry["intervals"] => {
+        throw new Error("adherenceForDate must not be called for this day");
+      };
+      const z2Block = block([{ date: "2026-01-05", type: "Z2", durationMin: 60 }]);
+      const recoveryBlock = block([{ date: "2026-01-05", type: "Recovery", durationMin: 60 }]);
+      const durabilityBlock: CurrentBlock = {
+        ...block([{ date: "2026-01-05", type: "Z2", durationMin: 180 }]),
+        days: [{ date: "2026-01-05", name: "Durability day", type: "Z2", durationMin: 180, durabilityTemplate: "B" }],
+      };
+      const acts = [activity({ date: "2026-01-05", avgWatts: 135, normalizedPower: 138 })];
+
+      expect(() =>
+        buildRideScores(z2Block, acts, ftp200, "2026-01-10", null, undefined, undefined, undefined, throwingLookup)
+      ).not.toThrow();
+      expect(() =>
+        buildRideScores(recoveryBlock, acts, ftp200, "2026-01-10", null, undefined, undefined, undefined, throwingLookup)
+      ).not.toThrow();
+      expect(() =>
+        buildRideScores(durabilityBlock, acts, ftp200, "2026-01-10", null, undefined, undefined, undefined, throwingLookup)
+      ).not.toThrow();
+    });
+
+    it("never stamps `intervals` on an off-plan ride, regardless of what the lookup would return", () => {
+      // No planned day for this date at all → off-plan branch, which must not even consider adherence.
+      const acts = [activity({ date: "2026-01-05", avgWatts: 180, normalizedPower: 185 })];
+      const stamp = { adherencePct: 90, structuralMismatch: false, completed: 4, total: 4 };
+      const entry = buildRideScores(
+        null,
+        acts,
+        ftp200,
+        "2026-01-10",
+        "2026-01-01",
+        undefined,
+        undefined,
+        undefined,
+        () => stamp
+      )[0];
+      expect(entry.planned).toBe(false);
+      expect(entry.intervals).toBeUndefined();
+    });
+  });
+});
+
+describe("intervalStampFrom", () => {
+  const cmp = (over: Partial<IntervalComparison> = {}): IntervalComparison => ({
+    prescribedLabels: ["1", "2", "3", "4"],
+    reps: [],
+    completed: 4,
+    total: 4,
+    avgAdherencePct: 98,
+    avgDurationPct: 100,
+    effectiveAdherencePct: 97,
+    structuralMismatch: false,
+    extras: [],
+    ...over,
+  });
+
+  it("maps effectiveAdherencePct to adherencePct, plus structuralMismatch/completed/total verbatim", () => {
+    expect(intervalStampFrom(cmp())).toEqual({
+      adherencePct: 97,
+      structuralMismatch: false,
+      completed: 4,
+      total: 4,
+    });
+  });
+
+  it("carries a true structuralMismatch through unchanged", () => {
+    expect(intervalStampFrom(cmp({ structuralMismatch: true, effectiveAdherencePct: 45, completed: 4, total: 4 }))).toEqual({
+      adherencePct: 45,
+      structuralMismatch: true,
+      completed: 4,
+      total: 4,
+    });
+  });
 });
 
 describe("fuelStampFor", () => {
@@ -342,6 +462,24 @@ describe("mergeScoreLogRebuild (SYNC-2, LEDGER-1)", () => {
     const e = mergeScoreLogRebuild([mk("2026-01-03")], [mk("2026-01-03")]).find((x) => x.date === "2026-01-03")!;
     expect("formState" in e).toBe(false);
     expect("morningCheck" in e).toBe(false);
+  });
+
+  it("carries forward a frozen interval-adherence stamp the re-score lacks (LEDGER-2)", () => {
+    const stamp = { adherencePct: 92, structuralMismatch: false, completed: 4, total: 4 };
+    const existing = [mk("2026-01-03", { intervals: stamp })];
+    const fresh = [mk("2026-01-03", { executionScore: 8 })]; // re-scored, no adherence stamp this time
+    const e = mergeScoreLogRebuild(fresh, existing).find((x) => x.date === "2026-01-03");
+    expect(e?.executionScore).toBe(8); // fresh re-score still wins
+    expect(e?.intervals).toEqual(stamp); // provenance preserved
+  });
+
+  it("does not overwrite a fresh interval-adherence stamp with the old one", () => {
+    const oldStamp = { adherencePct: 60, structuralMismatch: false, completed: 2, total: 4 };
+    const newStamp = { adherencePct: 95, structuralMismatch: false, completed: 4, total: 4 };
+    const existing = [mk("2026-01-03", { intervals: oldStamp })];
+    const fresh = [mk("2026-01-03", { intervals: newStamp })];
+    const e = mergeScoreLogRebuild(fresh, existing).find((x) => x.date === "2026-01-03");
+    expect(e?.intervals).toEqual(newStamp); // fresh wins when it has its own
   });
 
   it("adds brand-new dates from fresh and keeps the log date-sorted", () => {
