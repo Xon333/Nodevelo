@@ -19,16 +19,23 @@ calibrated parameter. `deriveOptimum` (`lib/correlation.ts`) mirrors `deriveExec
 flipped — the median signal of the athlete's *successes*, credited only when failures exist to contrast
 against AND sit ≥ a margin away on the expected side (successes alone are habit, not signal — same
 "don't calibrate to where they train" refusal as the edge). First consumer: `deriveCarbsOptimum`
-(`lib/calibration.ts`) classifies steady long endurance rides (the sync route's existing steady-ride set,
-≥90 min, `carbs_ingested` logged) good/bad by decoupling against the athlete's own resolved
-`decouplingGood` ±2pp deadband — the two calibrated parameters compound — with a 10 g/h discrimination
-margin, a [30, 120] clamp, `DEFAULT_CARBS_OPTIMUM = 75` (the literal `inRideCarbTarget` >90-min endurance
-value), and the same quiet-window/`manualOverride` preservation semantics as `deriveDecouplingGood`.
-Wired: `CalibrationStore.carbsOptimum` (optional — pre-existing stores parse back `undefined`, the
-migration-flag gotcha), derived each sync, `/api/calibration` generalised to a param→bounds map, and a
-second contest/correct row on the `/model` panel (config-driven `ParamRow` refactor; verified live —
-the on-disk store predating the field renders the default row correctly). **Deliberate non-goal:** the
-fueling table (`inRideCarbTarget`) is untouched — surfacing a learned optimum into prescriptions is §6.
+(`lib/calibration.ts`) classifies steady long endurance rides (the sync route's existing steady-endurance
+candidate pool, ≥90 min, `carbs_ingested` logged) good/bad by `aerobicEffPct` — `lib/aerobic.ts`'s
+Z2-isolated Pw:HR %Δ vs the athlete's own trailing baseline, the same non-circular signal the off-plan
+execution-score driver already uses — outside its established `AEROBIC_DEADBAND_PCT` noise floor, with a
+10 g/h discrimination margin, a [30, 120] clamp, `DEFAULT_CARBS_OPTIMUM = 75` (the literal
+`inRideCarbTarget` >90-min endurance value), and the same quiet-window/`manualOverride` preservation
+semantics as `deriveDecouplingGood`. **Not decoupling** (the first cut, swapped same-night before review):
+this app already demoted whole-ride decoupling out of the athlete-state driver (ACC) and out of execution
+scoring (ACC-2026-06-25) for being a noisy ride-structure artifact confounded by heat/course effects
+unrelated to fueling — reusing it as carbs' outcome label would have repeated that mistake, and it would
+have made `carbsOptimum` depend on `decouplingGood`'s own confidence for no real reason (`aerobicEffPct`
+is already baseline-relative, so no second calibrated parameter is needed as a reference point). Wired:
+`CalibrationStore.carbsOptimum` (optional — pre-existing stores parse back `undefined`, the migration-flag
+gotcha), derived each sync, `/api/calibration` generalised to a param→bounds map, and a second
+contest/correct row on the `/model` panel (config-driven `ParamRow` refactor; verified live — the on-disk
+store predating the field renders the default row correctly). **Deliberate non-goal:** the fueling table
+(`inRideCarbTarget`) is untouched — surfacing a learned optimum into prescriptions is §6.
 Dormant until fueling data accrues, by design. Plan:
 `docs/superpowers/plans/2026-07-02-carbs-optimum-derivation.md`. +20 tests (742 total, 66 files).
 

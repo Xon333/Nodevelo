@@ -4,9 +4,10 @@
 // overridden (auto-deriving injury-risk bands isn't possible without injury data, so we don't
 // pretend to). Pure + deterministic + defensive — every output is clamped to a sane range.
 
-import type { ActivitySummary, CalibratedParameter, CalibrationStore, RideScoreEntry, WorkoutType } from "./types";
+import type { CalibratedParameter, CalibrationStore, RideScoreEntry, WorkoutType } from "./types";
 import { clamp } from "./stats";
 import { deriveExecutionEdge, deriveOptimum, type ExecutionEdgeSpec, type OptimumSpec } from "./correlation";
+import { AEROBIC_DEADBAND_PCT } from "./aerobic";
 
 export interface AcwrBands {
   optimalLow: number; // below this = under-reaching ("low")
@@ -374,10 +375,15 @@ export function deriveDecouplingGood(
 }
 
 // ---------- In-ride carbs optimum (ROADMAP Track C — first optimum-shape consumer) ----------
-// The g/h band tied to the athlete's BEST long steady rides, classified against their OWN calibrated
-// durability reference (decouplingGood) — the two parameters compound. Provenance + display only for
-// now: it does NOT alter the fueling table (that's §6 surfacing). Classification is deliberately
-// endurance-only: decoupling is meaningless on interval days, and fueling is load-bearing from ~90 min.
+// The g/h band tied to the athlete's BEST long steady rides, classified against their OWN trailing
+// aerobic-efficiency baseline — lib/aerobic.ts's Z2-isolated Pw:HR vs baseline, the same non-circular
+// per-ride signal the off-plan execution-score driver already uses. Deliberately NOT decoupling: this
+// app already demoted whole-ride decoupling out of the athlete-state driver (ACC) and out of execution
+// scoring (ACC-2026-06-25) for being a ride-structure artifact — noisy, confounded by heat/course/HR
+// drift unrelated to fueling. Building carbs' outcome label on it would repeat that mistake.
+// Provenance + display only for now: it does NOT alter the fueling table (that's §6 surfacing).
+// Classification is deliberately endurance-only: fueling is load-bearing from ~90 min, and Pw:HR-Z2
+// needs real Z2 volume to mean anything.
 
 export const CARBS_OPTIMUM_BOUNDS = { min: 30, max: 120 } as const; // g/h — the KB's physiological range
 // The literal in-ride target nutrition.ts prescribes for >90-min endurance rides today — the population
@@ -385,7 +391,6 @@ export const CARBS_OPTIMUM_BOUNDS = { min: 30, max: 120 } as const; // g/h — t
 export const DEFAULT_CARBS_OPTIMUM = 75;
 
 const CARBS_MIN_DURATION_SEC = 90 * 60; // fueling genuinely load-bearing (nutrition's >90-min tier)
-const CARBS_BAD_DECOUPLING_DELTA = 2; // pp beyond the athlete's typical drift = clearly-poor durability
 const CARBS_DISCRIMINATION_MARGIN = 10; // g/h — good rides must carry meaningfully more fuel than bad
 
 const CARBS_OPTIMUM_SPEC: OptimumSpec = {
@@ -397,28 +402,30 @@ const CARBS_OPTIMUM_SPEC: OptimumSpec = {
   confidence: (nGood, nBad) => (nGood < 5 || nBad < 3 ? "low" : nGood < 10 ? "medium" : "high"),
 };
 
-// `steadyRides` is the sync route's already-filtered steady-endurance set (decoupling present, 90-day
-// window, isSteadyEnduranceRide) — reusing it keeps one definition of "steady" and avoids an import
-// cycle with trends.ts. This adds only the fueling-specific gates.
-export function deriveCarbsOptimum(
-  prior: CalibratedParameter | undefined | null,
-  steadyRides: Array<Pick<ActivitySummary, "carbsIngestedG" | "decoupling" | "movingTimeSec">>,
-  decouplingGoodPct: number
-): CalibratedParameter {
-  const badAt = decouplingGoodPct + CARBS_BAD_DECOUPLING_DELTA;
-  const obs = steadyRides
+// aerobicEffPct is the CALLER's job to compute (lib/aerobic.ts's z2PwHrBaselineBefore needs the full
+// activity history for a strictly-before baseline, which this pure module has no business holding) —
+// the same division of labour the sync route already uses to stamp it onto the ledger.
+interface CarbsRideSignal {
+  carbsIngestedG: number | null;
+  aerobicEffPct: number | null; // %Δ vs the athlete's own trailing Z2 Pw:HR baseline; positive = fresher
+  movingTimeSec: number;
+}
+
+export function deriveCarbsOptimum(prior: CalibratedParameter | undefined | null, rides: CarbsRideSignal[]): CalibratedParameter {
+  const obs = rides
     .filter(
-      (a) =>
-        a.movingTimeSec >= CARBS_MIN_DURATION_SEC &&
-        typeof a.carbsIngestedG === "number" &&
-        a.carbsIngestedG > 0 && // 0/null = not logged, same convention as fuelStampFor
-        typeof a.decoupling === "number" &&
-        // Deadband: rides between "good" and "clearly bad" are ambiguous — keep them out of both classes.
-        (a.decoupling <= decouplingGoodPct || a.decoupling >= badAt)
+      (r) =>
+        r.movingTimeSec >= CARBS_MIN_DURATION_SEC &&
+        typeof r.carbsIngestedG === "number" &&
+        r.carbsIngestedG > 0 && // 0/null = not logged, same convention as fuelStampFor
+        typeof r.aerobicEffPct === "number" &&
+        // Inside aerobic.ts's own noise floor = "no signal either way" (same reason it applies no
+        // scoring effect there) — keep deadband rides out of both classes.
+        Math.abs(r.aerobicEffPct) >= AEROBIC_DEADBAND_PCT
     )
-    .map((a) => ({
-      signal: Math.round(((a.carbsIngestedG as number) / (a.movingTimeSec / 3600)) * 10) / 10, // g/h, as fuelStampFor rounds
-      good: (a.decoupling as number) <= decouplingGoodPct,
+    .map((r) => ({
+      signal: Math.round(((r.carbsIngestedG as number) / (r.movingTimeSec / 3600)) * 10) / 10, // g/h, as fuelStampFor rounds
+      good: (r.aerobicEffPct as number) > 0,
     }));
 
   const derived = deriveOptimum(obs, CARBS_OPTIMUM_SPEC);

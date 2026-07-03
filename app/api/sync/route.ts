@@ -46,8 +46,7 @@ import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, calStampFor, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
-import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue } from "@/lib/calibration";
-import { DEFAULT_DECOUPLING_GOOD } from "@/lib/execution-score";
+import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { resolveToday, utcToday } from "@/lib/date";
@@ -212,22 +211,24 @@ export async function POST(req: Request) {
     // CalibrationPanel shows is a clean number. Confidence comes from how many steady rides had a reading.
     const cutoff90 = new Date(Date.parse(today) - 90 * 86_400_000).toISOString().slice(0, 10);
     const stateFtp = physStore?.current.ftp ?? 0;
-    const steadyDecoup = lastSync.activities.filter(
-      (a) => a.decoupling !== null && a.date >= cutoff90 && isSteadyEnduranceRide(a, stateFtp)
-    );
+    const steadyEndurance90d = lastSync.activities.filter((a) => a.date >= cutoff90 && isSteadyEnduranceRide(a, stateFtp));
+    const steadyDecoup = steadyEndurance90d.filter((a) => a.decoupling !== null);
     const steadyDecoupMean = steadyDecoup.length
       ? Math.round((steadyDecoup.reduce((s, a) => s + (a.decoupling as number), 0) / steadyDecoup.length) * 10) / 10
       : null;
     const priorCal = await readCalibration();
-    const decouplingGood = deriveDecouplingGood(priorCal.decouplingGood, steadyDecoupMean, steadyDecoup.length);
     const calibration = {
-      decouplingGood,
-      // Track C: carbs optimum from the same steady-ride set, classified against the athlete's own
-      // RESOLVED durability reference (calibrated when trusted, population default otherwise).
+      decouplingGood: deriveDecouplingGood(priorCal.decouplingGood, steadyDecoupMean, steadyDecoup.length),
+      // Track C: carbs optimum from the same steady-endurance candidate pool, classified against the
+      // athlete's own trailing Z2 Pw:HR baseline (lib/aerobic.ts) — not decoupling, which this app
+      // already demoted from scoring for being a ride-structure artifact (ACC-2026-06-25).
       carbsOptimum: deriveCarbsOptimum(
         priorCal.carbsOptimum,
-        steadyDecoup,
-        resolveCalibratedValue(decouplingGood, DEFAULT_DECOUPLING_GOOD)
+        steadyEndurance90d.map((a) => ({
+          carbsIngestedG: a.carbsIngestedG,
+          aerobicEffPct: aerobicEffPct(a, z2PwHrBaselineBefore(lastSync.activities, a.date)),
+          movingTimeSec: a.movingTimeSec,
+        }))
       ),
       updatedAt: new Date().toISOString(),
     };

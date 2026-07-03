@@ -412,70 +412,72 @@ describe("ifBandOffsetRows (read-only display rows)", () => {
 });
 
 // ---------- deriveCarbsOptimum (Track C) ----------
+// Classified against aerobicEffPct (lib/aerobic.ts's Z2 Pw:HR %Δ vs the athlete's own trailing
+// baseline), not decoupling — this project already demoted decoupling out of scoring twice (ACC,
+// ACC-2026-06-25) for being a ride-structure artifact, so carbs' outcome label doesn't repeat that.
 
-// A steady ride: `hours` long at the given decoupling with the given logged grams (null = not logged).
-const steady = (decoupling: number | null, carbsG: number | null, hours = 2) => ({
+// A steady ride: `hours` long at the given %Δ-vs-baseline aerobic efficiency, with the given logged
+// grams (null = not logged).
+const steady = (aerobicEffPct: number | null, carbsG: number | null, hours = 2) => ({
   carbsIngestedG: carbsG,
-  decoupling,
+  aerobicEffPct,
   movingTimeSec: hours * 3600,
 });
 
 describe("deriveCarbsOptimum", () => {
-  const DG = 4; // the resolved decouplingGood reference these tests classify against
-
   it("derives the good-rides' median g/h when fueling discriminates", () => {
     const rides = [
-      // good: decoupling ≤ 4, well-fueled (g/h = grams / hours)
-      steady(3, 160), // 80 g/h
-      steady(3.5, 180), // 90 g/h
-      steady(2.8, 140), // 70 g/h
-      steady(3.9, 160), // 80 g/h
-      steady(3.2, 180), // 90 g/h
-      // bad: decoupling ≥ 6 (= DG + 2), under-fueled
-      steady(7, 60), // 30 g/h
-      steady(6.5, 80), // 40 g/h
-      steady(8, 100), // 50 g/h
+      // good: clearly above baseline (≥ AEROBIC_DEADBAND_PCT), well-fueled (g/h = grams / hours)
+      steady(5, 160), // 80 g/h
+      steady(8, 180), // 90 g/h
+      steady(6, 140), // 70 g/h
+      steady(5.5, 160), // 80 g/h
+      steady(7, 180), // 90 g/h
+      // bad: clearly below baseline, under-fueled
+      steady(-6, 60), // 30 g/h
+      steady(-5, 80), // 40 g/h
+      steady(-8, 100), // 50 g/h
     ];
-    const p = deriveCarbsOptimum(null, rides, DG);
+    const p = deriveCarbsOptimum(null, rides);
     expect(p.source).toBe("derived");
     expect(p.value).toBe(80); // median of [80,90,70,80,90]
     expect(p.dataPoints).toBe(5);
     expect(p.confidence).toBe("medium"); // 5 good / 3 bad — at the gate
   });
 
-  it("excludes deadband rides (between DG and DG+2) from both classes", () => {
+  it("excludes deadband rides (within ±AEROBIC_DEADBAND_PCT of baseline) from both classes", () => {
     const rides = [
-      steady(3, 160), steady(3, 180), steady(3, 140), steady(3, 160), steady(3, 180), // 5 good
-      steady(5, 999999), // deadband — ambiguous, must not pollute either class
-      steady(7, 60), steady(7, 80), steady(7, 100), // 3 bad
+      steady(5, 160), steady(5, 180), steady(5, 140), steady(5, 160), steady(5, 180), // 5 good
+      steady(1, 999999), // inside the noise floor — ambiguous, must not pollute either class
+      steady(-6, 60), steady(-6, 80), steady(-6, 100), // 3 bad
     ];
-    const p = deriveCarbsOptimum(null, rides, DG);
+    const p = deriveCarbsOptimum(null, rides);
     expect(p.value).toBe(80); // unchanged by the deadband ride
   });
 
-  it("skips rides with no logged carbs, no decoupling, or under 90 minutes", () => {
+  it("skips rides with no logged carbs, no aerobic signal, or under 90 minutes", () => {
     const rides = [
-      steady(3, null), // no fueling logged
-      steady(null, 160), // no decoupling
-      steady(3, 160, 1), // 60-min ride — fueling not load-bearing
-      steady(7, 60), // the only classifiable ride (bad)
+      steady(5, null), // no fueling logged
+      steady(null, 160), // no aerobic signal (ride didn't qualify, or no baseline yet)
+      steady(5, 160, 1), // 60-min ride — fueling not load-bearing
+      steady(-6, 60), // the only classifiable ride (bad)
     ];
-    const p = deriveCarbsOptimum(null, rides, DG);
+    const p = deriveCarbsOptimum(null, rides);
     expect(p.source).toBe("default"); // no goods at all → blank
   });
 
   it("returns default when fueling does not discriminate (bad rides fueled like good ones)", () => {
     const rides = [
-      steady(3, 160), steady(3, 180), steady(3, 140), steady(3, 160), steady(3, 180), // goods ~80
-      steady(7, 150), steady(7, 160), steady(7, 170), // bads ~80 too — drift isn't about carbs here
+      steady(5, 160), steady(5, 180), steady(5, 140), steady(5, 160), steady(5, 180), // goods ~80
+      steady(-6, 150), steady(-6, 160), steady(-6, 170), // bads ~80 too — drift isn't about carbs here
     ];
-    const p = deriveCarbsOptimum(null, rides, DG);
+    const p = deriveCarbsOptimum(null, rides);
     expect(p.source).toBe("default");
   });
 
   it("preserves a prior manual override through re-derivation", () => {
     const prior = { ...defaultParameter(), manualOverride: 95 };
-    const p = deriveCarbsOptimum(prior, [], DG);
+    const p = deriveCarbsOptimum(prior, []);
     expect(p.manualOverride).toBe(95);
   });
 
@@ -484,17 +486,17 @@ describe("deriveCarbsOptimum", () => {
       value: 85, source: "derived", confidence: "medium", dataPoints: 6,
       lastUpdated: "2026-01-01T00:00:00Z", locked: false, manualOverride: null,
     };
-    const p = deriveCarbsOptimum(prior, [], DG); // window went quiet
+    const p = deriveCarbsOptimum(prior, []); // window went quiet
     expect(p.source).toBe("derived");
     expect(p.value).toBe(85);
   });
 
   it("clamps the derived optimum into CARBS_OPTIMUM_BOUNDS", () => {
     const rides = [
-      steady(3, 280), steady(3, 300), steady(3, 320), steady(3, 280), steady(3, 300), // 140–160 g/h
-      steady(7, 60), steady(7, 80), steady(7, 100),
+      steady(5, 280), steady(5, 300), steady(5, 320), steady(5, 280), steady(5, 300), // 140–160 g/h
+      steady(-6, 60), steady(-6, 80), steady(-6, 100),
     ];
-    const p = deriveCarbsOptimum(null, rides, DG);
+    const p = deriveCarbsOptimum(null, rides);
     expect(p.value).toBe(CARBS_OPTIMUM_BOUNDS.max);
   });
 
