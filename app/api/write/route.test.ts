@@ -112,3 +112,58 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
     expect(h.createEvent).not.toHaveBeenCalled();
   });
 });
+
+describe("/api/write season stamp (MACRO)", () => {
+  const focusPeriod = (overrides: Partial<{
+    focus: string;
+    phase: string;
+    startDate: string;
+    plannedWeeks: number;
+  }>) => ({
+    focus: "threshold",
+    phase: "build",
+    startDate: "2026-01-01",
+    plannedWeeks: 4,
+    intensitySplit: "80/20",
+    targetWeeklyTss: 400,
+    deloadWeek: false,
+    rationale: "",
+    source: "derived",
+    confidence: "medium",
+    ...overrides,
+  });
+
+  it("stamps the period covering the block's startDate, not the period covering today", async () => {
+    h.createEvent.mockResolvedValue(200);
+    // "Today" (2026-07-03, real wall-clock) falls in the vo2max period below. The block's
+    // own startDate (2026-06-15) falls in the earlier aerobic-base period. The stamp must
+    // follow the block's start date, not wall-clock today.
+    (store.readSeasonPlan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      objective: "",
+      events: [],
+      periods: [
+        focusPeriod({ focus: "aerobic-base", phase: "base", startDate: "2026-06-01", plannedWeeks: 4 }),
+        focusPeriod({ focus: "vo2max", phase: "build", startDate: "2026-06-29", plannedWeeks: 4 }),
+      ],
+      updatedAt: "",
+    });
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.seasonFocus).toBe("aerobic-base");
+    expect(json.currentBlock.seasonPhase).toBe("base");
+  });
+
+  it("omits the stamp when no period covers the block's startDate", async () => {
+    h.createEvent.mockResolvedValue(200);
+    (store.readSeasonPlan as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      objective: "",
+      events: [],
+      periods: [focusPeriod({ focus: "vo2max", phase: "build", startDate: "2026-07-01", plannedWeeks: 4 })],
+      updatedAt: "",
+    });
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.seasonFocus).toBeUndefined();
+    expect(json.currentBlock.seasonPhase).toBeUndefined();
+  });
+});

@@ -146,8 +146,6 @@ detail → [ARCHIVE.md](ARCHIVE.md).
 ### Known debt (accept-as-tracked)
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label, only the phase
   caption distinguishes them. Cosmetic; only visible once event mode activates.
-- `CurrentBlock.seasonFocus`/`seasonPhase` are stamped using "today" rather than the block's actual start
-  date — harmless today (no readers yet); worth a conscious choice once `#4`-style validation reads them back.
 - `anaerobic` is a valid build focus but unreachable via the default rotation fallback (only via a confident
   limiter) — intentional per KB, but the two lists (`BUILD_FOCI` vs `defaultBuildOrder()`) silently diverge.
 - No re-plan trigger from the Season form itself — the next `POST /api/generate` already re-plans and

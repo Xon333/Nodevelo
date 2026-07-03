@@ -113,10 +113,11 @@ export async function POST(req: Request) {
 
   const dates = plan.days.map((d) => d.date).sort();
   const ftp = (await readAthleteProfile()).performance.ftp;
-  // MACRO: stamp the block with the season focus period it was generated under, when one exists.
-  // Best-effort by construction — currentPeriod is a pure lookup over the plan already on disk.
-  const today = new Date().toISOString().slice(0, 10);
-  const seasonPeriod = currentPeriod(await readSeasonPlan(), today);
+  // MACRO: stamp the block with the season focus period active as of the block's own startDate, not
+  // wall-clock "today" — a block that starts a few days out can fall in a different period than the one
+  // live at generation time. Best-effort by construction — currentPeriod is a pure lookup over the plan
+  // already on disk.
+  const seasonPeriod = currentPeriod(await readSeasonPlan(), dates[0]);
   // The event id each day was written as, so the block's events can be pruned on a later discard/replace.
   const eventIdByDate = new Map(results.map((r) => [r.date, r.eventId]));
   const currentBlock: CurrentBlock = {
