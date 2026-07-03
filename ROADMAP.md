@@ -91,6 +91,14 @@ paused same day; SUB-3 (route tests) shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE
 shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md); its branch-discipline half remains open below, a plain
 backlog item — no open design questions.
 
+### SUB-5 · First loop-turnover readiness — **deadline 2026-07-12** (current block's end)
+The first-ever full turnover (retrospective → `block-history.json` born → next block write →
+`intervention-log.json` born) fires around 2026-07-12, and neither first-write path has ever run
+live — `/api/retrospective` is the only turnover-critical route with **no route test**, and it
+destructively clears the current block. Plan (tests + the season-stamp known-debt fix + an attended
+runbook): [first-loop-turnover-readiness](docs/superpowers/plans/2026-07-03-first-loop-turnover-readiness.md).
+If this event silently fails, audit-P1 loop data slips a full block.
+
 ### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 **Problem.** The prior ~6 months (100 legacy rides) followed real structure, but the app has no
 prescription to grade them against → excluded from execution learning.
@@ -211,7 +219,10 @@ Removed: the six subjective `WellnessEntry` fields, `wellnessToMorningAnswers`, 
   shape: persist `intervalComparison`/`adherencePct` at ledger-write time (today path already computes
   it) so `buildRideScores` can pass it through like the today path does, instead of re-deriving from
   whole-ride signals only. (Track B's own today-only limit on `gradeDurabilityDelivery` is the same root
-  cause, noted separately above.)
+  cause, noted separately above.) **Implementation plan ready:**
+  [ledger-interval-adherence](docs/superpowers/plans/2026-07-03-ledger-interval-adherence.md) — every
+  planned interval entry born coarse is a permanent fidelity loss (immutable ledger), so this is
+  time-sensitive at ~2–3 frozen entries/week.
 - **Recovery-specific Z2 cap** — give Recovery its own "dialed-in" cap (above Z1, not Z2) *if* the
   lenient shared aerobic cap proves too soft in real use.
 - **Power-zone source of truth** — decide: keep zones strictly Intervals.icu vs. a sanctioned local
@@ -278,7 +289,9 @@ could fire. What's left:
   data accrues (like every calibrated param). Left: per-ride-type optimums + richer outcome signals
   (RPE-vs-IF divergence, interval completion, next-day TSB) once the endurance read proves out.
 - **Contextual post-ride prompts** (deterministic thresholds, LLM phrases the number) — also the nudge
-  that gets `carbs_ingested` filled in, which feeds the derivation above.
+  that gets `carbs_ingested` filled in, which feeds the derivation above. **Implementation plan ready:**
+  [postride-fuel-prompt](docs/superpowers/plans/2026-07-03-postride-fuel-prompt.md) (success metric
+  inside: fuel-stamp fill-rate ≥60% of qualifying rides in ~3 wks, `carbsOptimum.dataPoints` 1 → ≥8).
 - **Pre-ride loading loop** — day-before carb bump before long durability, then *learn whether it
   helped* (loaded vs baseline decoupling) and stop if it doesn't move the signal.
 - Surfacing layer = **§6**; reuse the one derivation in §6 + the Today tile + the Trends overlay.
