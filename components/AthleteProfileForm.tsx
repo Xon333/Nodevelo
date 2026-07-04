@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { Card, LoadFailed, useMountLoad } from "./ui";
+import { Card, LoadFailed, Skeleton, SkeletonScreen, useMountLoad } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonEvent, SeasonFocus, SeasonPlan } from "@/lib/types";
@@ -284,7 +284,23 @@ export default function AthleteProfileForm() {
       </div>
     );
   }
-  if (!data) return <p className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>;
+  if (!data) {
+    // S3-1: title row → the side-by-side PRs/rider-profile fold (same grid as the loaded page) →
+    // the next section card, so the tall page doesn't leap in from a single centered line.
+    return (
+      <SkeletonScreen className="space-y-5">
+        <div>
+          <Skeleton className="h-6 w-36" />
+          <Skeleton className="mt-1.5 h-4 w-96 max-w-full" />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+          <Skeleton className="h-72" />
+          <Skeleton className="h-56" />
+        </div>
+        <Skeleton className="h-48" />
+      </SkeletonScreen>
+    );
+  }
 
   const { athleteMd, autoSync, bufferStatus, syncedPowerCurve, powerProfile, latestWeightKg } = data;
 

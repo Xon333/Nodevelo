@@ -3,6 +3,7 @@
 import { useSync } from "./SyncProvider";
 import TodayView from "./dashboard/TodayView";
 import PlanView from "./dashboard/PlanView";
+import { Skeleton, SkeletonScreen } from "./ui";
 
 // Thin mode-switch. The two pages it used to inline — a 529-line dual-mode monolith — now live in
 // TodayView / PlanView (RV-8), each owning only its own page state. This keeps the shared concern
@@ -18,7 +19,31 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
     );
   }
   if (!state) {
-    return <p className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>;
+    // S3-1: skeletons sized to each page's first-paint scaffold (Today: verdict zone → session/
+    // column grid; Plan: season strip → block hero → goals/debrief row → generator bar), so the
+    // resolved layout lands in reserved space instead of jumping down from a one-line "Loading…".
+    return mode === "today" ? (
+      <SkeletonScreen className="flex flex-col gap-3">
+        <Skeleton className="h-44" />
+        <div className="grid gap-3 lg:grid-cols-[1.7fr_1fr]">
+          <Skeleton className="h-72 lg:h-96" />
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-44" />
+            <Skeleton className="h-28" />
+          </div>
+        </div>
+      </SkeletonScreen>
+    ) : (
+      <SkeletonScreen className="space-y-3">
+        <Skeleton className="h-10" />
+        <Skeleton className="h-80" />
+        <div className="grid gap-3 sm:grid-cols-[1.7fr_1fr]">
+          <Skeleton className="h-36" />
+          <Skeleton className="h-36" />
+        </div>
+        <Skeleton className="h-10" />
+      </SkeletonScreen>
+    );
   }
 
   return mode === "today" ? <TodayView /> : <PlanView />;

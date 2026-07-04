@@ -5,7 +5,7 @@ import { api, timeAgo } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import Sparkline from "./Sparkline";
 import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
-import { Card, StatTile } from "./ui";
+import { Card, Skeleton, SkeletonScreen, StatTile } from "./ui";
 import { useSync } from "./SyncProvider";
 import type { TrendsData } from "./trends/types";
 import { BlockTimeline, PlanVsActual, ScoreBars, WeeklyVolumeBars, baselineCards, trendDir } from "./trends/sections";
@@ -31,7 +31,23 @@ export default function Trends() {
       </div>
     );
   }
-  if (!data) return <p className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>;
+  if (!data) {
+    // S3-1: mirrors the loaded scaffold (title → 7-day glance → insights → paired chart cards).
+    return (
+      <SkeletonScreen className="space-y-3">
+        <div>
+          <Skeleton className="h-6 w-28" />
+          <Skeleton className="mt-1.5 h-4 w-80 max-w-full" />
+        </div>
+        <Skeleton className="h-28" />
+        <Skeleton className="h-40" />
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Skeleton className="h-56" />
+          <Skeleton className="h-56" />
+        </div>
+      </SkeletonScreen>
+    );
+  }
 
   const noData = !data.syncedAt;
   const efTrend = trendDir(data.ef, true);

@@ -3,7 +3,7 @@
 // Shared presentational primitives so cards, stat tiles, and dividers look
 // identical across the dashboard, trends, and profile pages.
 
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 // One-line explanation shown on hover/focus over a metric/title. `align` flips the tooltip to the
 // right edge so it doesn't clip when the anchor sits near a container's right. Wrap the trigger
@@ -78,6 +78,35 @@ export function LoadFailed({ what, retry }: { what: string; retry?: () => void }
         </button>
       )}
     </p>
+  );
+}
+
+// Pulsing placeholder block for a pending fetch (UX-CONSTITUTION §8: loading holds layout — content
+// must not jump on resolve). S3-1's replacement for the bare centered "Loading…" line. Surface
+// tokens only (DESIGN.md §1): light `bg-zinc-100` reads as a quiet card-to-be on the zinc-50 page,
+// dark `bg-zinc-800` is the card surface against zinc-950. Size each block roughly to the content
+// it stands in for via `className` (`h-44`, `lg:h-96`, `w-36`, …) — approximate footprint, not
+// pixel-perfect mimicry.
+export function Skeleton({ className }: { className?: string }) {
+  return <div aria-hidden className={`animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800 ${className ?? ""}`} />;
+}
+
+// Wrapper for a skeleton screen: one polite "Loading" announcement for assistive tech in place of
+// the old visible text (the Skeleton blocks themselves are aria-hidden decoration). Layout classes
+// pass through so the wrapper can mirror the resolved page's scaffold (`space-y-3`, grids, …).
+export function SkeletonScreen({
+  label = "Loading",
+  className,
+  children,
+}: {
+  label?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div role="status" aria-label={label} className={className}>
+      {children}
+    </div>
   );
 }
 
@@ -227,6 +256,33 @@ export function Zone({
   const shell = hero
     ? `relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent}`
     : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
+  // S3-3 scroll affordance: in `fill` mode the body scrolls internally, but macOS overlay
+  // scrollbars leave no resting cue that content continues below the fold — the card can read as a
+  // dead end (Constitution: "the athlete can always reach what's there"). A scroll-aware bottom
+  // fade was chosen over an always-on CSS gradient because the always-on version lies twice: it
+  // implies more content when the card already fits, and keeps implying it after you've reached
+  // the end. ui.tsx is already a client component, so the honest version costs only a ref + one
+  // boolean of local state.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  useEffect(() => {
+    if (!fill) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    // 4px slack absorbs sub-pixel scroll rounding so the fade doesn't flicker at the very bottom.
+    const check = () => setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    // Content height can change without the scrollport resizing (a <details> opening, the ride
+    // analysis landing mid-sync) — observe the inner content wrapper as well as the scrollport.
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [fill]);
   return (
     <section className={`${shell} ${fill ? "flex min-h-0 flex-1 flex-col" : ""} ${className ?? ""}`}>
       {hero && <CyberFrame accent={accent} />}
@@ -240,7 +296,24 @@ export function Zone({
           <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
           {hint && <span className="ml-auto text-[10px] text-zinc-500 dark:text-zinc-400">{hint}</span>}
         </div>
-        {fill ? <div className="min-h-0 flex-1 overflow-y-auto">{children}</div> : children}
+        {fill ? (
+          <div className="relative min-h-0 flex-1">
+            <div ref={scrollRef} className="h-full overflow-y-auto">
+              {/* Content wrapper exists so the ResizeObserver above can watch content height. */}
+              <div>{children}</div>
+            </div>
+            {/* The fade matches the card's own surface (hero fills dark:bg-zinc-900, standard
+                dark:bg-zinc-800) so it reads as the content dissolving at the fold, not a tint. */}
+            <div
+              aria-hidden
+              className={`pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t to-transparent transition-opacity duration-200 ${
+                hero ? "from-white dark:from-zinc-900" : "from-white dark:from-zinc-800"
+              } ${moreBelow ? "opacity-100" : "opacity-0"}`}
+            />
+          </div>
+        ) : (
+          children
+        )}
       </div>
     </section>
   );

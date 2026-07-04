@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
+import { Skeleton, SkeletonScreen } from "./ui";
 
 type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; message: string };
 type Kind = "kb" | "retro";
@@ -87,7 +88,23 @@ export default function KnowledgeBaseEditor() {
     );
   }
   if (files === null) {
-    return <p className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>;
+    // S3-1: title → file rail + editor pane, matching the loaded two-pane layout (the editor
+    // placeholder reserves the textarea's fixed 36rem so nothing jumps when it lands).
+    return (
+      <SkeletonScreen>
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="mt-1.5 h-4 w-96 max-w-full" />
+        <div className="mt-4 flex gap-3">
+          <div className="w-52 shrink-0 space-y-1.5">
+            <Skeleton className="h-8" />
+            <Skeleton className="h-8" />
+            <Skeleton className="h-8" />
+            <Skeleton className="h-8" />
+          </div>
+          <Skeleton className="h-[36rem] min-w-0 flex-1" />
+        </div>
+      </SkeletonScreen>
+    );
   }
 
   const isRetro = selected?.kind === "retro";

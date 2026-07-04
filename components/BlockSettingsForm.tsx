@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import { Card } from "./ui";
+import { Card, Skeleton, SkeletonScreen } from "./ui";
 import type { BlockSettings } from "@/lib/types";
 
 function Field({
@@ -121,7 +121,16 @@ export default function BlockSettingsForm() {
   };
 
   if (!settings) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading…</p>;
+    // S3-1: one placeholder per settings card (volume / structure / philosophy / platform) so the
+    // page below the "Settings" h1 holds its height while the form loads.
+    return (
+      <SkeletonScreen className="space-y-6">
+        <Skeleton className="h-64" />
+        <Skeleton className="h-64" />
+        <Skeleton className="h-44" />
+        <Skeleton className="h-44" />
+      </SkeletonScreen>
+    );
   }
 
   return (
