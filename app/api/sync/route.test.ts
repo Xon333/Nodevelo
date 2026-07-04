@@ -432,15 +432,25 @@ describe("POST /api/sync — today-ride analysis path", () => {
   });
 
   it("persists the interval-adherence stamp alongside the today-patch's executionScore (SIT-bug fix)", async () => {
-    seedTodayRide(); // mkBlock's Threshold day parses to a non-empty 3-rep prescription
+    seedTodayRide(); // mkBlock's Threshold day parses to a non-empty 3x12m@95% prescription
+    // Genuine executed intervals matching the prescription (same shape as the birth-fetch tests'
+    // fixture below for an identical Threshold 3x12 prescription) — fetchIntervals must resolve
+    // non-empty here so matchPrescription produces a real, non-fabricated comparison. An empty
+    // `executed` is a separate guard (re-review fix): it now short-circuits to a null comparison
+    // instead of freezing a fabricated 0%-adherence stamp onto the immutable ledger.
+    vi.mocked(api.fetchIntervals).mockResolvedValue([
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100 },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300 },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500 },
+    ]);
     await postSync();
-    // fetchIntervals defaults to [] in this suite, so matchPrescription still returns a real (non-null)
-    // comparison — 0 of 3 reps matched — proving the today-patch now freezes that comparison's stamp
-    // rather than silently dropping it (the exact gap that once forced a manual ledger correction).
+    // Proves the today-patch freezes a real comparison's stamp rather than silently dropping it (the
+    // exact gap that once forced a manual ledger correction) — now backed by genuine executed data,
+    // not the empty-array fabrication the bug depended on.
     expect(scoreEntries.find((e) => e.date === TODAY)?.intervals).toEqual({
-      adherencePct: 0,
+      adherencePct: 100,
       structuralMismatch: false,
-      completed: 0,
+      completed: 3,
       total: 3,
     });
   });
@@ -465,15 +475,18 @@ describe("POST /api/sync — today-ride analysis path", () => {
 
   it("does NOT stamp `intervals` on a durability-templated today even when intervalComparison is non-null (Finding 3 guard)", async () => {
     vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
-    // Durability days are typed "Z2" with a durabilityTemplate set (never a distinct type) — this test
-    // is the durabilityTemplate arm of the guard specifically, distinct from the plain-Z2 test above.
+    // durabilityTemplate is an independent optional field, not tied to `type` — deliberately using a
+    // type OTHER than "Z2"/"Recovery" here isolates the durabilityTemplate clause specifically. (Prior
+    // version used type: "Z2", which let the pre-existing `type !== "Z2"` clause also block the stamp —
+    // mutation testing showed that fixture stayed green even with the durabilityTemplate clause deleted,
+    // i.e. it didn't actually prove this clause does anything.)
     vi.mocked(store.readCurrentBlock).mockResolvedValue(
       mkBlock({
         days: [
           {
             date: TODAY,
             name: "Durability long ride",
-            type: "Z2",
+            type: "Threshold",
             durationMin: 180,
             durabilityTemplate: "C",
             workoutText: "Main Set 3x\n- 12m 95%",

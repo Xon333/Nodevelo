@@ -341,8 +341,11 @@ export async function POST(req: Request) {
       // (REQUEST_TIMEOUT_MS in lib/intervals-api.ts) and the cap allows up to 6 sequential calls —
       // worst case 120s, exactly this route's own `maxDuration`. A degraded-but-not-down upstream
       // (slow responses, queued rate-limiting) could push an otherwise-healthy sync into a hard
-      // timeout. Stop attempting further candidates once the budget is exceeded; anything left
-      // unfetched is simply picked up on a future sync (no data loss, just deferred).
+      // timeout. Stop attempting further candidates once the budget is exceeded. Anything left
+      // unfetched is NOT deferred or retried — it still gets a normal (coarse) ledger entry from
+      // buildRideScores in this same sync, and the birth-fetch candidate filter permanently excludes
+      // any date already in the ledger. Skipped-for-budget dates are born coarse permanently, exactly
+      // like a candidate that exceeded the cap-of-6 above.
       const BIRTH_FETCH_BUDGET_MS = 40_000;
       const birthFetchStart = Date.now();
       const fetchedStamps = new Map<string, RideScoreEntry["intervals"]>();
@@ -381,7 +384,7 @@ export async function POST(req: Request) {
       const candidatesSkippedForBudget = cappedDates.length - candidatesAttempted;
       if (candidatesSkippedForBudget > 0) {
         logWarn("/api/sync", "birth-adherence", `time budget exceeded — skipped ${candidatesSkippedForBudget} of ${cappedDates.length} candidate dates`);
-        warnings.push(`Interval-adherence birth-fetch time budget exceeded — skipped ${candidatesSkippedForBudget} candidate date(s); will retry on a future sync.`);
+        warnings.push(`Interval-adherence birth-fetch time budget exceeded — ${candidatesSkippedForBudget} candidate date(s) born coarse.`);
       }
 
       // Fetched (fresh) first; frozen stamps second — serves the rebuild path, where `fresh` re-scores
@@ -491,7 +494,15 @@ export async function POST(req: Request) {
           let executed: ExecutedInterval[] = [];
           if (prescription.length > 0) {
             executed = await fetchIntervals(todayActivity.id);
-            intervalComparison = matchPrescription(prescription, executed);
+            // CRITICAL (CR-review Finding 1, re-review): fetchIntervals never rejects — it resolves
+            // to [] on any upstream failure. matchPrescription does NOT treat an empty `executed`
+            // against a non-empty `prescription` as null — it fabricates a fully-formed 0% adherence
+            // comparison (structuralMismatch: false), which this patch would freeze onto the immutable
+            // ledger entry for today. The "self-healing" defense (re-runs every sync until day
+            // rollover) does not reliably hold — sync here is user-triggered only, so a transient
+            // blip on the day's last sync freezes permanently. Mirror the birth-fetch loop's guard:
+            // skip matching entirely when there's nothing executed to compare.
+            intervalComparison = executed.length > 0 ? matchPrescription(prescription, executed) : null;
           }
           const trace = buildRideTrace(powerStream, hrStream, executed, prescription[0]?.targetWatts ?? null);
 
