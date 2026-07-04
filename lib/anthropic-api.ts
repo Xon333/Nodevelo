@@ -35,7 +35,7 @@ export const GENERATION_MODEL = "claude-sonnet-4-6";
 // Bump whenever the generation/analysis prompt structure or rules change. Stamped (with the model
 // id) onto every AI-produced artifact — GeneratedPlan, TodayAnalysis, BlockHistoryEntry — so a past
 // output stays reproducible/auditable when the model or prompt later changes.
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 // Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
 // session + the question, never deep history, so a small model is the right cost/latency call.
 export const QUICK_MODEL = "claude-haiku-4-5";
