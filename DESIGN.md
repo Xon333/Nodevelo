@@ -106,10 +106,18 @@ Tailwind **arbitrary literals with opacity** — that is the established convent
 ## 6 · Component vocabulary (`components/ui.tsx` + dashboard)
 - **`Card`** — eyebrow title (+ optional `ⓘ` tip via `InfoDot`) + optional right hint.
 - **`StatTile` / `TrendTile`** — uppercase micro-label, big mono value, optional cyan trend arrow.
-- **`InfoDot` + `MetricTip`** — the ⓘ hover popover (`w-64 max-w-[80vw]`, `align` left/right) for
-  **metric explanations**. This is the standard "what is this number?" affordance.
+- **`InfoDot` + `MetricTip`** — the ⓘ affordance (`w-64 max-w-[80vw]`, `align` left/right), opens on
+  hover **or** keyboard focus (`group-focus-within`, not hover-only — UX-CONSTITUTION §6) for
+  **metric explanations**. This is the standard "what is this number?" affordance. The trigger is a
+  focusable `<span>`, not a `<button>` — it nests inside other clickable buttons at several call
+  sites, and a `<button>` can't validly contain a `<button>`.
 - **`CyberFrame`** — see §5.
 - **Pills** — `rounded-full` status/type chips; long content must `min-w-0 break-words` (never `shrink-0`).
+- **`LoadFailed`** — quiet degraded-state line (`⚠ Couldn't load {what}.` + optional Retry) for a
+  best-effort fetch that failed; distinguishes "broke" from "nothing here" (never silently vanish).
+- **`Skeleton` / `SkeletonScreen`** — pulsing placeholder blocks for a pending fetch, sized per-page to
+  the real layout so nothing jumps on resolve; `SkeletonScreen` wraps them in one `role="status"`
+  announcement for assistive tech (the blocks themselves are `aria-hidden`).
 
 ---
 
@@ -153,9 +161,10 @@ default: summary first, detail on demand (`<details>` for blocks, `MetricTip`/`I
 | **Model** | "What does the brain know about me — and why?" | What drives your state (ranked drivers) | coaching directives + track record · per-athlete calibration (contest/correct via a manual override, inline in the card) | — |
 | **Settings** | "Tune generation + platform behaviour" | Block-generation knobs | AI usage · backup | — |
 
-**Bespoke-per-use-case elements** (don't force these into a generic `StatTile`): the readiness gauge
-(`AthleteStateCard`), the coach's-read glance (`CoachSnapshotCard`), the prescription-vs-execution rep
-breakdown, the calibration learning-state. Each stays inside the token system above.
+**Bespoke-per-use-case elements** (don't force these into a generic `StatTile`): the readiness verdict
+(`AthleteStateCard` — the sole fold-1 verdict since the UX-MASTERPLAN S1-1 restructure; it absorbed the
+old standalone coach's-read card), the prescription-vs-execution rep breakdown, the calibration
+learning-state. Each stays inside the token system above.
 
 ---
 

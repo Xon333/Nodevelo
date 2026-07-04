@@ -151,9 +151,6 @@ detail → [ARCHIVE.md](ARCHIVE.md).
 - No re-plan trigger from the Season form itself — the next `POST /api/generate` already re-plans and
   activates event mode the moment a future A-event exists. No UI warning about multiple A-events or the
   engine's array-order tie-break. No dedicated `/settings`-style page for events — Profile houses it.
-- The Goals form's Focus dropdown omits `sharpen` (the race-taper focus) — the API/engine both accept it,
-  only the picker is short one option, so a `sharpen`-focused period can't have a goal directly authored
-  via the UI yet. One-line follow-up: add `<option value="sharpen">`.
 - `PlanView`'s season-context fetch can silently overwrite a manual in-progress edit to the goal textarea
   if the athlete types between the two independent profile/season fetches resolving — a narrow,
   single-user timing window, not observed in practice.
@@ -286,14 +283,10 @@ could fire. What's left:
 
 ## UI refinements
 
-- **UX program → [`UX-MASTERPLAN.md`](UX-MASTERPLAN.md)** (2026-07-03 full-product audit; governed by
-  [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md)) — the ranked S1–S3 backlog lives there, not here.
-  Waves 1–3 shipped 2026-07-04/05 (desktop-first): tap/focus-capable explanation layer, visible
-  degraded-states, dark-mode FOUC script, the Today page's one-verdict restructure, empty-states-as-
-  onboarding, keyboard-focusable block calendar, touch-target sizing, in-product confirms replacing
-  every `window.confirm` in the app (incl. the backup-restore flow), Settings retitle, trimmed tooltips.
-  Open: S2-9 injury-path coaching gap + S3 polish (Wave 4); S2-4 (mobile nav IA) deferred — no desktop
-  work exists for it.
+- **UX program — ✅ all 4 waves shipped 2026-07-04/05** → [`ARCHIVE.md`](ARCHIVE.md) for the summary,
+  [`UX-MASTERPLAN.md`](UX-MASTERPLAN.md) for full per-item detail (governed by
+  [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md)). Nothing left open: S2-4 (mobile nav IA) was evaluated
+  and deliberately deferred, not missed — no desktop-relevant work exists for it.
 - **Energy-availability tile — open slivers** — the deterministic EA proxy shipped (Today, trailing-window
   `(intake − ride burn)/kg`; now reads low/adequate/ample on a body-weight basis, and feeds
   `CoachSnapshot.fuel` `← #1` → ARCHIVE). Left: a *personalised* "adequate" line `← Track C` calibration.

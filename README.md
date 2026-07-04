@@ -53,6 +53,8 @@ Five design decisions define the whole app — everything else follows from them
 | [research.md](research.md) | Exploratory spikes — findings, not build commitments |
 | [todo.md](todo.md) | Lean live punch-list for incoming bugs / feedback |
 | [DESIGN.md](DESIGN.md) | Design source of truth — tokens, type ladder, per-page hierarchy |
+| [UX-CONSTITUTION.md](UX-CONSTITUTION.md) | UX decision rules (verdict hierarchy, trust/provenance, disclosure limits) — governs UX-MASTERPLAN.md |
+| [UX-MASTERPLAN.md](UX-MASTERPLAN.md) | Evidence-ranked UX audit + backlog, sequenced into waves |
 | `AGENTS.md` · `CLAUDE.md` | Operating constraints for AI coding agents |
 | [WORKFLOW.md](WORKFLOW.md) | Personal cheat sheet — daily commands, session workflow |
 
@@ -560,7 +562,7 @@ pre-computed numbers verbatim — it never invents or recomputes them.
 ## Development
 
 ```bash
-npm test       # vitest (670 tests across 59 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, planned-vs-actual, …)
+npm test       # vitest (830+ tests across 69 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, planned-vs-actual, fuel-prompt, …)
 npm run lint
 npm run build
 ```

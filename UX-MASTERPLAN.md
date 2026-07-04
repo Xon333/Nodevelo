@@ -1,5 +1,11 @@
 # NodeVelo — UX Masterplan
 
+> **Status: all 4 waves shipped (2026-07-04/05).** Every S1/S2/S3 finding below is either ✅ shipped,
+> struck as a correction, or explicitly marked deferred/accepted (S2-4, S3-5) — nothing is silently
+> unstarted. Summary: [ARCHIVE.md](ARCHIVE.md). This document stays live as the reference for *why*
+> each call was made and as the starting point for the **next** full audit, whenever that runs —
+> it isn't retired, just not currently tracking open work.
+
 The ranked, evidence-based UX work plan. Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md);
 visual tokens stay in [`DESIGN.md`](DESIGN.md). Produced by the full-product audit + red-team of
 2026-07-03 (all seven surfaces, at commit `d635119`). Every finding carries file evidence. This is a

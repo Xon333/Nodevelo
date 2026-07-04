@@ -12,6 +12,50 @@ exact commits.
 
 ---
 
+## UX program — full-product audit through implementation, Waves 1–4 (2026-07-03 → 2026-07-05)
+
+A ground-up UX audit of all seven surfaces (Today, Plan, Trends, Profile, Model, Settings, Knowledge)
+against timeless HCI/trust principles and red-team personas (first-time athlete, injured athlete,
+ADHD, sleep-deprived, outdoors in sunlight, returning after months away) — then every finding
+implemented, desktop-first per standing instruction. Full detail (every finding, file:line evidence,
+what shipped vs. what was deliberately deferred) lives in [UX-MASTERPLAN.md](UX-MASTERPLAN.md),
+governed by [UX-CONSTITUTION.md](UX-CONSTITUTION.md) (the decision rules — verdict hierarchy,
+trust/provenance/contestability, disclosure limits, an explicit ban list). Summary by wave:
+
+- **Wave 1 — system primitives.** The entire explanation layer (`MetricTip`/`InfoDot`) was
+  hover-only — invisible to keyboard and screen readers, the single largest gap between the app's
+  stated trust philosophy and its actual behaviour. Now opens on focus too. Best-effort fetches that
+  used to fail silently (a `catch {}` making a broken feature indistinguishable from an absent one)
+  now render a `LoadFailed` retry state. The canonical dark theme flashed light on every page load —
+  fixed with a pre-hydration `<head>` script.
+- **Wave 2 — Today's one verdict.** "Can I go hard?" was answered four times in three vocabularies
+  (a fused 0–100 score, a separate Build/Hold/Recover badge, a narrative coach-read card, raw
+  TSB/ACWR tiles) with no stated precedence. `AthleteStateCard` is now the sole fold-1 verdict;
+  everything else became its supporting evidence, collapsed but not deleted.
+  `components/CoachSnapshotCard.tsx` was deleted (content absorbed).
+- **Wave 3 — page-level fixes.** Empty states became onboarding (links instead of dead ends); the
+  block calendar's day-cell detail (previously 100% hover-locked) is now keyboard-focusable; every
+  `window.confirm()` in the app — including the highest-stakes one, full-data restore — became an
+  in-product confirmation that states the actual consequence.
+- **Wave 4 — polish + a real coaching gap.** An "injured athlete" path that didn't exist before: the
+  morning check-in previously didn't even *render* on a non-quality day, so an injured athlete facing
+  an easy ride had zero way to report it. Injury now gets its own `rest` decision (not a reused
+  downgrade — the reasoning is metabolic-vs-musculoskeletal, written into `lib/morning-check.ts`).
+  Plus loading skeletons (five sites, sized to each page's real layout) and a scroll-position-aware
+  fade so an internally-scrolling card never reads as a dead end.
+
+**Deliberately not done:** S2-4 (swapping Model/Knowledge's mobile nav prominence) — evaluated and
+skipped, since desktop's nav rail already shows both correctly labelled; there's no desktop-relevant
+work to do until mobile polish resumes. S3-5 (a "what changed while you were away" re-entry summary)
+stays a roadmap-tier idea, not attempted this pass.
+
+Two implementation waves (2 and 4) were dispatched to subagents (Fable 5 for the mechanical passes,
+Opus for S2-9's coaching-safety judgment call) and independently re-verified — code read line-by-line,
+tsc/lint/test re-run, browser-checked — before commit, since the safety classifier that normally
+reviews subagent work was unavailable both times.
+
+---
+
 ## Post-ride fuel prompt — Track C accumulation flywheel (2026-07-04)
 
 `carbsOptimum` (ARCHIVE "Carbs-optimum derivation — Track C first leg") sat dormant for lack of data —

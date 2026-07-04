@@ -54,13 +54,19 @@ AI — and the AI only ever phrases numbers the code already computed.
   `lib/generate-cache.ts`
 
 ## Today page
-- **Readiness zone** — fused **Athlete State** (0–100 + band + recommendation, §5 signal fusion),
-  readiness badge (Build/Hold/Recover), fatigue + load-ramp alerts, and a TSB·ACWR·polarization strip
-  with explanatory hovers. `lib/athlete-state.ts`, `lib/readiness.ts`
-- **Proactive morning check-in (#3)** — before a quality session, a few chips (fatigue/sleep/soreness/
-  motivation + illness) → a deterministic *proceed* or *downgrade + reschedule* decision; applying it
-  downgrades today and moves the stimulus to the next rest day (else swaps with an easy day).
-  `components/MorningCheckIn.tsx`, `lib/morning-check.ts`, `app/api/morning-check`
+- **Readiness zone** — one verdict: the fused **Athlete State** card (0–100 + band + recommendation,
+  §5 signal fusion; visible score/band without interaction, ranked drivers behind hover/focus), with
+  triggered fatigue/load-ramp alerts above it (alarms outrank verdicts) and the raw TSB·ACWR·polarization·
+  energy-availability signals collapsed into a "Supporting signals" drill-down below. One vocabulary
+  owns the verdict — the old separate Build/Hold/Recover badge and coach's-read card were retired into
+  it (UX-MASTERPLAN S1-1). `components/AthleteStateCard.tsx`, `lib/athlete-state.ts`, `lib/readiness.ts`
+- **Proactive morning check-in (#3)** — a one-tap flag (feeling ill / extreme fatigue / **injured**) on
+  any day a ride is planned. Ill/fatigue only offer on a *quality* day (nothing to protect on an easy
+  one) and deterministically *downgrade* — swap the stimulus onto an upcoming easy day, or an honest
+  deload if none exists. Injury is different: it's musculoskeletal, not metabolic, so it fires on
+  *any* ride day (including easy ones — the motion itself is the risk) and recommends *rest* — no swap,
+  no make-up, just guidance to see a professional if it persists; there's nothing for the reschedule
+  machinery to move. `components/MorningCheckIn.tsx`, `lib/morning-check.ts`, `app/api/morning-check`
 - **Today's ride card** — planned vs actual, a curated metric strip (IF + effort band + **basis stamp**
   `· NP`/`· avg` · NP · avg power · RPE), the 1–10 execution score, prescription-vs-execution rep breakdown,
   a smoothed power/HR trace with interval bands, power-zone bars, and advised daily intake. *Decoupling*
