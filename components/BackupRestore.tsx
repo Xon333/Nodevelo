@@ -9,18 +9,20 @@ export default function BackupRestore() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // S2-7: the highest-stakes destructive action in the app (overwrites all local data) — an
+  // in-product confirm (not window.confirm) states the consequence before the file is processed.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // let the same file be picked again later
-    if (!file) return;
-    if (
-      !window.confirm(
-        "Restore from this backup? It overwrites ALL current training data and knowledge-base files on this machine. Critical stores keep a one-step .bak."
-      )
-    )
-      return;
+    if (file) setPendingFile(file);
+  }
 
+  async function restore() {
+    const file = pendingFile;
+    if (!file) return;
+    setPendingFile(null);
     setBusy(true);
     setStatus(null);
     try {
@@ -70,6 +72,29 @@ export default function BackupRestore() {
           className="hidden"
         />
       </div>
+      {pendingFile && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-800 dark:bg-red-950/50">
+          <p className="text-xs text-red-800 dark:text-red-300">
+            Restore from <span className="font-medium">{pendingFile.name}</span>? This overwrites ALL
+            current training data and knowledge-base files on this machine. Critical stores keep a
+            one-step <span className="font-mono">.bak</span>.
+          </p>
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              onClick={() => void restore()}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+            >
+              Restore &amp; overwrite
+            </button>
+            <button
+              onClick={() => setPendingFile(null)}
+              className="py-1.5 text-xs text-red-700 hover:underline dark:text-red-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {status && (
         <p
           className={`mt-3 text-sm ${

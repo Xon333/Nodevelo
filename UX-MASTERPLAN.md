@@ -108,7 +108,7 @@ at the button. One tiny helper/pattern, applied at each call site.
 **Measure:** `grep -n "catch {}" components/` → every hit either renders a failed-state or is
 explicitly commented as *empty-equivalent* with a reason; the post-note button shows a failure state.
 
-### S1-4 · The first-run journey is dead ends + developer jargon
+### S1-4 · The first-run journey is dead ends + developer jargon — ✅ shipped 2026-07-05
 
 **Evidence:** a fresh athlete on Today sees "Sync to compute today's readiness."
 ([TodayView.tsx:82](components/dashboard/TodayView.tsx#L82)) and "No session planned for today."
@@ -127,6 +127,14 @@ tip/docs. No wizard needed — just honest links.
 
 **Measure:** from a blank `data/`, every visible empty state contains the next action as a link;
 `grep -rn "ANTHROPIC_API_KEY" components/ app/ --include=*.tsx` → no athlete-facing hits.
+
+**Shipped:** no-active-block on Today now links "Plan your next block →" (`PlannedToday`,
+`components/dashboard/today.tsx`), mirroring the existing finished-block CTA. The degraded-readiness
+fallback (no fused state yet) gained a real "Sync now →" action wired to `doSync()` when Intervals.icu
+is configured, instead of naming an action with nowhere to click (`components/dashboard/TodayView.tsx`).
+The `ANTHROPIC_API_KEY` message is now coach-voice ("Connect the AI coach to generate blocks.") with the
+env-var detail moved to an `InfoDot` tip (`components/dashboard/BlockGenerator.tsx`) — grep-clean per
+the measure above.
 
 ### S1-5 · The canonical theme flashes light on every load
 
@@ -150,18 +158,18 @@ comment in Nav.tsx is gone.
 
 | ID | Sev | Where | Finding (evidence) | Direction |
 |---|---|---|---|---|
-| S2-1 | high | Plan (mobile) | Block calendar cells show only a day number; all meaning is hover-locked ([plan.tsx:278–333](components/dashboard/plan.tsx#L278)) | Rides on S1-2's tap popover; consider type initial in-cell on mobile |
-| S2-2 | high | global | Routine touch targets under ~24px: disposition chips `py-0.5 text-[11px]` ([SessionDisposition.tsx:54](components/SessionDisposition.tsx#L54)), calibration override link ([CalibrationPanel.tsx:153](components/CalibrationPanel.tsx#L153)), "Show more" ([plan.tsx:25](components/dashboard/plan.tsx#L25)) | Bump padding/hit-area (visual size can stay); sweep for `text-[10px]`/`[11px]` *buttons* |
-| S2-3 | med | Today | Two near-identical `e/m/h` splits, different windows: "Polarization" 7d ([today.tsx:478](components/dashboard/today.tsx#L478)) vs "Time in zones · 28d" ([TrendPulse.tsx:69](components/TrendPulse.tsx#L69)) | Ban-list §10.7: unify window or make the difference loud; likely drop one from Today |
-| S2-4 | med | IA / nav | Mobile demotes Model (the trust centerpiece) to an unlabeled brain icon while Knowledge (a markdown power-tool) keeps a tab; label drift "Knowledge Base"/"Docs" ([Nav.tsx:11–20](components/Nav.tsx#L11)) | Recommend: swap — Model gets the 6th tab, Knowledge moves behind Settings (it's configuration, visited rarely); one name everywhere |
-| S2-5 | med | Settings | h1 reads "Block generation settings" but the page also owns AI usage + backup; nav says "Settings" ([settings/page.tsx:14](app/settings/page.tsx#L14)) | h1 "Settings"; section titles carry the split (generation / platform) |
-| S2-6 | med | Today | Tooltip essays: EA tip ~120 words, ACWR ~60 ([today.tsx:520,469](components/dashboard/today.tsx#L520)) | Constitution §6: cut to ≤2 sentences + "more → /model"; long-form lives on Model page |
-| S2-7 | med | Plan / Knowledge | Destructive/discard flows use `window.confirm` ([PlanView.tsx:187](components/dashboard/PlanView.tsx#L187), [KnowledgeBaseEditor.tsx:34](components/KnowledgeBaseEditor.tsx#L34)); delete states no consequence | In-product confirm stating what's kept (ridden history survives block deletion) |
-| S2-8 | med | Today | "Generate Next Block" while a block is active doesn't say what happens to the current one ([BlockGenerator.tsx:76](components/dashboard/BlockGenerator.tsx#L76)) | One microcopy line under the button (preview-then-write already makes it safe — say so) |
+| S2-1 | high | Plan (mobile) | Block calendar cells show only a day number; all meaning is hover-locked ([plan.tsx:278–333](components/dashboard/plan.tsx#L278)) | Rides on S1-2's tap popover; consider type initial in-cell on mobile — ✅ shipped 2026-07-05: all 28 day cells now `tabIndex`+`aria-describedby`+`role="tooltip"` (the mobile-only "type initial in-cell" enhancement is still open) |
+| S2-2 | high | global | Routine touch targets under ~24px: disposition chips `py-0.5 text-[11px]` ([SessionDisposition.tsx:54](components/SessionDisposition.tsx#L54)), calibration override link ([CalibrationPanel.tsx:153](components/CalibrationPanel.tsx#L153)), "Show more" ([plan.tsx:25](components/dashboard/plan.tsx#L25)) | Bump padding/hit-area (visual size can stay); sweep for `text-[10px]`/`[11px]` *buttons* — ✅ shipped 2026-07-05, plus one more found in the sweep (AskCoach's "Ask another") |
+| S2-3 | med | Today | Two near-identical `e/m/h` splits, different windows: "Polarization" 7d ([today.tsx:478](components/dashboard/today.tsx#L478)) vs "Time in zones · 28d" ([TrendPulse.tsx:69](components/TrendPulse.tsx#L69)) | Ban-list §10.7: unify window or make the difference loud; likely drop one from Today — ✅ shipped 2026-07-04 (fell out of Wave 2, see S1-1) |
+| S2-4 | med | IA / nav | Mobile demotes Model (the trust centerpiece) to an unlabeled brain icon while Knowledge (a markdown power-tool) keeps a tab; label drift "Knowledge Base"/"Docs" ([Nav.tsx:11–20](components/Nav.tsx#L11)) | Recommend: swap — Model gets the 6th tab, Knowledge moves behind Settings (it's configuration, visited rarely); one name everywhere — **deferred**: purely a mobile bottom-tab-bar concern (desktop's rail already shows Model with its full label, unaffected); revisit when mobile work resumes |
+| S2-5 | med | Settings | h1 reads "Block generation settings" but the page also owns AI usage + backup; nav says "Settings" ([settings/page.tsx:14](app/settings/page.tsx#L14)) | h1 "Settings"; section titles carry the split (generation / platform) — ✅ shipped 2026-07-05 |
+| S2-6 | med | Today | Tooltip essays: EA tip ~120 words, ACWR ~60 ([today.tsx:520,469](components/dashboard/today.tsx#L520)) | Constitution §6: cut to ≤2 sentences + "more → /model"; long-form lives on Model page — ✅ shipped 2026-07-05 (trimmed to 2 sentences each; the "→ /model" cross-reference wasn't built — kept in scope minimal) |
+| S2-7 | med | Plan / Knowledge | Destructive/discard flows use `window.confirm` ([PlanView.tsx:187](components/dashboard/PlanView.tsx#L187), [KnowledgeBaseEditor.tsx:34](components/KnowledgeBaseEditor.tsx#L34)); delete states no consequence | In-product confirm stating what's kept (ridden history survives block deletion) — ✅ shipped 2026-07-05, plus one more found: `BackupRestore.tsx`'s restore-from-file (the single highest-stakes destructive action in the app — overwrites all local data) |
+| S2-8 | med | Today | "Generate Next Block" while a block is active doesn't say what happens to the current one ([BlockGenerator.tsx:76](components/dashboard/BlockGenerator.tsx#L76)) | One microcopy line under the button (preview-then-write already makes it safe — say so) — ✅ shipped 2026-07-05 |
 | S2-9 | med | coaching | No "injury" path: disposition reasons stop at equipment/sickness/weather/other ([SessionDisposition.tsx:15](components/SessionDisposition.tsx#L15)); morning check-in offers ill/extreme-fatigue only ([MorningCheckIn.tsx:8](components/MorningCheckIn.tsx#L8)) | Add `injury` reason + check-in flag; feeds the same downgrade machinery — red-team persona "injured athlete" currently has no honest input |
-| S2-10 | low | Today | Session attribution chips appear with zero explanation of what "Compromised" does (the one concept that changes what the model learns) ([today.tsx:403](components/dashboard/today.tsx#L403)) | One InfoDot on the row: "Compromised keeps the ride but stops it teaching the model" |
+| S2-10 | low | Today | Session attribution chips appear with zero explanation of what "Compromised" does (the one concept that changes what the model learns) ([today.tsx:403](components/dashboard/today.tsx#L403)) | One InfoDot on the row: "Compromised keeps the ride but stops it teaching the model" — ✅ shipped 2026-07-05 |
 | S3-1 | low | global | Loading is bare "Loading…" text (Dashboard, Trends, Profile) — layout jumps on resolve | Skeleton/held-height per Constitution §8; cheap on local-first |
-| S3-2 | low | global | Most buttons have no `focus-visible` ring; inputs rely on border-color only | Add a token-level focus ring (zinc/accent) in globals |
+| S3-2 | low | global | ~~Most buttons have no `focus-visible` ring~~ — **correction 2026-07-05:** re-checked `app/globals.css` directly; a global `:focus-visible { outline: 2px solid var(--focus-ring) }` rule already existed pre-dating this audit (the original finding was inferred from component classNames, never ground-truthed against globals.css). No work needed. | — |
 | S3-3 | low | Today (desktop) | Viewport-locked layout hides internal scrollability (macOS overlay scrollbars) ([TodayView.tsx:58](components/dashboard/TodayView.tsx#L58)) | Subtle fade/affordance at the clipped edge |
 | S3-4 | low | dark theme | Muted micro-labels (`zinc-500` dark on `zinc-900`) are borderline in sunlight — the red-team outdoor case | Spot-check contrast; consider `zinc-400` floor for dark-mode labels |
 | S3-5 | low | re-entry | Returning after months: no "what changed while you were away" summary (stale-FTP warning and retro prompt exist and help) | Roadmap-tier feature; note only — pairs with the ledger/context-stamp work (`← #2`) |
@@ -190,9 +198,9 @@ comment in Nav.tsx is gone.
    degraded-state convention · S1-5 theme script. ✅ shipped 2026-07-04 (commit `3aaa78a`).
 2. **Wave 2 — the verdict**: S1-1 Today hierarchy + vocabulary merge; S2-3 falls out of it.
    ✅ shipped 2026-07-04.
-3. **Wave 3 — page fixes**: S1-4 empty-state links + copy · S2-1 (rides on Wave 1) · S2-2 · S2-4/5
-   IA moves · S2-6/7/8/10.
-4. **Wave 4 — polish + coaching**: S2-9 injury path · S3-1..4.
+3. **Wave 3 — page fixes**: S1-4 empty-state links + copy · S2-1 (rides on Wave 1) · S2-2 · S2-5/6/7/8/10.
+   ✅ shipped 2026-07-05, desktop-first scope. S2-4 deferred (pure mobile IA — no desktop work exists).
+4. **Wave 4 — polish + coaching**: S2-9 injury path · S3-1, S3-3, S3-4 (S3-2 struck — see correction).
 
 Each wave ends with a Phase-6 review against the Constitution before the next starts.
 

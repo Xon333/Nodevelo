@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { isoDaysAgo, localToday as todayIso } from "@/lib/date";
@@ -22,9 +22,10 @@ function BlockOverview({ text }: { text: string }) {
         {text}
       </p>
       {(clampable || expanded) && (
+        // S2-2: py-1 (vs. none) gives this a real click/tap target.
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="mt-0.5 text-xs font-medium text-zinc-500 hover:underline dark:text-[#00d4ff]"
+          className="-my-1 py-1 text-xs font-medium text-zinc-500 hover:underline dark:text-[#00d4ff]"
         >
           {expanded ? "Show less" : "Show more"}
         </button>
@@ -237,6 +238,9 @@ export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
 // ---------- Current block card ----------
 
 function BlockCalendar({ block, scores, compromisedDates, partialDates }: { block: CurrentBlock; scores: RideScoreEntry[]; compromisedDates: string[]; partialDates: string[] }) {
+  // S2-1: each day cell's detail was hover-only (the calendar's whole story was mouse-only). One id
+  // per cell, tabIndex + aria-describedby + role="tooltip" — same pattern as Wave 1's MetricTip.
+  const idBase = useId();
   const compromisedSet = new Set(compromisedDates);
   const partialSet = new Set(partialDates);
   const today = todayIso();
@@ -274,9 +278,12 @@ function BlockCalendar({ block, scores, compromisedDates, partialDates }: { bloc
                 // athlete attributed it as cut short — label it accordingly, not plain "Completed".
                 const partial = completed && partialSet.has(day.date);
                 const missed = !completed && !compromised && day.date < today && day.type !== "Rest";
+                const cellId = `${idBase}-${day.date}`;
                 return (
                   <div key={day.date} className="group relative flex-1">
                     <div
+                      tabIndex={0}
+                      aria-describedby={cellId}
                       className={`flex h-7 w-full items-center justify-center rounded text-[10px] font-medium ${TYPE_STYLES[day.type].cell} ${
                         day.type === "Rest" ? "text-zinc-600" : "text-white"
                       } ${day.date === today ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-[#ff49c8] dark:ring-offset-zinc-800" : ""} ${
@@ -294,9 +301,12 @@ function BlockCalendar({ block, scores, compromisedDates, partialDates }: { bloc
                         day.date.slice(8)
                       )}
                     </div>
-                    {/* Custom tooltip */}
+                    {/* Day detail — opens on hover (mouse) or keyboard focus/tap (S2-1), same
+                        mechanic as ui.tsx's MetricTip. */}
                     <div
-                      className={`pointer-events-none absolute bottom-full mb-2 z-30 opacity-0 transition-opacity duration-100 group-hover:opacity-100 w-max max-w-[160px] ${alignClass}`}
+                      id={cellId}
+                      role="tooltip"
+                      className={`pointer-events-none absolute bottom-full mb-2 z-30 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 w-max max-w-[160px] ${alignClass}`}
                     >
                       <div className="rounded border border-zinc-200 bg-white px-2.5 py-2 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
                         <p className="text-[11px] font-semibold leading-tight text-zinc-800 dark:text-zinc-100">
@@ -363,6 +373,8 @@ export function CurrentBlockSection({
   compromisedDates: string[];
   partialDates: string[];
 }) {
+  // S2-7: an in-product two-step confirm (state what's kept) replaces window.confirm's generic prompt.
+  const [confirming, setConfirming] = useState(false);
   if (!block) {
     return (
       <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-center dark:border-zinc-600 dark:bg-zinc-800">
@@ -407,13 +419,36 @@ export function CurrentBlockSection({
             </p>
           </div>
           {onDelete && (
-            <button
-              onClick={onDelete}
-              className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
-              title="Delete this block to generate a new one"
-            >
-              Delete block
-            </button>
+            confirming ? (
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Delete the plan — ridden history and scores are kept.
+                </span>
+                <button
+                  onClick={() => {
+                    setConfirming(false);
+                    onDelete();
+                  }}
+                  className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                >
+                  Yes, delete
+                </button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirming(true)}
+                className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                title="Delete this block to generate a new one"
+              >
+                Delete block
+              </button>
+            )
           )}
         </div>
         {block.overview && <BlockOverview text={block.overview} />}

@@ -98,10 +98,21 @@ export default function TodayView() {
           />
         ) : (
           // Degraded read: no fused state yet (thin/no data). The readiness reason is already a plain
-          // sentence — shown without the retired Build/Hold/Recover badge register.
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            {state.readiness?.reason ?? "Sync to compute today's readiness."}
-          </p>
+          // sentence — shown without the retired Build/Hold/Recover badge register. S1-4: when
+          // Intervals.icu is connected, the remedy is one click — make it a real action, not a dead end.
+          <div>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {state.readiness?.reason ?? "Sync to compute today's readiness."}
+            </p>
+            {state.configured && (
+              <button
+                onClick={() => void doSync()}
+                className="mt-1 text-sm text-cyan-700 hover:underline dark:text-[#00d4ff]"
+              >
+                Sync now →
+              </button>
+            )}
+          </div>
         )}
         {/* Evidence tier: the raw signals behind the verdict, collapsed by default — reachable in one
             click/keypress, not shouting (hidden ≠ deleted, Constitution §6). */}

@@ -27,11 +27,17 @@ export default function KnowledgeBaseEditor() {
   const [content, setContent] = useState("");
   const [original, setOriginal] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({ state: "idle" });
+  // S2-7: an in-product confirm banner replaces window.confirm — set instead of switching
+  // immediately when there are unsaved changes; the banner below resolves it.
+  const [pendingSwitch, setPendingSwitch] = useState<Selection | null>(null);
 
   const dirty = content !== original;
 
   const open = async (sel: Selection, force = false) => {
-    if (!force && dirty && !window.confirm("Discard unsaved changes?")) return;
+    if (!force && dirty) {
+      setPendingSwitch(sel);
+      return;
+    }
     try {
       const param = sel.kind === "retro" ? `retro=${encodeURIComponent(sel.name)}` : `file=${encodeURIComponent(sel.name)}`;
       const data = await api<{ content: string }>(`/api/knowledge?${param}`);
@@ -112,6 +118,29 @@ export default function KnowledgeBaseEditor() {
           ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block."
           : "Injected into every generation prompt. Edits apply immediately to the next generation."}
       </p>
+      {pendingSwitch && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/40">
+          <span className="text-xs text-amber-800 dark:text-amber-300">
+            Switch files and discard your unsaved changes to {selected?.name}?
+          </span>
+          <button
+            onClick={() => {
+              const sel = pendingSwitch;
+              setPendingSwitch(null);
+              void open(sel, true);
+            }}
+            className="rounded-md bg-amber-700 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-700"
+          >
+            Discard &amp; switch
+          </button>
+          <button
+            onClick={() => setPendingSwitch(null)}
+            className="py-1 text-xs text-amber-800 hover:underline dark:text-amber-300"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
       <div className="mt-4 flex gap-3">
         <aside className="w-52 shrink-0">
           <ul className="space-y-0.5">

@@ -109,7 +109,8 @@ export default function AskCoach() {
             {answer && <p className="whitespace-pre-line text-xs leading-5 text-zinc-700 dark:text-zinc-300">{answer}</p>}
           </div>
           {!loading && (
-            <button onClick={reset} className="mt-1.5 text-[11px] text-cyan-700 hover:underline dark:text-[#00d4ff]">
+            // S2-2: -my-1 py-1 widens the hit area without shifting the visible layout.
+            <button onClick={reset} className="-my-1 mt-1.5 py-1 text-[11px] text-cyan-700 hover:underline dark:text-[#00d4ff]">
               Ask another
             </button>
           )}

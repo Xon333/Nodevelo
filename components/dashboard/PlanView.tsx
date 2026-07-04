@@ -186,8 +186,9 @@ export default function PlanView() {
     }
   };
 
+  // S2-7: the confirm now happens in-product, inline in CurrentBlockSection (plan.tsx) before this
+  // fires — window.confirm's generic browser dialog never stated that ridden history/scores survive.
   const deleteBlock = async () => {
-    if (!window.confirm("Delete the current block? You can generate a new one after.")) return;
     try {
       await api("/api/sync", { method: "DELETE" });
       setState((s) => (s ? { ...s, currentBlock: null } : s));

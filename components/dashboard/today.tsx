@@ -480,9 +480,11 @@ export function RecentDataSummary({
         <div tabIndex={0} aria-describedby={`${tipId}-acwr`} className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             <span className="underline decoration-dotted underline-offset-2">ACWR</span>
+            {/* S2-6: trimmed to Constitution §6's 2-sentence tip limit — the ratio/level readout is
+                already the value shown beside this label, so it isn't repeated here. */}
             <MetricTip
               id={`${tipId}-acwr`}
-              text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Below 0.8 you're detraining (losing fitness); 0.8–1.3 is the safe progression sweet spot; >1.5 is a spike with raised injury risk. You're at ${acwr.ratio.toFixed(2)} (${acwr.level}).`}
+              text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Sweet spot is 0.8–1.3; below that you're detraining, above 1.5 is a spike with raised injury risk.`}
             />
           </p>
           <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-100">
@@ -541,7 +543,8 @@ export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
     >
       <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         <span className="underline decoration-dotted underline-offset-2">Energy availability</span>
-        <MetricTip id={`${tipId}-ea`} text={`Energy left for recovery after exercise — your logged intake minus exercise burn (all activities with power/energy data, kJ≈kcal), per kg body weight, averaged over the last ${ea.daysUsed} complete days (today is excluded — it's still being logged). A proxy, not a clinical figure: it's on body weight (not fat-free mass) and reads low if you under-log intake. The low / adequate / ample read is a rough reference on a body-weight basis (the clinical 30/45 kcal/kg cutoffs are defined on fat-free mass), not a diagnosis. The arrow is vs the prior week.`} />
+        {/* S2-6: trimmed to Constitution §6's 2-sentence tip limit. */}
+        <MetricTip id={`${tipId}-ea`} text={`Energy left for recovery — logged intake minus exercise burn, per kg body weight, averaged over your last ${ea.daysUsed} complete days. A rough proxy on body weight (not the clinical fat-free-mass figure) — reads low if you under-log intake.`} />
       </p>
       <p className="shrink-0 font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-200">
         {ea.eaKcalPerKg}
@@ -575,11 +578,25 @@ export function PlannedToday({ block }: { block: CurrentBlock | null }) {
   }
   const day = block?.days.find((d) => d.date === today) ?? null;
   if (!day || day.type === "Rest") {
-    return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        {day?.type === "Rest" ? "Rest day — recover." : "No session planned for today."}
-      </p>
-    );
+    if (day?.type === "Rest") {
+      return <p className="text-sm text-zinc-500 dark:text-zinc-400">Rest day — recover.</p>;
+    }
+    // S1-4: no active block is a dead end without a link — mirrors the finished-block CTA above.
+    // A block that HAS a gap for today (rare data edge case) still gets the plain honest message.
+    if (!block) {
+      return (
+        <div>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">No active training block yet.</p>
+          <Link
+            href="/plan"
+            className="mt-2 inline-block text-sm text-cyan-700 hover:underline dark:text-[#00d4ff]"
+          >
+            Plan your next block →
+          </Link>
+        </div>
+      );
+    }
+    return <p className="text-sm text-zinc-500 dark:text-zinc-400">No session planned for today.</p>;
   }
   const style = TYPE_STYLES[day.type];
   return (

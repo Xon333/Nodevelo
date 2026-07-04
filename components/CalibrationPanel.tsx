@@ -149,10 +149,11 @@ function ParamRow({
           </button>
         </div>
       ) : (
+        // S2-2: py-1 gives these text-only links a taller click/tap target without changing the type size.
         <div className="mt-1.5 flex flex-wrap items-center gap-3">
           <button
             onClick={startEdit}
-            className="text-[11px] font-medium text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-[#00d4ff]"
+            className="py-1 text-[11px] font-medium text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-[#00d4ff]"
           >
             {overridden ? "Adjust" : "This looks wrong — set my own"}
           </button>
@@ -160,7 +161,7 @@ function ParamRow({
             <button
               onClick={() => void save(null)}
               disabled={saving}
-              className="text-[11px] text-zinc-500 transition-colors hover:text-zinc-600 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-300"
+              className="py-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-600 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-300"
             >
               Use learned value
             </button>

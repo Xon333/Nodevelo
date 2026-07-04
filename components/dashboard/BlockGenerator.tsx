@@ -1,5 +1,7 @@
 "use client";
 
+import { InfoDot } from "../ui";
+
 // The block-generation form on the Plan page. Presentational: PlanView owns the generator state and
 // handlers and threads them in. Extracted from the old 529-line Dashboard monolith (RV-8) — it was the
 // largest, most tangled inline chunk. When a block is already active it collapses to a thin bar so it
@@ -79,9 +81,11 @@ export default function BlockGenerator({
                   ? "Generate Next Block"
                   : "Generate New Block"}
             </button>
+            {/* S1-4: coach-voice message, not a raw env-var name — the setup detail moves to the tip. */}
             {!anthropicConfigured && (
-              <p className="text-xs text-red-600">
-                ANTHROPIC_API_KEY is not set — generation is unavailable.
+              <p className="flex items-center gap-1 text-xs text-red-600">
+                Connect the AI coach to generate blocks.
+                <InfoDot text="Set ANTHROPIC_API_KEY in the server's environment config, then restart." />
               </p>
             )}
             {showSyncTip && (
@@ -90,6 +94,13 @@ export default function BlockGenerator({
               </p>
             )}
           </div>
+          {/* S2-8: the current block is untouched by clicking Generate — it only opens a preview
+              you review below, and nothing replaces the active block until you explicitly write it. */}
+          {hasActiveBlock && (
+            <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+              Opens a preview to review — your current block stays active until you choose to write the new one.
+            </p>
+          )}
           {generateError && (
             <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
               {generateError}
