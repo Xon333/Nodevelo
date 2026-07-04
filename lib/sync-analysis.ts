@@ -13,7 +13,21 @@ import {
   readTodayAnalysis,
   writeTodayAnalysis,
 } from "./data-store";
+import type { FuelPrompt } from "./fuel-prompt";
 import type { TodayAnalysis } from "./types";
+
+// Format the deterministic fuelPrompt (lib/fuel-prompt.ts) into the one-line context the coach-note
+// prompt may mention verbatim — the LLM phrases, it never computes. Numbers only, straight from the
+// already-derived FuelPrompt; no new calculation happens here.
+export function formatFuelPromptContext(fuelPrompt: FuelPrompt): string {
+  if (fuelPrompt.kind === "log-nudge") {
+    const h = Math.floor(fuelPrompt.durationMin / 60);
+    const m = fuelPrompt.durationMin % 60;
+    const duration = h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${m}m`;
+    return `FUEL PROMPT: rode ${duration} with no carbs logged — remind to log in-ride carbs in Intervals.icu`;
+  }
+  return `FUEL PROMPT: logged ${fuelPrompt.loggedGPerH} g/h vs derived optimum ${fuelPrompt.optimumGPerH} g/h`;
+}
 
 // `force` re-runs even when a note already exists — used by the manual re-analyse action so an
 // athlete can retry after an Anthropic hiccup without waiting for the next full sync. The default
@@ -52,6 +66,9 @@ export async function addCoachNote(
     input.hrZoneTimes = analysis.hrZoneTimes;
     input.intervalComparison = analysis.intervalComparison;
     input.powerPRs = analysis.powerPRs;
+    // Truthy-checked (never `=== null`): a today-analysis.json written before fuelPrompt existed
+    // parses back with the key absent, not null.
+    input.fuelPromptContext = analysis.fuelPrompt ? formatFuelPromptContext(analysis.fuelPrompt) : null;
 
     const coachNote = await analyseRide(input);
     const updated: TodayAnalysis = {

@@ -332,6 +332,10 @@ export interface RideAnalysisInput {
   plannedWorkoutText: string | null;
   athleteFtp: number;
   athleteThresholdHr: number;
+  // Pre-formatted, one-line context from the deterministic fuel prompt (lib/fuel-prompt.ts) — the
+  // numbers are already computed; the model may mention this in one sentence but must never
+  // invent or recompute the figures. Absent (null) when no fuel prompt fired today.
+  fuelPromptContext?: string | null;
 }
 
 function fmtIntervals(c: IntervalComparison | null): string | null {
@@ -420,8 +424,12 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
     ? `Athlete note: "${input.activityDescription.trim().slice(0, 400)}"`
     : null;
 
+  // Deterministic fuel-prompt context (lib/fuel-prompt.ts) — a pre-computed, one-line nudge or gap
+  // read the model may mention, never recompute. Pre-formatted by the caller; passed through verbatim.
+  const fuelPromptLine = input.fuelPromptContext?.trim() ? input.fuelPromptContext.trim() : null;
+
   return [
-    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. No greeting, no fluff, and do not restate the prescription verbatim.",
+    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
     "",
     planned,
     header,
@@ -433,6 +441,7 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
     powerZoneLine,
     hrZoneLine,
     athleteNote,
+    fuelPromptLine,
   ].filter(Boolean).join("\n");
 }
 

@@ -50,13 +50,33 @@ import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveA
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { resolveToday, utcToday } from "@/lib/date";
-import type { ActivitySummary, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
+import { deriveFuelPrompt } from "@/lib/fuel-prompt";
+import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
 
 // A sync fires several sequential Intervals.icu requests (each network-bounded to 20s in the API
 // client) plus, on a ride day, per-ride stream/interval fetches. Cap the whole handler so a slow
 // upstream surfaces as an error rather than an open-ended request (CR-B). The slow LLM coach note is
 // deferred to /api/analyze, so this ceiling doesn't need to cover model latency.
 export const maxDuration = 120;
+
+// Resolve the athlete's carbsOptimum calibration into the shape deriveFuelPrompt wants — a value PLUS
+// its confidence, so a "gap" claim can be gated on trustworthiness (calibrated-honesty: never let a
+// population default masquerade as personalized). Mirrors resolveCalibratedValue's exact precedence
+// (manual override, then a trustworthy derived value — locked or ≥ medium confidence), but where that
+// generic resolver collapses to a plain number (falling back to a population default), this ALWAYS
+// falls back to null instead — "not personalized enough" must never silently become "here's a number."
+export function resolveCarbsOptimumForPrompt(
+  param: CalibratedParameter | undefined | null
+): { value: number; confidence: "low" | "medium" | "high" } | null {
+  if (!param) return null;
+  if (typeof param.manualOverride === "number" && Number.isFinite(param.manualOverride)) {
+    return { value: param.manualOverride, confidence: "high" }; // an explicit override is maximally trustworthy
+  }
+  if (param.source === "derived" && Number.isFinite(param.value) && (param.locked || param.confidence !== "low")) {
+    return { value: param.value, confidence: param.confidence };
+  }
+  return null; // falls back to a population default elsewhere in the app — not personalized enough to gate a "gap" claim
+}
 
 // GET returns the cached app state; it never hits Intervals.icu. `?today=` is the client's local date
 // (so the CoachSnapshot resolves against the calendar day the athlete sees); falls back to UTC.
@@ -537,7 +557,15 @@ export async function POST(req: Request) {
             preserved: priorAnalysis,
             resolvedCal,
           });
-          todayAnalysis = built;
+          // Deterministic post-ride fuel prompt (lib/fuel-prompt.ts) — computed once per sync, today's
+          // ride only. Pure decision, no LLM. Absent/null → key omitted entirely (sparse-field
+          // convention this codebase already uses for formState/intervals — never persist `null`).
+          const fuelPrompt = deriveFuelPrompt({
+            activity: todayActivity,
+            plannedType: plannedDay?.type ?? null,
+            carbsOptimum: resolveCarbsOptimumForPrompt(calibration.carbsOptimum),
+          });
+          todayAnalysis = { ...built, ...(fuelPrompt ? { fuelPrompt } : {}) };
           await writeTodayAnalysis(todayAnalysis);
 
           // Keep the ledger's entry for today consistent with this richer, interval-aware

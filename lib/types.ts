@@ -1,5 +1,7 @@
 // Shared types used across server modules and client components.
 
+import type { FuelPrompt } from "./fuel-prompt";
+
 export type WorkoutType =
   | "Z2"
   | "Threshold"
@@ -760,6 +762,10 @@ export interface TodayAnalysis {
   intervalComparison: IntervalComparison | null; // prescription vs execution
   trace: RideTrace | null; // downsampled streams + interval bands for the power chart
   powerPRs?: PowerPR[]; // new power bests set during this ride (vs the prior 84-day curve)
+  // Deterministic post-ride fuel prompt (lib/fuel-prompt.ts) — log-nudge or gap vs the derived carb
+  // optimum. OPTIONAL: a today-analysis.json written before this field existed parses back as
+  // undefined, not null — read sites must truthy-check (`if (analysis.fuelPrompt)`), never `=== null`.
+  fuelPrompt?: FuelPrompt | null;
   // Provenance of the coach note (the only AI-produced field here); set when the note is written.
   model?: string;
   promptVersion?: number;

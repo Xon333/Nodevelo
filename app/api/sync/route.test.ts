@@ -65,7 +65,8 @@ import * as api from "@/lib/intervals-api";
 import * as anthropic from "@/lib/anthropic-api";
 import * as phys from "@/lib/physiology";
 import * as store from "@/lib/data-store";
-import { DELETE, GET, POST } from "@/app/api/sync/route";
+import { DELETE, GET, POST, resolveCarbsOptimumForPrompt } from "@/app/api/sync/route";
+import type { CalibratedParameter } from "@/lib/types";
 
 const TODAY = "2026-06-22";
 
@@ -140,6 +141,17 @@ const mkScoreEntry = (over: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
   ftpUsed: 250,
   durationMin: 75,
   tss: 80,
+  ...over,
+});
+
+const mkCalParam = (over: Partial<CalibratedParameter> = {}): CalibratedParameter => ({
+  value: 60,
+  source: "derived",
+  confidence: "medium",
+  dataPoints: 12,
+  lastUpdated: "2026-06-20T00:00:00.000Z",
+  locked: false,
+  manualOverride: null,
   ...over,
 });
 
@@ -409,6 +421,36 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
   });
 });
 
+describe("resolveCarbsOptimumForPrompt — calibrated-honesty gate for the fuel prompt", () => {
+  it("returns null for a low-confidence/non-derived/no-override calibration (population default, not personalized)", () => {
+    expect(resolveCarbsOptimumForPrompt(undefined)).toBeNull();
+    expect(resolveCarbsOptimumForPrompt(null)).toBeNull();
+    expect(resolveCarbsOptimumForPrompt(mkCalParam({ source: "default", confidence: "low" }))).toBeNull();
+    // Derived but still low confidence and not locked — not yet trustworthy enough to gate a claim.
+    expect(resolveCarbsOptimumForPrompt(mkCalParam({ source: "derived", confidence: "low", locked: false }))).toBeNull();
+  });
+
+  it("returns {value, confidence: high} for a manual override, taking precedence over everything else", () => {
+    const withOverride = mkCalParam({ source: "default", confidence: "low", manualOverride: 55 });
+    expect(resolveCarbsOptimumForPrompt(withOverride)).toEqual({ value: 55, confidence: "high" });
+  });
+
+  it("passes through the real confidence for a trustworthy derived value", () => {
+    expect(resolveCarbsOptimumForPrompt(mkCalParam({ source: "derived", confidence: "medium", value: 69 }))).toEqual({
+      value: 69,
+      confidence: "medium",
+    });
+    expect(resolveCarbsOptimumForPrompt(mkCalParam({ source: "derived", confidence: "high", value: 72 }))).toEqual({
+      value: 72,
+      confidence: "high",
+    });
+    // Locked at low confidence still counts as trustworthy (mirrors resolveCalibratedValue's own gate).
+    expect(
+      resolveCarbsOptimumForPrompt(mkCalParam({ source: "derived", confidence: "low", locked: true, value: 50 }))
+    ).toEqual({ value: 50, confidence: "low" });
+  });
+});
+
 describe("POST /api/sync — today-ride analysis path", () => {
   const seedTodayRide = () => {
     vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
@@ -506,6 +548,46 @@ describe("POST /api/sync — today-ride analysis path", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).warnings.some((w: string) => /Ride analysis failed: stream 500/.test(w))).toBe(true);
     expect(store.writeTodayAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("computes and persists fuelPrompt for a qualifying ride (planned Threshold, unlogged carbs → log-nudge)", async () => {
+    seedTodayRide(); // mkBlock's Threshold day qualifies regardless of duration; mkActivity's carbsIngestedG is null
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.todayAnalysis.fuelPrompt).toEqual({ kind: "log-nudge", reason: "interval-day", durationMin: 75 });
+    const written = vi.mocked(store.writeTodayAnalysis).mock.calls.at(-1)![0];
+    expect(written?.fuelPrompt).toEqual({ kind: "log-nudge", reason: "interval-day", durationMin: 75 });
+  });
+
+  it("omits the fuelPrompt key entirely (not null) when the ride doesn't qualify", async () => {
+    // Off-plan (no plannedDay) + under the 90-min long-ride threshold — deriveFuelPrompt returns null.
+    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ movingTimeSec: 3000 })] }));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.todayAnalysis.fuelPrompt).toBeUndefined();
+    expect("fuelPrompt" in json.todayAnalysis).toBe(false); // sparse-field convention: key absent, not null
+    const written = vi.mocked(store.writeTodayAnalysis).mock.calls.at(-1)![0];
+    expect(written).not.toBeNull();
+    expect("fuelPrompt" in (written as object)).toBe(false);
+  });
+
+  it("surfaces a gap fuelPrompt when logged carbs fall well under a trustworthy derived optimum", async () => {
+    seedTodayRide(); // planned Threshold on TODAY
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: [mkActivity({ carbsIngestedG: 65, movingTimeSec: 4500 })] }) // 65g / 1.25h = 52 g/h
+    );
+    vi.mocked(store.readCalibration).mockResolvedValue({
+      decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
+      carbsOptimum: mkCalParam({ source: "derived", confidence: "medium", value: 90 }), // 52 < 90 - 20
+      updatedAt: "",
+    });
+    const res = await postSync();
+    const json = await res.json();
+    expect(json.todayAnalysis.fuelPrompt).toEqual({ kind: "gap", loggedGPerH: 52, optimumGPerH: 90, deltaGPerH: -38 });
   });
 });
 

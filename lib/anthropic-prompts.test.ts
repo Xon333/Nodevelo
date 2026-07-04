@@ -70,6 +70,22 @@ describe("buildRideAnalysisPrompt", () => {
     };
     expect(buildRideAnalysisPrompt(rideInput({ intervalComparison: comparison }))).toContain("plan/detection mismatch");
   });
+
+  it("includes the FUEL PROMPT line verbatim, with an instruction to use its numbers as-is, when fuelPromptContext is present", () => {
+    const p = buildRideAnalysisPrompt(
+      rideInput({ fuelPromptContext: "FUEL PROMPT: logged 35 g/h vs derived optimum 69 g/h" })
+    );
+    expect(p).toContain("FUEL PROMPT: logged 35 g/h vs derived optimum 69 g/h");
+    expect(p).toContain("never invent or recompute them"); // the model must not compute its own figures
+  });
+
+  it("omits the FUEL PROMPT data line when fuelPromptContext is absent or null (the instruction sentence itself always mentions FUEL PROMPT by name)", () => {
+    // The always-present instruction sentence legitimately contains the substring "FUEL PROMPT" (telling
+    // the model how to handle the line WHEN present) — so assert on the concrete data-line shape
+    // (`FUEL PROMPT: ...`) rather than the bare substring, which would false-fail against that sentence.
+    expect(buildRideAnalysisPrompt(rideInput())).not.toMatch(/FUEL PROMPT: /);
+    expect(buildRideAnalysisPrompt(rideInput({ fuelPromptContext: null }))).not.toMatch(/FUEL PROMPT: /);
+  });
 });
 
 const retroInput = (over: Partial<RetrospectiveInput> = {}): RetrospectiveInput => ({

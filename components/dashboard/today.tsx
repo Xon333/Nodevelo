@@ -172,6 +172,35 @@ export function TodayRideCard({
         </div>
       )}
 
+      {/* Fuel prompt — a quiet nudge/gap read from lib/fuel-prompt.ts (deterministic, no LLM), truthy-
+          checked (never `=== null`: a today-analysis.json written before this field existed parses back
+          with the key simply absent). Neutral zinc/cyan tone (not the PR banner's amber "celebration"
+          treatment) — this is informational, not a win. */}
+      {analysis.fuelPrompt && (
+        <div className="mt-3 flex items-center gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+          <span className="text-sm" aria-hidden>⛽</span>
+          {analysis.fuelPrompt.kind === "log-nudge" ? (
+            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+              Log your in-ride carbs on Intervals.icu —{" "}
+              {analysis.fuelPrompt.reason === "long-ride" ? "long rides" : "interval days"} teach your fueling
+              optimum.
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+              You logged{" "}
+              <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">
+                {analysis.fuelPrompt.loggedGPerH} g/h
+              </span>
+              ; your derived optimum is{" "}
+              <span className="font-mono font-semibold text-cyan-700 dark:text-[#00d4ff]">
+                {analysis.fuelPrompt.optimumGPerH} g/h
+              </span>{" "}
+              <span className="text-zinc-400 dark:text-zinc-500">(from your own rides)</span>.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Planned vs Actual */}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <div className="rounded border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
@@ -551,7 +580,11 @@ export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
         <span className="ml-0.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400"> kcal/kg</span>
         <span className={`ml-1.5 font-sans text-[10px] font-medium ${levelTone}`}>{level}</span>
         {arrow && <span className="ml-1 text-[10px] font-normal text-cyan-600 dark:text-[#00d4ff]">{arrow}</span>}
-        <span className="ml-1.5 text-[10px] font-normal text-zinc-400 dark:text-zinc-500">{ea.daysUsed}d</span>
+        {/* S3-4: the documented micro-label pair (DESIGN.md §3 — zinc-500 light / zinc-400 dark,
+            "for AA contrast"); this suffix had drifted to the inverse pair. On the dark zinc-900
+            tile zinc-500 was 3.67:1 (fails AA 4.5:1) vs zinc-400's 6.91:1; on the light zinc-50
+            tile zinc-400 was 2.46:1 vs zinc-500's 4.63:1. */}
+        <span className="ml-1.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400">{ea.daysUsed}d</span>
       </p>
     </div>
   );
