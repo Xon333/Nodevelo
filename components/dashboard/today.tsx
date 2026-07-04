@@ -6,7 +6,6 @@ import type {
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
-  ReadinessSignal,
   SyncData,
   TodayAnalysis,
 } from "@/lib/types";
@@ -22,25 +21,29 @@ import { useId } from "react";
 import RideTrace from "../RideTrace";
 import SessionDisposition from "../SessionDisposition";
 import { Card, InfoDot, MetricTip } from "../ui";
-import { ACWR_COLOR, READINESS_STYLES, ZoneBars, trendArrow } from "./shared";
+import { ACWR_COLOR, ZoneBars, trendArrow } from "./shared";
 
-// ---------- Readiness badge ----------
+// ---------- Readiness alerts ----------
 
-export function ReadinessBadge({
-  readiness,
+// Triggered fatigue/load-ramp banners — alarms outrank verdicts (Constitution §4, aviation-style),
+// so these render at the very top of Zone 1, above the athlete-state verdict. The old standalone
+// Build/Hold/Recover readiness badge was retired here (S1-1): it was a second same-altitude verdict
+// in a rival vocabulary. Its fatigue overrides share thresholds with these banners (lib/readiness.ts
+// RV2-9), and its TSB narration lives on in the verdict card's form line, its TSB driver, and the
+// TSB tile — the signal still feeds the AI snapshot unchanged.
+export function ReadinessAlerts({
   fatigueAlert,
   loadRamp,
 }: {
-  readiness: ReadinessSignal | null;
   fatigueAlert: FatigueAlert | null;
   loadRamp: LoadRampAlert | null;
 }) {
   // Tips open on keyboard focus too (tabIndex + group-focus-within), not hover alone — the
   // Constitution §6 rule; ids wire the text to assistive tech.
   const tipId = useId();
-  if (!readiness) return null;
+  if (!fatigueAlert?.triggered && !loadRamp?.triggered) return null;
   return (
-    <div className="space-y-1.5">
+    <div className="mb-2 space-y-1.5">
       {fatigueAlert?.triggered && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-800 dark:bg-red-950/60">
           <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-red-500" />
@@ -75,17 +78,6 @@ export function ReadinessBadge({
           <MetricTip id={`${tipId}-ramp`} text="Flags when this week's training load jumps well above last week's — a common injury-risk signal." />
         </div>
       )}
-      <div
-        tabIndex={0}
-        aria-describedby={`${tipId}-readiness`}
-        className={`group relative flex items-center gap-2.5 rounded-lg border px-3 py-2 ${READINESS_STYLES[readiness.level]}`}
-      >
-        <span className="text-xs font-semibold uppercase tracking-wider opacity-60">Readiness</span>
-        <span className="text-sm font-semibold">{readiness.level}</span>
-        <span className="text-xs opacity-70">— {readiness.reason}</span>
-        <span className="ml-auto shrink-0 text-xs opacity-40">ⓘ</span>
-        <MetricTip id={`${tipId}-readiness`} text="Reads your form (TSB) and acute-fatigue load (ATL/CTL) to suggest whether to build, hold, or recover today. (HRV is not yet in the loop — it's gated off until an overnight source exists.)" />
-      </div>
     </div>
   );
 }
@@ -502,7 +494,9 @@ export function RecentDataSummary({
       {polarization && (
         <div tabIndex={0} aria-describedby={`${tipId}-polarization`} className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            <span className="underline decoration-dotted underline-offset-2">Polarization</span>
+            {/* "· 7d" stamps the window on the label (S2-3): Trend pulse shows a near-identical e/m/h
+                split over 28d — the two must not read as the same number disagreeing. */}
+            <span className="underline decoration-dotted underline-offset-2">Polarization · 7d</span>
             <MetricTip
               id={`${tipId}-polarization`}
               align="right"

@@ -30,7 +30,7 @@ regressing the product's core idea:
 
 ## 2 · System-level findings (S1 — fix the system first)
 
-### S1-1 · Today answers "can I go hard?" four times, in three vocabularies
+### S1-1 · Today answers "can I go hard?" four times, in three vocabularies — ✅ shipped 2026-07-04
 
 **Evidence:** Zone 1 stacks MorningCheckIn + AthleteStateCard (0–100, `primed…depleted`) +
 CoachSnapshotCard ("Form +3 · fresh — guidance") + ReadinessBadge (`Build/Hold/Recover`) + TSB/ACWR/
@@ -49,6 +49,19 @@ Merge or re-register the `Build/Hold/Recover` vocabulary into the state register
 
 **Measure:** fold-1 contains exactly one verdict; the two vocabularies become one; time-to-decision
 proxy = elements above the session card drops from ~7 to ≤4.
+
+**Shipped:** `AthleteStateCard` is now the sole fold-1 verdict — score/band/recommendation visible
+without interaction (only the ranked drivers stay behind hover/focus), with the coach-snapshot
+TSB-modifier guidance and FTP-retest advisory folded in as its supporting lines (`components/AthleteStateCard.tsx`).
+The standalone `Build/Hold/Recover` badge (`ReadinessBadge`) is retired; `ReadinessAlerts`
+(`components/dashboard/today.tsx`) keeps only the triggered fatigue/load-ramp alarms above the verdict,
+aviation-style. `CoachSnapshotCard.tsx` is deleted (content absorbed). The TSB/ACWR/Polarization/EA
+tiles + remaining coach context (FTP, fuel) collapse into a "Supporting signals" `<details>`
+(`components/dashboard/TodayView.tsx`) — hidden, not deleted. `ReadinessSignal`/`computeReadiness` are
+untouched and still feed the AI snapshot (`lib/coach-snapshot.ts`) unchanged — this was a presentation-layer
+merge only. S2-3 (the two near-identical `e/m/h` splits) fell out of it for free: the 7-day tile is now
+labelled "Polarization · 7d" against the Trend Pulse's "Time in zones · 28d". Fold-1 element count above
+the session card: 1 (was ~5).
 
 ### S1-2 · The entire explanation layer is hover-only — invisible to touch, keyboard, and screen readers
 
@@ -174,8 +187,9 @@ comment in Nav.tsx is gone.
 ## 5 · Sequencing
 
 1. **Wave 1 — system primitives** (unblocks everything): S1-2 tip/popover primitive · S1-3
-   degraded-state convention · S1-5 theme script.
+   degraded-state convention · S1-5 theme script. ✅ shipped 2026-07-04 (commit `3aaa78a`).
 2. **Wave 2 — the verdict**: S1-1 Today hierarchy + vocabulary merge; S2-3 falls out of it.
+   ✅ shipped 2026-07-04.
 3. **Wave 3 — page fixes**: S1-4 empty-state links + copy · S2-1 (rides on Wave 1) · S2-2 · S2-4/5
    IA moves · S2-6/7/8/10.
 4. **Wave 4 — polish + coaching**: S2-9 injury path · S3-1..4.

@@ -292,9 +292,11 @@ could fire. What's left:
 
 - **UX program → [`UX-MASTERPLAN.md`](UX-MASTERPLAN.md)** (2026-07-03 full-product audit; governed by
   [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md)) — the ranked S1–S3 backlog lives there, not here.
-  Headline S1s: one-verdict Today (three readiness vocabularies compete in Zone 1), tap/focus-capable
-  explanation layer (all tips are hover-only → invisible on mobile), visible degraded-states for
-  best-effort fetches, empty-states-as-onboarding, dark-mode FOUC script. Waves 1–4 sequenced in the plan.
+  Waves 1–2 shipped 2026-07-04: tap/focus-capable explanation layer (was hover-only → invisible on
+  mobile), visible degraded-states for best-effort fetches, dark-mode FOUC script, and the Today page's
+  one-verdict restructure (was 4 same-altitude instruments in 3 vocabularies → the fused athlete-state
+  card alone, evidence collapsed beneath it). Open: S1-4 empty-states-as-onboarding + the S2/S3
+  page-level backlog, Waves 3–4 sequenced in the plan.
 - **Energy-availability tile — open slivers** — the deterministic EA proxy shipped (Today, trailing-window
   `(intake − ride burn)/kg`; now reads low/adequate/ample on a body-weight basis, and feeds
   `CoachSnapshot.fuel` `← #1` → ARCHIVE). Left: a *personalised* "adequate" line `← Track C` calibration.

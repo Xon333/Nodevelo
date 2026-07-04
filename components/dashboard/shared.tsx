@@ -1,13 +1,9 @@
 // Shared presentational primitives + style maps used across the Today and Plan dashboard views.
-import type { AcwrResult, ReadinessSignal } from "@/lib/types";
+import type { AcwrResult } from "@/lib/types";
 
-// ---------- Readiness / ACWR colour maps ----------
-
-export const READINESS_STYLES: Record<ReadinessSignal["level"], string> = {
-  Build:   "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800",
-  Hold:    "bg-amber-50  text-amber-800  border-amber-200  dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800",
-  Recover: "bg-red-50    text-red-800    border-red-200    dark:bg-red-950/60   dark:text-red-300   dark:border-red-800",
-};
+// ---------- ACWR colour map ----------
+// (READINESS_STYLES was removed with the Build/Hold/Recover badge — S1-1 merged that vocabulary
+// into the athlete-state register; the ReadinessSignal itself still feeds the AI snapshot.)
 
 export const ACWR_COLOR: Record<AcwrResult["level"], string> = {
   low: "text-zinc-500 dark:text-zinc-400",

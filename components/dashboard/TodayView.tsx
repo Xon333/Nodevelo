@@ -7,10 +7,9 @@ import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
 import AskCoach from "../AskCoach";
 import AthleteStateCard from "../AthleteStateCard";
-import CoachSnapshotCard from "../CoachSnapshotCard";
 import MorningCheckIn from "../MorningCheckIn";
 import TrendPulse from "../TrendPulse";
-import { EnergyAvailabilityTile, PlannedToday, ReadinessBadge, RecentDataSummary, TodayRideCard } from "./today";
+import { EnergyAvailabilityTile, PlannedToday, ReadinessAlerts, RecentDataSummary, TodayRideCard } from "./today";
 
 // The /today page body. Split out of the old dual-mode Dashboard (RV-8): it owns only the today-only
 // state (the coach-note post + the auto-sync-once latch) and reads the rest from SyncProvider, so the
@@ -56,45 +55,78 @@ export default function TodayView() {
     }
   };
 
+  // FTP + resolved fuel numbers from the coach snapshot — evidence-tier context under the tiles
+  // (the old CoachSnapshotCard's non-form content; its form line now lives in the verdict card).
+  const snap = state.coachSnapshot;
+  const coachContext = snap
+    ? [
+        snap.ftp !== null ? `FTP ${snap.ftp}W` : null,
+        snap.fuel.todayTargetKcal !== null ? `${snap.fuel.todayTargetKcal} kcal target` : null,
+        snap.fuel.rideBurnKj !== null ? `${snap.fuel.rideBurnKj} kJ ride` : null,
+        snap.fuel.weightTrend7dKg !== null
+          ? `${snap.fuel.weightTrend7dKg > 0 ? "+" : ""}${snap.fuel.weightTrend7dKg} kg/7d`
+          : null,
+      ]
+        .filter((b): b is string => b !== null)
+        .join(" · ")
+    : "";
+
   return (
     <div className="flex flex-col gap-3 lg:h-[calc(100dvh-4rem)] lg:overflow-hidden">
+      {/* Zone 1 hierarchy (S1-1, Constitution §4): alarms → manual override door → ONE verdict →
+          collapsed evidence. One vocabulary owns the verdict (the athlete-state register); the old
+          Build/Hold/Recover badge and the separate coach's-read card were same-altitude rivals and
+          are merged into the verdict card's supporting layer. */}
       <Zone rank={1} title="Readiness — can I go hard?">
-        {/* Proactive "not feeling it?" check-in (ROADMAP #3) — prominent before a quality session. */}
+        {/* Triggered fatigue/load-ramp alarms outrank everything, aviation-style. */}
+        <ReadinessAlerts fatigueAlert={state.fatigueAlert} loadRamp={state.loadRamp} />
+        {/* Proactive "not feeling it?" check-in (ROADMAP #3) — the self-report door sits above the
+            data verdict so the athlete reports how they feel before anchoring on a green score. */}
         <MorningCheckIn />
-        {/* §5 signal-fusion glance — the second brain's overall read, above the individual signals. */}
-        {state.athleteState && (
-          <div className="mb-2">
-            <AthleteStateCard state={state.athleteState} />
-          </div>
-        )}
-        {/* ROADMAP #1: the coach's resolved-numbers read (TSB-as-actionable-modifier + fuel) — the
-            same snapshot the LLM is handed, so the athlete sees what it sees. */}
-        {state.coachSnapshot && (
-          <div className="mb-2">
-            <CoachSnapshotCard snapshot={state.coachSnapshot} />
-          </div>
-        )}
-        {state.readiness || state.fatigueAlert?.triggered || state.loadRamp?.triggered ? (
-          <ReadinessBadge
-            readiness={state.readiness}
-            fatigueAlert={state.fatigueAlert}
-            loadRamp={state.loadRamp}
+        {/* THE verdict: the §5 signal-fusion read (it already is the reconciliation of the signals
+            below). The coach's TSB-as-modifier read (ROADMAP #1) folds in as its supporting line —
+            the same snapshot the LLM is handed, so the athlete sees what it sees. */}
+        {state.athleteState ? (
+          <AthleteStateCard
+            state={state.athleteState}
+            form={
+              state.coachSnapshot?.form.tsbModifier
+                ? { tsb: state.coachSnapshot.form.tsb, ...state.coachSnapshot.form.tsbModifier }
+                : null
+            }
+            ftpRetest={state.coachSnapshot?.ftpRetest ?? null}
           />
         ) : (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Sync to compute today&apos;s readiness.</p>
+          // Degraded read: no fused state yet (thin/no data). The readiness reason is already a plain
+          // sentence — shown without the retired Build/Hold/Recover badge register.
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {state.readiness?.reason ?? "Sync to compute today's readiness."}
+          </p>
         )}
+        {/* Evidence tier: the raw signals behind the verdict, collapsed by default — reachable in one
+            click/keypress, not shouting (hidden ≠ deleted, Constitution §6). */}
         {state.lastSync && (
-          <div className="mt-2">
-            <RecentDataSummary
-              sync={state.lastSync}
-              acwr={state.acwr}
-              polarization={state.polarization}
-              bare
-            />
-            {/* Energy-availability proxy — am I chronically under-fuelling? A recovery input, so it sits
-                in the readiness glance beside the load signals. */}
-            <EnergyAvailabilityTile sync={state.lastSync} />
-          </div>
+          <details className="mt-2">
+            <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              Supporting signals
+            </summary>
+            <div className="mt-2">
+              <RecentDataSummary
+                sync={state.lastSync}
+                acwr={state.acwr}
+                polarization={state.polarization}
+                bare
+              />
+              {/* Energy-availability proxy — am I chronically under-fuelling? A recovery input, so it
+                  sits with the load signals. */}
+              <EnergyAvailabilityTile sync={state.lastSync} />
+              {/* The coach snapshot's remaining context numbers (FTP + resolved fuel), kept reachable
+                  after the card merge. The EA band is omitted — the tile above already shows it. */}
+              {coachContext && (
+                <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{coachContext}</p>
+              )}
+            </div>
+          </details>
         )}
       </Zone>
 
