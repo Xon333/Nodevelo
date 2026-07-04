@@ -17,8 +17,8 @@ const INTERVAL_TYPES: WorkoutType[] = ['Threshold', 'VO2max', 'SIT', 'RaceSim'];
 /** Under-fueling gap threshold: g/h */
 const GAP_UNDER_G_PER_H = 20;
 
-/** Minimum confidence level required to emit a gap prompt */
-const MIN_CONFIDENCE_FOR_GAP = 'low';
+/** Confidence level that disqualifies a gap prompt */
+const EXCLUDED_CONFIDENCE_FOR_GAP = 'low';
 
 
 export type FuelPrompt =
@@ -76,7 +76,7 @@ export function deriveFuelPrompt(input: {
   }
 
   // Rule: Ignore low confidence — need medium or high
-  if (carbsOptimum.confidence === MIN_CONFIDENCE_FOR_GAP) {
+  if (carbsOptimum.confidence === EXCLUDED_CONFIDENCE_FOR_GAP) {
     return null;
   }
 
