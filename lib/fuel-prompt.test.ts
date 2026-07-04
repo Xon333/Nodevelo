@@ -279,6 +279,72 @@ describe('deriveFuelPrompt', () => {
     });
   });
 
+  describe('Garbage carbsIngestedG (negative/non-finite) — mirrors fuelStampFor\'s "not a real reading"', () => {
+    // A corrupt/negative carbs_ingested from Intervals.icu is exactly as informative as no reading at
+    // all — fuelStampFor (lib/score-log.ts) already treats it that way for the ledger stamp. Without an
+    // equivalent guard here, deriveFuelPrompt would compute a nonsense negative g/h and could produce a
+    // "gap" claim from garbage, while the ledger for the SAME ride correctly has no fuel stamp.
+
+    it('treats a negative carbsIngestedG as unlogged (same log-nudge as the null case)', () => {
+      const activity = makeActivity({
+        movingTimeSec: 90 * 60, // qualifies via duration
+        carbsIngestedG: -5, // corrupt/negative reading
+      });
+
+      const result = deriveFuelPrompt({
+        activity,
+        plannedType: null,
+        carbsOptimum: { value: 70, confidence: 'high' }, // present, to prove we never reach the gap branch
+      });
+
+      // Must match the null-case result exactly (same shape as the "qualifies via duration" null test above).
+      expect(result).toEqual({
+        kind: 'log-nudge',
+        reason: 'long-ride',
+        durationMin: 90,
+      });
+    });
+
+    it('treats a NaN carbsIngestedG as unlogged (same log-nudge as the null case)', () => {
+      const activity = makeActivity({
+        movingTimeSec: 45 * 60, // doesn't qualify via duration
+        carbsIngestedG: Number.NaN,
+      });
+
+      const result = deriveFuelPrompt({
+        activity,
+        plannedType: 'Threshold', // qualifies via interval type
+        carbsOptimum: { value: 70, confidence: 'high' },
+      });
+
+      expect(result).toEqual({
+        kind: 'log-nudge',
+        reason: 'interval-day',
+        durationMin: 45,
+      });
+    });
+
+    it('never produces a gap with a nonsense negative loggedGPerH', () => {
+      const activity = makeActivity({
+        movingTimeSec: 180 * 60, // 3 hours, qualifies
+        carbsIngestedG: -30,
+      });
+
+      const result = deriveFuelPrompt({
+        activity,
+        plannedType: null,
+        carbsOptimum: { value: 70, confidence: 'medium' },
+      });
+
+      expect(result?.kind).not.toBe('gap');
+      expect(result).toEqual({
+        kind: 'log-nudge',
+        reason: 'long-ride',
+        durationMin: 180,
+      });
+    });
+  });
+
   describe('Gap detection rules', () => {
     it('returns null when qualifying + logged but carbsOptimum is null', () => {
       const activity = makeActivity({

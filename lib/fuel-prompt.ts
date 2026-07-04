@@ -53,8 +53,15 @@ export function deriveFuelPrompt(input: {
     return null; // Not qualifying
   }
 
-  // Rule: If carbsIngestedG is null, return log-nudge
-  if (activity.carbsIngestedG == null) {
+  // Rule: A negative or non-finite carbsIngestedG is garbage (e.g. a corrupt Intervals.icu reading),
+  // not a real logged value — exactly as informative as no value at all. Mirrors fuelStampFor's guard
+  // (lib/score-log.ts) so the ledger stamp and this prompt never disagree about the same ride. Checked
+  // before the null/zero checks below (which are the FUEL-1 real-data-point distinction and must stay
+  // untouched); a garbage number degrades identically to "unlogged," not to a third outcome.
+  const carbsIsGarbage = activity.carbsIngestedG != null && (!Number.isFinite(activity.carbsIngestedG) || activity.carbsIngestedG < 0);
+
+  // Rule: If carbsIngestedG is null (or garbage — see above), return log-nudge
+  if (activity.carbsIngestedG == null || carbsIsGarbage) {
     // Long-ride wins the tie if both qualify
     const reason = durationQualifies ? 'long-ride' : 'interval-day';
     const durationMin = Math.round(activity.movingTimeSec / 60);
