@@ -110,6 +110,9 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Deterministic targets** — daily kcal (base + session kJ + buffer; flat on rest days) + pre/in/post
   carbs & protein; buffer self-adjusts ±150 kcal against the 7-day weight trend. The AI only phrases the
   pre-computed table. `lib/nutrition.ts`
+- **Post-ride fuel prompt** — log-nudge on qualifying rides (≥90 min or a Threshold/VO2max/SIT/RaceSim
+  day) left unlogged; once calibration is trustworthy, a gap-vs-derived-optimum read instead. Quiet
+  Today-card chip + one-line coach-note mention. `lib/fuel-prompt.ts`
 
 ## Profile · Knowledge · Settings
 - **Profile** — synced performance (FTP, threshold/max HR), all-time PRs, an add/edit/delete goals &

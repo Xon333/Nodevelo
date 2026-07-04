@@ -12,6 +12,47 @@ exact commits.
 
 ---
 
+## Post-ride fuel prompt — Track C accumulation flywheel (2026-07-04)
+
+`carbsOptimum` (ARCHIVE "Carbs-optimum derivation — Track C first leg") sat dormant for lack of data —
+only ~20% of ledger entries (23/117) carried a logged carb intake. Rather than add more derivation
+machinery to a starved signal, this ships the nudge that fills the gap: a deterministic post-ride prompt
+that gets `carbs_ingested` logged on the exact rides that teach the model.
+
+Shipped: `deriveFuelPrompt()` (`lib/fuel-prompt.ts`) — a pure, unit-tested decision, no LLM/IO/side
+effects, with two variants. `log-nudge` fires when a qualifying ride (`movingTimeSec ≥ 90 min` OR
+`plannedType ∈ {Threshold, VO2max, SIT, RaceSim}`) has no logged `carbsIngestedG`; a logged `0` is kept
+as a real "fasted" data point (the FUEL-1 distinction) and never nudges. `gap` fires only when logged
+carbs resolve to `< optimum − 20 g/h` (`GAP_UNDER_G_PER_H`) *and* the resolved `carbsOptimum` confidence
+is medium or high (`EXCLUDED_CONFIDENCE_FOR_GAP = "low"` gates it off) — under-fueling only in v1, since
+over-fueling has no validated harm signal yet. Wired into the sync route's today-analysis path
+(`app/api/sync/route.ts`, computed once per sync against today's ride only) via a new
+`resolveCarbsOptimumForPrompt` helper that mirrors the generic calibration resolver's precedence (manual
+override, else a trustworthy derived value) but — unlike that generic resolver — always falls back to
+`null` rather than a population default, so a "gap" claim can never be built on a number that isn't
+actually personalized. Persisted as `TodayAnalysis.fuelPrompt` (sparse-field convention: absent/null omits
+the key entirely, so a pre-existing `today-analysis.json` written before this field existed renders
+cleanly). Surfaced as a quiet chip on the Today card (`components/dashboard/today.tsx`, truthy-checked
+per this project's migration-flag convention, neutral zinc/cyan tone — informational, not a celebration)
+and threaded to the coach note as one context line (`RideAnalysisInput.fuelPromptContext` →
+`buildRideAnalysisPrompt` in `lib/anthropic-prompts.ts`, formatted by `lib/sync-analysis.ts`'s
+`formatFuelPromptContext`) with an instruction that the LLM may mention it in one sentence using the
+pre-computed numbers verbatim — it never invents or recomputes a gram.
+
+Closes the ROADMAP Track C "Contextual post-ride prompts" item (removed from ROADMAP.md; the Track C
+"Pre-ride loading loop" item is separate and stays open). Plan:
+`docs/superpowers/plans/2026-07-03-postride-fuel-prompt.md`. Success metric to watch over the next ~3
+weeks: fuel-stamp fill-rate on qualifying rides (baseline ~20%, target ≥60%) and `carbsOptimum.dataPoints`
+(1 → ≥8) — if fill-rate doesn't move, the nudge's placement failed and surfacing needs revisiting before
+any more Track C machinery is added.
+
+**Open item, not yet verified live:** this touches an LLM-backed path — the coach note may now mention
+the fuel prompt. Per this project's `AGENTS.md` convention, a live smoke run against the real Anthropic
+API (one real sync on a qualifying ride day, reading the actual generated coach note + Today card) is
+still outstanding. Only unit-tested so far; the real model call has not been exercised.
+
+---
+
 ## Ledger interval-adherence at birth (2026-07-03)
 
 The root-cause fix for the gap the SIT execution-score fix (below) surfaced: the immutable ledger's

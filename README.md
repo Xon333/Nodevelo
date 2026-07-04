@@ -545,6 +545,16 @@ target on rest days) plus pre/in/post-ride carbs and protein. The buffer self-ad
 against the synced 7-day weight trend (capped 0–600). The AI receives these as a reference table
 and only phrases them in natural language — it never calculates nutrition.
 
+Same pattern extends to logging, not just targets: `lib/fuel-prompt.ts`'s `deriveFuelPrompt()` is a
+pure, unit-tested decision — no LLM, no I/O — that runs once per sync against today's ride. On a
+qualifying ride (≥90 min, or a Threshold/VO2max/SIT/RaceSim day) with no logged `carbsIngestedG`, it
+nudges the athlete to log in-ride carbs (a logged `0` is a real "fasted" data point, not an omission,
+so it never nudges). Once the athlete's own derived `carbsOptimum` is trustworthy (confidence medium
+or high — never a population default masquerading as personalized), it instead surfaces the gap
+between what they logged and that optimum. Deterministic thresholds, LLM only phrases: the prompt's
+existence and copy are pure code, and the coach note may mention it in one sentence using the
+pre-computed numbers verbatim — it never invents or recomputes them.
+
 ---
 
 ## Development

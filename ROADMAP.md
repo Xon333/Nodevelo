@@ -269,10 +269,6 @@ could fire. What's left:
   athlete's own `decouplingGood`, overridable on `/model` — see ARCHIVE). Dormant until `carbs_ingested`
   data accrues (like every calibrated param). Left: per-ride-type optimums + richer outcome signals
   (RPE-vs-IF divergence, interval completion, next-day TSB) once the endurance read proves out.
-- **Contextual post-ride prompts** (deterministic thresholds, LLM phrases the number) — also the nudge
-  that gets `carbs_ingested` filled in, which feeds the derivation above. **Implementation plan ready:**
-  [postride-fuel-prompt](docs/superpowers/plans/2026-07-03-postride-fuel-prompt.md) (success metric
-  inside: fuel-stamp fill-rate ≥60% of qualifying rides in ~3 wks, `carbsOptimum.dataPoints` 1 → ≥8).
 - **Pre-ride loading loop** — day-before carb bump before long durability, then *learn whether it
   helped* (loaded vs baseline decoupling) and stop if it doesn't move the signal.
 - Surfacing layer = **§6**; reuse the one derivation in §6 + the Today tile + the Trends overlay.
