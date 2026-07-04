@@ -312,17 +312,32 @@ export function defaultParameter(): CalibratedParameter {
   return { value: NaN, source: "default", confidence: "low", dataPoints: 0, lastUpdated: new Date(0).toISOString(), locked: false, manualOverride: null };
 }
 
+// The shared trust-precedence core: manual override always wins (reported at "high" confidence — an
+// explicit pin is maximally trustworthy); otherwise a derived value only counts once it's trustworthy
+// (locked, or ≥ medium confidence); otherwise null — "not personalized enough," for the caller to
+// resolve however it needs to (a population-default number for most call sites; some callers, like the
+// fuel prompt's calibrated-honesty gate, must never let a population default masquerade as personalized,
+// so they need this null distinctly and can't use resolveCalibratedValue's collapsed-to-a-number shape).
+// This is the ONE place the precedence logic lives — resolveCalibratedValue and any other resolver
+// variant must derive from this, not re-implement it, or they risk silently drifting apart.
+export function trustedCalibration(
+  param: CalibratedParameter | undefined | null
+): { value: number; confidence: "low" | "medium" | "high" } | null {
+  if (!param) return null;
+  if (typeof param.manualOverride === "number" && Number.isFinite(param.manualOverride)) {
+    return { value: param.manualOverride, confidence: "high" };
+  }
+  if (param.source === "derived" && Number.isFinite(param.value) && (param.locked || param.confidence !== "low")) {
+    return { value: param.value, confidence: param.confidence };
+  }
+  return null;
+}
+
 // Resolve the EFFECTIVE value the rest of the app should use. Precedence: a manual override always
 // wins; otherwise a derived value only counts once it's trustworthy (locked, or ≥ medium confidence);
 // below that we fall back to the caller's population default. Never returns NaN/non-finite.
 export function resolveCalibratedValue(param: CalibratedParameter | undefined | null, populationDefault: number): number {
-  if (param) {
-    if (typeof param.manualOverride === "number" && Number.isFinite(param.manualOverride)) return param.manualOverride;
-    if (param.source === "derived" && Number.isFinite(param.value) && (param.locked || param.confidence !== "low")) {
-      return param.value;
-    }
-  }
-  return populationDefault;
+  return trustedCalibration(param)?.value ?? populationDefault;
 }
 
 // A fresh calibration store — every parameter at its population default (resolves to the fallback).

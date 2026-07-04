@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoEwmaAlpha, CARBS_OPTIMUM_BOUNDS, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_CARBS_OPTIMUM, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, ifBandOffsetRows, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride, resolveTsbModifierEdges } from "./calibration";
+import { autoEwmaAlpha, CARBS_OPTIMUM_BOUNDS, confidenceFromN, defaultParameter, DEFAULT_ACWR_BANDS, DEFAULT_ATHLETE_STATE_WEIGHTS, DEFAULT_CARBS_OPTIMUM, DEFAULT_DURABILITY_INSERT_ENVELOPE, DEFAULT_POWER_ZONE_TOPS_PCT, DEFAULT_TSB_MODIFIER_EDGES, deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, ifBandOffsetRows, deriveTsbDeepFatigue, emptyCalibration, isAcwrBandsOverridden, isAthleteStateWeightsOverridden, isDurabilityInsertEnvelopeOverridden, isTsbModifierEdgesOverridden, resolveAcwrBands, resolveAthleteStateWeights, resolveCalibratedValue, resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride, resolveTsbModifierEdges, trustedCalibration } from "./calibration";
 import type { CalibratedParameter, RideScoreEntry } from "./types";
 
 // Minimal quality-session ledger entry with a stamped TSB, for the deep-fatigue derivation tests.
@@ -304,6 +304,28 @@ describe("resolveCalibratedValue", () => {
   it("lets a manual override win regardless of confidence, and ignores non-finite values", () => {
     expect(resolveCalibratedValue(param({ source: "derived", value: 6, confidence: "high", manualOverride: 9 }), FALLBACK)).toBe(9);
     expect(resolveCalibratedValue(param({ source: "derived", value: NaN, confidence: "high" }), FALLBACK)).toBe(FALLBACK); // never returns NaN
+  });
+
+  // Drift-proofing: resolveCalibratedValue is a thin wrapper over trustedCalibration's shared
+  // trust-precedence core (manual override → trustworthy derived → nothing). This asserts the
+  // contract by construction, not just by current observation — if a future edit tightens/loosens
+  // trustedCalibration's gate, this test still passes (it re-derives the expectation from
+  // trustedCalibration itself) while any ad-hoc *duplicate* of the logic elsewhere would drift.
+  it("agrees with trustedCalibration across the full fixture matrix (they can never silently diverge)", () => {
+    const cases: Array<CalibratedParameter | undefined | null> = [
+      undefined,
+      null,
+      param({ source: "default", confidence: "low" }), // no param / blank default
+      param({ source: "derived", value: 6, confidence: "low" }), // low-confidence, not locked → untrustworthy
+      param({ source: "derived", value: 6, confidence: "low", locked: true }), // locked at low → trustworthy
+      param({ source: "derived", value: 6, confidence: "medium" }), // medium confidence → trustworthy
+      param({ source: "derived", value: 6, confidence: "high" }), // high confidence → trustworthy
+      param({ source: "derived", value: 6, confidence: "high", manualOverride: 9 }), // override wins
+    ];
+
+    for (const c of cases) {
+      expect(resolveCalibratedValue(c, FALLBACK)).toBe(trustedCalibration(c)?.value ?? FALLBACK);
+    }
   });
 });
 

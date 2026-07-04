@@ -46,7 +46,7 @@ import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, calStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
-import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights } from "@/lib/calibration";
+import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, trustedCalibration } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { resolveToday, utcToday } from "@/lib/date";
@@ -61,21 +61,14 @@ export const maxDuration = 120;
 
 // Resolve the athlete's carbsOptimum calibration into the shape deriveFuelPrompt wants — a value PLUS
 // its confidence, so a "gap" claim can be gated on trustworthiness (calibrated-honesty: never let a
-// population default masquerade as personalized). Mirrors resolveCalibratedValue's exact precedence
-// (manual override, then a trustworthy derived value — locked or ≥ medium confidence), but where that
-// generic resolver collapses to a plain number (falling back to a population default), this ALWAYS
-// falls back to null instead — "not personalized enough" must never silently become "here's a number."
+// population default masquerade as personalized). A named re-export of lib/calibration's shared
+// trustedCalibration core (kept as a distinct function here for the existing test import and for local
+// readability at the call site below) — no independent trust-precedence logic lives in this file, so it
+// can't silently drift from resolveCalibratedValue's own precedence if that gate ever changes.
 export function resolveCarbsOptimumForPrompt(
   param: CalibratedParameter | undefined | null
 ): { value: number; confidence: "low" | "medium" | "high" } | null {
-  if (!param) return null;
-  if (typeof param.manualOverride === "number" && Number.isFinite(param.manualOverride)) {
-    return { value: param.manualOverride, confidence: "high" }; // an explicit override is maximally trustworthy
-  }
-  if (param.source === "derived" && Number.isFinite(param.value) && (param.locked || param.confidence !== "low")) {
-    return { value: param.value, confidence: param.confidence };
-  }
-  return null; // falls back to a population default elsewhere in the app — not personalized enough to gate a "gap" claim
+  return trustedCalibration(param);
 }
 
 // GET returns the cached app state; it never hits Intervals.icu. `?today=` is the client's local date
