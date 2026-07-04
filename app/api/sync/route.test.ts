@@ -445,6 +445,47 @@ describe("POST /api/sync — today-ride analysis path", () => {
     });
   });
 
+  it("does NOT stamp `intervals` on a Z2 today even when intervalComparison is non-null (Finding 3 guard)", async () => {
+    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+    // A Z2 day whose workoutText still parses to a non-empty prescription (e.g. authored with a
+    // structured interval inside an otherwise-Z2 day) — this is the exact "somehow non-null on a Z2
+    // day" scenario the guard must cover, not just the common case of an empty Z2 prescription.
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        days: [{ date: TODAY, name: "Endurance w/ opener", type: "Z2", durationMin: 90, workoutText: "Main Set 3x\n- 12m 95%" }],
+      })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity()] }));
+    await postSync();
+    // The today-patch must match buildRideScores'/the birth-fetch's own Z2/Recovery/durability
+    // exclusion — an `intervals` stamp on a Z2 day would be meaningless provenance (scored by an
+    // entirely different system), a latent trap for any future broad consumer of `entry.intervals`.
+    expect(scoreEntries.find((e) => e.date === TODAY)?.intervals).toBeUndefined();
+  });
+
+  it("does NOT stamp `intervals` on a durability-templated today even when intervalComparison is non-null (Finding 3 guard)", async () => {
+    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+    // Durability days are typed "Z2" with a durabilityTemplate set (never a distinct type) — this test
+    // is the durabilityTemplate arm of the guard specifically, distinct from the plain-Z2 test above.
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        days: [
+          {
+            date: TODAY,
+            name: "Durability long ride",
+            type: "Z2",
+            durationMin: 180,
+            durabilityTemplate: "C",
+            workoutText: "Main Set 3x\n- 12m 95%",
+          },
+        ],
+      })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity()] }));
+    await postSync();
+    expect(scoreEntries.find((e) => e.date === TODAY)?.intervals).toBeUndefined();
+  });
+
   it("surfaces an analysis failure as a warning while the sync itself succeeds", async () => {
     seedTodayRide();
     vi.mocked(api.fetchPowerStream).mockRejectedValueOnce(new Error("stream 500"));
@@ -499,6 +540,32 @@ describe("POST /api/sync — birth-time interval-adherence fetch (late-sync gap)
     expect(entry?.executionScore).toBeGreaterThan(0);
   });
 
+  it("births a VO2max candidate off interval adherence identically to Threshold (acceptance criterion #1 isn't type-specific)", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ ...pastThresholdDay, type: "VO2max" as const }] })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: [mkActivity({ id: "past1", date: PAST_DATE })] })
+    );
+    vi.mocked(api.fetchIntervals).mockResolvedValue([
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100 },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300 },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500 },
+    ]);
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect(api.fetchIntervals).toHaveBeenCalledTimes(1);
+    expect(api.fetchIntervals).toHaveBeenCalledWith("past1");
+    const entry = scoreEntries.find((e) => e.date === PAST_DATE);
+    expect(entry?.intervals).toEqual({
+      adherencePct: 100,
+      structuralMismatch: false,
+      completed: 3,
+      total: 3,
+    });
+    expect(entry?.executionScore).toBeGreaterThan(0);
+  });
+
   it("caps at 6 candidate dates (newest first) and warns when more qualify", async () => {
     // 7 distinct past Threshold dates, all fresh candidates — one more than the cap.
     const dates = ["2026-06-10", "2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15", "2026-06-16"];
@@ -537,6 +604,51 @@ describe("POST /api/sync — birth-time interval-adherence fetch (late-sync gap)
     expect(entry).toBeDefined(); // built by the normal buildRideScores path regardless
     expect(entry?.intervals).toBeUndefined(); // no stamp — the fetch never landed
     expect(json.warnings.some((w: string) => /birth-adherence/i.test(w) || /upstream 500/.test(w))).toBe(true);
+  });
+
+  it("CRITICAL: an empty (not rejected) fetchIntervals result must not freeze a fabricated 0% stamp — entry stays coarse", async () => {
+    // fetchIntervals NEVER rejects in production (it swallows timeouts/429s/5xx internally and
+    // resolves to []) — mockResolvedValueOnce([]) is the REAL failure shape, unlike the rejection
+    // test above. Before the fix, matchPrescription(nonEmptyPrescription, []) returns a fully-formed,
+    // non-null comparison with adherencePct: 0 and structuralMismatch: false, which the ledger would
+    // freeze as if it were a real, trustworthy 0%-adherence score — permanently, since this date can
+    // never be retried once present in the ledger.
+    seedPastCandidate();
+    vi.mocked(api.fetchIntervals).mockResolvedValueOnce([]);
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const entry = scoreEntries.find((e) => e.date === PAST_DATE);
+    expect(entry).toBeDefined(); // built by the normal buildRideScores path regardless (coarse fallback)
+    expect(entry?.intervals).toBeUndefined(); // no fabricated stamp — must NOT be { adherencePct: 0, ... }
+  });
+
+  it("stops attempting further candidates once the birth-fetch time budget is exceeded, without failing the sync", async () => {
+    // 3 fresh candidate dates. The first fetchIntervals call "spends" the whole budget by advancing
+    // the clock past it before resolving, so the loop's next-iteration budget check should trip and
+    // skip the remaining candidates rather than attempt all 3.
+    const dates = ["2026-06-17", "2026-06-18", PAST_DATE];
+    const days = dates.map((date) => ({ ...pastThresholdDay, date }));
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days }));
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: dates.map((date) => mkActivity({ id: `a-${date}`, date })) })
+    );
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api.fetchIntervals).mockImplementation(async () => {
+        vi.advanceTimersByTime(41_000); // past the 40s budget, inside the first call
+        return [];
+      });
+      const postPromise = postSync();
+      await vi.runAllTimersAsync();
+      const res = await postPromise;
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      // Only the first candidate was attempted — the loop's budget check trips before the 2nd/3rd.
+      expect(api.fetchIntervals).toHaveBeenCalledTimes(1);
+      expect(json.warnings.some((w: string) => /time budget exceeded/i.test(w))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rebuild run: a frozen adherence stamp on an existing entry reaches the re-score and survives the merge", async () => {

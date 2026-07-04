@@ -337,14 +337,39 @@ export async function POST(req: Request) {
       }
       const cappedDates = candidateDates.slice(0, 6);
 
+      // Wall-clock budget (CR-review Finding 2): each fetchIntervals call is bounded to 20s
+      // (REQUEST_TIMEOUT_MS in lib/intervals-api.ts) and the cap allows up to 6 sequential calls —
+      // worst case 120s, exactly this route's own `maxDuration`. A degraded-but-not-down upstream
+      // (slow responses, queued rate-limiting) could push an otherwise-healthy sync into a hard
+      // timeout. Stop attempting further candidates once the budget is exceeded; anything left
+      // unfetched is simply picked up on a future sync (no data loss, just deferred).
+      const BIRTH_FETCH_BUDGET_MS = 40_000;
+      const birthFetchStart = Date.now();
       const fetchedStamps = new Map<string, RideScoreEntry["intervals"]>();
+      let candidatesAttempted = 0;
       for (const date of cappedDates) {
+        if (Date.now() - birthFetchStart > BIRTH_FETCH_BUDGET_MS) break;
+        candidatesAttempted++;
         try {
           const act = longestRideOn(date);
           if (!act) continue; // defensive — already checked during gating, but never trust it twice
           const planned = plannedByDate.get(date)!;
           const prescription = prescriptionFor(planned, act);
           const executed = await fetchIntervals(act.id);
+          // CRITICAL (CR-review Finding 1): fetchIntervals never rejects — it swallows timeouts,
+          // rate-limits, and malformed responses internally and resolves to [] (see its own
+          // "Best-effort: [] on failure" comment). matchPrescription does NOT treat an empty
+          // `executed` against a non-empty `prescription` as null — it returns a fully-formed
+          // comparison with a fabricated real 0% adherence (structuralMismatch: false), which
+          // buildRideScores' guard would treat as trustworthy signal and freeze onto the immutable
+          // ledger forever (this date is never retried once present). Treat an empty fetch result
+          // exactly like a thrown failure: skip stamping and let the entry born coarse — the plan's
+          // own intended fallback for "no executed intervals curated".
+          if (executed.length === 0) {
+            logWarn("/api/sync", "birth-adherence", `no executed intervals for ${date} — entry born coarse.`);
+            warnings.push(`Interval-adherence fetch returned no executed intervals for ${date} — entry born coarse.`);
+            continue;
+          }
           const comparison = matchPrescription(prescription, executed);
           if (comparison) fetchedStamps.set(date, intervalStampFrom(comparison));
         } catch (e) {
@@ -352,6 +377,11 @@ export async function POST(req: Request) {
           logWarn("/api/sync", "birth-adherence", `fetch failed for ${date}: ${message}`);
           warnings.push(`Interval-adherence fetch failed for ${date}: ${message} — entry born coarse.`);
         }
+      }
+      const candidatesSkippedForBudget = cappedDates.length - candidatesAttempted;
+      if (candidatesSkippedForBudget > 0) {
+        logWarn("/api/sync", "birth-adherence", `time budget exceeded — skipped ${candidatesSkippedForBudget} of ${cappedDates.length} candidate dates`);
+        warnings.push(`Interval-adherence birth-fetch time budget exceeded — skipped ${candidatesSkippedForBudget} candidate date(s); will retry on a future sync.`);
       }
 
       // Fetched (fresh) first; frozen stamps second — serves the rebuild path, where `fresh` re-scores
@@ -520,7 +550,16 @@ export async function POST(req: Request) {
                         ...calStampFor(resolvedCal, e.planned ? e.plannedType : null, !e.planned),
                         // Freeze the adherence input that produced this richer score (the direct SIT-bug
                         // fix): without this, a re-derivation later has no adherence data to work from.
-                        ...(intervalComparison ? { intervals: intervalStampFrom(intervalComparison) } : {}),
+                        // Guarded the same way the birth-fetch path gates its candidates (Finding 3):
+                        // Z2/Recovery/durability days are scored by an entirely different system, so an
+                        // `intervals` stamp there would be meaningless provenance — a latent trap for any
+                        // future consumer of `entry.intervals` that assumes its presence implies relevance.
+                        ...(intervalComparison &&
+                        plannedDay?.type !== "Z2" &&
+                        plannedDay?.type !== "Recovery" &&
+                        !plannedDay?.durabilityTemplate
+                          ? { intervals: intervalStampFrom(intervalComparison) }
+                          : {}),
                       }
                     : e
                 )
