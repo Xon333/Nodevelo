@@ -802,7 +802,7 @@ export interface WriteResult {
 // ledger (it's mutable attribution); the `compromised` flag on RideScoreEntry is derived from it.
 
 export type SessionDisposition = "completed" | "partial" | "missed" | "compromised";
-export type CompromiseReason = "equipment" | "sickness" | "weather" | "other";
+export type CompromiseReason = "equipment" | "sickness" | "weather" | "injury" | "other";
 
 export interface DispositionEntry {
   date: string; // YYYY-MM-DD
@@ -822,8 +822,11 @@ export interface DispositionLog {
 // Objective fatigue is surfaced separately by computeReadiness/computeFatigueAlert; this is the athlete's
 // override for "I feel worse than the load model can see."
 
-export type MorningCheckFlag = "ill" | "extreme-fatigue";
-export type MorningCheckDecision = "proceed" | "downgrade";
+export type MorningCheckFlag = "ill" | "extreme-fatigue" | "injury";
+// "proceed" = ride as planned · "downgrade" = swap/deload the quality stimulus (metabolic compromise) ·
+// "rest" = skip today entirely, no swap or make-up (musculoskeletal — see decideMorningCheck for why
+// an injury doesn't get the swap treatment).
+export type MorningCheckDecision = "proceed" | "downgrade" | "rest";
 
 export interface MorningCheckEntry {
   date: string; // YYYY-MM-DD

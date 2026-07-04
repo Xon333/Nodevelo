@@ -64,6 +64,35 @@ describe("POST /api/morning-check", () => {
     expect(res.status).toBe(400);
     expect(store.writeMorningChecks).not.toHaveBeenCalled();
   });
+
+  // S2-9: an injury on a quality day rests the day, with NO reschedule suggestion (nothing to swap).
+  it("stores a 'rest' decision with no suggestion on an injury flag", async () => {
+    const res = await POST(req("POST", { flag: "injury", today: TODAY }));
+    const json = await res.json();
+    expect(json.decision).toBe("rest");
+    expect(json.suggestion).toBeNull();
+    const stored = vi.mocked(store.writeMorningChecks).mock.calls[0][0] as MorningCheckLog;
+    expect(stored.entries[0]).toMatchObject({ date: TODAY, flag: "injury", decision: "rest" });
+  });
+
+  // Injury is accepted on a non-quality ride day too (unlike ill/extreme-fatigue, which would proceed).
+  it("rests an injury flag even on a non-quality (Z2) day", async () => {
+    const easy: CurrentBlock = { ...block(), days: [{ date: TODAY, name: "Easy", type: "Z2", durationMin: 90 }] };
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(easy);
+    const json = await (await POST(req("POST", { flag: "injury", today: TODAY }))).json();
+    expect(json.decision).toBe("rest");
+    expect(json.suggestion).toBeNull();
+  });
+});
+
+describe("PUT /api/morning-check — injury is not applyable", () => {
+  it("rejects applying a 'rest' (injury) decision — nothing to move (S2-9)", async () => {
+    const injuryCheck: MorningCheckEntry = { date: TODAY, flag: "injury", decision: "rest", setAt: "" };
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [injuryCheck], updatedAt: "" });
+    const res = await PUT(req("PUT", { today: TODAY }));
+    expect(res.status).toBe(400);
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+  });
 });
 
 describe("PUT /api/morning-check — the apply guard", () => {
@@ -112,6 +141,23 @@ describe("GET /api/morning-check", () => {
   it("reports a quality day + a reschedule suggestion", async () => {
     const json = await (await GET(req("GET"))).json();
     expect(json.isQualityDay).toBe(true);
+    expect(json.hasRideToday).toBe(true);
     expect(json.suggestion).not.toBeNull();
+  });
+
+  // S2-9: an easy ride day is not a quality day, but a ride IS planned — the injury surface needs this.
+  it("reports hasRideToday true / isQualityDay false on an easy day", async () => {
+    const easy: CurrentBlock = { ...block(), days: [{ date: TODAY, name: "Easy", type: "Z2", durationMin: 90 }] };
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(easy);
+    const json = await (await GET(req("GET"))).json();
+    expect(json.isQualityDay).toBe(false);
+    expect(json.hasRideToday).toBe(true);
+  });
+
+  it("reports hasRideToday false on a true rest day", async () => {
+    const rest: CurrentBlock = { ...block(), days: [{ date: TODAY, name: "Rest", type: "Rest", durationMin: 0 }] };
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(rest);
+    const json = await (await GET(req("GET"))).json();
+    expect(json.hasRideToday).toBe(false);
   });
 });

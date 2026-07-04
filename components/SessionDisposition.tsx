@@ -13,7 +13,7 @@ const OPTIONS: { value: Disp; label: string }[] = [
   { value: "partial", label: "Partial" },
   { value: "compromised", label: "Compromised" },
 ];
-const REASONS: CompromiseReason[] = ["equipment", "sickness", "weather", "other"];
+const REASONS: CompromiseReason[] = ["equipment", "sickness", "weather", "injury", "other"];
 
 export default function SessionDisposition({ date }: { date: string }) {
   const [current, setCurrent] = useState<DispositionEntry | null | undefined>(undefined);

@@ -5,7 +5,7 @@ import { applyDispositions, mergeDisposition } from "@/lib/disposition";
 import type { CompromiseReason, DispositionEntry, SessionDisposition } from "@/lib/types";
 
 const DISPOSITIONS: SessionDisposition[] = ["completed", "partial", "missed", "compromised"];
-const REASONS: CompromiseReason[] = ["equipment", "sickness", "weather", "other"];
+const REASONS: CompromiseReason[] = ["equipment", "sickness", "weather", "injury", "other"];
 
 // GET → the disposition for a given ?date (or today).
 export async function GET(req: Request) {

@@ -17,6 +17,20 @@ describe("decideMorningCheck", () => {
     expect(decideMorningCheck("ill", { isQualityDay: false }).decision).toBe("proceed");
     expect(decideMorningCheck("extreme-fatigue", { isQualityDay: false }).decision).toBe("proceed");
   });
+
+  // S2-9: injury is musculoskeletal — the pedaling motion is the hazard, not the intensity. So it rests
+  // the day (not a swap/downgrade) and does so on ANY ride day, quality or not — the "nothing to protect on
+  // an easy day" logic that's fine for ill/fatigue is wrong here.
+  it("rests today on an injury flag regardless of quality (never proceed, never downgrade)", () => {
+    expect(decideMorningCheck("injury", { isQualityDay: true }).decision).toBe("rest");
+    expect(decideMorningCheck("injury", { isQualityDay: false }).decision).toBe("rest");
+  });
+
+  it("injury guidance names the risk and points to a professional", () => {
+    const reasons = decideMorningCheck("injury", { isQualityDay: false }).reasons.join(" ");
+    expect(reasons).toMatch(/rest today/i);
+    expect(reasons).toMatch(/professional/i);
+  });
 });
 
 describe("proactiveApplyBlock", () => {
@@ -33,6 +47,9 @@ describe("proactiveApplyBlock", () => {
   });
   it("blocks when the flag resolved to proceed", () => {
     expect(proactiveApplyBlock({ ...downgrade, decision: "proceed" }, false)).toMatch(/didn't recommend/);
+  });
+  it("blocks an injury 'rest' decision — there's nothing to move (S2-9)", () => {
+    expect(proactiveApplyBlock({ ...downgrade, flag: "injury", decision: "rest" }, false)).toMatch(/doesn't move/i);
   });
 });
 

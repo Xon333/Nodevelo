@@ -6,7 +6,7 @@ import { resolveToday } from "@/lib/date";
 import type { CurrentBlock, MorningCheckEntry, MorningCheckFlag, WorkoutType } from "@/lib/types";
 
 const QUALITY = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
-const FLAGS: MorningCheckFlag[] = ["ill", "extreme-fatigue"];
+const FLAGS: MorningCheckFlag[] = ["ill", "extreme-fatigue", "injury"];
 
 // "today" is the CLIENT's local date (query param on GET, body field otherwise) so client + server agree
 // across the UTC day boundary — same discipline as /api/sync (resolveToday falls back to UTC).
@@ -14,6 +14,14 @@ const FLAGS: MorningCheckFlag[] = ["ill", "extreme-fatigue"];
 function isQualityToday(block: CurrentBlock | null, date: string): boolean {
   const day = block?.days.find((d) => d.date === date) ?? null;
   return !!day && day.durationMin > 0 && QUALITY.has(day.type);
+}
+
+// Is any ride planned today (quality or easy — anything with duration)? Injury can be reported on ANY ride
+// day, not just quality ones (S2-9), so the surface needs this even when isQualityDay is false. A true rest
+// day (duration 0 / no entry) has no ride to skip, so nothing is surfaced there.
+function hasRideToday(block: CurrentBlock | null, date: string): boolean {
+  const day = block?.days.find((d) => d.date === date) ?? null;
+  return !!day && day.durationMin > 0;
 }
 
 // GET → today's stored flag (if any), whether today is a quality day, and the proactive reschedule target
@@ -24,6 +32,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     check: checks.entries.find((e) => e.date === date) ?? null,
     isQualityDay: isQualityToday(block, date),
+    hasRideToday: hasRideToday(block, date),
     suggestion: suggestProactiveReschedule(block, date),
   });
 }
@@ -40,7 +49,7 @@ export async function POST(req: Request) {
   }
   const b = (body ?? {}) as Record<string, unknown>;
   if (!FLAGS.includes(b.flag as MorningCheckFlag)) {
-    return NextResponse.json({ error: "flag must be 'ill' or 'extreme-fatigue'." }, { status: 400 });
+    return NextResponse.json({ error: "flag must be 'ill', 'extreme-fatigue', or 'injury'." }, { status: 400 });
   }
   const flag = b.flag as MorningCheckFlag;
 
@@ -55,7 +64,9 @@ export async function POST(req: Request) {
   return NextResponse.json({
     decision,
     reasons,
-    suggestion: decision !== "proceed" ? suggestProactiveReschedule(block, date) : null,
+    // Only a "downgrade" moves the session, so only it carries a reschedule suggestion. "rest" (injury) is
+    // a skip-today verdict with no swap target (S2-9); "proceed" has nothing to move.
+    suggestion: decision === "downgrade" ? suggestProactiveReschedule(block, date) : null,
   });
 }
 
