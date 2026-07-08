@@ -10,6 +10,7 @@ import { useSync } from "../SyncProvider";
 import PlanPreview from "../PlanPreview";
 import RescheduleBanner from "../RescheduleBanner";
 import SeasonRoadmap from "../SeasonRoadmap";
+import SeasonSection from "../SeasonSection";
 import { LoadFailed, useMountLoad } from "../ui";
 import BlockGenerator from "./BlockGenerator";
 import {
@@ -272,6 +273,8 @@ export default function PlanView() {
           }}
         />
       )}
+
+      <SeasonSection />
 
       {historyFailed ? (
         <LoadFailed what="block history" retry={() => void loadBlockHistory()} />

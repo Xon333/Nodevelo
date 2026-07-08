@@ -1,15 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { Card, LoadFailed, Skeleton, SkeletonScreen, useMountLoad } from "./ui";
+import { Card, Skeleton, SkeletonScreen } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonEvent, SeasonFocus, SeasonPlan } from "@/lib/types";
+import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
 import type { IfBandOffsetRow } from "@/lib/calibration";
-import { validateSeasonPlanInput } from "@/lib/season";
 
 interface NutritionSettings {
   baseCalories: number;
@@ -129,9 +128,6 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nut, setNut] = useState({ baseCalories: "", restDayTarget: "", buffer: "", targetWeightKg: "" });
   const [saveState, setSaveState] = useState<SaveState>({ state: "idle" });
-  const [objective, setObjective] = useState("");
-  const [events, setEvents] = useState<SeasonEvent[]>([]);
-  const [seasonSaveState, setSeasonSaveState] = useState<SaveState>({ state: "idle" });
   const [goals, setGoals] = useState<ProfileResponse["goals"]>([]);
   const [weakpoints, setWeakpoints] = useState<ProfileResponse["weakpoints"]>([]);
   const [goalsSaveState, setGoalsSaveState] = useState<SaveState>({ state: "idle" });
@@ -163,26 +159,6 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       cancelled = true;
     };
   }, []);
-
-  const [seasonLoadFailed, setSeasonLoadFailed] = useState(false);
-
-  // Season is athlete-owned intent (objective + target events) that the macro-periodization
-  // engine reads and re-plans around — an independent fetch from a separate store/route, mirrored
-  // from the identical pattern in SeasonRoadmap.tsx. A load failure must NOT fall back to an empty
-  // form (S1-3): saving blanks over an unreadable-but-saved season would silently destroy it — the
-  // section shows the failure and offers retry instead.
-  const loadSeason = useCallback(async () => {
-    try {
-      const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
-      setObjective(plan.objective);
-      setEvents(plan.events);
-      setSeasonLoadFailed(false);
-    } catch {
-      setSeasonLoadFailed(true);
-    }
-  }, []);
-
-  useMountLoad(loadSeason);
 
   const saveNutrition = async () => {
     const parsed: Record<string, number> = {};
@@ -245,37 +221,6 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       setWeakpoints(fresh.weakpoints);
     } catch (err) {
       setGoalsSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
-    }
-  };
-
-  const updateEvent = (index: number, patch: Partial<SeasonEvent>) => {
-    setEvents((evs) => evs.map((e, i) => (i === index ? { ...e, ...patch } : e)));
-    if (seasonSaveState.state === "saved") setSeasonSaveState({ state: "idle" });
-  };
-
-  const addEvent = () => {
-    setEvents((evs) => [...evs, { name: "", date: "", priority: "B" }]);
-  };
-
-  const removeEvent = (index: number) => {
-    setEvents((evs) => evs.filter((_, i) => i !== index));
-  };
-
-  const saveSeason = async () => {
-    const parsed = validateSeasonPlanInput({ objective, events });
-    if (typeof parsed === "string") {
-      setSeasonSaveState({ state: "error", message: parsed });
-      return;
-    }
-    setSeasonSaveState({ state: "saving" });
-    try {
-      await api("/api/season", { method: "PUT", body: JSON.stringify(parsed) });
-      setSeasonSaveState({ state: "saved" });
-      const fresh = await api<{ plan: SeasonPlan }>("/api/season");
-      setObjective(fresh.plan.objective);
-      setEvents(fresh.plan.events);
-    } catch (err) {
-      setSeasonSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
     }
   };
 
@@ -588,96 +533,6 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           {goalsSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
           {goalsSaveState.state === "error" && <span className="text-xs text-red-600">{goalsSaveState.message}</span>}
         </div>
-      </Section>
-
-      {/* Season — athlete-owned objective + target events; the macro-periodization engine reads
-          these to decide when to activate event-anchored mode (taper/peak toward a race date). */}
-      <Section title="Season">
-        <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-          What you&apos;re training for, and any target events — the coach plans the season arc around these.
-        </p>
-        {seasonLoadFailed ? (
-          <LoadFailed what="your season (objective & events)" retry={() => void loadSeason()} />
-        ) : (
-          <>
-        <label className="block">
-          <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Objective</span>
-          <input
-            type="text"
-            value={objective}
-            placeholder="e.g. get faster: FTP + punch for hilly KOMs"
-            onChange={(e) => {
-              setObjective(e.target.value);
-              if (seasonSaveState.state === "saved") setSeasonSaveState({ state: "idle" });
-            }}
-            className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
-          />
-        </label>
-
-        <div className="mt-3 space-y-2">
-          {events.map((ev, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-              <label className="min-w-[10rem] flex-1">
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Name</span>
-                <input
-                  type="text"
-                  value={ev.name}
-                  onChange={(e) => updateEvent(i, { name: e.target.value })}
-                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                />
-              </label>
-              <label>
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Date</span>
-                <input
-                  type="date"
-                  value={ev.date}
-                  onChange={(e) => updateEvent(i, { date: e.target.value })}
-                  className="mt-1 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                />
-              </label>
-              <label>
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Priority</span>
-                <select
-                  value={ev.priority}
-                  onChange={(e) => updateEvent(i, { priority: e.target.value as SeasonEvent["priority"] })}
-                  className="mt-1 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                >
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                </select>
-              </label>
-              <button
-                onClick={() => removeEvent(i)}
-                title="Remove this event"
-                className="rounded-md border border-red-300 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={addEvent}
-          className="mt-3 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-        >
-          + Add event
-        </button>
-
-        <div className="mt-3 flex items-center gap-3">
-          <button
-            onClick={saveSeason}
-            disabled={seasonSaveState.state === "saving"}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-          >
-            {seasonSaveState.state === "saving" ? "Saving…" : "Save"}
-          </button>
-          {seasonSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
-          {seasonSaveState.state === "error" && <span className="text-xs text-red-600">{seasonSaveState.message}</span>}
-        </div>
-          </>
-        )}
       </Section>
 
       {/* Nutrition formula — bottom */}
