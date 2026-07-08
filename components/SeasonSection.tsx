@@ -12,7 +12,7 @@ type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; mess
 // around. Lives on /plan since UX v2 (§2 ledger): it's consumed at block-generation time (M4).
 // Extracted unchanged from AthleteProfileForm. A load failure must NOT fall back to an empty form
 // (S1-3): saving blanks over an unreadable-but-saved season would silently destroy it.
-export default function SeasonSection() {
+export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
   const [objective, setObjective] = useState("");
   const [events, setEvents] = useState<SeasonEvent[]>([]);
   const [seasonSaveState, setSeasonSaveState] = useState<SaveState>({ state: "idle" });
@@ -55,6 +55,7 @@ export default function SeasonSection() {
       const fresh = await api<{ plan: SeasonPlan }>("/api/season");
       setObjective(fresh.plan.objective);
       setEvents(fresh.plan.events);
+      onSaved?.();
     } catch (err) {
       setSeasonSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
     }

@@ -425,7 +425,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       <IfBandOffsets rows={ifBandRows} />
 
       {/* Goals & Weakpoints — athlete-owned intent, now a real form (Goals/Weakpoints centralization)
-          instead of hand-edited markdown. Independent Save button/state from Nutrition and Season. */}
+          instead of hand-edited markdown. Independent Save button/state from Nutrition. */}
       <Section title="Goals & Weakpoints">
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           What you&apos;re working toward, and where you&apos;re weak — the coach reads these every generation.

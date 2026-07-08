@@ -6,7 +6,7 @@ import { TYPE_STYLES } from "@/lib/workout-types";
 import { isoDaysAgo, localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, CyberFrame } from "../ui";
 
-// The block overview can run several sentences. Clamp it to 3 lines so the calendar + goals stay near
+// The block overview can run several sentences. Clamp it to 3 lines so the calendar stays near
 // the top of the fold, with a "Show more" toggle that only appears when the text actually overflows.
 function BlockOverview({ text }: { text: string }) {
   const ref = useRef<HTMLParagraphElement>(null);

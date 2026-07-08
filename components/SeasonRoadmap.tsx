@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import { roadmapView } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
-import { LoadFailed, useMountLoad } from "./ui";
+import { LoadFailed } from "./ui";
 
 const FOCUS_COLOR: Record<SeasonFocus, string> = {
   "aerobic-base": "#00d4ff", threshold: "#f5a623", vo2max: "#ff49c8", anaerobic: "#a06bff", durability: "#38d39f", sharpen: "#7fd8ea",
@@ -14,7 +14,7 @@ const FOCUS_COLOR: Record<SeasonFocus, string> = {
 // Season roadmap stepper for /plan (MACRO-UI, Task 10): a compact strip of done/current/upcoming
 // focus-period cards plus a flag for the next upcoming event. Withholds entirely (no error UI) when
 // there's no season plan yet or it has zero periods — mirrors this codebase's other best-effort tiles.
-export default function SeasonRoadmap() {
+export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
   const [plan, setPlan] = useState<SeasonPlan | null>(null);
   const [failed, setFailed] = useState(false);
   // No plan / zero periods stays silent (absence); a fetch failure renders visibly (S1-3).
@@ -27,7 +27,11 @@ export default function SeasonRoadmap() {
       setFailed(true);
     }
   }, []);
-  useMountLoad(load);
+  // Plain effect (not useMountLoad) so a bump to refreshKey after a Season save re-runs the fetch,
+  // not just the initial mount.
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
 
   if (failed) return <LoadFailed what="the season roadmap" retry={() => void load()} />;
   if (!plan || plan.periods.length === 0) return null;

@@ -32,6 +32,9 @@ export default function PlanView() {
   const [weakpointsText, setWeakpointsText] = useState("");
   const [startDate, setStartDate] = useState(nextMonday());
   const [seasonReadout, setSeasonReadout] = useState<string | null>(null);
+  // Bumped after a successful Season save so the roadmap strip and generator context re-fetch
+  // instead of going stale until reload (UX v2 W1 review, Finding 1).
+  const [seasonVersion, setSeasonVersion] = useState(0);
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -218,7 +221,7 @@ export default function PlanView() {
 
   return (
     <div className="space-y-3">
-      <SeasonRoadmap />
+      <SeasonRoadmap refreshKey={seasonVersion} />
       <RescheduleBanner />
       <RetroSection
         block={state.currentBlock}
@@ -274,7 +277,12 @@ export default function PlanView() {
         />
       )}
 
-      <SeasonSection />
+      <SeasonSection
+        onSaved={() => {
+          setSeasonVersion((v) => v + 1);
+          void loadSeasonCtx();
+        }}
+      />
 
       {historyFailed ? (
         <LoadFailed what="block history" retry={() => void loadBlockHistory()} />
