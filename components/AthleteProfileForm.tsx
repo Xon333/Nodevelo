@@ -5,8 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
 import { Card, LoadFailed, Skeleton, SkeletonScreen, useMountLoad } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
+import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonEvent, SeasonFocus, SeasonPlan } from "@/lib/types";
+import type { IfBandOffsetRow } from "@/lib/calibration";
 import { validateSeasonPlanInput } from "@/lib/season";
 
 interface NutritionSettings {
@@ -122,7 +124,7 @@ function Section({
 
 // ---------- Main component ----------
 
-export default function AthleteProfileForm() {
+export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: IfBandOffsetRow[] }) {
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nut, setNut] = useState({ baseCalories: "", restDayTarget: "", buffer: "", targetWeightKg: "" });
@@ -474,6 +476,8 @@ export default function AthleteProfileForm() {
           </div>
         </Section>
       )}
+
+      <IfBandOffsets rows={ifBandRows} />
 
       {/* Goals & Weakpoints — athlete-owned intent, now a real form (Goals/Weakpoints centralization)
           instead of hand-edited markdown. Independent Save button/state from Nutrition and Season. */}
