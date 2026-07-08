@@ -332,6 +332,7 @@ export function CurrentBlockSection({
 }) {
   // S2-7: an in-product two-step confirm (state what's kept) replaces window.confirm's generic prompt.
   const [confirming, setConfirming] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   if (!block) {
     return (
       <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-center dark:border-zinc-600 dark:bg-zinc-800">
@@ -402,13 +403,33 @@ export function CurrentBlockSection({
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setConfirming(true)}
-                className="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
-                title="Delete this block to generate a new one"
-              >
-                Delete block
-              </button>
+              <div className="relative shrink-0" onMouseLeave={() => setMenuOpen(false)}>
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  aria-label="Block actions"
+                  onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
+                  className="rounded-md px-2.5 py-1.5 text-sm font-semibold text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  …
+                </button>
+                {menuOpen && (
+                  <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-40 rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+                    <button
+                      role="menuitem"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setConfirming(true);
+                      }}
+                      onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
+                      className="block w-full px-3 py-1.5 text-left text-xs font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
+                    >
+                      Delete block…
+                    </button>
+                  </div>
+                )}
+              </div>
             )
           )}
         </div>
