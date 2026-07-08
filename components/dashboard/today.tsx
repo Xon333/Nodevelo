@@ -160,7 +160,7 @@ export function TodayRideCard({
           <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
             {executionScoreLabel(analysis.executionScore)}
           </span>
-          {onPostNote && note && (
+          {onPostNote && analysis.coachNote && (
             <button
               onClick={onPostNote}
               disabled={notePosting || notePosted}

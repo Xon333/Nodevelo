@@ -36,6 +36,18 @@ export default function TodayView() {
     }
   }, [state, doSync]);
 
+  // A fresh coach note (re-analyse, new sync) re-arms the post button — the ✓ Posted latch
+  // belongs to the note it posted, not the page.
+  useEffect(() => {
+    setNotePosted(false);
+    setNotePostFailed(false);
+  }, [state?.todayAnalysis?.coachNote]);
+
+  // The manual flip is scoped to one ride's day — a new ride identity re-asserts auto mode.
+  useEffect(() => {
+    setFlipped(false);
+  }, [state?.todayAnalysis?.activityDate]);
+
   if (!state) return null; // Dashboard already guards loadError / loading; this narrows the type.
 
   const postNote = async () => {
@@ -205,7 +217,7 @@ export default function TodayView() {
                   Last debrief · {state.todayAnalysis.activityDate}
                 </summary>
                 <div className="mt-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-                  {/* Read-only: no re-analyse / post actions on a past ride's debrief. */}
+                  {/* No re-analyse / note-post actions on a past ride's debrief — disposition stays interactive. */}
                   <TodayRideCard analysis={state.todayAnalysis} />
                 </div>
               </details>
