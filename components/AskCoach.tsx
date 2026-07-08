@@ -12,7 +12,7 @@ const EXAMPLES = [
 
 // Cheap, context-aware spot-check for today. Sends the current block + session + form to a
 // small model; the athlete adds any live context (weather, how they feel) in the question.
-export default function AskCoach() {
+export default function AskCoach({ bare }: { bare?: boolean }) {
   const [query, setQuery] = useState("");
   const [asked, setAsked] = useState<string | null>(null);
   const [answer, setAnswer] = useState<string | null>(null);
@@ -63,8 +63,8 @@ export default function AskCoach() {
     setError(null);
   };
 
-  return (
-    <Zone title="Ask coach" hint="quick · today's context">
+  const body = (
+    <>
       {!asked ? (
         <>
           <div className="flex gap-2">
@@ -116,6 +116,13 @@ export default function AskCoach() {
           )}
         </div>
       )}
+    </>
+  );
+
+  if (bare) return body;
+  return (
+    <Zone title="Ask coach" hint="quick · today's context">
+      {body}
     </Zone>
   );
 }

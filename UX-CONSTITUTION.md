@@ -41,6 +41,10 @@ its page's question it serves — "which question does this answer, and is that 
 If it answers another page's question, it belongs there (or is a link). If it answers a question
 already answered on this page, it must merge with or subordinate to the existing answer (see §4).
 
+A page may serve two moments **if it presents exactly one at a time** (a moment-aware layout —
+Today's pre-ride/post-ride auto-switch). The mode must be data-derived, never a question the
+athlete answers; a quiet manual flip may exist for the edge case, but it never persists.
+
 ## 4 · The verdict hierarchy
 
 When several instruments speak to the same question, they are arranged as **one verdict → supporting

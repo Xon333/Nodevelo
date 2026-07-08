@@ -19,19 +19,14 @@ export default function Dashboard({ mode = "plan" }: { mode?: "today" | "plan" }
     );
   }
   if (!state) {
-    // S3-1: skeletons sized to each page's first-paint scaffold (Today: verdict zone → session/
-    // column grid; Plan: season strip → block hero → goals/debrief row → generator bar), so the
+    // S3-1: skeletons sized to each page's first-paint scaffold (Today: verdict → session/debrief
+    // hero → footer; Plan: season strip → block hero → goals/debrief row → generator bar), so the
     // resolved layout lands in reserved space instead of jumping down from a one-line "Loading…".
     return mode === "today" ? (
       <SkeletonScreen className="flex flex-col gap-3">
-        <Skeleton className="h-44" />
-        <div className="grid gap-3 lg:grid-cols-[1.7fr_1fr]">
-          <Skeleton className="h-72 lg:h-96" />
-          <div className="flex flex-col gap-3">
-            <Skeleton className="h-44" />
-            <Skeleton className="h-28" />
-          </div>
-        </div>
+        <Skeleton className="h-40" />
+        <Skeleton className="h-72" />
+        <Skeleton className="h-24" />
       </SkeletonScreen>
     ) : (
       <SkeletonScreen className="space-y-3">
