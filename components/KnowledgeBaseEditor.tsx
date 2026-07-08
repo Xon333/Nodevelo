@@ -129,7 +129,7 @@ export default function KnowledgeBaseEditor() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Knowledge base</h1>
+      <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Knowledge</h1>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {isRetro
           ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block."

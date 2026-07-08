@@ -7,18 +7,25 @@ import { timeAgo } from "@/lib/client-api";
 import { useSync } from "./SyncProvider";
 
 type IconName = "today" | "plan" | "trends" | "profile" | "model" | "settings" | "knowledge";
+type NavTier = "primary" | "coach" | "system";
 
-// `mobileTab: false` keeps a link out of the mobile bottom bar (already 6 tabs) — Model is reached
-// via the brain icon in the mobile top bar instead, but still gets a 7th tab on the desktop rail.
-const LINKS: { href: string; label: string; short: string; icon: IconName; mobileTab?: boolean }[] = [
-  { href: "/today", label: "Today", short: "Today", icon: "today" },
-  { href: "/plan", label: "Plan", short: "Plan", icon: "plan" },
-  { href: "/trends", label: "Trends", short: "Trends", icon: "trends" },
-  { href: "/profile", label: "Profile", short: "Profile", icon: "profile" },
-  { href: "/model", label: "Model", short: "Model", icon: "model", mobileTab: false },
-  { href: "/settings", label: "Settings", short: "Settings", icon: "settings" },
-  { href: "/knowledge", label: "Knowledge Base", short: "Docs", icon: "knowledge" },
+// Tiered rail (UX-MASTERPLAN v2 §3): the daily trio renders full-weight; the rare tier renders
+// smaller under group labels. `mobileTab: false` keeps a link out of the mobile bottom bar
+// (mobile restructure is deferred; Model still rides the top-bar brain icon there).
+const LINKS: { href: string; label: string; short: string; icon: IconName; tier: NavTier; mobileTab?: boolean }[] = [
+  { href: "/today", label: "Today", short: "Today", icon: "today", tier: "primary" },
+  { href: "/plan", label: "Plan", short: "Plan", icon: "plan", tier: "primary" },
+  { href: "/trends", label: "Trends", short: "Trends", icon: "trends", tier: "primary" },
+  { href: "/profile", label: "Profile", short: "Profile", icon: "profile", tier: "coach" },
+  { href: "/model", label: "Model", short: "Model", icon: "model", tier: "coach", mobileTab: false },
+  { href: "/settings", label: "Settings", short: "Settings", icon: "settings", tier: "system" },
+  { href: "/knowledge", label: "Knowledge", short: "Knowledge", icon: "knowledge", tier: "system" },
 ];
+
+const TIER_LABELS: Record<Exclude<NavTier, "primary">, string> = {
+  coach: "You & the coach",
+  system: "System",
+};
 
 function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: string }) {
   const common = {
@@ -216,20 +223,33 @@ export default function Nav() {
           NodeVelo
         </Link>
         <nav className="flex flex-1 flex-col gap-1 px-2">
-          {LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              aria-current={isActive(link.href) ? "page" : undefined}
-              className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
-                isActive(link.href)
-                  ? "bg-zinc-900 text-white dark:bg-[#ff49c8]/10 dark:text-[#ff49c8] dark:ring-1 dark:ring-[#ff49c8]/40"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-              }`}
-            >
-              <Icon name={link.icon} className="h-4 w-4 shrink-0" />
-              {link.label}
-            </Link>
+          {(["primary", "coach", "system"] as const).map((tier) => (
+            <div key={tier} className="flex flex-col gap-1">
+              {tier !== "primary" && (
+                <p className="px-3 pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                  {TIER_LABELS[tier]}
+                </p>
+              )}
+              {LINKS.filter((l) => l.tier === tier).map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-current={isActive(link.href) ? "page" : undefined}
+                  className={`flex items-center gap-2.5 rounded-md px-3 py-2 transition-colors ${
+                    tier === "primary" ? "text-sm" : "text-[13px]"
+                  } ${
+                    isActive(link.href)
+                      ? "bg-zinc-900 text-white dark:bg-[#ff49c8]/10 dark:text-[#ff49c8] dark:ring-1 dark:ring-[#ff49c8]/40"
+                      : tier === "primary"
+                        ? "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  }`}
+                >
+                  <Icon name={link.icon} className={`shrink-0 ${tier === "primary" ? "h-4 w-4" : "h-3.5 w-3.5"}`} />
+                  {link.label}
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="space-y-2 border-t border-zinc-200 px-3 py-3 dark:border-zinc-700">
