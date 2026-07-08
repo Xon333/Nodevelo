@@ -24,12 +24,17 @@ export default function AthleteStateCard({
   state,
   form,
   ftpRetest,
+  compact,
 }: {
   state: AthleteState;
   // The coach-snapshot TSB-as-actionable-modifier read (lib/coach-snapshot.ts resolveTsbModifier) —
   // supporting evidence under the verdict, not a second verdict (Constitution §4).
   form?: { tsb: number | null; band: string; guidance: string } | null;
   ftpRetest?: { evidence: string } | null;
+  // Post-ride strip (UX v2 §4): score · band · recommendation · why? in one line — the day's
+  // go/no-go is decided, so the verdict compresses. Keeps confidence (Constitution §5) and the
+  // hover/focus drivers reveal; drops the form line and score bar.
+  compact?: boolean;
 }) {
   const band = state.band[0].toUpperCase() + state.band.slice(1);
   // headline is deterministic "`Band` — reason" (lib/athlete-state.ts); the band now shows as the
@@ -38,6 +43,74 @@ export default function AthleteStateCard({
   const bandPrefix = `${band} — `;
   const reason = state.headline.startsWith(bandPrefix) ? state.headline.slice(bandPrefix.length) : state.headline;
   const detailId = useId();
+
+  // Hover/focus detail shared by both variants: the ranked drivers that moved the score.
+  const driversTip = (
+    <div
+      id={detailId}
+      role="tooltip"
+      className="pointer-events-none absolute left-0 top-full z-30 mt-1 w-80 max-w-[90vw] rounded-lg border border-zinc-200 bg-white p-3 text-left opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-900"
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+        What moved it
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {state.drivers.map((d) => (
+          <li key={d.key} className="flex items-baseline justify-between gap-2 text-[11px]">
+            <span className="min-w-0 text-zinc-500 dark:text-zinc-400">
+              {DIR[d.dir]} {d.note}
+            </span>
+            <span className={`shrink-0 font-mono ${driverEffectClass(d.effect)}`}>
+              {d.effect > 0 ? "+" : ""}
+              {d.effect}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div
+        tabIndex={0}
+        aria-describedby={detailId}
+        className="group relative flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-700 dark:bg-zinc-800"
+      >
+        <span className="flex shrink-0 items-baseline gap-0.5">
+          <span className={`font-mono text-xl font-bold leading-none ${BAND_COLOR[state.band]}`}>{state.score}</span>
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">/100</span>
+        </span>
+        <p className="min-w-0 text-sm font-semibold leading-tight">
+          <span className={BAND_COLOR[state.band]}>{band}</span>
+          <span className="font-medium text-zinc-600 dark:text-zinc-300"> — {state.recommendation}</span>
+          {state.confidence !== "high" && (
+            <span
+              className={`ml-1.5 text-[10px] font-normal ${
+                state.confidence === "low" ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"
+              }`}
+            >
+              · {state.confidence} confidence
+            </span>
+          )}
+        </p>
+        <Link
+          href="/model"
+          aria-label="Why this state — open your coaching model"
+          className="ml-auto shrink-0 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-[#00d4ff]"
+        >
+          why? →
+        </Link>
+        {ftpRetest && (
+          <p className="w-full text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+            <span className="font-semibold">FTP check:</span> {ftpRetest.evidence}
+          </p>
+        )}
+        {driversTip}
+      </div>
+    );
+  }
+
   return (
     // tabIndex + group-focus-within: the drivers detail below opens on keyboard focus as well as
     // hover (Constitution §6) — tabbing to the card reveals it visually; aria-describedby hands
@@ -105,29 +178,7 @@ export default function AthleteStateCard({
         </p>
       )}
 
-      {/* Hover/focus detail: the ranked drivers that moved the score (band/recommendation are visible above). */}
-      <div
-        id={detailId}
-        role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-30 mt-1 w-80 max-w-[90vw] rounded-lg border border-zinc-200 bg-white p-3 text-left opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-900"
-      >
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-          What moved it
-        </p>
-        <ul className="mt-1.5 space-y-1">
-          {state.drivers.map((d) => (
-            <li key={d.key} className="flex items-baseline justify-between gap-2 text-[11px]">
-              <span className="min-w-0 text-zinc-500 dark:text-zinc-400">
-                {DIR[d.dir]} {d.note}
-              </span>
-              <span className={`shrink-0 font-mono ${driverEffectClass(d.effect)}`}>
-                {d.effect > 0 ? "+" : ""}
-                {d.effect}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {driversTip}
     </div>
   );
 }
