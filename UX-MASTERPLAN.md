@@ -1,6 +1,6 @@
 # NodeVelo — UX Masterplan v2 · the zero-based redesign
 
-> **Status: designed 2026-07-08, not yet implemented.** Produced by the moment-first zero-based
+> **Status: designed 2026-07-08 · Wave 1 shipped 2026-07-08 (§7), Waves 2–5 open.** Produced by the moment-first zero-based
 > review of all seven surfaces (live-app walkthrough with real data, desktop 1440×900, commit
 > `3abbe3e`). Every card, metric, and nav slot re-earned its place or was moved/demoted/cut.
 > Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md); visual tokens stay in
@@ -211,7 +211,10 @@ reference-only — the same "where does this go?" honesty the rest of the app ha
 
 ## 7 · Sequencing (waves — each ends with a Constitution review)
 
-1. **Wave 1 — nav + the moves.** Tiered rail · every ledger row (§2) executed as pure relocation
+1. **Wave 1 — nav + the moves.** ✅ shipped 2026-07-08 (commits `4fe638c`…`a8c29e9`; plan
+   `docs/superpowers/plans/2026-07-08-ux-v2-wave-1-nav-and-relocations.md`; final review clean after
+   one fix — season save now refreshes the roadmap + generator context co-located on /plan).
+   Tiered rail · every ledger row (§2) executed as pure relocation
    (component moves, no redesigns yet) · name unification. Leaves no page half-moved.
 2. **Wave 2 — Today auto-switch.** Mode detection + pre/post layouts + cuts (Trend Pulse,
    viewport-lock). The single biggest build; Wave 1 already thinned the page.
