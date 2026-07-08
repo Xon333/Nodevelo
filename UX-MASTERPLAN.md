@@ -1,222 +1,239 @@
-# NodeVelo — UX Masterplan
+# NodeVelo — UX Masterplan v2 · the zero-based redesign
 
-> **Status: all 4 waves shipped (2026-07-04/05).** Every S1/S2/S3 finding below is either ✅ shipped,
-> struck as a correction, or explicitly marked deferred/accepted (S2-4, S3-5) — nothing is silently
-> unstarted. Summary: [ARCHIVE.md](ARCHIVE.md). This document stays live as the reference for *why*
-> each call was made and as the starting point for the **next** full audit, whenever that runs —
-> it isn't retired, just not currently tracking open work.
+> **Status: designed 2026-07-08, not yet implemented.** Produced by the moment-first zero-based
+> review of all seven surfaces (live-app walkthrough with real data, desktop 1440×900, commit
+> `3abbe3e`). Every card, metric, and nav slot re-earned its place or was moved/demoted/cut.
+> Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md); visual tokens stay in
+> [`DESIGN.md`](DESIGN.md). Implementation sessions execute from §7 (waves).
+>
+> **v1 (the 2026-07-03 defect audit):** all four waves shipped 2026-07-04/05 — summary in
+> [ARCHIVE.md](ARCHIVE.md), full text in git history of this file. Open remnants carried into v2:
+> S2-4 (mobile nav) is resolved by §3's design (recorded, still deferred to mobile work);
+> S3-5 (re-entry summary) remains the roadmap-tier note (`← #2`).
 
-The ranked, evidence-based UX work plan. Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md);
-visual tokens stay in [`DESIGN.md`](DESIGN.md). Produced by the full-product audit + red-team of
-2026-07-03 (all seven surfaces, at commit `d635119`). Every finding carries file evidence. This is a
-living document: re-audit after each wave, strike what ships, amend the Constitution when a rule
-proves wrong.
-
-**Division of labour:** this document designs; implementation sessions execute from it. System-level
-fixes (S1) come before page-level fixes (S2/S3) — the system before the screens.
-
----
-
-## 1 · What already works — protect these
-
-The trust architecture is genuinely strong; an audit that "cleans up" any of the following is
-regressing the product's core idea:
-
-- **Provenance**: `synced` badges on measured sections ([AthleteProfileForm.tsx:100](components/AthleteProfileForm.tsx#L100)); IF's NP-vs-avg basis stamped next to the value ([today.tsx:118](components/dashboard/today.tsx#L118)).
-- **Confidence tiers** shown only when not high ([AthleteStateCard.tsx:29](components/AthleteStateCard.tsx#L29)).
-- **Ranked drivers** — every state point traces to a named signal ([StateDriversCard.tsx](components/StateDriversCard.tsx)).
-- **Contest/correct**: calibration override + "Use learned value" escape ([CalibrationPanel.tsx:153](components/CalibrationPanel.tsx#L153)).
-- **Track record beside advice** — coach accuracy, insight validation ([TodayView.tsx:127](components/dashboard/TodayView.tsx#L127), [Trends.tsx:149](components/Trends.tsx#L149)).
-- **Execution honesty** — structural-mismatch caveat instead of a silently wrong score ([today.tsx:309](components/dashboard/today.tsx#L309)); compromised-session containment ([SessionDisposition.tsx](components/SessionDisposition.tsx)).
-- **Question headers + zone ranks** on Today; `<details>` drill-downs; the finished-block →
-  "Generate the next block →" CTA ([today.tsx:537](components/dashboard/today.tsx#L537)).
-- Real aria in places: `aria-current` nav, `role="switch"` toggles, `role="alert"`/`aria-live` on SyncNotice.
+**Scope decisions (locked with the athlete):** zero-based justification, everything on the table
+including page set and nav · desktop-first, mobile implications recorded not executed · driving
+pain: cognitive load + misplaced prominence, felt on every page.
 
 ---
 
-## 2 · System-level findings (S1 — fix the system first)
+## 1 · The moment map (the framework)
 
-### S1-1 · Today answers "can I go hard?" four times, in three vocabularies — ✅ shipped 2026-07-04
+Every element binds to a moment and ranks within it. **The moment — not the page — owns prominence.**
 
-**Evidence:** Zone 1 stacks MorningCheckIn + AthleteStateCard (0–100, `primed…depleted`) +
-CoachSnapshotCard ("Form +3 · fresh — guidance") + ReadinessBadge (`Build/Hold/Recover`) + TSB/ACWR/
-polarization tiles ([TodayView.tsx:59–97](components/dashboard/TodayView.tsx#L59)). Three registers for
-one concept ([shared.tsx:6](components/dashboard/shared.tsx#L6) vs [athlete-state-ui](components/athlete-state-ui.tsx) vs TSB bands), no stated precedence.
-
-**Why it matters:** this is the product's #1 question, read by the most degraded reader (pre-ride,
-30 seconds). Four same-altitude instruments force the athlete to reconcile them — and on the day two
-visibly disagree (state `primed`, readiness `Recover`), trust in all four dies. Constitution §4.
-
-**Direction:** one verdict owns fold-1 — the fused AthleteState is the natural owner (it already
-*is* the signal fusion; §5 of the app's design). Readiness, coach's read, and the tiles become its
-supporting layer: visually subordinate, reconciled by construction (drivers must reference them).
-Merge or re-register the `Build/Hold/Recover` vocabulary into the state register. Alerts
-(fatigue/load-ramp) stay top — alarms outrank verdicts, aviation-style.
-
-**Measure:** fold-1 contains exactly one verdict; the two vocabularies become one; time-to-decision
-proxy = elements above the session card drops from ~7 to ≤4.
-
-**Shipped:** `AthleteStateCard` is now the sole fold-1 verdict — score/band/recommendation visible
-without interaction (only the ranked drivers stay behind hover/focus), with the coach-snapshot
-TSB-modifier guidance and FTP-retest advisory folded in as its supporting lines (`components/AthleteStateCard.tsx`).
-The standalone `Build/Hold/Recover` badge (`ReadinessBadge`) is retired; `ReadinessAlerts`
-(`components/dashboard/today.tsx`) keeps only the triggered fatigue/load-ramp alarms above the verdict,
-aviation-style. `CoachSnapshotCard.tsx` is deleted (content absorbed). The TSB/ACWR/Polarization/EA
-tiles + remaining coach context (FTP, fuel) collapse into a "Supporting signals" `<details>`
-(`components/dashboard/TodayView.tsx`) — hidden, not deleted. `ReadinessSignal`/`computeReadiness` are
-untouched and still feed the AI snapshot (`lib/coach-snapshot.ts`) unchanged — this was a presentation-layer
-merge only. S2-3 (the two near-identical `e/m/h` splits) fell out of it for free: the 7-day tile is now
-labelled "Polarization · 7d" against the Trend Pulse's "Time in zones · 28d". Fold-1 element count above
-the session card: 1 (was ~5).
-
-### S1-2 · The entire explanation layer is hover-only — invisible to touch, keyboard, and screen readers
-
-**Evidence:** `MetricTip`/`InfoDot` are `group-hover` spans with no focus/tap semantics
-([ui.tsx:9–30](components/ui.tsx#L9)); the state card's band + recommendation + drivers reveal on
-hover only ([AthleteStateCard.tsx:52](components/AthleteStateCard.tsx#L52)); block-calendar day detail
-(name, type, execution, missed/compromised) is a hover tooltip ([plan.tsx:297](components/dashboard/plan.tsx#L297));
-zone-bar segments likewise ([shared.tsx:48](components/dashboard/shared.tsx#L48)); plus `title=`
-attributes on score bars, PR chips, rep chips.
-
-**Why it matters:** the trust philosophy ("the athlete can always reach what the brain knows") is
-currently *desktop-mouse-only*. On the phone — the primary red-team context — the athlete cannot see
-why their state is 62, what Thursday's session is on the calendar, or what any ⓘ explains. This is
-the single largest gap between the product's stated values and its behaviour. Constitution §6, §9.
-
-**Direction:** upgrade the one primitive everything already uses — `MetricTip`/`InfoDot` become a
-tap-and-focus-capable popover (open on click/tap/focus, dismiss on outside-tap/Esc, trigger is a
-`<button>` with `aria-expanded`/`aria-describedby`). Hover stays as the desktop accelerator. Then
-migrate the two bespoke hover reveals (state-card detail, calendar day detail) onto the same
-mechanic; calendar days become tappable. Because every tip flows through `ui.tsx`, this is one
-primitive fix + two call-site migrations, not a page-by-page rewrite.
-
-**Measure:** on a touch viewport, every ⓘ, the state detail, and every calendar day can be opened;
-keyboard Tab reaches them; ban-list §10.1 becomes grep-enforceable (`group-hover` carrying
-decision-critical content → 0).
-
-### S1-3 · Best-effort features fail silently — absence is indistinguishable from breakage
-
-**Evidence:** empty `catch {}` on season/profile prefill/history ([PlanView.tsx:63,86,117](components/dashboard/PlanView.tsx#L63)),
-trend pulse ([TrendPulse.tsx:102](components/TrendPulse.tsx#L102)), morning check ([MorningCheckIn.tsx:45](components/MorningCheckIn.tsx#L45)),
-reschedule ([RescheduleBanner.tsx:29](components/RescheduleBanner.tsx#L29)), disposition, season roadmap.
-Worst case: "Post to Intervals.icu" swallows failure — the button just returns to rest
-([TodayView.tsx:50](components/dashboard/TodayView.tsx#L50)).
-
-**Why it matters:** "Never hide uncertainty" is the trust philosophy; a card that vanishes on error
-hides it completely. The athlete plans around a Season strip that isn't there and never learns why.
-Constitution §5, §8.
-
-**Direction:** a shared degraded-state convention: best-effort fetches distinguish
-`empty` (render nothing — correct for optional context) from `failed` (render the slot with a quiet
-one-liner: "Season couldn't load — retry"). Actions (post note, apply, save) always surface failure
-at the button. One tiny helper/pattern, applied at each call site.
-
-**Measure:** `grep -n "catch {}" components/` → every hit either renders a failed-state or is
-explicitly commented as *empty-equivalent* with a reason; the post-note button shows a failure state.
-
-### S1-4 · The first-run journey is dead ends + developer jargon — ✅ shipped 2026-07-05
-
-**Evidence:** a fresh athlete on Today sees "Sync to compute today's readiness."
-([TodayView.tsx:82](components/dashboard/TodayView.tsx#L82)) and "No session planned for today."
-([today.tsx:553](components/dashboard/today.tsx#L553)) — no link anywhere to the actual path
-(configure → sync → generate a block on /plan). Generation failure surfaces
-"ANTHROPIC_API_KEY is not set — generation is unavailable." ([BlockGenerator.tsx:83](components/dashboard/BlockGenerator.tsx#L83)).
-
-**Why it matters:** it's a single-athlete app, but "first run" recurs: new machine, restored backup,
-a friend's install — and the same dead-end pattern hits the *returning* athlete whose block expired.
-Dev jargon in athlete copy breaks the coach voice. Constitution §7, §8.
-
-**Direction:** empty states become onboarding: no-block Today links to /plan ("Plan your next block →",
-matching the finished-block CTA that already exists); unconfigured states name the step in coach
-language ("Connect the AI coach in setup — generation needs it") with the env detail relegated to a
-tip/docs. No wizard needed — just honest links.
-
-**Measure:** from a blank `data/`, every visible empty state contains the next action as a link;
-`grep -rn "ANTHROPIC_API_KEY" components/ app/ --include=*.tsx` → no athlete-facing hits.
-
-**Shipped:** no-active-block on Today now links "Plan your next block →" (`PlannedToday`,
-`components/dashboard/today.tsx`), mirroring the existing finished-block CTA. The degraded-readiness
-fallback (no fused state yet) gained a real "Sync now →" action wired to `doSync()` when Intervals.icu
-is configured, instead of naming an action with nowhere to click (`components/dashboard/TodayView.tsx`).
-The `ANTHROPIC_API_KEY` message is now coach-voice ("Connect the AI coach to generate blocks.") with the
-env-var detail moved to an `InfoDot` tip (`components/dashboard/BlockGenerator.tsx`) — grep-clean per
-the measure above.
-
-### S1-5 · The canonical theme flashes light on every load
-
-**Evidence:** no pre-hydration theme script — dark is applied in a `useEffect` after mount, admitted
-in the comment ([Nav.tsx:91–103](components/Nav.tsx#L91)).
-
-**Why it matters:** DESIGN.md declares dark canonical and "a dark-mode regression is a real bug."
-Every single open — the 30-second glance included — starts with a white flash, worst at night
-(pre-dawn ride checks). Constitution §8.
-
-**Direction:** classic inline script in `app/layout.tsx` `<head>` (read localStorage/matchMedia, set
-`.dark` before paint); `DarkToggle` then reads the applied class instead of re-deriving, deleting the
-mismatch workaround.
-
-**Measure:** hard reload with dark stored → no flash (verifiable in the preview); the eslint-disable
-comment in Nav.tsx is gone.
-
----
-
-## 3 · Severity-ranked backlog (S2 page-level · S3 polish)
-
-| ID | Sev | Where | Finding (evidence) | Direction |
+| # | Moment | Frequency · attention | The question | Attention budget |
 |---|---|---|---|---|
-| S2-1 | high | Plan (mobile) | Block calendar cells show only a day number; all meaning is hover-locked ([plan.tsx:278–333](components/dashboard/plan.tsx#L278)) | Rides on S1-2's tap popover; consider type initial in-cell on mobile — ✅ shipped 2026-07-05: all 28 day cells now `tabIndex`+`aria-describedby`+`role="tooltip"` (the mobile-only "type initial in-cell" enhancement is still open) |
-| S2-2 | high | global | Routine touch targets under ~24px: disposition chips `py-0.5 text-[11px]` ([SessionDisposition.tsx:54](components/SessionDisposition.tsx#L54)), calibration override link ([CalibrationPanel.tsx:153](components/CalibrationPanel.tsx#L153)), "Show more" ([plan.tsx:25](components/dashboard/plan.tsx#L25)) | Bump padding/hit-area (visual size can stay); sweep for `text-[10px]`/`[11px]` *buttons* — ✅ shipped 2026-07-05, plus one more found in the sweep (AskCoach's "Ask another") |
-| S2-3 | med | Today | Two near-identical `e/m/h` splits, different windows: "Polarization" 7d ([today.tsx:478](components/dashboard/today.tsx#L478)) vs "Time in zones · 28d" ([TrendPulse.tsx:69](components/TrendPulse.tsx#L69)) | Ban-list §10.7: unify window or make the difference loud; likely drop one from Today — ✅ shipped 2026-07-04 (fell out of Wave 2, see S1-1) |
-| S2-4 | med | IA / nav | Mobile demotes Model (the trust centerpiece) to an unlabeled brain icon while Knowledge (a markdown power-tool) keeps a tab; label drift "Knowledge Base"/"Docs" ([Nav.tsx:11–20](components/Nav.tsx#L11)) | Recommend: swap — Model gets the 6th tab, Knowledge moves behind Settings (it's configuration, visited rarely); one name everywhere — **deferred**: purely a mobile bottom-tab-bar concern (desktop's rail already shows Model with its full label, unaffected); revisit when mobile work resumes |
-| S2-5 | med | Settings | h1 reads "Block generation settings" but the page also owns AI usage + backup; nav says "Settings" ([settings/page.tsx:14](app/settings/page.tsx#L14)) | h1 "Settings"; section titles carry the split (generation / platform) — ✅ shipped 2026-07-05 |
-| S2-6 | med | Today | Tooltip essays: EA tip ~120 words, ACWR ~60 ([today.tsx:520,469](components/dashboard/today.tsx#L520)) | Constitution §6: cut to ≤2 sentences + "more → /model"; long-form lives on Model page — ✅ shipped 2026-07-05 (trimmed to 2 sentences each; the "→ /model" cross-reference wasn't built — kept in scope minimal) |
-| S2-7 | med | Plan / Knowledge | Destructive/discard flows use `window.confirm` ([PlanView.tsx:187](components/dashboard/PlanView.tsx#L187), [KnowledgeBaseEditor.tsx:34](components/KnowledgeBaseEditor.tsx#L34)); delete states no consequence | In-product confirm stating what's kept (ridden history survives block deletion) — ✅ shipped 2026-07-05, plus one more found: `BackupRestore.tsx`'s restore-from-file (the single highest-stakes destructive action in the app — overwrites all local data) |
-| S2-8 | med | Today | "Generate Next Block" while a block is active doesn't say what happens to the current one ([BlockGenerator.tsx:76](components/dashboard/BlockGenerator.tsx#L76)) | One microcopy line under the button (preview-then-write already makes it safe — say so) — ✅ shipped 2026-07-05 |
-| S2-9 | med | coaching | No "injury" path: disposition reasons stop at equipment/sickness/weather/other ([SessionDisposition.tsx:15](components/SessionDisposition.tsx#L15)); morning check-in offers ill/extreme-fatigue only ([MorningCheckIn.tsx:8](components/MorningCheckIn.tsx#L8)) | ✅ shipped 2026-07-04. **Not** just a fourth downgrade flag — the original finding ("feeds the same downgrade machinery") was wrong for injury, and a deeper gap surfaced: the check-in didn't render *at all* on a non-quality day, so an injured athlete facing an easy/long-Z2 day had zero proactive surface. Decisions: (1) injury gets its own **`rest`** decision (new 3rd `MorningCheckDecision` value), not `downgrade` — ill/fatigue are metabolic (intensity is the hazard → the load-neutral swap protects them), but injury is musculoskeletal (the pedaling *motion/load* is the hazard, identical on a 4h Z2 as on a VO2 day), so swapping the session onto an easy day doesn't help. `rest` = skip today, **no swap, no make-up carry-forward**, plus text pointing to a professional; it is deliberately *not* applyable through the reschedule machinery (nothing to move). (2) The check-in now surfaces on **any ride day** (new `hasRideToday`), not only quality days — but narrowly: a non-quality day shows *only* the injury flag ("Ride planned today — something hurting?"), ill/fatigue stay quality-gated (no hard stimulus to protect on an easy day). A true rest day (no ride) still shows nothing. (3) Injury guidance is **informational, not a scheduling action** — the app refuses to tell an injured athlete to ride but doesn't attempt return-to-training programming. `injury` also added as a disposition compromise reason (the mechanical half). |
-| S2-10 | low | Today | Session attribution chips appear with zero explanation of what "Compromised" does (the one concept that changes what the model learns) ([today.tsx:403](components/dashboard/today.tsx#L403)) | One InfoDot on the row: "Compromised keeps the ride but stops it teaching the model" — ✅ shipped 2026-07-05 |
-| S3-1 | low | global | Loading is bare "Loading…" text (Dashboard, Trends, Profile) — layout jumps on resolve | Skeleton/held-height per Constitution §8; cheap on local-first — ✅ shipped 2026-07-05: shared `Skeleton`/`SkeletonScreen` primitives (`ui.tsx`, `animate-pulse` on surface tokens, `role="status"` for AT) + per-page skeletons mirroring each first-paint scaffold at all **five** bare sites — the original citation missed two (Dashboard today/plan, Trends, Profile, Knowledge, Settings form) |
-| S3-2 | low | global | ~~Most buttons have no `focus-visible` ring~~ — **correction 2026-07-05:** re-checked `app/globals.css` directly; a global `:focus-visible { outline: 2px solid var(--focus-ring) }` rule already existed pre-dating this audit (the original finding was inferred from component classNames, never ground-truthed against globals.css). No work needed. | — |
-| S3-3 | low | Today (desktop) | Viewport-locked layout hides internal scrollability (macOS overlay scrollbars) ([TodayView.tsx:58](components/dashboard/TodayView.tsx#L58)) | Subtle fade/affordance at the clipped edge — ✅ shipped 2026-07-05: scroll-aware bottom fade built into the `Zone` `fill` primitive (covers every call site); chose the honest scroll-tracked version over an always-on CSS gradient — the fade only shows while more content genuinely remains, and hides at the end or when everything fits |
-| S3-4 | low | dark theme | Muted micro-labels (`zinc-500` dark on `zinc-900`) are borderline in sunlight — the red-team outdoor case | Spot-check contrast; consider `zinc-400` floor for dark-mode labels — ✅ shipped 2026-07-05: the spot-check found the documented ladder (DESIGN.md §3: `zinc-500` light / `zinc-400` dark) already correct everywhere except **one** drifted instance — the EA tile's day-count suffix (`today.tsx`) had the pair inverted. Restored; measured dark contrast 3.67:1 → 6.91:1 on the zinc-900 tile (light 2.46:1 → 4.63:1). No new floor needed — the rule was right, the line was drift |
-| S3-5 | low | re-entry | Returning after months: no "what changed while you were away" summary (stale-FTP warning and retro prompt exist and help) | Roadmap-tier feature; note only — pairs with the ledger/context-stamp work (`← #2`) |
+| M1 | Pre-ride glance | daily · 30 s, degraded | Can I go hard — what's the session? | ≤3 elements: alert (if any) → verdict → prescription |
+| M2 | Post-ride debrief | daily · 2–5 min | How did it go — what did the coach see — what do I eat? | score + ≤3-sentence takeaway + fuel; rest disclosed |
+| M3 | Week check | 1–2×/wk · 1 min | Where am I in the block, what's next? | calendar hero + week strip, nothing else fold-1 |
+| M4 | Block boundary | ~monthly · 10 min | Debrief the block, generate the next | generator + season context (expanded only here) |
+| M5 | Progress review | ~monthly · 5–10 min | Am I improving? | verdict line + ranked insights first, charts as evidence |
+| M6 | Trust check | rare · triggered | Why did it say that? Fix it. | drivers → calibration → track record, one surface |
+| M7 | Identity & config | rare | Set who I am / how it behaves | read view first, editing disclosed |
 
----
+Page ↔ moment: Today = M1+M2 (moment-aware, §4) · Plan = M3+M4 · Trends = M5 · Model = M6 ·
+Profile/Settings/Knowledge = M7.
 
-## 4 · Page notes (apply after S1 lands)
+### Court rules (applied throughout)
 
-- **Today** — post S1-1 restructure: alerts → verdict (state) → session card. Session card is
-  already strong; keep the `<details>` drill-down as the model for everything else.
-- **Plan** — healthy shape (hero block → goals/debrief → collapsed generator → history). S2-1/7/8
-  are the gaps. The generator's season readout is a quiet trust win — keep.
-- **Trends** — intentional review depth is right. Watch the intro line "not a duplicate of
-  intervals.icu" — that's a mission statement, not athlete value; candidates for the page question:
-  "Am I improving?" Density item already tracked in ROADMAP (UI refinements).
-- **Profile** — the synced/owned split (§5 pattern) is exemplary. Forms are long but honest; S2-2
-  applies to the tiny add/remove buttons.
-- **Model** — the right content, and where S2-6's long-form explanations should land. After S2-4 it
-  gains the mobile prominence its content deserves.
-- **Settings** — S2-5 retitle; otherwise fine (ToggleRow is the a11y high-water mark — reuse it).
-- **Knowledge** — power tool; fine behind a quieter entry point (S2-4). The per-file hints are good.
+1. **One owner per number.** Every metric has exactly one canonical home (§2 ledger); anywhere
+   else it is a link, or it dies.
+2. **One verdict per page, fold-1, before evidence** (Constitution §4) — now enforced on Trends too.
+3. **Hard caps:** fold-1 ≤ 3 elements + 1 primary action; visible prose ≤ 3 sentences per card
+   (coach note included); a flat rail of 7 equal tabs breaks the budget → nav is tiered.
+4. **Hidden ≠ deleted stays law** — everything demoted remains one disclosure away.
 
-## 5 · Sequencing
+## 2 · Cross-page moves ledger
 
-1. **Wave 1 — system primitives** (unblocks everything): S1-2 tip/popover primitive · S1-3
-   degraded-state convention · S1-5 theme script. ✅ shipped 2026-07-04 (commit `3aaa78a`).
-2. **Wave 2 — the verdict**: S1-1 Today hierarchy + vocabulary merge; S2-3 falls out of it.
-   ✅ shipped 2026-07-04.
-3. **Wave 3 — page fixes**: S1-4 empty-state links + copy · S2-1 (rides on Wave 1) · S2-2 · S2-5/6/7/8/10.
-   ✅ shipped 2026-07-05, desktop-first scope. S2-4 deferred (pure mobile IA — no desktop work exists).
-4. **Wave 4 — polish + coaching**: S2-9 injury path · S3-1, S3-3, S3-4 (S3-2 struck — see correction).
-   ✅ shipped 2026-07-05 (S2-9 on 2026-07-04). S3-5 stays open as the noted roadmap-tier item (`← #2`).
+The single source of truth for "where does X live now." Implementation must leave no orphan copies.
 
-Each wave ends with a Phase-6 review against the Constitution before the next starts.
+| Element | Was | Now (canonical) | Elsewhere |
+|---|---|---|---|
+| Trend Pulse (CTL/volume/zones mini) | Today | **Trends** (its charts already exist there) | — (rail trio makes Trends one click) |
+| Coach note (full text) | Today, ~250 words visible | **Today post-ride, ≤3 sentences** | full note behind `<details>` |
+| Weekly hours/load ("this week") | Today signals · Plan panel · Trends tiles | **Plan** week strip (in-hero) | — |
+| Directive chips (5 categories) | Plan + Model | **Model** · Standing guidance | generator consumes internally |
+| Current performance (FTP · tHR · maxHR) | Plan + Profile-ish | **Profile** rider read | expanded generator's season readout |
+| Full goals & weakpoints list | Plan + Profile | **Profile** (read view + inline edit) | Plan keeps derived "this block targets…" line |
+| Season (objective + events) | Profile | **Plan** (compact card by the generator) | — |
+| Effort bands / zones table | Model | **Profile** (declared data, synced) | — |
+| Latest weight · last intake | Trends "Last 7 days" tiles | **Trends** · Load & fuel group | weight also in Profile rider read |
+| 7-day load tile | Trends | **Plan** week strip | — |
+| Weekly volume chart | Trends top-level | **Trends** · Load & fuel (small, context) | — |
+| Delete block | Plan hero top-right | **Plan** overflow "…" menu (in-product confirm kept) | — |
 
-## 6 · Success measures
+Sorting test for Profile vs Model: **Profile = what the athlete declares; Model = what the coach
+learned.** Every future element sorts by that test.
 
-- Fold-1 of Today: one verdict, ≤4 elements above the session card.
-- Touch viewport: every explanation reachable by tap; keyboard: by Tab. `group-hover`-only
-  decision content → 0 occurrences.
-- All async actions report failure at the control; `catch {}` sites all classified.
-- Blank-data walkthrough reaches a generated block using only in-app links.
-- No light flash on dark load; no dev jargon strings in athlete-facing copy (grep-clean).
+## 3 · IA & navigation — tiered rail, all 7 pages stay
+
+**Page-set verdict: keep all seven surfaces; no merges.** Each maps cleanly to a moment. The
+tempting Profile+Model merge fails the moment test (identity edits vs. trust checks — different
+questions). The clutter problem is equal prominence for unequal pages, not page count.
+
+**Desktop rail (approved):** three tiers.
+
+```
+● Today  ● Plan  ● Trends          ← full weight, daily
+YOU & THE COACH                    ← group label, quiet
+○ Profile  ○ Model                 ← smaller/dimmer
+SYSTEM
+○ Settings  ○ Knowledge
+```
+
+Zero routing changes; everything one click; scan cost 3 + labels instead of 7 equals.
+
+**One name everywhere:** the destination is **"Knowledge"** — retire "Knowledge Base" (desktop
+rail) and "Docs" (mobile tab).
+
+**Mobile (recorded, deferred):** bottom bar = the trio + a "More" sheet holding
+Profile/Model/Settings/Knowledge with full labels. Retires the unlabeled brain icon → resolves
+v1's deferred S2-4 and ban-list §10.8.
+
+## 4 · Today — one page, two moments (auto-switch)
+
+**The problem:** Today served M1 and M2 simultaneously in one fixed layout — pre-ride you waded
+through debrief content, post-ride past prescription scaffolding. Plus Trend Pulse carried Trends'
+page question verbatim ("Am I improving?").
+
+**Mode detection (approved: auto-switch, no tabs):** a synced ride matching today's *local* date
+(`localToday()`, per AGENTS.md) exists → **post-ride mode**; otherwise **pre-ride mode**. Rest day
+(no planned session): pre-ride skeleton, session card states rest + tomorrow's preview. A quiet
+corner link ("planned ↔ debrief") flips the view client-side for the odd case (evening plan-check
+after a morning ride); no persistence — auto mode re-asserts on next load.
+
+**Pre-ride (M1, ≤3 elements, fits one screen by construction):**
+1. Readiness alerts — only when triggered (aviation rule: alarms outrank verdicts).
+2. Verdict — `AthleteStateCard` unchanged (score/band/recommendation + why? →).
+3. **Session prescription card, promoted:** name, type chip, duration, and the full step/rep
+   prescription with targets — pre-ride you want *what am I about to ride*, not post-hoc analysis.
+   Morning check-in renders inline here when relevant (S2-9 rules unchanged).
+Quiet footer row: ▸ supporting signals · ▸ yesterday's debrief · ▸ ask coach.
+
+**Post-ride (M2):**
+1. Alerts (if any).
+2. **Verdict compressed to a strip** — score · band · recommendation · why? → in one line; the
+   day's go/no-go decision is already made.
+3. **Debrief hero:** execution score + label · planned-vs-actual line · IF (with basis) / NP / avg ·
+   coach takeaway **≤3 sentences visible**, full note behind `<details>` · power execution
+   drill-down (existing `<details>`) · disposition chips with their InfoDot · Post to Intervals.icu.
+4. **"Eat today" fuel card:** advised intake + formula (base + ride + buffer) — promoted; this is
+   the decision that still remains post-ride.
+Collapsed: supporting signals · ask coach.
+
+**Cuts:** Trend Pulse leaves Today entirely (ledger). **Viewport-lock retires** — pre-ride fits
+without it; post-ride scrolls naturally like every other page. The internal-scroll edge-fade
+machinery (v1 S3-3) retires with it if no other call site needs it.
+
+## 5 · Trends — from chart pile to a three-axis answer (approved: verdict + grouped scroll)
+
+**The problem:** 9 equal-weight sections; the page opened with weight/intake tiles (fuel status,
+not improvement); the answer to "am I improving?" had to be synthesized by the athlete every visit.
+
+**Fold-1 — the verdict strip:** one sentence, three axes, each honestly derived from existing
+signals and each linking to its group below:
+
+> **Improving** — engine ↑ (CTL slope + Pw:HR trend) · delivery steady (execution avg, direction) ·
+> fueling on target (intake vs advised)
+
+Confidence/derivation stated per Constitution §5 (tip naming the derivation). Below it, the ranked
+**coach insights** (with validation marks) promoted into fold-1 — top 3 visible, rest disclosed.
+
+**Then four named groups** (group gap = 2× card gap; uniform chart-card height):
+
+- **ENGINE — is the motor getting bigger?** Pw:HR decoupling · CTL, side by side.
+- **DELIVERY — do I ride what's prescribed?** Execution-quality per-session bars; per-type
+  planned-vs-actual becomes a **toggle on the same card** (the two sections merge — same question,
+  two zoom levels).
+- **LOAD & FUEL — am I feeding the work?** Fueling & weight (absorbs latest weight / trend / last
+  intake from the killed tile row) · weekly volume as the small context chart.
+- **MILESTONES.** Recent baselines row (W/kg · weekly hours · rides/wk · avg load) · block history
+  stays collapsed at the bottom.
+
+**Cuts:** the "Last 7 days" tile row (tenants relocated per ledger) · the "not a duplicate of
+intervals.icu" mission-statement intro (the page question header replaces it).
+
+## 6 · The remaining pages
+
+### Plan — the calendar earns the whole fold (approved: week strip in-hero)
+
+- **Hero gains orientation:** header "Active block — week N of M · <week character>"; a loud TODAY
+  marker; a "next: <session>, <when>" pointer; week-row labels (load/build/peak/taper).
+- **Week strip inside the hero** (the separate "This week" panel dies): hours vs target · load ·
+  top session — one glance answers "where am I" and "how's the week going."
+- **Reschedule-ready by design:** the per-day tap/focus popover keeps a reserved actions row —
+  "move session…" lands there when rescheduling ships; the grid is designed as interactive, not
+  read-only. (Athlete note folded in 2026-07-08.)
+- **"This block targets: …"** one derived line (from block goal/weakpoint) replaces the Goals
+  section (full list → Profile; directives → Model per ledger).
+- **Season card arrives** (from Profile): compact objective + upcoming events, sitting beside the
+  generator it feeds.
+- Generator stays collapsed while a block is active; expanded (M4) it keeps the season readout and
+  gains one line: *"uses your volume targets & structure — edit in Settings →"*.
+- Kept: day popovers, finished-block CTA, preview-then-write microcopy, block history `<details>`.
+  Delete block → overflow menu (ledger).
+
+### Profile — the rider dossier (approved: inline-expand editing)
+
+Order: **1) THE RIDER READ** (hero): power curve + phenotype line, current performance
+(FTP · tHR · maxHR, from Plan), weight, compact PR strip — provenance badges kept.
+**2) ZONES & EFFORT BANDS** (from Model, synced badge, compact table).
+**3) GOALS & WEAKPOINTS** — compact read view (goal → target · type), the edit form hidden behind
+an inline "▸ edit" expand (no modal — consistent with the app's disclosure pattern).
+**4) NUTRITION FORMULA** — compact read + inline edit.
+Season leaves for Plan. The long scroll of forms becomes a readable dossier with editing on demand.
+
+### Model — three groups, bars not paragraphs (approved: stacked groups, not pipeline)
+
+Reading order matches how the athlete actually asks:
+
+1. **NOW — what drives your state:** the fused score + ranked drivers as **signed magnitude bars**
+   (−10/−9/−8/+4 …), largest first — the same data Today's "why? →" links to, finally visual.
+2. **LEARNED — per-athlete calibration:** one card per learned value — number · provenance
+   ("learned · N rides") · confidence tier · override/contest inline with the "use learned value"
+   escape (existing CalibrationPanel semantics, card-ified).
+3. **STANDING GUIDANCE — directives (sole owner):** grouped by category, one line each, evidence
+   behind "why ▸", validation ✓ where earned. No more text-upon-text.
+
+Effort bands leave for Profile. Long-form metric explanations (v1 S2-6's landing spot) live here.
+
+### Settings — two labelled groups (approved "as scoped")
+
+**GENERATION** (weekly volume targets · weekly structure · training philosophy & equipment) and
+**PLATFORM** (platform behavior · AI usage & cost · backup & restore) — visually separated tiers,
+no content changes. Plan's generator links here (§6-Plan).
+
+### Knowledge — power tool, one honest addition
+
+No redesign. One-line provenance header above the file list: which files feed block generation vs.
+reference-only — the same "where does this go?" honesty the rest of the app has. Renamed
+"Knowledge" everywhere (§3).
+
+## 7 · Sequencing (waves — each ends with a Constitution review)
+
+1. **Wave 1 — nav + the moves.** Tiered rail · every ledger row (§2) executed as pure relocation
+   (component moves, no redesigns yet) · name unification. Leaves no page half-moved.
+2. **Wave 2 — Today auto-switch.** Mode detection + pre/post layouts + cuts (Trend Pulse,
+   viewport-lock). The single biggest build; Wave 1 already thinned the page.
+3. **Wave 3 — Trends rebuild.** Verdict strip (axis derivations!) + groups + the Delivery merge.
+4. **Wave 4 — Profile dossier + Model three-groups.**
+5. **Wave 5 — Plan hero orientation + Settings grouping + Knowledge header + density polish.**
+
+Doc duty per wave: update DESIGN.md §8 (per-page table + layout notes — the viewport-lock clause
+dies in Wave 2) and ROADMAP cross-refs in the same commit that ships the change.
+
+**Constitution amendments to land with Wave 2** (same-commit rule): §3 gains the moment clause —
+*a page may serve two moments if it presents exactly one at a time (moment-aware layout); the
+mode must be data-derived, never a question the athlete answers* — and §4 codifies court rule 1
+(one canonical home per metric; elsewhere it's a link).
+
+## 8 · Success measures
+
+- Pre-ride Today: ≤3 elements, no scroll at 1440×900; post-ride: debrief is fold-1.
+- `TrendPulse` no longer imported by any Today component; Today has no viewport-lock CSS.
+- Trends opens with a verdict sentence; zero orphan copies of ledger rows (grep per element).
+- Coach-note visible text ≤3 sentences pre-disclosure.
+- Rail renders 3 + 2 + 2 with group labels; "Knowledge Base"/"Docs" strings gone.
+- Profile: no edit form visible before its disclosure is opened.
+- Model: zero multi-paragraph prose blocks outside `<details>`.
 - Post-wave re-audit finds no new ban-list entries.
