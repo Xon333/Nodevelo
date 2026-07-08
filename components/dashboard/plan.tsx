@@ -157,49 +157,6 @@ export function RetroSection({
   );
 }
 
-// ---------- Progress toward goals ----------
-
-interface ProfileGoals {
-  goals: Array<{ goal: string; target: string }>;
-  performanceData: Record<string, string>;
-}
-
-export function GoalsProgress({ goals, performanceData }: ProfileGoals) {
-  if (!goals.length) return null;
-
-  const powerGoals = performanceData;
-
-  return (
-    <Card title="Goals">
-      <div className="flex flex-col gap-2">
-        {goals.map((g) => (
-          <div key={g.goal} className="flex items-baseline justify-between gap-2">
-            <span className="min-w-0 text-sm text-zinc-700 dark:text-zinc-300">{g.goal}</span>
-            {g.target && (
-              <span className="min-w-0 break-words rounded-full bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff] dark:ring-1 dark:ring-[#00d4ff]/30">
-                → {g.target}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-      {powerGoals && Object.keys(powerGoals).length > 0 && (
-        <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Current performance</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {Object.entries(powerGoals).map(([k, v]) => (
-              <div key={k} className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{k}</p>
-                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{v}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 // ---------- Block history ----------
 
 export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
@@ -416,6 +373,10 @@ export function CurrentBlockSection({
               {daysRemaining > 0
                 ? `Week ${weekOfBlock} of ${block.lengthWeeks} · ${sessionsToGo} session${sessionsToGo === 1 ? "" : "s"} to go`
                 : "finished"}
+            </p>
+            <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500 dark:text-zinc-400">
+              This block targets:{" "}
+              <span className="text-zinc-700 dark:text-zinc-300">{block.goal.split("\n")[0]}</span>
             </p>
           </div>
           {onDelete && (

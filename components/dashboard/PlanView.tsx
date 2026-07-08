@@ -15,7 +15,6 @@ import BlockGenerator from "./BlockGenerator";
 import {
   BlockHistory,
   CurrentBlockSection,
-  GoalsProgress,
   RetroSection,
   WeeklyDebrief,
 } from "./plan";
@@ -41,8 +40,6 @@ export default function PlanView() {
   const [writing, setWriting] = useState(false);
   const [writeResults, setWriteResults] = useState<WriteResult[] | null>(null);
 
-  const [athleteMd, setAthleteMd] = useState<AthleteMdSnapshot | null>(null);
-  const [goalsForProgress, setGoalsForProgress] = useState<Array<{ goal: string; target: string }>>([]);
   const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
 
   const [retroGenerating, setRetroGenerating] = useState(false);
@@ -82,8 +79,6 @@ export default function PlanView() {
         goals: Array<{ goal: string; target: string; focus: string }>;
         weakpoints: Array<{ weakpoint: string; detail: string }>;
       }>("/api/profile");
-      setAthleteMd(response.athleteMd);
-      setGoalsForProgress(response.goals);
       setRawGoals(response.goals);
       if (response.weakpoints.length > 0) {
         setWeakpointsText(response.weakpoints.map((w) => w.weakpoint).join("\n"));
@@ -234,15 +229,7 @@ export default function PlanView() {
 
       {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} />}
 
-      {/* Goals + this-week side by side, just under the active block */}
-      {(athleteMd || state.lastSync) && (
-        <div className="grid gap-3 sm:grid-cols-[1.7fr_1fr]">
-          {goalsForProgress.length > 0 && athleteMd && (
-            <GoalsProgress goals={goalsForProgress} performanceData={athleteMd.performanceData} />
-          )}
-          {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
-        </div>
-      )}
+      {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
 
       {/* Degraded prefill notices — the generator still works, but the athlete should know the
           fields aren't reflecting their profile/season right now. */}
