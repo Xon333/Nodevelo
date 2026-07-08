@@ -460,6 +460,21 @@ export default function AthleteProfileForm() {
         </>
       )}
 
+      {/* Current performance (FTP · threshold HR · max HR) — canonical home per UX v2 §2 ledger;
+          moved from Plan's goals card. Values live in knowledge-base athlete.md, edited there. */}
+      {athleteMd.performanceData && Object.keys(athleteMd.performanceData).length > 0 && (
+        <Section title="Current performance" editHref="/knowledge">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {Object.entries(athleteMd.performanceData).map(([k, v]) => (
+              <div key={k} className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{k}</p>
+                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{v}</p>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
       {/* Goals & Weakpoints — athlete-owned intent, now a real form (Goals/Weakpoints centralization)
           instead of hand-edited markdown. Independent Save button/state from Nutrition and Season. */}
       <Section title="Goals & Weakpoints">
