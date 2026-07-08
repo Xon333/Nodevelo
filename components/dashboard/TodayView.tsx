@@ -7,9 +7,10 @@ import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
 import AskCoach from "../AskCoach";
 import AthleteStateCard from "../AthleteStateCard";
+import LoadingPrompt from "../LoadingPrompt";
 import MorningCheckIn from "../MorningCheckIn";
 import TrendPulse from "../TrendPulse";
-import { EnergyAvailabilityTile, PlannedToday, ReadinessAlerts, RecentDataSummary, TodayRideCard } from "./today";
+import { EatToday, EnergyAvailabilityTile, PlannedToday, ReadinessAlerts, RecentDataSummary, TodayRideCard } from "./today";
 
 // The /today page body. Split out of the old dual-mode Dashboard (RV-8): it owns only the today-only
 // state (the coach-note post + the auto-sync-once latch) and reads the rest from SyncProvider, so the
@@ -83,6 +84,8 @@ export default function TodayView() {
         {/* Proactive "not feeling it?" check-in (ROADMAP #3) — the self-report door sits above the
             data verdict so the athlete reports how they feel before anchoring on a green score. */}
         <MorningCheckIn />
+        {/* Track C loading chip: day-before target / day-of loaded-or-skipped attribution. */}
+        <LoadingPrompt />
         {/* THE verdict: the §5 signal-fusion read (it already is the reconciliation of the signals
             below). The coach's TSB-as-modifier read (ROADMAP #1) folds in as its supporting line —
             the same snapshot the LLM is handed, so the athlete sees what it sees. */}
@@ -149,15 +152,20 @@ export default function TodayView() {
             border lands at the page bottom instead of being clipped. */}
         <Zone rank={2} title="Today — session & fuel" hero fill>
           {state.todayAnalysis && state.todayAnalysis.activityDate === localToday() ? (
-            <TodayRideCard
-              analysis={state.todayAnalysis}
-              onPostNote={state.configured ? postNote : undefined}
-              notePosting={notePosting}
-              notePosted={notePosted}
-              notePostFailed={notePostFailed}
-              bare
-              hideCoachNote
-            />
+            <>
+              <TodayRideCard
+                analysis={state.todayAnalysis}
+                onPostNote={state.configured ? postNote : undefined}
+                notePosting={notePosting}
+                notePosted={notePosted}
+                notePostFailed={notePostFailed}
+                analyzing={analyzing}
+                onReAnalyse={state.anthropicConfigured ? reAnalyse : undefined}
+              />
+              <div className="mt-3">
+                <EatToday analysis={state.todayAnalysis} />
+              </div>
+            </>
           ) : (
             <PlannedToday block={state.currentBlock} />
           )}
@@ -196,45 +204,6 @@ export default function TodayView() {
                 </div>
               )}
           </Zone>
-          {/* One stable coach-note shell across the analysing → loaded transition (FB-2026-06-30). The
-              frame used to remount/resize between branches (analysing/empty used `fill`, the loaded note
-              didn't), so the pink cyber-brackets snapped inward when the note landed mid-sync. Now a single
-              Zone (no `fill`, content-height) renders whenever there's a synced ride; only its inner content
-              swaps, so the frame grows with the text instead of glitching. */}
-          {state.todayAnalysis?.activityDate === localToday() &&
-          (state.todayAnalysis.coachNote || analyzing || state.anthropicConfigured) ? (
-            <Zone title="Coach note" hero accent="pink">
-              {state.todayAnalysis.coachNote ? (
-                <>
-                  <p className="text-xs leading-5 text-zinc-600 dark:text-zinc-300">{state.todayAnalysis.coachNote}</p>
-                  {state.anthropicConfigured && (
-                    <button
-                      onClick={reAnalyse}
-                      disabled={analyzing}
-                      title="Regenerate today's coach note"
-                      className="mt-2 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-                    >
-                      {analyzing ? "Re-analysing…" : "↻ Re-analyse"}
-                    </button>
-                  )}
-                </>
-              ) : analyzing ? (
-                <p className="text-xs italic leading-5 text-zinc-500 dark:text-zinc-400">Analysing today&apos;s ride…</p>
-              ) : (
-                // Ride synced but the note is missing (e.g. the auto-run hit an Anthropic hiccup) —
-                // offer a manual retry instead of waiting for the next full sync.
-                <>
-                  <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">No coach note yet.</p>
-                  <button
-                    onClick={reAnalyse}
-                    className="mt-2 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-                  >
-                    ↻ Generate coach note
-                  </button>
-                </>
-              )}
-            </Zone>
-          ) : null}
           {state.anthropicConfigured && <AskCoach />}
         </div>
       </div>

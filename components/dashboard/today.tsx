@@ -16,6 +16,7 @@ import { prDurationLabel } from "@/lib/pr";
 import { formatPrescriptionLabel } from "@/lib/prescription";
 import { computeEnergyAvailability, eaLevel } from "@/lib/nutrition";
 import { isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
+import { splitLeadSentences } from "@/lib/text";
 import Link from "next/link";
 import { useId } from "react";
 import RideTrace from "../RideTrace";
@@ -90,22 +91,26 @@ export function TodayRideCard({
   notePosting,
   notePosted,
   notePostFailed,
-  bare,
-  hideCoachNote,
+  analyzing,
+  onReAnalyse,
 }: {
   analysis: TodayAnalysis;
   onPostNote?: () => void;
   notePosting?: boolean;
   notePosted?: boolean;
   notePostFailed?: boolean; // last post attempt failed — the button says so and retries (S1-3)
-  bare?: boolean;
-  hideCoachNote?: boolean; // rendered separately (e.g. in the trend-pulse column)
+  analyzing?: boolean; // the deferred coach-note step is in flight
+  onReAnalyse?: () => void; // manual (re)generate — absent for read-only renders (last-debrief disclosure)
 }) {
   const plannedStyle = analysis.plannedType
     ? TYPE_STYLES[analysis.plannedType as keyof typeof TYPE_STYLES] ?? TYPE_STYLES.Z2
     : null;
   // Keyboard/AT access for the metric-strip + decoupling tips (focus reveals; hover stays).
   const tipId = useId();
+
+  const note = analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis ?? null;
+  // Coach takeaway ≤3 sentences visible (court rule 3); the rest is one disclosure away.
+  const takeaway = note ? splitLeadSentences(note, 3) : null;
 
   // Compliance % removed — execution (the duration/completion-aware 1–10 shown above) is the
   // single completion-anchored index; a separate macro % only duplicated the same story.
@@ -145,10 +150,32 @@ export function TodayRideCard({
 
   const body = (
     <>
-      {!bare && (
-        <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Today&apos;s ride</h2>
-          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{analysis.activityDate}</span>
+      {/* The debrief verdict first (M2): execution is the answer to "how did it go?". */}
+      {analysis.executionScore != null && (
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-3xl font-bold leading-none text-zinc-800 dark:text-[#ff49c8]">
+            {analysis.executionScore}
+            <span className="font-sans text-sm font-normal text-zinc-500 dark:text-zinc-400">/10</span>
+          </span>
+          <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+            {executionScoreLabel(analysis.executionScore)}
+          </span>
+          {onPostNote && note && (
+            <button
+              onClick={onPostNote}
+              disabled={notePosting || notePosted}
+              title={notePostFailed ? "Posting failed — click to retry" : "Post coach note to Intervals.icu"}
+              className={`ml-auto shrink-0 whitespace-nowrap rounded border px-2 py-1 text-[10px] font-medium transition-colors ${
+                notePosted
+                  ? "border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
+                  : notePostFailed
+                    ? "border-red-300 text-red-700 hover:border-red-400 dark:border-red-700 dark:text-red-400 dark:hover:border-red-600"
+                    : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+              }`}
+            >
+              {notePosted ? "✓ Posted" : notePosting ? "Posting…" : notePostFailed ? "✕ Failed — retry" : "↑ Post to Intervals.icu"}
+            </button>
+          )}
         </div>
       )}
 
@@ -172,71 +199,33 @@ export function TodayRideCard({
         </div>
       )}
 
-      {/* Fuel prompt — a quiet nudge/gap read from lib/fuel-prompt.ts (deterministic, no LLM), truthy-
-          checked (never `=== null`: a today-analysis.json written before this field existed parses back
-          with the key simply absent). Neutral zinc/cyan tone (not the PR banner's amber "celebration"
-          treatment) — this is informational, not a win. */}
-      {analysis.fuelPrompt && (
-        <div className="mt-3 flex items-center gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-          <span className="text-sm" aria-hidden>⛽</span>
-          {analysis.fuelPrompt.kind === "log-nudge" ? (
-            <p className="text-xs text-zinc-600 dark:text-zinc-300">
-              Log your in-ride carbs on Intervals.icu —{" "}
-              {analysis.fuelPrompt.reason === "long-ride" ? "long rides" : "interval days"} teach your fueling
-              optimum.
-            </p>
-          ) : (
-            <p className="text-xs text-zinc-600 dark:text-zinc-300">
-              You logged{" "}
-              <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">
-                {analysis.fuelPrompt.loggedGPerH} g/h
+      {/* Planned vs actual as one line (masterplan §4): the comparison, not two boxes. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Planned</span>
+        {analysis.plannedName ? (
+          <>
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">{analysis.plannedName}</span>
+            {plannedStyle && (
+              <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${plannedStyle.badge}`}>
+                {analysis.plannedType}
               </span>
-              ; your derived optimum is{" "}
-              <span className="font-mono font-semibold text-cyan-700 dark:text-[#00d4ff]">
-                {analysis.fuelPrompt.optimumGPerH} g/h
-              </span>{" "}
-              <span className="text-zinc-400 dark:text-zinc-500">(from your own rides)</span>.
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Planned vs Actual */}
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <div className="rounded border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Planned</p>
-          {analysis.plannedName ? (
-            <div className="mt-1">
-              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{analysis.plannedName}</p>
-              <div className="mt-1 flex items-center gap-2">
-                {plannedStyle && (
-                  <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${plannedStyle.badge}`}>
-                    {analysis.plannedType}
-                  </span>
-                )}
-                {analysis.plannedDurationMin !== null && (
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{analysis.plannedDurationMin} min</span>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">No session planned</p>
-          )}
-        </div>
-
-        <div className="rounded border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Actual</p>
-          <p className="mt-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">{analysis.activityName}</p>
-          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">{analysis.activityDurationMin} min</span>
-            {analysis.activityAvgHr !== null && (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{analysis.activityAvgHr} bpm avg</span>
             )}
-            {analysis.activityKj !== null && (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{analysis.activityKj} kcal</span>
+            {analysis.plannedDurationMin !== null && (
+              <span className="text-zinc-500 dark:text-zinc-400">{analysis.plannedDurationMin} min</span>
             )}
-          </div>
-        </div>
+          </>
+        ) : (
+          <span className="text-zinc-500 dark:text-zinc-400">no session planned</span>
+        )}
+        <span aria-hidden className="text-zinc-400 dark:text-zinc-500">→</span>
+        <span className="font-medium text-zinc-800 dark:text-zinc-200">{analysis.activityName}</span>
+        <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityDurationMin} min</span>
+        {analysis.activityAvgHr !== null && (
+          <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityAvgHr} bpm avg</span>
+        )}
+        {analysis.activityKj !== null && (
+          <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityKj} kcal</span>
+        )}
       </div>
 
       {/* Key metrics strip */}
@@ -263,36 +252,52 @@ export function TodayRideCard({
         </div>
       )}
 
-      {/* Execution score */}
-      {analysis.executionScore != null && (
-        <div className="mt-3 flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded bg-zinc-100 px-3 py-1.5 dark:bg-zinc-900">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Execution</span>
-            <span className="font-mono text-sm font-bold text-zinc-800 dark:text-[#ff49c8]">
-              {analysis.executionScore}/10
-            </span>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              {executionScoreLabel(analysis.executionScore)}
-            </span>
-          </div>
-          {onPostNote && analysis.coachNote && (
+      {/* Coach takeaway — ≤3 sentences visible, full note one disclosure away (court rule 3).
+          The analysing / missing-note / re-analyse states live here now: the old right-column
+          note Zone died with the two-moment split (UX v2 §4), and keeping one stable card frame
+          around the swapping inner content preserves the FB-2026-06-30 no-remount fix. */}
+      <div className="mt-3 border-l-2 border-zinc-300 pl-3 dark:border-[#ff49c8]/30">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Coach takeaway</p>
+        {takeaway ? (
+          <>
+            <p className="mt-0.5 text-xs leading-5 text-zinc-600 dark:text-zinc-300">{takeaway.lead}</p>
+            {takeaway.rest && (
+              <details className="mt-1">
+                <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                  Full note
+                </summary>
+                <p className="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-400">{takeaway.rest}</p>
+              </details>
+            )}
+            {onReAnalyse && (
+              <button
+                onClick={onReAnalyse}
+                disabled={analyzing}
+                title="Regenerate today's coach note"
+                className="mt-2 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+              >
+                {analyzing ? "Re-analysing…" : "↻ Re-analyse"}
+              </button>
+            )}
+          </>
+        ) : analyzing ? (
+          <p className="mt-0.5 text-xs italic leading-5 text-zinc-500 dark:text-zinc-400">Analysing today&apos;s ride…</p>
+        ) : onReAnalyse ? (
+          // Ride synced but the note is missing (e.g. the auto-run hit an Anthropic hiccup) —
+          // offer a manual retry instead of waiting for the next full sync.
+          <>
+            <p className="mt-0.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">No coach note yet.</p>
             <button
-              onClick={onPostNote}
-              disabled={notePosting || notePosted}
-              title={notePostFailed ? "Posting failed — click to retry" : "Post coach note to Intervals.icu"}
-              className={`ml-auto shrink-0 whitespace-nowrap rounded border px-2 py-1 text-[10px] font-medium transition-colors ${
-                notePosted
-                  ? "border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
-                  : notePostFailed
-                    ? "border-red-300 text-red-700 hover:border-red-400 dark:border-red-700 dark:text-red-400 dark:hover:border-red-600"
-                    : "border-zinc-300 text-zinc-600 hover:border-zinc-400 hover:text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
-              }`}
+              onClick={onReAnalyse}
+              className="mt-2 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
             >
-              {notePosted ? "✓ Posted" : notePosting ? "Posting…" : notePostFailed ? "✕ Failed — retry" : "↑ Post to Intervals.icu"}
+              ↻ Generate coach note
             </button>
-          )}
-        </div>
-      )}
+          </>
+        ) : (
+          <p className="mt-0.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">No coach note for this ride.</p>
+        )}
+      </div>
 
       {/* Power execution — the card's focal group: prescription vs execution, the
           power/HR trace, and power time-in-zone. There is no separate HR zone bar;
@@ -416,15 +421,39 @@ export function TodayRideCard({
         </details>
       )}
 
-      {/* Advised daily intake */}
+      {/* Session disposition — the athlete attributes how it went (esp. "compromised") so a
+          fluke ride doesn't teach the model or get misdiagnosed by the coach. */}
+      <SessionDisposition date={analysis.activityDate} />
+
+      {/* Athlete note (Intervals.icu activity description) — disclosed, not fold-1 (M2 budget). */}
+      {analysis.activityDescription != null && analysis.activityDescription.trim() !== "" && (
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Your note
+          </summary>
+          <p className="mt-1 text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">{analysis.activityDescription}</p>
+        </details>
+      )}
+    </>
+  );
+  return body;
+}
+
+// ---------- "Eat today" — the post-ride fuel card (UX v2 §4) ----------
+
+// Advised daily intake + its formula, promoted out of the ride card: post-ride this is the
+// decision that still remains (M2). The deterministic fuel-prompt nudge/gap read rides along —
+// same decision, same moment. Truthy-checked fields throughout (never `=== null`): a
+// today-analysis.json written before a field existed parses back with the key simply absent.
+export function EatToday({ analysis }: { analysis: TodayAnalysis }) {
+  if (analysis.advisedIntakeKcal == null && !analysis.fuelPrompt) return null;
+  return (
+    <Card title="Eat today">
       {analysis.advisedIntakeKcal != null && (
-        <div className="mt-3 flex items-baseline gap-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Advised daily intake</p>
-            <p className="mt-0.5 font-mono text-base font-bold text-zinc-900 dark:text-[#ff49c8] dark:[text-shadow:0_0_8px_rgba(255,73,200,0.3)]">
-              {analysis.advisedIntakeKcal.toLocaleString()} kcal
-            </p>
-          </div>
+        <div className="flex items-baseline gap-3">
+          <p className="font-mono text-xl font-bold text-zinc-900 dark:text-[#ff49c8] dark:[text-shadow:0_0_8px_rgba(255,73,200,0.3)]">
+            {analysis.advisedIntakeKcal.toLocaleString()} kcal
+          </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {analysis.advisedBaseKcal?.toLocaleString()} base
             {analysis.advisedRideFuelKcal ? ` + ${analysis.advisedRideFuelKcal.toLocaleString()} ride` : ""}
@@ -432,35 +461,31 @@ export function TodayRideCard({
           </p>
         </div>
       )}
-
-      {/* Athlete note (from Intervals.icu activity description) — scrolls if long */}
-      {analysis.activityDescription != null && analysis.activityDescription.trim() !== "" && (
-        <div className="mt-3 rounded border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Your note</p>
-          <p className="mt-0.5 text-xs italic leading-5 text-zinc-600 dark:text-zinc-400">{analysis.activityDescription}</p>
+      {analysis.fuelPrompt && (
+        <div className="mt-2 flex items-center gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+          <span className="text-sm" aria-hidden>⛽</span>
+          {analysis.fuelPrompt.kind === "log-nudge" ? (
+            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+              Log your in-ride carbs on Intervals.icu —{" "}
+              {analysis.fuelPrompt.reason === "long-ride" ? "long rides" : "interval days"} teach your fueling
+              optimum.
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+              You logged{" "}
+              <span className="font-mono font-semibold text-zinc-800 dark:text-zinc-100">
+                {analysis.fuelPrompt.loggedGPerH} g/h
+              </span>
+              ; your derived optimum is{" "}
+              <span className="font-mono font-semibold text-cyan-700 dark:text-[#00d4ff]">
+                {analysis.fuelPrompt.optimumGPerH} g/h
+              </span>{" "}
+              <span className="text-zinc-400 dark:text-zinc-500">(from your own rides)</span>.
+            </p>
+          )}
         </div>
       )}
-
-      {/* Session disposition — the athlete attributes how it went (esp. "compromised") so a
-          fluke ride doesn't teach the model or get misdiagnosed by the coach. */}
-      <SessionDisposition date={analysis.activityDate} />
-
-      {/* Coach note (only when shown inline, i.e. not relocated to its own card) */}
-      {!hideCoachNote && (analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis) && (
-        <div className="mt-3 border-l-2 border-zinc-300 pl-3 dark:border-[#ff49c8]/30">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Coach note</p>
-          <p className="mt-0.5 max-h-48 overflow-y-auto text-xs leading-5 text-zinc-600 dark:text-zinc-400">
-            {analysis.coachNote ?? (analysis as unknown as { analysis?: string }).analysis}
-          </p>
-        </div>
-      )}
-    </>
-  );
-  if (bare) return body;
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      {body}
-    </section>
+    </Card>
   );
 }
 
