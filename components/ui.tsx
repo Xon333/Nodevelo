@@ -3,7 +3,7 @@
 // Shared presentational primitives so cards, stat tiles, and dividers look
 // identical across the dashboard, trends, and profile pages.
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 
 // One-line explanation shown on hover/focus over a metric/title. `align` flips the tooltip to the
 // right edge so it doesn't clip when the anchor sits near a container's right. Wrap the trigger
@@ -28,7 +28,7 @@ export function MetricTip({ text, align = "left", id }: { text: string; align?: 
 // Small ⓘ affordance next to a label/value — shows a MetricTip on hover or keyboard focus. The
 // consistent "what is this number?" hint used across cards, tiles, and stats. The trigger is a
 // focusable span, not a `<button>`: InfoDot is nested inside other clickable buttons in several
-// call sites (e.g. TrendPulse's tile buttons), and a `<button>` can't validly contain a `<button>`
+// call sites, and a `<button>` can't validly contain a `<button>`
 // (invalid HTML → a hydration error). `tabIndex` makes it Tab-reachable, `aria-describedby` hands
 // the text to assistive tech, and there's no click behavior to lose — the reveal is purely
 // hover/focus, so no activation semantics (role="button") are implied.
@@ -234,7 +234,6 @@ export function Zone({
   hint,
   hero,
   accent = "cyan",
-  fill,
   className,
   children,
 }: {
@@ -243,9 +242,6 @@ export function Zone({
   hint?: string;
   hero?: boolean;
   accent?: "cyan" | "pink";
-  // When true the card fills its (flex) parent and its body scrolls internally — used in
-  // the locked Today layout so a tall card never overflows the viewport.
-  fill?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -256,37 +252,10 @@ export function Zone({
   const shell = hero
     ? `relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent}`
     : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
-  // S3-3 scroll affordance: in `fill` mode the body scrolls internally, but macOS overlay
-  // scrollbars leave no resting cue that content continues below the fold — the card can read as a
-  // dead end (Constitution: "the athlete can always reach what's there"). A scroll-aware bottom
-  // fade was chosen over an always-on CSS gradient because the always-on version lies twice: it
-  // implies more content when the card already fits, and keeps implying it after you've reached
-  // the end. ui.tsx is already a client component, so the honest version costs only a ref + one
-  // boolean of local state.
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [moreBelow, setMoreBelow] = useState(false);
-  useEffect(() => {
-    if (!fill) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    // 4px slack absorbs sub-pixel scroll rounding so the fade doesn't flicker at the very bottom.
-    const check = () => setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
-    check();
-    el.addEventListener("scroll", check, { passive: true });
-    // Content height can change without the scrollport resizing (a <details> opening, the ride
-    // analysis landing mid-sync) — observe the inner content wrapper as well as the scrollport.
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    if (el.firstElementChild) ro.observe(el.firstElementChild);
-    return () => {
-      el.removeEventListener("scroll", check);
-      ro.disconnect();
-    };
-  }, [fill]);
   return (
-    <section className={`${shell} ${fill ? "flex min-h-0 flex-1 flex-col" : ""} ${className ?? ""}`}>
+    <section className={`${shell} ${className ?? ""}`}>
       {hero && <CyberFrame accent={accent} />}
-      <div className={`${hero ? "relative z-10 " : ""}${fill ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+      <div className={hero ? "relative z-10" : undefined}>
         <div className="mb-2 flex items-center gap-2">
           {rank != null && (
             <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-600 dark:bg-synced/15 dark:text-synced">
@@ -296,76 +265,9 @@ export function Zone({
           <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
           {hint && <span className="ml-auto text-[10px] text-zinc-500 dark:text-zinc-400">{hint}</span>}
         </div>
-        {fill ? (
-          <div className="relative min-h-0 flex-1">
-            <div ref={scrollRef} className="h-full overflow-y-auto">
-              {/* Content wrapper exists so the ResizeObserver above can watch content height. */}
-              <div>{children}</div>
-            </div>
-            {/* The fade matches the card's own surface (hero fills dark:bg-zinc-900, standard
-                dark:bg-zinc-800) so it reads as the content dissolving at the fold, not a tint. */}
-            <div
-              aria-hidden
-              className={`pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t to-transparent transition-opacity duration-200 ${
-                hero ? "from-white dark:from-zinc-900" : "from-white dark:from-zinc-800"
-              } ${moreBelow ? "opacity-100" : "opacity-0"}`}
-            />
-          </div>
-        ) : (
-          children
-        )}
+        {children}
       </div>
     </section>
-  );
-}
-
-// Compact trend tile: tiny static sparkline + latest value, for the Today "trend
-// pulse". Click routes to the full Trends view. Values pre-formatted by the caller.
-export function TrendTile({
-  label,
-  value,
-  points,
-  delta,
-  onClick,
-  tip,
-}: {
-  label: string;
-  value: string;
-  points: number[];
-  delta?: "up" | "down" | "flat";
-  onClick?: () => void;
-  tip?: string;
-}) {
-  const W = 80;
-  const H = 22;
-  let path = "";
-  if (points.length >= 2) {
-    const min = Math.min(...points);
-    const range = Math.max(...points) - min || 1;
-    path = points
-      .map((v, i) => `${i ? "L" : "M"}${((i / (points.length - 1)) * W).toFixed(1)},${(H - ((v - min) / range) * (H - 4) - 2).toFixed(1)}`)
-      .join(" ");
-  }
-  const arrow = delta === "up" ? "↑" : delta === "down" ? "↓" : delta === "flat" ? "→" : "";
-  return (
-    <button
-      onClick={onClick}
-      className="rounded-md bg-zinc-50 px-2.5 py-2 text-left transition-colors hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-    >
-      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        {label}
-        {tip && <InfoDot text={tip} />}
-      </p>
-      {path && (
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" className="my-0.5" aria-hidden>
-          <path d={path} fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="stroke-zinc-400 dark:stroke-synced/70" />
-        </svg>
-      )}
-      <p className="font-mono text-xs font-semibold text-zinc-800 dark:text-zinc-100">
-        {value}
-        {arrow && <span className="ml-0.5 text-[10px] font-normal text-cyan-600 dark:text-synced">{arrow}</span>}
-      </p>
-    </button>
   );
 }
 

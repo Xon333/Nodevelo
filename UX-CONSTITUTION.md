@@ -53,6 +53,11 @@ stating which one the coach acts on and how the other feeds it. Redundancy witho
 how trust dies: the day two instruments visibly disagree with no explanation, every instrument
 becomes suspect.
 
+Corollary — **one canonical home per metric** (UX v2 court rule 1): every number has exactly one
+owner surface; anywhere else it appears as a link to that home, or not at all. A metric answering
+another page's question verbatim (Today's old Trend Pulse carrying "am I improving?") is a
+relocation, not a copy.
+
 ## 5 · Trust: provenance, confidence, contestability
 
 Every number the athlete reads must be able to answer:
