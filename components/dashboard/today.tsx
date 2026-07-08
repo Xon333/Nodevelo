@@ -15,7 +15,7 @@ import { TYPE_STYLES } from "@/lib/workout-types";
 import { prDurationLabel } from "@/lib/pr";
 import { formatPrescriptionLabel } from "@/lib/prescription";
 import { computeEnergyAvailability, eaLevel } from "@/lib/nutrition";
-import { isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
+import { addDaysIso, isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
 import { splitLeadSentences } from "@/lib/text";
 import Link from "next/link";
 import { useId } from "react";
@@ -635,9 +635,29 @@ export function PlannedToday({ block }: { block: CurrentBlock | null }) {
     );
   }
   const day = block?.days.find((d) => d.date === today) ?? null;
+
+  // Rest/empty days answer M1 with "what's next" instead (masterplan §4): tomorrow's session.
+  const tomorrow = block?.days.find((d) => d.date === addDaysIso(today, 1)) ?? null;
+  const tomorrowPreview =
+    tomorrow && tomorrow.type !== "Rest" ? (
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+        Tomorrow: <span className="font-medium text-zinc-700 dark:text-zinc-300">{tomorrow.name}</span>
+        {" · "}
+        {tomorrow.type}
+        {tomorrow.durationMin > 0 ? ` · ${tomorrow.durationMin} min` : ""}
+      </p>
+    ) : tomorrow ? (
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Tomorrow: rest day.</p>
+    ) : null;
+
   if (!day || day.type === "Rest") {
     if (day?.type === "Rest") {
-      return <p className="text-sm text-zinc-500 dark:text-zinc-400">Rest day — recover.</p>;
+      return (
+        <div>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Rest day — recover.</p>
+          {tomorrowPreview}
+        </div>
+      );
     }
     // S1-4: no active block is a dead end without a link — mirrors the finished-block CTA above.
     // A block that HAS a gap for today (rare data edge case) still gets the plain honest message.
@@ -654,20 +674,22 @@ export function PlannedToday({ block }: { block: CurrentBlock | null }) {
         </div>
       );
     }
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">No session planned for today.</p>;
+    return (
+      <div>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">No session planned for today.</p>
+        {tomorrowPreview}
+      </div>
+    );
   }
   const style = TYPE_STYLES[day.type];
   return (
     <div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${style.cell}`} />
-          <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{day.name}</span>
-        </div>
-        <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-          {day.type}
-          {day.durationMin > 0 ? ` · ${day.durationMin} min` : ""}
-        </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{day.name}</span>
+        <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${style.badge}`}>{day.type}</span>
+        {day.durationMin > 0 && (
+          <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">{day.durationMin} min</span>
+        )}
       </div>
       {day.prescription && day.prescription.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
