@@ -33,8 +33,10 @@ this is just the daily-use summary.
 
 - **CONTINUE.md** is hands-off except via `/handoff` — don't let a session rewrite it proactively.
 - **ROADMAP IDs** (`#1–4`, `§5–7`, `Track A–C`) — append new ones, never renumber; other docs link to them.
-- **Concurrent sessions**: worktrees only, never `git add` in the shared root while another session is
-  active (full policy in CLAUDE.md).
+- **Concurrent sessions**: trunk-based, direct on `main` — no per-session branches/worktrees. Stage
+  only the exact files you touched (never `git add -A`); don't "fix" build errors in files you didn't
+  edit — check `git status --short <file>` first, it's likely the other session mid-edit (full policy
+  in CLAUDE.md).
 - **Migration flags / "today" dates / LLM-path smoke tests** — the 3 recurring bug classes, now in
   AGENTS.md. Check them on relevant changes.
 

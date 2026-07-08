@@ -57,6 +57,7 @@ Five design decisions define the whole app — everything else follows from them
 | [UX-MASTERPLAN.md](UX-MASTERPLAN.md) | Evidence-ranked UX audit + backlog, sequenced into waves |
 | `AGENTS.md` · `CLAUDE.md` | Operating constraints for AI coding agents |
 | [WORKFLOW.md](WORKFLOW.md) | Personal cheat sheet — daily commands, session workflow |
+| `CONTINUE.md` | Session-handoff note — written only via `/handoff`, read to resume; may lag reality between handoffs |
 
 ---
 

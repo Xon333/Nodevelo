@@ -27,12 +27,21 @@ context — applies them the same way.
 2. Verify every ROADMAP cross-ref ID is still referenced correctly elsewhere (todo.md, README).
    Never renumber an existing ID; append new ones.
 3. Trim ROADMAP prose that's now historical context rather than forward work — that belongs in
-   ARCHIVE, not ROADMAP.
-4. Update README's doc map table if the set of docs changed.
-5. Commit doc changes separately from code changes when both happened in the same session.
+   ARCHIVE, not ROADMAP. Includes ✅-marked shipped narrative *inside* still-open items: keep only
+   the "Left:" part plus a pointer to ARCHIVE. A paused/rejected investigation keeps a short stub
+   in ROADMAP (decision + revisit trigger); its investigation detail moves to ARCHIVE.
+4. Check WORKFLOW.md's "standing rules" against CLAUDE.md/AGENTS.md — the cheat sheet drifts when
+   the underlying policy changes.
+5. Update README's doc map table if the set of docs changed. One-off point-in-time reports (audits,
+   transcript analyses) live under `docs/`, not the repo root — root is for living docs only.
+6. Commit doc changes separately from code changes when both happened in the same session.
 
 ## Common mistakes
 
 - Renumbering existing ROADMAP IDs — breaks cross-references elsewhere that assume stable handles.
 - Leaving a shipped item listed as open because it "still has open sub-parts" — split it: the shipped
   part moves to ARCHIVE, only the genuinely unstarted remainder stays.
+- Deleting a decision record while trimming — "decided against / paused / removed" entries are
+  forward-relevant (they stop re-proposals) and must survive the trim, even if compressed.
+- Duplicating accepted-no-fix items in both todo.md and ARCHIVE — they live in the relevant ARCHIVE
+  closeout once, and todo goes back to genuinely empty.

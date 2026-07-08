@@ -97,6 +97,20 @@ still outstanding. Only unit-tested so far; the real model call has not been exe
 
 ---
 
+## First-loop-turnover readiness — build half (SUB-5) (2026-07-03)
+
+Everything buildable before the first-ever full loop turnover (retrospective → `block-history.json`
+born → next block write → `intervention-log.json` born, ~2026-07-12) shipped ahead of the event:
+route tests characterizing `/api/retrospective` (the destructive current-block-clearing path,
+previously the only turnover-critical route untested — `b62a3aa`, `a233321`), the season-stamp fix
+(`seasonFocus`/`seasonPhase` land on the new block at write time — `app/api/write/route.ts`), and an
+attended runbook in [WORKFLOW.md](WORKFLOW.md) (backup → sync → retro → verify → generate → write →
+verify, with an import-restore abort path). What remains is *executing* the runbook at block end —
+an event, not build work — tracked as SUB-5 in [ROADMAP.md](ROADMAP.md).
+Plan: `docs/superpowers/plans/2026-07-03-first-loop-turnover-readiness.md`.
+
+---
+
 ## Ledger interval-adherence at birth (2026-07-03)
 
 The root-cause fix for the gap the SIT execution-score fix (below) surfaced: the immutable ledger's
@@ -152,6 +166,22 @@ Also fixed same session, unrelated: prescription **display** labels could show a
 `formatPrescriptionLabel` now derives the label from structural fields at the point of use (Today card +
 the ask-coach interval context) instead of trusting the stored `label` string, so a stale stored value
 can never surface again.
+
+---
+
+## SUB-2 · Legacy backfill importer — investigated & paused (2026-07-02)
+
+Investigation record (decision + stub live in [ROADMAP.md](ROADMAP.md) "Data substrate"). The prior
+~6 months (100 legacy rides) followed real structure but have no app prescription to grade against,
+so they're excluded from execution learning. A live-API check against Intervals.icu's actual
+`/events` endpoint falsified the "whole window recoverable" assumption: of the 100 legacy dates only
+**28 have a same-date calendar event at all** (22 with machine-parseable `workout_doc.steps`); 72
+have none — Jan/Feb (29 rides) has zero calendar events in the window. Athlete's read: legacy
+structure was Z2 + 2 interval sessions/week, and only interval days tended to get a named calendar
+entry. So the calendar recovers roughly the hard-day subset (~22–28%), not the window — not enough
+to justify an importer. The athlete handles any legacy relabeling manually (renaming calendar
+events) if specific rides should become gradable. Grading a ride against its own executed profile
+(no independent prescription) is circular and was not pursued.
 
 ---
 
@@ -426,7 +456,7 @@ and passed a final whole-branch review clean on first pass. Suite grew 597 → 6
   it explicitly (the gap every prior review layer missed, since in-memory fixtures always set the field).
   Ran the real migration and verified end to end in-browser (8 goals + 9 weakpoints now render on
   `/profile` and the `/plan` Goals card). `lib/data-store.ts`.
-- **Known debt (accept-as-tracked)** → [ROADMAP.md](ROADMAP.md) "Macro periodization & season scope":
+- **Known debt (accept-as-tracked)** → [ROADMAP.md](ROADMAP.md) "Season engine — known debt":
   Focus dropdown omits `sharpen`; a narrow goal-textarea race between the profile/season fetches;
   `stripGoalsWeakpointsSections`'s case-sensitive regex doesn't match the *default* KB template's
   differently-worded headings (real KB unaffected — it already uses the matching uppercase form).
@@ -472,7 +502,7 @@ clean. Design/build record:
   visually verified end-to-end against a seeded season plan.
 - **`GET`/`PUT /api/season`** — read the plan / update `objective`+`events` (periods are engine-managed,
   not directly editable); `validateSeasonPlanInput` guards the PUT.
-- **Known debt** → [ROADMAP.md](ROADMAP.md) "Macro periodization & season scope": event-mode peak/taper
+- **Known debt** → [ROADMAP.md](ROADMAP.md) "Season engine — known debt": event-mode peak/taper
   share one `sharpen` focus value (cosmetic, same roadmap color); `CurrentBlock.seasonFocus`/
   `seasonPhase` stamped from "today" not the block's actual start date (no readers yet); `anaerobic` is
   a valid build focus but unreachable via the default rotation fallback (intentional per KB).
