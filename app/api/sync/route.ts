@@ -19,6 +19,7 @@ import {
   readInterventionLog,
   readLastSync,
   readLedgerRebuild,
+  readLoadingLog,
   readMorningChecks,
   readRollingBaselines,
   readScoreLog,
@@ -41,6 +42,7 @@ import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention"
 import { weightTrendFromWellness } from "@/lib/nutrition";
 import { isSteadyEnduranceRide } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
+import { gradeDurabilityDelivery } from "@/lib/durability-score";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
 import { buildRideScores, calStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
@@ -406,6 +408,13 @@ export async function POST(req: Request) {
       const adherenceForDate = (date: string): RideScoreEntry["intervals"] | null =>
         fetchedStamps.get(date) ?? existingByDate.get(date)?.intervals ?? null;
 
+      // Track C: day-before loading attribution, stamped at birth on durability-day entries.
+      const loadingLog = await readLoadingLog();
+      const preLoadForDate = (date: string): { loaded: boolean; targetG: number } | null => {
+        const rec = loadingLog.entries.find((l) => l.rideDate === date);
+        return rec ? { loaded: rec.response === "loaded", targetG: rec.targetG } : null;
+      };
+
       const fresh = buildRideScores(
         block,
         lastSync.activities,
@@ -415,7 +424,8 @@ export async function POST(req: Request) {
         resolvedCal,
         contextForDate,
         blockHistory,
-        adherenceForDate
+        adherenceForDate,
+        preLoadForDate
       );
       // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
       const dispositions = (await readDispositions()).entries;
@@ -561,6 +571,17 @@ export async function POST(req: Request) {
           todayAnalysis = { ...built, ...(fuelPrompt ? { fuelPrompt } : {}) };
           await writeTodayAnalysis(todayAnalysis);
 
+          // Track C: the same pure grader buildTodayAnalysis calls internally (lib/ride-analysis.ts)
+          // to feed executionScore — it isn't returned from that result, and only the today-patch below
+          // needs the raw signal for provenance, so it's cheaper to recompute here (same inputs, already
+          // in scope) than to widen buildTodayAnalysis's return shape for one caller.
+          const durabilityDelivery = gradeDurabilityDelivery(
+            plannedDay?.durabilityTemplate ?? null,
+            executed,
+            profile.performance.ftp,
+            todayActivity.movingTimeSec
+          );
+
           // Keep the ledger's entry for today consistent with this richer, interval-aware
           // analysis. buildRideScores can't see interval bails (it doesn't fetch per-ride
           // intervals); this can — so today's execution + capped compliance match across the
@@ -591,6 +612,13 @@ export async function POST(req: Request) {
                         plannedDay?.type !== "Recovery" &&
                         !plannedDay?.durabilityTemplate
                           ? { intervals: intervalStampFrom(intervalComparison) }
+                          : {}),
+                        // Track C: freeze the delivery grade that judged today's durability ride — the
+                        // loading loop's power-only outcome. Only the today path can stamp this (it alone
+                        // fetches executed intervals); a late-synced durability ride stays unstamped and
+                        // simply doesn't feed the loop.
+                        ...(plannedDay?.durabilityTemplate && durabilityDelivery != null
+                          ? { durabilityDelivery: { signal: durabilityDelivery.signal } }
                           : {}),
                       }
                     : e

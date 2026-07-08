@@ -46,6 +46,7 @@ vi.mock("@/lib/data-store", () => ({
   readInterventionLog: vi.fn(),
   readLastSync: vi.fn(),
   readLedgerRebuild: vi.fn(),
+  readLoadingLog: vi.fn(),
   readMorningChecks: vi.fn(),
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
@@ -186,6 +187,7 @@ beforeEach(() => {
   vi.mocked(store.readInterventionLog).mockResolvedValue({ records: [], updatedAt: "" });
   vi.mocked(store.readLastSync).mockResolvedValue(null);
   vi.mocked(store.readLedgerRebuild).mockResolvedValue({ rebuiltAt: null });
+  vi.mocked(store.readLoadingLog).mockResolvedValue({ entries: [] });
   vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readRollingBaselines).mockResolvedValue({
     avgCtl90d: null,
@@ -537,8 +539,17 @@ describe("POST /api/sync — today-ride analysis path", () => {
       })
     );
     vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity()] }));
+    // Template C's expected effort: 1.05-1.25x FTP (200 → 210-250W), 150-420s, late in the ride —
+    // makes intervalComparison genuinely non-null too (Finding 3 guard was previously unexercised: the
+    // default empty fetchIntervals mock left intervalComparison null regardless of the guard clause).
+    vi.mocked(api.fetchIntervals).mockResolvedValue([
+      { type: "WORK", durationSec: 240, avgWatts: 230, npWatts: 230, avgHr: 165, startIndex: 600, endIndex: 700 },
+    ]);
     await postSync();
     expect(scoreEntries.find((e) => e.date === TODAY)?.intervals).toBeUndefined();
+    // Task 3: the today-patch stamps durabilityDelivery (Track C loading-loop provenance) — gated on
+    // durabilityTemplate + a non-null delivery signal, independent of the `intervals` exclusion above.
+    expect(scoreEntries.find((e) => e.date === TODAY)?.durabilityDelivery).toEqual({ signal: 2 });
   });
 
   it("surfaces an analysis failure as a warning while the sync itself succeeds", async () => {
