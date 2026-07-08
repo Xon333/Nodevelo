@@ -855,3 +855,17 @@ export interface MorningCheckLog {
   entries: MorningCheckEntry[];
   updatedAt: string;
 }
+
+// ---------- Pre-ride loading log (data/loading-log.json, Track C) ----------
+// Athlete attribution: did they actually carb-load the day before a durability long ride? Only the
+// athlete knows — same owned-input philosophy as dispositions/morning-check. An absent entry means
+// UNKNOWN (never assumed unloaded); only explicit responses feed the learning loop.
+export interface LoadingEntry {
+  rideDate: string; // YYYY-MM-DD of the durability RIDE (the loading day is the day before)
+  targetG: number; // the target prescribed when asked — frozen for provenance
+  response: "loaded" | "skipped";
+  respondedAt: string; // ISO timestamp
+}
+export interface LoadingLogStore {
+  entries: LoadingEntry[];
+}

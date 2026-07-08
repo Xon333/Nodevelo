@@ -290,6 +290,40 @@ describe("buildRideScores", () => {
       expect(entry.intervals).toBeUndefined();
     });
   });
+
+  describe("preLoadForDate (Track C: loading-loop provenance stamp)", () => {
+    const DURABILITY_DATE = "2026-01-05";
+    const durabilityBlock: CurrentBlock = {
+      ...block([{ date: DURABILITY_DATE, type: "Z2", durationMin: 180 }]),
+      days: [{ date: DURABILITY_DATE, name: "Durability day", type: "Z2", durationMin: 180, durabilityTemplate: "C" }],
+    };
+    const durabilityActs = [activity({ date: DURABILITY_DATE, avgWatts: 135, normalizedPower: 138 })];
+
+    it("stamps preLoad on a durability-template day when the lookup has a response, and nothing otherwise", () => {
+      const preLoadForDate = (date: string) => (date === DURABILITY_DATE ? { loaded: true, targetG: 490 } : null);
+      const withStamp = buildRideScores(
+        durabilityBlock,
+        durabilityActs,
+        ftp200,
+        "2026-01-10",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        preLoadForDate
+      );
+      const entry = withStamp.find((e) => e.date === DURABILITY_DATE);
+      expect(entry?.preLoad).toEqual({ loaded: true, targetG: 490 });
+
+      // Fresh athlete / no lookup → identical entries, no stamp key at all (sparse-field convention).
+      const without = buildRideScores(durabilityBlock, durabilityActs, ftp200, "2026-01-10", null);
+      expect(without.find((e) => e.date === DURABILITY_DATE)?.preLoad).toBeUndefined();
+      expect(JSON.stringify(without.find((e) => e.date === DURABILITY_DATE)?.executionScore)).toBe(
+        JSON.stringify(withStamp.find((e) => e.date === DURABILITY_DATE)?.executionScore)
+      ); // provenance only — never moves the score
+    });
+  });
 });
 
 describe("intervalStampFrom", () => {

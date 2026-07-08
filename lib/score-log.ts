@@ -98,7 +98,11 @@ export function buildRideScores(
   // that isn't Z2/Recovery and doesn't carry a durabilityTemplate — durability rides are graded by a
   // wholly different system (see computeExecutionScore's gradedByDurability) and must never even reach
   // this lookup. Omitted → byte-identical to before (no stamp, adherence never engages).
-  adherenceForDate?: ((date: string) => RideScoreEntry["intervals"] | null) | null
+  adherenceForDate?: ((date: string) => RideScoreEntry["intervals"] | null) | null,
+  // Track C: the athlete's day-before loading attribution (loading-log.json), resolved per ride date and
+  // frozen onto durability days as provenance for the loading loop. Provenance only — never feeds
+  // executionScore (mirrors formState/fuel). Omitted → no stamp, byte-identical to before.
+  preLoadForDate?: ((date: string) => { loaded: boolean; targetG: number } | null) | null
 ): RideScoreEntry[] {
   // Prescribed sessions, by date (only days that actually plan a ride).
   const plannedByDate = new Map<string, CurrentBlockDay>();
@@ -181,6 +185,14 @@ export function buildRideScores(
           durationMin: actualMin,
           tss: act.trainingLoad,
           ...(planned.durabilityTemplate ? { durabilityTemplate: planned.durabilityTemplate } : {}), // Track B: attribute outcomes per template (#4)
+          // Track C: the athlete's day-before loading attribution — provenance for the loading loop,
+          // only meaningful on durability days (the prompt only ever asks there).
+          ...(planned.durabilityTemplate && preLoadForDate
+            ? (() => {
+                const pl = preLoadForDate(act.date);
+                return pl ? { preLoad: pl } : {};
+              })()
+            : {}),
           ...calStampFor(calibration, planned.type, false),
           ...contextStamp,
           ...fuelStampFor(act),

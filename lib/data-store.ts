@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, DispositionLog, InterventionLog, LedgerRebuildMarker, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, DispositionLog, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
@@ -243,6 +243,16 @@ export async function readMorningChecks(): Promise<MorningCheckLog> {
 
 export async function writeMorningChecks(log: MorningCheckLog): Promise<void> {
   await writeJson("morning-check.json", log);
+}
+
+const DEFAULT_LOADING_LOG: LoadingLogStore = { entries: [] };
+
+export async function readLoadingLog(): Promise<LoadingLogStore> {
+  return readJson<LoadingLogStore>("loading-log.json", DEFAULT_LOADING_LOG);
+}
+
+export async function writeLoadingLog(store: LoadingLogStore): Promise<void> {
+  await writeJson("loading-log.json", store);
 }
 
 const DEFAULT_SEASON_PLAN: SeasonPlan = {
