@@ -505,6 +505,16 @@ export interface RideScoreEntry {
     completed: number;
     total: number;
   };
+  // Track B / Track C: durability-template ride outcomes + inputs, frozen as provenance.
+  // durabilityDelivery = the gradeDurabilityDelivery signal that judged THIS ride (+2 delivered ·
+  // 0 mis-placed · -2 absent). Stamped by the sync today-patch (the only path that fetches the ride's
+  // executed intervals). preLoad = the athlete's day-before carb-loading attribution (loading-log.json)
+  // + the target prescribed. Neither feeds executionScore here; they are the loading loop's corpus.
+  // ponytail: a durability ride synced ≥1 day late gets no delivery stamp (the birth-time fetch
+  // deliberately excludes template days) — extend that fetch if the loading corpus starves.
+  durabilityTemplate?: string;
+  durabilityDelivery?: { signal: number };
+  preLoad?: { loaded: boolean; targetG: number };
 }
 
 // Form (fitness/fatigue/balance) as of a ride's date — the slow-moving load state from the synced
