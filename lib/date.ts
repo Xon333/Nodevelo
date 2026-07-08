@@ -40,3 +40,11 @@ export function resolveToday(clientToday: unknown): string {
 export function isBlockFinished(block: CurrentBlock | null, today: string): boolean {
   return block !== null && today > block.endDate;
 }
+
+// Pure calendar-day arithmetic on a YYYY-MM-DD string (local-date semantics; the Date constructor
+// normalizes an overflowed day-of-month, so month/year/leap boundaries and DST are all safe).
+// For "tomorrow's session" previews and similar day-offset lookups against block days.
+export function addDaysIso(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return localToday(new Date(y, m - 1, d + n));
+}

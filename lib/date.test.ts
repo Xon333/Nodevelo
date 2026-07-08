@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { localToday, resolveToday, utcToday, isBlockFinished } from "./date";
+import { localToday, resolveToday, utcToday, isBlockFinished, addDaysIso } from "./date";
 import type { CurrentBlock } from "./types";
 
 describe("localToday", () => {
@@ -39,5 +39,17 @@ describe("isBlockFinished", () => {
   });
   it("is false when there is no block", () => {
     expect(isBlockFinished(null, "2026-06-29")).toBe(false);
+  });
+});
+
+describe("addDaysIso", () => {
+  it("adds days across month and year boundaries", () => {
+    expect(addDaysIso("2026-07-08", 1)).toBe("2026-07-09");
+    expect(addDaysIso("2026-07-31", 1)).toBe("2026-08-01");
+    expect(addDaysIso("2026-12-31", 1)).toBe("2027-01-01");
+  });
+  it("subtracts with negative n and handles leap days", () => {
+    expect(addDaysIso("2026-03-01", -1)).toBe("2026-02-28");
+    expect(addDaysIso("2028-02-28", 1)).toBe("2028-02-29");
   });
 });
