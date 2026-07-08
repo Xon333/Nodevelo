@@ -52,7 +52,7 @@ The single source of truth for "where does X live now." Implementation must leav
 | Trend Pulse (CTL/volume/zones mini) | Today | **Trends** (its charts already exist there) | — (rail trio makes Trends one click) |
 | Coach note (full text) | Today, ~250 words visible | **Today post-ride, ≤3 sentences** | full note behind `<details>` |
 | Weekly hours/load ("this week") | Today signals · Plan panel · Trends tiles | **Plan** week strip (in-hero) | — |
-| Directive chips (5 categories) | Plan + Model | **Model** · Standing guidance | generator consumes internally |
+| Directive chips (5 categories) | Model (W1 planning found the "Plan chips" were actually goals rows — see goals-list row) | **Model** · Standing guidance | generator consumes internally |
 | Current performance (FTP · tHR · maxHR) | Plan + Profile-ish | **Profile** rider read | expanded generator's season readout |
 | Full goals & weakpoints list | Plan + Profile | **Profile** (read view + inline edit) | Plan keeps derived "this block targets…" line |
 | Season (objective + events) | Profile | **Plan** (compact card by the generator) | — |

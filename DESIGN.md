@@ -138,8 +138,10 @@ Tailwind **arbitrary literals with opacity** — that is the established convent
 ---
 
 ## 8 · Layout
-- **Desktop:** fixed left nav rail `w-44`; content centered `max-w-5xl`, offset `sm:pl-44`. The Today
-  page is viewport-locked (`lg:h-[calc(100dvh-4rem)] lg:overflow-hidden`) with cards scrolling internally.
+- **Desktop:** fixed left nav rail `w-44`; the rail is tiered — Today/Plan/Trends full-weight, then
+  "You & the coach" (Profile, Model) and "System" (Settings, Knowledge) groups (UX v2 §3); content
+  centered `max-w-5xl`, offset `sm:pl-44`. The Today page is viewport-locked
+  (`lg:h-[calc(100dvh-4rem)] lg:overflow-hidden`) with cards scrolling internally.
 - **Mobile:** sticky top bar (wordmark + Model brain icon + sync + theme) + bottom tab bar (icon +
   tiny label). Model is reached via the top-bar brain icon, not a 7th bottom tab; on desktop it's the
   7th rail tab.
@@ -155,9 +157,9 @@ default: summary first, detail on demand (`<details>` for blocks, `MetricTip`/`I
 | Page | The one job | Leads (fold-1) | Supporting | Collapsed / drill-down |
 |---|---|---|---|---|
 | **Today** | "Can I go hard — and what's my session?" | Readiness (state · form · alerts), then the session summary (plan vs actual · execution score · key metrics · fuel) | Trend pulse · coach note · ask-coach | **Power execution** (per-rep · trace · zone bars) → `<details>`, adherence headline kept in the summary |
-| **Plan** | "What's my block, and what's next?" | Active block hero (calendar + progress) | Goals · this-week debrief | Block history → `<details>`; generation form collapses while a block is active (expanded, it shows a season-context readout above the length/goal/weakpoint fields) |
+| **Plan** | "What's my block, and what's next?" | Active block hero (calendar + progress) | this-week debrief · season (objective/events) · "this block targets" line | Block history → `<details>`; generation form collapses while a block is active (expanded, it shows a season-context readout above the length/goal/weakpoint fields) |
 | **Trends** | "Am I improving over time?" | Last-7-days glance + coach insights | the trend charts (Pw:HR · CTL · execution · volume · fueling) — **review depth is intentional here** | Block-history long-view (hero) |
-| **Profile** | "Who am I — what does the coach plan around?" | Rider-profile read (power-curve shape) | PRs · goals & weakpoints (add/edit/delete form) · season objective/events · nutrition | — (goals/weakpoints edited directly here now, not via Knowledge) |
+| **Profile** | "Who am I — what does the coach plan around?" | Rider-profile read (power-curve shape) | PRs · goals & weakpoints (add/edit/delete form) · nutrition · current performance · effort bands (zones) | — (goals/weakpoints edited directly here now, not via Knowledge) |
 | **Model** | "What does the brain know about me — and why?" | What drives your state (ranked drivers) | coaching directives + track record · per-athlete calibration (contest/correct via a manual override, inline in the card) | — |
 | **Settings** | "Tune generation + platform behaviour" | Block-generation knobs | AI usage · backup | — |
 
