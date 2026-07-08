@@ -119,6 +119,10 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Post-ride fuel prompt** — log-nudge on qualifying rides (≥90 min or a Threshold/VO2max/SIT/RaceSim
   day) left unlogged; once calibration is trustworthy, a gap-vs-derived-optimum read instead. Quiet
   Today-card chip + one-line coach-note mention. `lib/fuel-prompt.ts`
+- **Pre-ride loading loop** — day-before carb-loading target (7 g/kg) ahead of a durability long
+  ride, one-tap loaded/skipped attribution, both frozen onto the ledger; the loop learns whether
+  loading improves late-effort delivery (power-only outcome, templates B–E) and stops prescribing
+  on a proven no-effect. `lib/loading.ts`, `app/api/loading`
 
 ## Profile · Knowledge · Settings
 - **Profile** — synced performance (FTP, threshold/max HR), all-time PRs, an add/edit/delete goals &

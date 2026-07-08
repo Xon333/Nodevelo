@@ -156,6 +156,7 @@ store). Each file has one responsibility:
 | `calibration.json` | data-store | Per-athlete `CalibratedParameter`s (value/source/confidence/lock/override) — ROADMAP #2 |
 | `athlete-quirks.json` | data-store | Recurring patterns extracted from ride/coach notes (e.g. "cramp", "indoor aversion"), frequency-ranked |
 | `morning-check.json` | data-store | Log of proactive pre-session check-in decisions (proceed/downgrade) |
+| `loading-log.json` | data-store | Athlete's day-before loading attributions per durability ride |
 | `ledger-rebuild.json` | data-store | One-shot marker guarding the opt-in score-log rebuild (never re-runs automatically) |
 | `ai-usage.json` | ai-usage | Best-effort Anthropic token/cost telemetry per call site — regenerable, no `.bak` |
 
@@ -535,6 +536,7 @@ deliberate cornering practice.
 | `ride-analysis.ts` | Build today's analysis from a synced activity — metrics, IF, execution, trace (pure; route does IO) |
 | `sync-analysis.ts` | The single LLM step of a sync (coach note), split out so `/api/sync` returns the deterministic analysis fast |
 | `nutrition.ts` | Deterministic calorie/carb/protein formula + energy-availability proxy |
+| `loading.ts` | Pre-ride loading loop: target, prompt, power-only effect assessment (Track C) |
 | `kb-loader.ts` | Knowledge-base + retrospective IO and parsing |
 | `trends.ts` | Trends time-series transforms (outdoor-only Pw:HR, complete-week energy) |
 | `trace.ts` | Downsampled + 30s-smoothed ride streams + interval bands for the power chart |
@@ -557,6 +559,9 @@ or high — never a population default masquerading as personalized), it instead
 between what they logged and that optimum. Deterministic thresholds, LLM only phrases: the prompt's
 existence and copy are pure code, and the coach note may mention it in one sentence using the
 pre-computed numbers verbatim — it never invents or recomputes them.
+
+The pre-ride loading loop (`lib/loading.ts`) follows the same pattern: deterministic prescription (7 g/kg
+day-before) plus athlete attribution; delivery-grade outcome (power-only), no HR proxy.
 
 ---
 

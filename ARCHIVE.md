@@ -12,6 +12,25 @@ exact commits.
 
 ---
 
+## Pre-ride loading loop — Track C (2026-07-08)
+
+Deterministic day-before carb-loading prescription (7 g/kg, all templates A–E), one-tap loaded/skipped
+attribution stored in `data/loading-log.json`, and `preLoad`/`durabilityDelivery` ledger stamps (provenance
+only). A heuristic delivered-rate assessment via `assessLoadingEffect` learns whether loading improves
+late-effort delivery and gates the prompt with a `no-effect` kill-switch that stops prescribing once
+proven ineffective. Power-only outcome (decoupling deliberately excluded per the `deriveCarbsOptimum`
+demotion rationale in `lib/calibration.ts`). Today chip surfaces the day-before target on durability
+longs; `/api/loading` GET queries whether to show the prompt, POST attributes the athlete's loaded/skipped
+choice. `lib/loading.ts`, `data/loading-log.json`.
+
+**Known limits (deliberately kept, tracked):** late-synced durability rides get no delivery stamp (the
+birth-fetch exclusion stands — extend if the corpus starves); template A prescribed but unlearned (it
+doesn't run the learner until ≥3 template B–E entries exist, per the comment in `deriveLoadingPrompt`);
+binary loaded/skipped attribution pending actual grams logged; `/model` verdict surfacing deferred. Plan:
+`docs/superpowers/plans/2026-07-08-preride-loading-loop.md`.
+
+---
+
 ## UX program — full-product audit through implementation, Waves 1–4 (2026-07-03 → 2026-07-05)
 
 A ground-up UX audit of all seven surfaces (Today, Plan, Trends, Profile, Model, Settings, Knowledge)

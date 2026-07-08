@@ -149,8 +149,7 @@ Turn fueling from a static formula into a learned signal. The engine (`deriveExe
 dormant until `carbs_ingested` data accrues, like every calibrated param. What's left:
 - **Per-ride-type optimums + richer outcome signals** (RPE-vs-IF divergence, interval completion,
   next-day TSB) once the endurance read proves out.
-- **Pre-ride loading loop** — day-before carb bump before long durability, then *learn whether it
-  helped* (loaded vs baseline decoupling) and stop if it doesn't move the signal.
+- **Pre-ride loading loop v1 shipped** → ARCHIVE; verdict surfacing on `/model` + actual-grams logging remain open slivers.
 - Surfacing layer = **§6**; reuse the one derivation in §6 + the Today tile + the Trends overlay.
 
 ---
