@@ -1,6 +1,6 @@
 # NodeVelo — UX Masterplan v2 · the zero-based redesign
 
-> **Status: designed 2026-07-08 · Wave 1 shipped 2026-07-08 (§7), Waves 2–5 open.** Produced by the moment-first zero-based
+> **Status: designed 2026-07-08 · Waves 1–2 shipped 2026-07-08 (§7), Waves 3–5 open.** Produced by the moment-first zero-based
 > review of all seven surfaces (live-app walkthrough with real data, desktop 1440×900, commit
 > `3abbe3e`). Every card, metric, and nav slot re-earned its place or was moved/demoted/cut.
 > Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md); visual tokens stay in
@@ -61,6 +61,7 @@ The single source of truth for "where does X live now." Implementation must leav
 | 7-day load tile | Trends | **Plan** week strip | — |
 | Weekly volume chart | Trends top-level | **Trends** · Load & fuel (small, context) | — |
 | Delete block | Plan hero top-right | **Plan** overflow "…" menu (in-product confirm kept) | — |
+| Coach accuracy (hit rate) | Today · trend-pulse footer | **Model** · directives-card header (was already there) | — |
 
 Sorting test for Profile vs Model: **Profile = what the athlete declares; Model = what the coach
 learned.** Every future element sorts by that test.
@@ -216,8 +217,10 @@ reference-only — the same "where does this go?" honesty the rest of the app ha
    one fix — season save now refreshes the roadmap + generator context co-located on /plan).
    Tiered rail · every ledger row (§2) executed as pure relocation
    (component moves, no redesigns yet) · name unification. Leaves no page half-moved.
-2. **Wave 2 — Today auto-switch.** Mode detection + pre/post layouts + cuts (Trend Pulse,
-   viewport-lock). The single biggest build; Wave 1 already thinned the page.
+2. **Wave 2 — Today auto-switch.** ✅ shipped 2026-07-08 (plan
+   `docs/superpowers/plans/2026-07-08-ux-v2-wave-2-today-auto-switch.md`). Mode detection
+   (local-date ride match) + pre/post layouts + cuts (Trend Pulse, coach-accuracy copy,
+   viewport-lock & edge-fade machinery) + Constitution §3/§4 amendments.
 3. **Wave 3 — Trends rebuild.** Verdict strip (axis derivations!) + groups + the Delivery merge.
 4. **Wave 4 — Profile dossier + Model three-groups.**
 5. **Wave 5 — Plan hero orientation + Settings grouping + Knowledge header + density polish.**
