@@ -24,9 +24,11 @@ longs; `/api/loading` GET queries whether to show the prompt, POST attributes th
 choice. `lib/loading.ts`, `data/loading-log.json`.
 
 **Known limits (deliberately kept, tracked):** late-synced durability rides get no delivery stamp (the
-birth-fetch exclusion stands — extend if the corpus starves); template A prescribed but unlearned (it
-doesn't run the learner until ≥3 template B–E entries exist, per the comment in `deriveLoadingPrompt`);
-binary loaded/skipped attribution pending actual grams logged; `/model` verdict surfacing deferred. Plan:
+birth-fetch exclusion stands — extend if the corpus starves); template A rides are prescribed like B–E
+but permanently excluded from the learner (no embedded efforts, so no honest delivery outcome to grade)
+— separately, even among B–E the assessment stays `unproven` until ≥3 loaded AND ≥3 unloaded observations
+exist; binary loaded/skipped attribution pending actual grams logged; `/model` verdict surfacing deferred;
+a retro-ask response now back-stamps an already-born ledger entry at POST time (first answer wins). Plan:
 `docs/superpowers/plans/2026-07-08-preride-loading-loop.md`.
 
 ---

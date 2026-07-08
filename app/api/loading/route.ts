@@ -2,7 +2,7 @@
 // GET: the one prompt Today may show (pre-ask / retro-ask), the stored response for that ride,
 // and the current effect assessment. POST: record the athlete's one-tap attribution.
 import { NextResponse } from "next/server";
-import { readAthleteProfile, readCurrentBlock, readLastSync, readLoadingLog, readScoreLog, writeLoadingLog } from "@/lib/data-store";
+import { readAthleteProfile, readCurrentBlock, readLastSync, readLoadingLog, readScoreLog, updateScoreLog, writeLoadingLog } from "@/lib/data-store";
 import { assessLoadingEffect, deriveLoadingPrompt, preLoadTargetG } from "@/lib/loading";
 import { resolveToday } from "@/lib/date";
 import type { LoadingEntry } from "@/lib/types";
@@ -55,5 +55,15 @@ export async function POST(req: Request) {
   const entry: LoadingEntry = { rideDate, targetG: preLoadTargetG(weightKg), response, respondedAt: new Date().toISOString() };
   const log = await readLoadingLog();
   await writeLoadingLog({ entries: [...log.entries.filter((l) => l.rideDate !== rideDate), entry] });
+  // Retro-ask ordering: the entry may already be born (sync ran before the athlete answered).
+  // Stamp the response as provenance at data-arrival time — executionScore untouched, existing
+  // stamp never overwritten (first answer wins, matching the ledger's existing-wins ethos).
+  await updateScoreLog((entries) =>
+    entries.map((e) =>
+      e.date === rideDate && e.durabilityTemplate && !e.legacy && !e.preLoad
+        ? { ...e, preLoad: { loaded: response === "loaded", targetG: entry.targetG } }
+        : e
+    )
+  );
   return NextResponse.json({ entry });
 }
