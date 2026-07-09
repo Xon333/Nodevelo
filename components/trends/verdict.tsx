@@ -102,7 +102,7 @@ export function InsightsFold({
                 title={`How often acting on matured ${ins.dimension} insights proved right (${m.validated} validated of ${m.validated + m.refuted + m.inconclusive} evaluated).`}
                 className="ml-1.5 font-mono text-[10px] font-normal text-green-700 dark:text-emerald-400"
               >
-                ✓ {m.hitRate}%
+                ✓ {Math.round(m.hitRate! * 100)}%
               </span>
             )}
           </p>
