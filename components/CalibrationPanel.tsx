@@ -50,7 +50,7 @@ function detail(p: CalibratedParameter | undefined, effective: number): string {
   return `Learning from ${p.dataPoints} rides — using the default until there's enough to be confident.`;
 }
 
-function ParamRow({
+function ParamCard({
   row,
   param,
   onSaved,
@@ -103,19 +103,44 @@ function ParamRow({
     void save(v);
   };
 
+  // Provenance chip (Constitution §5: where did this number come from?) — set-by-you beats
+  // learned beats default; "learning but not yet trusted" still shows the default chip and the
+  // detail() line below explains why.
+  const provenance = overridden
+    ? "set by you"
+    : param && param.source !== "default" && effective === param.value
+      ? `learned · ${param.dataPoints} rides`
+      : "default";
+  const chipCls = overridden
+    ? "bg-zinc-100 text-zinc-600 dark:bg-[#ff49c8]/10 dark:text-[#ff49c8]"
+    : provenance.startsWith("learned")
+      ? "bg-cyan-50 text-cyan-700 dark:bg-[#00d4ff]/10 dark:text-[#00d4ff]"
+      : "bg-zinc-100 text-zinc-500 dark:bg-zinc-700/50 dark:text-zinc-400";
+
   return (
-    <li className="border-t border-zinc-100 pt-3 first:border-t-0 first:pt-0 dark:border-zinc-700/60">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{row.label}</span>
-        <span className="font-mono text-sm text-zinc-900 dark:text-zinc-100">
-          {effective.toFixed(1)}
-          {row.unit}
-          {overridden && (
-            <span className="ml-1 align-middle text-[10px] font-normal uppercase tracking-wide text-zinc-500 dark:text-[#ff49c8]">set</span>
-          )}
+    <Card
+      className="h-full"
+      title={row.label}
+      action={
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${chipCls}`}>
+          {provenance}
         </span>
-      </div>
-      <p className="mt-0.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{row.blurb}</p>
+      }
+    >
+      <p className="font-mono text-2xl font-bold leading-none text-zinc-900 dark:text-zinc-100">
+        {effective.toFixed(1)}
+        <span className="ml-0.5 font-sans text-xs font-normal text-zinc-500 dark:text-zinc-400">{row.unit}</span>
+        {param && param.source !== "default" && param.confidence !== "high" && (
+          <span
+            className={`ml-2 align-middle font-sans text-[10px] font-medium ${
+              param.confidence === "low" ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"
+            }`}
+          >
+            {param.confidence} confidence
+          </span>
+        )}
+      </p>
+      <p className="mt-1.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{row.blurb}</p>
       <p className="mt-0.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{detail(param, effective)}</p>
 
       {editing ? (
@@ -169,30 +194,29 @@ function ParamRow({
         </div>
       )}
       {error && <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{error}</p>}
-    </li>
+    </Card>
   );
 }
 
+// LEARNED (UX v2 §6 Model): one card per learned value — number, provenance, confidence tier,
+// contest/correct inline. The group intro sentence lives on the page under the LEARNED divider.
 export default function CalibrationPanel() {
   const { state, setState } = useSync();
   const cal = state?.calibration ?? null;
   const onSaved = (calibration: CalibrationStore) => setState((s) => (s ? { ...s, calibration } : s));
 
-  return (
-    <Card title="Per-athlete calibration">
-      <p className="-mt-1 mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-        Scoring thresholds the app learns from your own data, with a population default until there&apos;s enough
-        history. Updated on each sync — override one only if you know the learned value is wrong for you.
-      </p>
-      {!cal ? (
+  if (!cal) {
+    return (
+      <Card title="Per-athlete calibration">
         <p className="text-xs text-zinc-500 dark:text-zinc-400">Sync to compute your calibration.</p>
-      ) : (
-        <ul className="space-y-3">
-          {ROWS.map((row) => (
-            <ParamRow key={row.param} row={row} param={cal[row.param]} onSaved={onSaved} />
-          ))}
-        </ul>
-      )}
-    </Card>
+      </Card>
+    );
+  }
+  return (
+    <div className="grid items-stretch gap-3 sm:grid-cols-2">
+      {ROWS.map((row) => (
+        <ParamCard key={row.param} row={row} param={cal[row.param]} onSaved={onSaved} />
+      ))}
+    </div>
   );
 }
