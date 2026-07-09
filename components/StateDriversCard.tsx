@@ -15,7 +15,9 @@ export default function StateDriversCard() {
 
   // Bars scale to the biggest mover so relative magnitude reads at a glance (masterplan §6 NOW:
   // "signed magnitude bars, largest first" — the list is already |effect|-sorted upstream).
-  const maxAbs = s && s.drivers.length > 0 ? Math.max(...s.drivers.map((d) => Math.abs(d.effect))) : 1;
+  // Floor of 1: a plausible all-zero-effect driver set (steady athlete) must not divide by zero
+  // into NaN bar widths (final-review F1).
+  const maxAbs = s && s.drivers.length > 0 ? Math.max(1, ...s.drivers.map((d) => Math.abs(d.effect))) : 1;
 
   return (
     <Card
@@ -47,10 +49,12 @@ export default function StateDriversCard() {
                       {DIR[d.dir]} {d.note}
                     </span>
                     <span aria-hidden className="flex h-2 items-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
-                      <span
-                        className={`h-full rounded-full ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-amber-500/80 dark:bg-amber-400/70"}`}
-                        style={{ width: `${pct}%` }}
-                      />
+                      {d.effect !== 0 && (
+                        <span
+                          className={`h-full rounded-full ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-amber-500/80 dark:bg-amber-400/70"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      )}
                     </span>
                     <span className={`text-right font-mono text-xs ${driverEffectClass(d.effect)}`}>
                       {d.effect > 0 ? "+" : ""}

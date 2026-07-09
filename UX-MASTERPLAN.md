@@ -62,6 +62,7 @@ The single source of truth for "where does X live now." Implementation must leav
 | Weekly volume chart | Trends top-level | **Trends** · Load & fuel (small, context) | — |
 | Delete block | Plan hero top-right | **Plan** overflow "…" menu (in-product confirm kept) | — |
 | Coach accuracy (hit rate) | Today · trend-pulse footer | **Model** · directives-card header (was already there) | — |
+| Dimension hit-rate (validation ✓) | — (new in W3/W4) | **Model** · Standing guidance dimension headers | Trends shows it per-insight as validation context |
 
 Sorting test for Profile vs Model: **Profile = what the athlete declares; Model = what the coach
 learned.** Every future element sorts by that test.
