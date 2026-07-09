@@ -130,6 +130,9 @@ export default function KnowledgeBaseEditor() {
   return (
     <div>
       <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Knowledge</h1>
+      <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        Reference files (cycling / training / nutrition) feed every generation prompt; <span className="font-medium text-zinc-600 dark:text-zinc-300">athlete_profile.md</span> is your manual context — your physiology syncs from Intervals.icu and is edited on Profile, not here; block retrospectives seed the next block.
+      </p>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {isRetro
           ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block."
