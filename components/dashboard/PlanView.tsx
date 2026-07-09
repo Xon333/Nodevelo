@@ -17,7 +17,6 @@ import {
   BlockHistory,
   CurrentBlockSection,
   RetroSection,
-  WeeklyDebrief,
 } from "./plan";
 
 // The /plan page body. Split out of the old dual-mode Dashboard (RV-8): it owns the block-generation,
@@ -231,9 +230,7 @@ export default function PlanView() {
         onGenerate={generateRetro}
       />
 
-      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} />}
-
-      {state.lastSync && <WeeklyDebrief sync={state.lastSync} />}
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} sync={state.lastSync ?? null} />}
 
       {/* Degraded prefill notices — the generator still works, but the athlete should know the
           fields aren't reflecting their profile/season right now. */}

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
-import { isoDaysAgo, localToday as todayIso } from "@/lib/date";
+import { localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, CyberFrame, InfoDot } from "../ui";
 import { weekCharacters } from "@/lib/plan-week-character";
 
@@ -41,54 +41,6 @@ function BlockOverview({ text }: { text: string }) {
         </button>
       )}
     </div>
-  );
-}
-
-// ---------- Weekly debrief ----------
-
-export function WeeklyDebrief({ sync }: { sync: SyncData }) {
-  const today = todayIso();
-  const d = new Date();
-  const dayOfWeek = d.getDay();
-  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + mondayOffset);
-  // Format from local components (matches todayIso() and activity start_date_local)
-  // so the week boundary doesn't shift via UTC near midnight.
-  const weekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
-
-  const weekActivities = sync.activities.filter((a) => a.date >= weekStart && a.date <= today);
-  const weekHours = weekActivities.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
-  const weekTss = weekActivities.reduce((s, a) => s + (a.trainingLoad ?? 0), 0);
-  const topSession = [...weekActivities].sort((a, b) => (b.trainingLoad ?? 0) - (a.trainingLoad ?? 0))[0];
-
-  const cutoff7 = isoDaysAgo(7);
-  const weekWellness = sync.wellness.filter((w) => w.date >= cutoff7 && w.date <= today);
-  const hrvValues = weekWellness.map((w) => w.hrv).filter((v): v is number => v !== null);
-  const sleepValues = weekWellness.map((w) => w.sleepHours).filter((v): v is number => v !== null);
-  const avgHrv = hrvValues.length > 0 ? Math.round(hrvValues.reduce((s, v) => s + v, 0) / hrvValues.length) : null;
-  const avgSleep = sleepValues.length > 0 ? (sleepValues.reduce((s, v) => s + v, 0) / sleepValues.length).toFixed(1) : null;
-
-  if (weekActivities.length === 0 && avgHrv === null) return null;
-
-  return (
-    <Card title="This week">
-      <div className="flex flex-wrap gap-2">
-        <StatTile label="Hours" value={`${weekHours.toFixed(1)} h`} />
-        {weekTss > 0 && <StatTile label="Load" value={String(Math.round(weekTss))} />}
-        {avgHrv !== null && <StatTile label="Avg HRV" value={String(avgHrv)} />}
-        {avgSleep !== null && <StatTile label="Avg sleep" value={`${avgSleep} h`} />}
-      </div>
-      {topSession && (
-        <div className="mt-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-          <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Top session</p>
-          <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800 dark:text-zinc-100">{topSession.name}</p>
-          {topSession.trainingLoad != null && (
-            <p className="mt-0.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{topSession.trainingLoad} Load</p>
-          )}
-        </div>
-      )}
-    </Card>
   );
 }
 
@@ -334,12 +286,14 @@ export function CurrentBlockSection({
   scores,
   compromisedDates,
   partialDates,
+  sync,
 }: {
   block: CurrentBlock | null;
   onDelete?: () => void;
   scores: RideScoreEntry[];
   compromisedDates: string[];
   partialDates: string[];
+  sync?: SyncData | null;
 }) {
   // S2-7: an in-product two-step confirm (state what's kept) replaces window.confirm's generic prompt.
   const [confirming, setConfirming] = useState(false);
@@ -378,6 +332,18 @@ export function CurrentBlockSection({
   const character = characters[weekOfBlock - 1] ?? "";
   const nextSession = sortedDays.find((d) => d.date > today && d.durationMin > 0) ?? null;
   const nextWhen = nextSession ? relDay(nextSession.date, today) : "";
+  // Week strip (masterplan §6): actual vs planned over the SAME current-block-week window (the 7-day
+  // slice), so hours-vs-target share one window and don't trip ban-list §10.7. Avg HRV / avg sleep from
+  // the old "This week" panel are intentionally dropped — their home is Today's readiness (Constitution §4).
+  const curWeek = weeks[weekOfBlock - 1] ?? [];
+  const winStart = curWeek[0]?.date;
+  const winEnd = curWeek[curWeek.length - 1]?.date;
+  const weekActs =
+    sync && winStart && winEnd ? sync.activities.filter((a) => a.date >= winStart && a.date <= winEnd) : [];
+  const weekActualHours = weekActs.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
+  const weekPlannedHours = (weeklyMinutes[weekOfBlock - 1] ?? 0) / 60;
+  const weekLoad = weekActs.reduce((s, a) => s + (a.trainingLoad ?? 0), 0);
+  const weekTop = [...weekActs].sort((a, b) => (b.trainingLoad ?? 0) - (a.trainingLoad ?? 0))[0];
   return (
     <section className="relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:border-[#00d4ff]/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]">
       <CyberFrame accent="cyan" />
@@ -473,6 +439,22 @@ export function CurrentBlockSection({
           )}
         </div>
         {block.overview && <BlockOverview text={block.overview} />}
+        <div className="mt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">This week</p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            <StatTile label="Hours vs target" value={`${weekActualHours.toFixed(1)} / ${weekPlannedHours.toFixed(1)} h`} />
+            {weekLoad > 0 && <StatTile label="Load" value={String(Math.round(weekLoad))} />}
+          </div>
+          {weekTop && (
+            <div className="mt-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Top session</p>
+              <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800 dark:text-zinc-100">{weekTop.name}</p>
+              {weekTop.trainingLoad != null && (
+                <p className="mt-0.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{weekTop.trainingLoad} Load</p>
+              )}
+            </div>
+          )}
+        </div>
         <BlockCalendar weeks={weeks} characters={characters} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
       </div>
     </section>
