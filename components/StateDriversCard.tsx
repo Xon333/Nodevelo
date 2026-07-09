@@ -13,6 +13,10 @@ export default function StateDriversCard() {
   const { state } = useSync();
   const s = state?.athleteState ?? null;
 
+  // Bars scale to the biggest mover so relative magnitude reads at a glance (masterplan §6 NOW:
+  // "signed magnitude bars, largest first" — the list is already |effect|-sorted upstream).
+  const maxAbs = s && s.drivers.length > 0 ? Math.max(...s.drivers.map((d) => Math.abs(d.effect))) : 1;
+
   return (
     <Card
       title="What drives your state"
@@ -34,20 +38,27 @@ export default function StateDriversCard() {
           <p className="mt-1 text-xs leading-snug text-zinc-500 dark:text-zinc-400">{s.headline}</p>
           {s.drivers.length > 0 && (
             <ul className="mt-3 space-y-1.5">
-              {s.drivers.map((d) => (
-                <li
-                  key={d.key}
-                  className="flex items-baseline justify-between gap-2 border-t border-zinc-100 pt-1.5 first:border-t-0 first:pt-0 dark:border-zinc-700/60"
-                >
-                  <span className="min-w-0 text-xs text-zinc-600 dark:text-zinc-300">
-                    {DIR[d.dir]} {d.note}
-                  </span>
-                  <span className={`shrink-0 font-mono text-xs ${driverEffectClass(d.effect)}`}>
-                    {d.effect > 0 ? "+" : ""}
-                    {d.effect}
-                  </span>
-                </li>
-              ))}
+              {s.drivers.map((d) => {
+                const pct = Math.max(6, Math.round((Math.abs(d.effect) / maxAbs) * 100));
+                const positive = d.effect > 0;
+                return (
+                  <li key={d.key} className="grid grid-cols-[minmax(0,1fr)_5.5rem_2.5rem] items-center gap-2">
+                    <span title={d.note} className="min-w-0 truncate text-xs text-zinc-600 dark:text-zinc-300">
+                      {DIR[d.dir]} {d.note}
+                    </span>
+                    <span aria-hidden className="flex h-2 items-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+                      <span
+                        className={`h-full rounded-full ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-amber-500/80 dark:bg-amber-400/70"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </span>
+                    <span className={`text-right font-mono text-xs ${driverEffectClass(d.effect)}`}>
+                      {d.effect > 0 ? "+" : ""}
+                      {d.effect}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </>
