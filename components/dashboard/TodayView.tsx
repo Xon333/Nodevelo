@@ -36,17 +36,24 @@ export default function TodayView() {
     }
   }, [state, doSync]);
 
-  // A fresh coach note (re-analyse, new sync) re-arms the post button — the ✓ Posted latch
-  // belongs to the note it posted, not the page.
-  useEffect(() => {
+  // Render-phase adjustments (React's "adjusting state when props change" pattern — doing this in
+  // an effect sets state synchronously and cascades a re-render; react-hooks/set-state-in-effect):
+  // 1) A fresh coach note (re-analyse, new sync) re-arms the post button — the ✓ Posted latch
+  //    belongs to the note it posted, not the page.
+  const currentNote = state?.todayAnalysis?.coachNote ?? null;
+  const [armedForNote, setArmedForNote] = useState(currentNote);
+  if (currentNote !== armedForNote) {
+    setArmedForNote(currentNote);
     setNotePosted(false);
     setNotePostFailed(false);
-  }, [state?.todayAnalysis?.coachNote]);
-
-  // The manual flip is scoped to one ride's day — a new ride identity re-asserts auto mode.
-  useEffect(() => {
+  }
+  // 2) The manual flip is scoped to one ride's day — a new ride identity re-asserts auto mode.
+  const currentRideDate = state?.todayAnalysis?.activityDate ?? null;
+  const [flipRideDate, setFlipRideDate] = useState(currentRideDate);
+  if (currentRideDate !== flipRideDate) {
+    setFlipRideDate(currentRideDate);
     setFlipped(false);
-  }, [state?.todayAnalysis?.activityDate]);
+  }
 
   if (!state) return null; // Dashboard already guards loadError / loading; this narrows the type.
 

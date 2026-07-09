@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import { roadmapView } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
-import { LoadFailed } from "./ui";
+import { LoadFailed, useMountLoad } from "./ui";
 
 const FOCUS_COLOR: Record<SeasonFocus, string> = {
   "aerobic-base": "#00d4ff", threshold: "#f5a623", vo2max: "#ff49c8", anaerobic: "#a06bff", durability: "#38d39f", sharpen: "#7fd8ea",
@@ -27,11 +27,8 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
       setFailed(true);
     }
   }, []);
-  // Plain effect (not useMountLoad) so a bump to refreshKey after a Season save re-runs the fetch,
-  // not just the initial mount.
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
+  // useMountLoad's refreshKey re-runs the fetch after a Season save bumps it, not just on mount.
+  useMountLoad(load, refreshKey);
 
   if (failed) return <LoadFailed what="the season roadmap" retry={() => void load()} />;
   if (!plan || plan.periods.length === 0) return null;

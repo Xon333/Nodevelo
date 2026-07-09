@@ -55,11 +55,12 @@ export function InfoDot({ text, align }: { text: string; align?: "left" | "right
 // Fetch-on-mount for a best-effort loader that owns a visible failed state — the other half of the
 // LoadFailed convention below. `load` must be a stable useCallback that touches state only after
 // its first await (post-microtask), so the effect never sets state synchronously; the same `load`
-// doubles as LoadFailed's retry.
-export function useMountLoad(load: () => Promise<void>) {
+// doubles as LoadFailed's retry. An optional `refreshKey` re-runs the fetch when it changes (e.g.
+// a parent bumps it after a save) — same rules, not just the initial mount.
+export function useMountLoad(load: () => Promise<void>, refreshKey?: number) {
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 }
 
 // Quiet degraded-state line for a best-effort slot whose fetch failed (UX-CONSTITUTION §5: failure
