@@ -354,6 +354,9 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       </Section>
     ) : null;
 
+  const hasPerf = !!(athleteMd.performanceData && Object.keys(athleteMd.performanceData).length > 0);
+  const hasRiderRead = !!riderProfileSection || !!powerPRsSection || hasPerf || latestWeightKg != null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between gap-3">
@@ -412,16 +415,18 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         )}
 
         {/* Current performance (FTP · threshold HR · max HR) — canonical home per UX v2 §2 ledger;
-            moved from Plan's goals card. Values live in knowledge-base athlete.md, edited there. */}
-        {athleteMd.performanceData && Object.keys(athleteMd.performanceData).length > 0 && (
+            moved from Plan's goals card. Values live in knowledge-base athlete.md, edited there. The
+            synced weight tile renders even when performanceData is empty (it's synced, not manual). */}
+        {(hasPerf || latestWeightKg != null) && (
           <Section title="Current performance" editHref="/knowledge">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {Object.entries(athleteMd.performanceData).map(([k, v]) => (
-                <div key={k} className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{k}</p>
-                  <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{v}</p>
-                </div>
-              ))}
+              {hasPerf &&
+                Object.entries(athleteMd.performanceData!).map(([k, v]) => (
+                  <div key={k} className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{k}</p>
+                    <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{v}</p>
+                  </div>
+                ))}
               {latestWeightKg != null && (
                 <div className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -432,6 +437,12 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
               )}
             </div>
           </Section>
+        )}
+
+        {!hasRiderRead && (
+          <p className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            No rider data yet — sync with Intervals.icu (top bar) to pull your power curve, PRs, and current numbers.
+          </p>
         )}
       </section>
 
@@ -444,7 +455,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           instead of hand-edited markdown. Independent Save button/state from Nutrition. */}
       <section className="space-y-4">
         <SectionDivider label="Goals & weakpoints" />
-        <Section title="Goals & Weakpoints">
+        <Card>
         <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
           What you&apos;re working toward, and where you&apos;re weak — the coach reads these every generation.
         </p>
@@ -591,13 +602,13 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             </div>
           </div>
         </details>
-        </Section>
+        </Card>
       </section>
 
       {/* Nutrition formula — bottom */}
       <section className="space-y-4">
         <SectionDivider label="Nutrition formula" />
-        <Section title="Nutrition formula">
+        <Card>
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           Drives the deterministic formula that pre-computes daily targets for every generated session.
         </p>
@@ -664,7 +675,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             </div>
           </div>
         </details>
-        </Section>
+        </Card>
       </section>
     </div>
   );
