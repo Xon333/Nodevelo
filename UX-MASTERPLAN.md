@@ -1,6 +1,6 @@
 # NodeVelo — UX Masterplan v2 · the zero-based redesign
 
-> **Status: designed 2026-07-08 · Waves 1–2 shipped 2026-07-08 (§7), Waves 3–5 open.** Produced by the moment-first zero-based
+> **Status: designed 2026-07-08 · Waves 1–3 shipped 2026-07-08/09 (§7), Waves 4–5 open.** Produced by the moment-first zero-based
 > review of all seven surfaces (live-app walkthrough with real data, desktop 1440×900, commit
 > `3abbe3e`). Every card, metric, and nav slot re-earned its place or was moved/demoted/cut.
 > Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md); visual tokens stay in
@@ -221,7 +221,10 @@ reference-only — the same "where does this go?" honesty the rest of the app ha
    `docs/superpowers/plans/2026-07-08-ux-v2-wave-2-today-auto-switch.md`). Mode detection
    (local-date ride match) + pre/post layouts + cuts (Trend Pulse, coach-accuracy copy,
    viewport-lock & edge-fade machinery) + Constitution §3/§4 amendments.
-3. **Wave 3 — Trends rebuild.** Verdict strip (axis derivations!) + groups + the Delivery merge.
+3. **Wave 3 — Trends rebuild.** ✅ shipped 2026-07-09 (plan
+   `docs/superpowers/plans/2026-07-09-ux-v2-wave-3-trends-rebuild.md`). Verdict strip (three
+   honestly-derived axes, client-side over the existing payload) + ranked insights fold +
+   the four groups + the Delivery merge; cut: "Last 7 days" tiles, mission-statement intro.
 4. **Wave 4 — Profile dossier + Model three-groups.**
 5. **Wave 5 — Plan hero orientation + Settings grouping + Knowledge header + density polish.**
 
