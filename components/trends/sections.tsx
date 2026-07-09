@@ -258,10 +258,11 @@ export function DeliveryCard({
       }
       action={
         hasSessions && hasTypes ? (
-          <div className="flex gap-1">
+          <div className="flex gap-1" role="group" aria-label="Execution quality view">
             {(["sessions", "types"] as const).map((v) => (
               <button
                 key={v}
+                type="button"
                 onClick={() => setView(v)}
                 aria-pressed={shown === v}
                 className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${

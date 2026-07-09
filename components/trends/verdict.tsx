@@ -114,7 +114,7 @@ export function InsightsFold({
     );
   };
   return (
-    <Card title="Coach insights" hint="ranked · learned from your execution history">
+    <Card title="Coach insights" hint={insights.length > 0 ? "ranked · learned from your execution history" : "track record"}>
       {top.length > 0 && <ul className="space-y-1.5">{top.map(row)}</ul>}
       {(rest.length > 0 || track !== null) && (
         <details className="mt-2">
