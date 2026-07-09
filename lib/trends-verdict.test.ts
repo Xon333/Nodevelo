@@ -27,6 +27,12 @@ describe("deriveTrendsVerdict — axes", () => {
     expect(d.dir).toBe("up");
     expect(d.label).toBe("delivery ↑ (avg 6.5/10)");
   });
+  it("delivery falls back to steady when the trend is too thin but an average exists", () => {
+    const v = deriveTrendsVerdict({ ctl: [], ef: [], scores: scores(7, 8), energy: [] });
+    const d = v.axes.find((a) => a.key === "delivery")!;
+    expect(d.dir).toBe("steady");
+    expect(d.label).toBe("delivery → (avg 7.5/10)");
+  });
   it("fueling bands via the weekly EA proxy — adequate reads on target", () => {
     // (17500 − 3500) / 7 / 70 = 28.6 kcal/kg/day → adequate
     const v = deriveTrendsVerdict({ ctl: [], ef: [], scores: [], energy: [week(17500, 3500, 70)] });
