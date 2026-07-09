@@ -1,9 +1,12 @@
+"use client";
+
 // Self-contained Trends sections + helpers, lifted out of the old 508-line Trends.tsx (RV-8). Each is
 // a pure presentational component over the /api/trends payload, so the page itself stays a thin
 // fetch-and-lay-out shell.
 import type { RollingBaselines, WorkoutType } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
-import { CyberFrame } from "../ui";
+import { Card, CyberFrame } from "../ui";
+import { useState } from "react";
 import type { Point, ScoreEntry, TrendBlock, TrendsData } from "./types";
 
 export function trendDir(points: Point[], higherIsBetter = true): { label: string; cls: string } {
@@ -34,59 +37,64 @@ export function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
           No completed blocks yet. Wrap up a block on the dashboard to start building history.
         </p>
       ) : (
-        <ol className="mt-3 space-y-2.5">
-          {blocks.map((b, i) => (
-            <li key={i} className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{b.goal}</span>
-                  <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                    {b.lengthWeeks}w
-                  </span>
-                </div>
-                {b.ctlGain != null && (
-                  <span
-                    className={`font-mono text-xs font-semibold ${
-                      b.ctlGain > 0 ? "text-green-600 dark:text-emerald-400" : b.ctlGain < 0 ? "text-red-500" : "text-zinc-500 dark:text-zinc-400"
-                    }`}
-                  >
-                    CTL {b.ctlGain > 0 ? "+" : ""}{b.ctlGain}
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
-                {b.startDate} → {b.endDate}
-                {b.actualHours != null && b.plannedHours != null && ` · ${b.actualHours}/${b.plannedHours}h`}
-              </p>
-              {b.complianceByType && Object.keys(b.complianceByType).length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {Object.entries(b.complianceByType).map(([type, pct]) => (
-                    <span
-                      key={type}
-                      className="inline-flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-[10px] dark:bg-zinc-800"
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${TYPE_STYLES[type as WorkoutType]?.cell ?? "bg-zinc-400"}`} />
-                      <span className="text-zinc-500 dark:text-zinc-400">{type}</span>
-                      <span
-                        className={`font-mono font-semibold ${
-                          (pct ?? 0) >= 90 ? "text-green-600 dark:text-green-400" : (pct ?? 0) >= 75 ? "text-amber-600 dark:text-amber-400" : "text-red-500"
-                        }`}
-                      >
-                        {pct}%
-                      </span>
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Show {blocks.length} block{blocks.length === 1 ? "" : "s"}
+          </summary>
+          <ol className="mt-3 space-y-2.5">
+            {blocks.map((b, i) => (
+              <li key={i} className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{b.goal}</span>
+                    <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                      {b.lengthWeeks}w
                     </span>
-                  ))}
+                  </div>
+                  {b.ctlGain != null && (
+                    <span
+                      className={`font-mono text-xs font-semibold ${
+                        b.ctlGain > 0 ? "text-green-600 dark:text-emerald-400" : b.ctlGain < 0 ? "text-red-500" : "text-zinc-500 dark:text-zinc-400"
+                      }`}
+                    >
+                      CTL {b.ctlGain > 0 ? "+" : ""}{b.ctlGain}
+                    </span>
+                  )}
                 </div>
-              )}
-              {b.nextBlockSeeds && b.nextBlockSeeds.length > 0 && (
-                <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
-                  <span className="font-medium text-zinc-600 dark:text-zinc-300">Learned: </span>
-                  {b.nextBlockSeeds.join(" · ")}
+                <p className="mt-0.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                  {b.startDate} → {b.endDate}
+                  {b.actualHours != null && b.plannedHours != null && ` · ${b.actualHours}/${b.plannedHours}h`}
                 </p>
-              )}
-            </li>
-          ))}
-        </ol>
+                {b.complianceByType && Object.keys(b.complianceByType).length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {Object.entries(b.complianceByType).map(([type, pct]) => (
+                      <span
+                        key={type}
+                        className="inline-flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-[10px] dark:bg-zinc-800"
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${TYPE_STYLES[type as WorkoutType]?.cell ?? "bg-zinc-400"}`} />
+                        <span className="text-zinc-500 dark:text-zinc-400">{type}</span>
+                        <span
+                          className={`font-mono font-semibold ${
+                            (pct ?? 0) >= 90 ? "text-green-600 dark:text-green-400" : (pct ?? 0) >= 75 ? "text-amber-600 dark:text-amber-400" : "text-red-500"
+                          }`}
+                        >
+                          {pct}%
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {b.nextBlockSeeds && b.nextBlockSeeds.length > 0 && (
+                  <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+                    <span className="font-medium text-zinc-600 dark:text-zinc-300">Learned: </span>
+                    {b.nextBlockSeeds.join(" · ")}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
       </div>
     </section>
@@ -219,5 +227,57 @@ export function PlanVsActual({ rows, ftpRetest }: { rows: TrendsData["planVsActu
         </p>
       )}
     </div>
+  );
+}
+
+// The §5 Delivery merge: per-session execution bars and per-type planned-vs-actual are the same
+// question ("do I ride what's prescribed?") at two zoom levels, so they share one card with a
+// toggle instead of two rival sections.
+export function DeliveryCard({
+  scores,
+  planVsActual,
+  ftpRetest,
+}: {
+  scores: ScoreEntry[];
+  planVsActual: TrendsData["planVsActual"];
+  ftpRetest: TrendsData["ftpRetest"];
+}) {
+  const [view, setView] = useState<"sessions" | "types">("sessions");
+  const hasSessions = scores.length >= 2;
+  const hasTypes = planVsActual.length > 0;
+  if (!hasSessions && !hasTypes) return null;
+  const shown = view === "types" && hasTypes ? "types" : hasSessions ? "sessions" : "types";
+  return (
+    <Card
+      title="Execution quality"
+      hint={shown === "sessions" ? "per-ride completion score" : "by session type · last 90 days"}
+      tip={
+        shown === "sessions"
+          ? "How completely you delivered each session (1–10): duration × power against the plan, over your last 24 matched rides. Taller / greener = better execution; the immutable score the coach and trends read from."
+          : "Prescription vs delivery for each planned session type over the trailing 90 days: the FTP-derived target IF band, your mean ridden IF, completion and execution. Consistently delivering above the band at high completion triggers the FTP re-test advisory."
+      }
+      action={
+        hasSessions && hasTypes ? (
+          <div className="flex gap-1">
+            {(["sessions", "types"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                aria-pressed={shown === v}
+                className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  shown === v
+                    ? "bg-zinc-900 text-white dark:bg-[#00d4ff]/15 dark:text-[#00d4ff] dark:ring-1 dark:ring-[#00d4ff]/40"
+                    : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+                }`}
+              >
+                {v === "sessions" ? "Sessions" : "By type"}
+              </button>
+            ))}
+          </div>
+        ) : undefined
+      }
+    >
+      {shown === "sessions" ? <ScoreBars scores={scores} /> : <PlanVsActual rows={planVsActual} ftpRetest={ftpRetest} />}
+    </Card>
   );
 }
