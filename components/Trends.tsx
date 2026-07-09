@@ -206,21 +206,19 @@ export default function Trends() {
             </section>
           )}
 
-          {(cards.length > 0 || data.blocks.length > 0) && (
-            <section id="group-milestones" className="scroll-mt-4 space-y-3">
-              <SectionDivider label="Milestones" />
-              {cards.length > 0 && (
-                <Card title="Recent baselines" hint="rolling 90 days">
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {cards.map((c) => (
-                      <StatTile key={c.label} label={c.label} value={c.value} />
-                    ))}
-                  </div>
-                </Card>
-              )}
-              <BlockTimeline blocks={data.blocks} />
-            </section>
-          )}
+          <section id="group-milestones" className="scroll-mt-4 space-y-3">
+            <SectionDivider label="Milestones" />
+            {cards.length > 0 && (
+              <Card title="Recent baselines" hint="rolling 90 days">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {cards.map((c) => (
+                    <StatTile key={c.label} label={c.label} value={c.value} />
+                  ))}
+                </div>
+              </Card>
+            )}
+            <BlockTimeline blocks={data.blocks} />
+          </section>
         </>
       )}
     </div>

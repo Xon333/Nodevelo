@@ -74,7 +74,11 @@ export function InsightsFold({
   validation: TrendsData["validation"];
   recentInterventions: TrendsData["recentInterventions"];
 }) {
-  if (insights.length === 0) return null;
+  // Narrowed const (not a bare boolean) so TypeScript keeps the non-null type inside the JSX.
+  const track = validation !== null && (validation.evaluated > 0 || validation.pending > 0) ? validation : null;
+  // Hidden ≠ deleted (final-review F1): with no current insights the card still renders when a
+  // track record exists — the closed learning loop must stay reachable (pre-wave it was its own card).
+  if (insights.length === 0 && track === null) return null;
   const ranked = [...insights].sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
   const top = ranked.slice(0, 3);
   const rest = ranked.slice(3);
@@ -109,11 +113,9 @@ export function InsightsFold({
       </li>
     );
   };
-  // Narrowed const (not a bare boolean) so TypeScript keeps the non-null type inside the JSX.
-  const track = validation !== null && (validation.evaluated > 0 || validation.pending > 0) ? validation : null;
   return (
     <Card title="Coach insights" hint="ranked · learned from your execution history">
-      <ul className="space-y-1.5">{top.map(row)}</ul>
+      {top.length > 0 && <ul className="space-y-1.5">{top.map(row)}</ul>}
       {(rest.length > 0 || track !== null) && (
         <details className="mt-2">
           <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -162,7 +164,9 @@ export function InsightsFold({
           )}
         </details>
       )}
-      <p className="mt-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">These also steer the next block you generate.</p>
+      {insights.length > 0 && (
+        <p className="mt-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">These also steer the next block you generate.</p>
+      )}
     </Card>
   );
 }
