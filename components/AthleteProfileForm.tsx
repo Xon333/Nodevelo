@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { Card, Skeleton, SkeletonScreen } from "./ui";
+import { Card, SectionDivider, Skeleton, SkeletonScreen } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
@@ -355,7 +355,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
     ) : null;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Athlete profile</h1>
@@ -392,41 +392,59 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         </div>
       )}
 
-      {/* Power curve + PR grid beside the rider read (FB-2026-06-30): each takes half the row when both
-          exist (synced). Falls back to a single stacked column when one is absent (e.g. no synced curve,
-          so no confident rider profile) so a lone section never sits in a half-empty grid. */}
-      {riderProfileSection && powerPRsSection && syncedPowerCurve.length > 0 ? (
-        <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-          {powerPRsSection}
-          {riderProfileSection}
-        </div>
-      ) : (
-        <>
-          {riderProfileSection}
-          {powerPRsSection}
-        </>
-      )}
+      {/* Dossier group 1 (UX v2 §6 Profile): who is this rider — curve, phenotype, headline numbers. */}
+      <section className="space-y-4">
+        <SectionDivider label="The rider read" />
 
-      {/* Current performance (FTP · threshold HR · max HR) — canonical home per UX v2 §2 ledger;
-          moved from Plan's goals card. Values live in knowledge-base athlete.md, edited there. */}
-      {athleteMd.performanceData && Object.keys(athleteMd.performanceData).length > 0 && (
-        <Section title="Current performance" editHref="/knowledge">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {Object.entries(athleteMd.performanceData).map(([k, v]) => (
-              <div key={k} className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{k}</p>
-                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{v}</p>
-              </div>
-            ))}
+        {/* Power curve + PR grid beside the rider read (FB-2026-06-30): each takes half the row when both
+            exist (synced). Falls back to a single stacked column when one is absent (e.g. no synced curve,
+            so no confident rider profile) so a lone section never sits in a half-empty grid. */}
+        {riderProfileSection && powerPRsSection && syncedPowerCurve.length > 0 ? (
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            {powerPRsSection}
+            {riderProfileSection}
           </div>
-        </Section>
-      )}
+        ) : (
+          <>
+            {riderProfileSection}
+            {powerPRsSection}
+          </>
+        )}
 
-      <IfBandOffsets rows={ifBandRows} />
+        {/* Current performance (FTP · threshold HR · max HR) — canonical home per UX v2 §2 ledger;
+            moved from Plan's goals card. Values live in knowledge-base athlete.md, edited there. */}
+        {athleteMd.performanceData && Object.keys(athleteMd.performanceData).length > 0 && (
+          <Section title="Current performance" editHref="/knowledge">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {Object.entries(athleteMd.performanceData).map(([k, v]) => (
+                <div key={k} className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{k}</p>
+                  <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{v}</p>
+                </div>
+              ))}
+              {latestWeightKg != null && (
+                <div className="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-900">
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Weight <span className="text-cyan-700 dark:text-[#00d4ff]">· synced</span>
+                  </p>
+                  <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{latestWeightKg.toFixed(1)} kg</p>
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <SectionDivider label="Zones & effort bands" />
+        <IfBandOffsets rows={ifBandRows} />
+      </section>
 
       {/* Goals & Weakpoints — athlete-owned intent, now a real form (Goals/Weakpoints centralization)
           instead of hand-edited markdown. Independent Save button/state from Nutrition. */}
-      <Section title="Goals & Weakpoints">
+      <section className="space-y-4">
+        <SectionDivider label="Goals & weakpoints" />
+        <Section title="Goals & Weakpoints">
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           What you&apos;re working toward, and where you&apos;re weak — the coach reads these every generation.
         </p>
@@ -533,10 +551,13 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           {goalsSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
           {goalsSaveState.state === "error" && <span className="text-xs text-red-600">{goalsSaveState.message}</span>}
         </div>
-      </Section>
+        </Section>
+      </section>
 
       {/* Nutrition formula — bottom */}
-      <Section title="Nutrition formula">
+      <section className="space-y-4">
+        <SectionDivider label="Nutrition formula" />
+        <Section title="Nutrition formula">
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           Drives the deterministic formula that pre-computes daily targets for every generated session.
         </p>
@@ -587,7 +608,8 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           {saveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
           {saveState.state === "error" && <span className="text-xs text-red-600">{saveState.message}</span>}
         </div>
-      </Section>
+        </Section>
+      </section>
     </div>
   );
 }
