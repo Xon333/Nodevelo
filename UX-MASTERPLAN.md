@@ -1,6 +1,6 @@
 # NodeVelo — UX Masterplan v2 · the zero-based redesign
 
-> **Status: designed 2026-07-08 · Waves 1–3 shipped 2026-07-08/09 (§7), Waves 4–5 open.** Produced by the moment-first zero-based
+> **Status: designed 2026-07-08 · Waves 1–4 shipped 2026-07-08/09 (§7), Wave 5 open.** Produced by the moment-first zero-based
 > review of all seven surfaces (live-app walkthrough with real data, desktop 1440×900, commit
 > `3abbe3e`). Every card, metric, and nav slot re-earned its place or was moved/demoted/cut.
 > Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md); visual tokens stay in
@@ -225,7 +225,11 @@ reference-only — the same "where does this go?" honesty the rest of the app ha
    `docs/superpowers/plans/2026-07-09-ux-v2-wave-3-trends-rebuild.md`). Verdict strip (three
    honestly-derived axes, client-side over the existing payload) + ranked insights fold +
    the four groups + the Delivery merge; cut: "Last 7 days" tiles, mission-statement intro.
-4. **Wave 4 — Profile dossier + Model three-groups.**
+4. **Wave 4 — Profile dossier + Model three-groups.** ✅ shipped 2026-07-09 (plan
+   `docs/superpowers/plans/2026-07-09-ux-v2-wave-4-profile-model.md`). Model: driver magnitude
+   bars · calibration cards · StandingGuidance renders the directives' structured source (insights
+   + validation, demote rule shared with the generator) — CoachDirectivesCard retired. Profile:
+   dossier dividers, synced weight in the rider read, goals/nutrition read views with inline edits.
 5. **Wave 5 — Plan hero orientation + Settings grouping + Knowledge header + density polish.**
 
 Doc duty per wave: update DESIGN.md §8 (per-page table + layout notes — the viewport-lock clause
