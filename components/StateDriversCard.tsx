@@ -45,13 +45,13 @@ export default function StateDriversCard() {
                 const positive = d.effect > 0;
                 return (
                   <li key={d.key} className="grid grid-cols-[minmax(0,1fr)_5.5rem_2.5rem] items-center gap-2">
-                    <span title={d.note} className="min-w-0 truncate text-xs text-zinc-600 dark:text-zinc-300">
+                    <span title={d.note} className="min-w-0 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-300">
                       {DIR[d.dir]} {d.note}
                     </span>
                     <span aria-hidden className="flex h-2 items-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
                       {d.effect !== 0 && (
                         <span
-                          className={`h-full rounded-full ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-amber-500/80 dark:bg-amber-400/70"}`}
+                          className={`h-full rounded-full ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-red-500/80 dark:bg-red-400/70"}`}
                           style={{ width: `${pct}%` }}
                         />
                       )}

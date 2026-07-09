@@ -130,7 +130,7 @@ function ParamCard({
       <p className="font-mono text-2xl font-bold leading-none text-zinc-900 dark:text-zinc-100">
         {effective.toFixed(1)}
         <span className="ml-0.5 font-sans text-xs font-normal text-zinc-500 dark:text-zinc-400">{row.unit}</span>
-        {param && param.source !== "default" && param.confidence !== "high" && (
+        {param && param.source !== "default" && effective === param.value && param.confidence !== "high" && (
           <span
             className={`ml-2 align-middle font-sans text-[10px] font-medium ${
               param.confidence === "low" ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"
