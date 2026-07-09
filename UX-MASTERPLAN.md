@@ -1,6 +1,6 @@
 # NodeVelo — UX Masterplan v2 · the zero-based redesign
 
-> **Status: designed 2026-07-08 · Waves 1–4 shipped 2026-07-08/09 (§7), Wave 5 open.** Produced by the moment-first zero-based
+> **Status: designed 2026-07-08 · Waves 1–5 shipped 2026-07-08/09 (§7).** Produced by the moment-first zero-based
 > review of all seven surfaces (live-app walkthrough with real data, desktop 1440×900, commit
 > `3abbe3e`). Every card, metric, and nav slot re-earned its place or was moved/demoted/cut.
 > Governed by [`UX-CONSTITUTION.md`](UX-CONSTITUTION.md); visual tokens stay in
@@ -162,7 +162,12 @@ intervals.icu" mission-statement intro (the page question header replaces it).
 - **Hero gains orientation:** header "Active block — week N of M · <week character>"; a loud TODAY
   marker; a "next: <session>, <when>" pointer; week-row labels (load/build/peak/taper).
 - **Week strip inside the hero** (the separate "This week" panel dies): hours vs target · load ·
-  top session — one glance answers "where am I" and "how's the week going."
+  top session — one glance answers "where am I" and "how's the week going." *(W5:* hours-vs-target is
+  computed over the aligned current-block-week window; the week-row character is derived from planned
+  weekly volume relative to the block — there is **no** per-week phase in the data model, and the single
+  whole-block `seasonPhase` is never spread per-week, so the hero labels the character as volume-derived
+  per Constitution §5. Avg HRV / avg sleep from the old panel dropped — their home is Today's readiness,
+  Constitution §4.)*
 - **Reschedule-ready by design:** the per-day tap/focus popover keeps a reserved actions row —
   "move session…" lands there when rescheduling ships; the grid is designed as interactive, not
   read-only. (Athlete note folded in 2026-07-08.)
@@ -232,6 +237,14 @@ reference-only — the same "where does this go?" honesty the rest of the app ha
    + validation, demote rule shared with the generator) — CoachDirectivesCard retired. Profile:
    dossier dividers, synced weight in the rider read, goals/nutrition read views with inline edits.
 5. **Wave 5 — Plan hero orientation + Settings grouping + Knowledge header + density polish.**
+   ✅ shipped 2026-07-09 (commits `fe81520`…`56a9f1f`; plan
+   `docs/superpowers/plans/2026-07-09-ux-v2-wave-5-plan-settings-knowledge-polish.md`).
+   Plan hero: volume-derived week character + in-hero week strip (hours vs target · load · top session,
+   WeeklyDebrief retired) + next-session pointer. Settings: GENERATION/PLATFORM split (Platform behavior
+   moved to its own component under the PLATFORM divider). Knowledge: provenance header. Density polish:
+   driver bar negative→red (DESIGN §2), touch-readable driver notes, calibration confidence adjacency,
+   DeliveryCard toggle a11y, InsightsFold empty-state hint, Profile rider-read empty-state + weight-tile
+   gating + double-label removal.
 
 Doc duty per wave: update DESIGN.md §8 (per-page table + layout notes — the viewport-lock clause
 dies in Wave 2) and ROADMAP cross-refs in the same commit that ships the change.

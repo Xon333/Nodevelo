@@ -45,6 +45,11 @@ Tailwind **arbitrary literals with opacity** — that is the established convent
 
 **Status:** emerald/green = good · amber = warning/caution · red & rose = error/danger.
 
+**Signed-magnitude bars** (StateDriversCard drivers; block CTL-gain figures): emerald = positive
+effect, **red** = negative — the same register as `driverEffectClass` / `trendDir`. Amber stays
+reserved for caution / mid-band (e.g. ScoreBars 5–6.9), never directional-negative, so a single row
+never shows two severity colours for one signal.
+
 **Workout-type accents** (`lib/workout-types.ts` — the only other allowed hard hexes):
 `#10b981` Z2 · `#06b6d4` Recovery · `#f59e0b` Threshold · `#f97316` VO2max · `#f43f5e` SIT ·
 `#d946ef` RaceSim · `#8b5cf6` Strength.
@@ -157,11 +162,12 @@ default: summary first, detail on demand (`<details>` for blocks, `MetricTip`/`I
 | Page | The one job | Leads (fold-1) | Supporting | Collapsed / drill-down |
 |---|---|---|---|---|
 | **Today** | Pre-ride: "Can I go hard — what's the session?" · Post-ride: "How did it go — what do I eat?" (auto-switch on a synced ride matching today's local date; UX v2 §4) | Pre: readiness verdict → promoted session prescription. Post: verdict strip → debrief hero (execution score · planned-vs-actual line · IF/NP/avg · coach takeaway ≤3 sentences) → "Eat today" fuel card | morning check-in (pre, inline) · PR banner · disposition chips | **Power execution** (per-rep · trace · zone bars), full coach note, "Your note", supporting signals, last debrief (pre), ask coach — all `<details>` |
-| **Plan** | "What's my block, and what's next?" | Active block hero (calendar + progress) | this-week debrief · season (objective/events) · "this block targets" line | Block history → `<details>`; generation form collapses while a block is active (expanded, it shows a season-context readout above the length/goal/weakpoint fields) |
+| **Plan** | "What's my block, and what's next?" | Active block hero: calendar + week orientation (week N of M · volume-derived character) · in-hero week strip (hours vs target · load · top session) · "next: session, when" pointer | season (objective/events) · "this block targets" line | Block history → `<details>`; generation form collapses while a block is active (expanded, it shows a season-context readout above the length/goal/weakpoint fields) |
 | **Trends** | "Am I improving?" | Verdict strip (engine · delivery · fueling, derivations in tips) + ranked coach insights (top 3) | four named groups: ENGINE (Pw:HR · CTL) · DELIVERY (execution bars ↔ per-type planned-vs-actual, one card, toggled) · LOAD & FUEL (fueling & weight + volume context) · MILESTONES (baselines) | remaining insights + track record → `<details>`; block history list → `<details>` at the bottom |
 | **Profile** | "Who am I — what does the coach plan around?" | THE RIDER READ (power curve + phenotype · current performance + synced weight · PR strip, provenance badges) | ZONES & EFFORT BANDS (synced) · GOALS & WEAKPOINTS read view · NUTRITION FORMULA read + buffer status | edit forms → inline `<details>` disclosures (no form visible until opened) |
-| **Model** | "What does the brain know about me — and why?" | NOW — fused score + ranked drivers as signed magnitude bars | LEARNED — calibration cards (value · provenance chip · confidence · contest/correct inline) · STANDING GUIDANCE — directives grouped by dimension, one line each, ✓/proven-poor track marks | directive evidence → "why" `<details>` |
-| **Settings** | "Tune generation + platform behaviour" | Block-generation knobs | AI usage · backup | — |
+| **Model** | "What does the brain know about me — and why?" | NOW — fused score + ranked drivers as signed magnitude bars (emerald +, red −; see §2) | LEARNED — calibration cards (value · provenance chip · confidence · contest/correct inline) · STANDING GUIDANCE — directives grouped by dimension, one line each, ✓/proven-poor track marks | directive evidence → "why" `<details>` |
+| **Settings** | "Tune generation + platform behaviour" | GENERATION group — weekly volume · structure · philosophy | PLATFORM group — platform behavior · AI usage · backup | — |
+| **Knowledge** | "What context does the coach read — and where does each file go?" | Provenance header (reference-vs-manual-vs-seed taxonomy) + file rail | selected file's editor pane + per-file guidance banner | block retrospectives list (they seed the next block) → collapsed at the rail's bottom |
 
 **Bespoke-per-use-case elements** (don't force these into a generic `StatTile`): the readiness verdict
 (`AthleteStateCard` — the sole fold-1 verdict since the UX-MASTERPLAN S1-1 restructure; it absorbed the
