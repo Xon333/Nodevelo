@@ -4,7 +4,17 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { isoDaysAgo, localToday as todayIso } from "@/lib/date";
-import { Card, StatTile, CyberFrame } from "../ui";
+import { Card, StatTile, CyberFrame, InfoDot } from "../ui";
+import { weekCharacters } from "@/lib/plan-week-character";
+
+// Relative label for the "next: <session>, <when>" pointer. Parse with an explicit local midnight so
+// the weekday doesn't drift a day via UTC. `date` is always strictly after `today` at the call site.
+function relDay(date: string, today: string): string {
+  const diff = Math.round((Date.parse(date) - Date.parse(today)) / 86_400_000);
+  if (diff <= 1) return "tomorrow";
+  if (diff < 7) return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { weekday: "long" });
+  return date;
+}
 
 // The block overview can run several sentences. Clamp it to 3 lines so the calendar stays near
 // the top of the fold, with a "Show more" toggle that only appears when the text actually overflows.
@@ -194,7 +204,7 @@ export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
 
 // ---------- Current block card ----------
 
-function BlockCalendar({ block, scores, compromisedDates, partialDates }: { block: CurrentBlock; scores: RideScoreEntry[]; compromisedDates: string[]; partialDates: string[] }) {
+function BlockCalendar({ weeks, characters, scores, compromisedDates, partialDates }: { weeks: CurrentBlock["days"][]; characters: string[]; scores: RideScoreEntry[]; compromisedDates: string[]; partialDates: string[] }) {
   // S2-1: each day cell's detail was hover-only (the calendar's whole story was mouse-only). One id
   // per cell, tabIndex + aria-describedby + role="tooltip" — same pattern as Wave 1's MetricTip.
   const idBase = useId();
@@ -204,10 +214,6 @@ function BlockCalendar({ block, scores, compromisedDates, partialDates }: { bloc
   const scoreByDate = new Map(scores.map((s) => [s.date, s.executionScore]));
   const scoreColor = (v: number) =>
     v >= 7 ? "text-green-700 dark:text-green-400" : v >= 5 ? "text-amber-700 dark:text-amber-400" : "text-red-600 dark:text-red-400";
-  const weeks: CurrentBlock["days"][] = [];
-  const sorted = [...block.days].sort((a, b) => a.date.localeCompare(b.date));
-  for (let i = 0; i < sorted.length; i += 7) weeks.push(sorted.slice(i, i + 7));
-
   const weeklyMinutes = weeks.map((week) =>
     week.reduce((s, d) => s + d.durationMin, 0)
   );
@@ -221,7 +227,12 @@ function BlockCalendar({ block, scores, compromisedDates, partialDates }: { bloc
         const label = m === 0 ? `${h}h` : `${h}h ${m}m`;
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="w-10 shrink-0 text-right text-[10px] font-medium text-zinc-500 dark:text-zinc-400">{label}</span>
+            <span className="flex w-14 shrink-0 flex-col items-end leading-tight">
+              <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">{label}</span>
+              {characters[i] && (
+                <span className="text-[9px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{characters[i]}</span>
+              )}
+            </span>
             <div className="flex flex-1 gap-1.5 overflow-visible">
               {week.map((day, dayIdx) => {
                 const alignClass =
@@ -304,7 +315,7 @@ function BlockCalendar({ block, scores, compromisedDates, partialDates }: { bloc
           </div>
         );
       })}
-      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 pl-12">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 pt-2 pl-14">
         {(["Z2", "Recovery", "Threshold", "VO2max", "SIT", "Strength", "Rest"] as const).map(
           (t) => (
             <span key={t} className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -357,6 +368,16 @@ export function CurrentBlockSection({
   const sessionsToGo = block.days.filter(
     (d) => d.date >= today && d.durationMin > 0 && !completedDates.has(d.date)
   ).length;
+  // Chunking lifted here (was inside BlockCalendar) so the header + week strip and the calendar all read
+  // from one source. weeklyMinutes drives both the volume-derived week character and the strip's target.
+  const sortedDays = [...block.days].sort((a, b) => a.date.localeCompare(b.date));
+  const weeks: CurrentBlock["days"][] = [];
+  for (let i = 0; i < sortedDays.length; i += 7) weeks.push(sortedDays.slice(i, i + 7));
+  const weeklyMinutes = weeks.map((w) => w.reduce((s, d) => s + d.durationMin, 0));
+  const characters = weekCharacters(weeklyMinutes);
+  const character = characters[weekOfBlock - 1] ?? "";
+  const nextSession = sortedDays.find((d) => d.date > today && d.durationMin > 0) ?? null;
+  const nextWhen = nextSession ? relDay(nextSession.date, today) : "";
   return (
     <section className="relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:border-[#00d4ff]/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]">
       <CyberFrame accent="cyan" />
@@ -370,11 +391,29 @@ export function CurrentBlockSection({
               </span>
             </div>
             <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              {block.startDate} → {block.endDate} ·{" "}
-              {daysRemaining > 0
-                ? `Week ${weekOfBlock} of ${block.lengthWeeks} · ${sessionsToGo} session${sessionsToGo === 1 ? "" : "s"} to go`
-                : "finished"}
+              {block.startDate} → {block.endDate}
             </p>
+            {daysRemaining > 0 ? (
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <span>Week {weekOfBlock} of {block.lengthWeeks}</span>
+                {character && (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="uppercase tracking-wide text-zinc-600 dark:text-zinc-300">{character}</span>
+                    <InfoDot text="Characterised by this week's planned volume relative to the block — not a prescribed periodization phase." />
+                  </>
+                )}
+                <span aria-hidden>·</span>
+                <span>{sessionsToGo} session{sessionsToGo === 1 ? "" : "s"} to go</span>
+              </p>
+            ) : (
+              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">finished</p>
+            )}
+            {nextSession && (
+              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+                next: <span className="text-zinc-700 dark:text-zinc-300">{nextSession.name}</span>, {nextWhen}
+              </p>
+            )}
             <p className="mt-0.5 line-clamp-1 text-xs text-zinc-500 dark:text-zinc-400">
               This block targets:{" "}
               <span className="text-zinc-700 dark:text-zinc-300">{block.goal.split("\n")[0]}</span>
@@ -434,7 +473,7 @@ export function CurrentBlockSection({
           )}
         </div>
         {block.overview && <BlockOverview text={block.overview} />}
-        <BlockCalendar block={block} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
+        <BlockCalendar weeks={weeks} characters={characters} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
       </div>
     </section>
   );
