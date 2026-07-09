@@ -1,12 +1,12 @@
 import CalibrationPanel from "@/components/CalibrationPanel";
-import CoachDirectivesCard from "@/components/CoachDirectivesCard";
+import StandingGuidance from "@/components/StandingGuidance";
 import StateDriversCard from "@/components/StateDriversCard";
+import { SectionDivider } from "@/components/ui";
 
-// The "what the second brain knows" page (ROADMAP #2 / anti-black-box). Aggregates the model state the
-// coach reasons from — what it thinks of you now (+ why), the standing directives (+ track record), and
-// what it has learned to calibrate. State drivers and directives are read-only; the calibration panel
-// (CalibrationPanel) is contest/correct — a manual override on a learned parameter, via /api/calibration.
-// The effort-bands view moved to /profile (UX v2 §2 ledger: zones are declared data, not learned).
+// The "what the second brain knows" page — three stacked groups (UX v2 §6): NOW (the fused state +
+// its ranked drivers as magnitude bars — the same data Today's "why? →" links to), LEARNED
+// (per-athlete calibration, contest/correct inline), STANDING GUIDANCE (the directives' sole owner,
+// structured lines instead of a text blob). Bars and lines, not paragraphs.
 export default function ModelPage() {
   return (
     <div className="space-y-6">
@@ -17,9 +17,22 @@ export default function ModelPage() {
           correct it where it&apos;s wrong.
         </p>
       </div>
-      <StateDriversCard />
-      <CoachDirectivesCard />
-      <CalibrationPanel />
+      <section className="space-y-3">
+        <SectionDivider label="Now — what drives your state" />
+        <StateDriversCard />
+      </section>
+      <section className="space-y-3">
+        <SectionDivider label="Learned — per-athlete calibration" />
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Thresholds learned from your own data, with a population default until there&apos;s enough
+          history. Updated each sync — override one only if you know the learned value is wrong for you.
+        </p>
+        <CalibrationPanel />
+      </section>
+      <section className="space-y-3">
+        <SectionDivider label="Standing guidance — what the coach keeps telling you" />
+        <StandingGuidance />
+      </section>
     </div>
   );
 }
