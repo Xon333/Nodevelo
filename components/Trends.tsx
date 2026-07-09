@@ -5,18 +5,19 @@ import { api, timeAgo } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import Sparkline from "./Sparkline";
 import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
-import { Card, Skeleton, SkeletonScreen, StatTile } from "./ui";
+import { Card, SectionDivider, Skeleton, SkeletonScreen, StatTile } from "./ui";
 import { useSync } from "./SyncProvider";
 import type { TrendsData } from "./trends/types";
-import { BlockTimeline, PlanVsActual, ScoreBars, WeeklyVolumeBars, baselineCards, trendDir } from "./trends/sections";
+import { BlockTimeline, DeliveryCard, WeeklyVolumeBars, baselineCards, trendDir } from "./trends/sections";
+import { InsightsFold, VerdictStrip } from "./trends/verdict";
 
-// The /trends page — a fetch-and-lay-out shell. The payload type, the standalone chart sections
-// (block timeline, execution-score bars, weekly-volume bars) and their helpers live in ./trends/*
-// (RV-8 split of the old 508-line file).
+// The /trends page — a fetch-and-lay-out shell over ./trends/* (RV-8 split). UX v2 §5 layout:
+// verdict strip + ranked insights fold-1, then four named groups (ENGINE / DELIVERY / LOAD & FUEL /
+// MILESTONES), group gap 2× the card gap. The old recent-snapshot tile row is gone — its tenants
+// live in the Load & fuel card (weight/intake) and on Plan's week panel (7-day load).
 export default function Trends() {
-  // Keyed on the last sync time so it re-fetches whenever a sync completes (execution quality +
-  // compliance-by-type reflect the latest scores). TanStack Query also refetches on tab focus /
-  // reconnect and dedups/retries — same data layer as the main sync state.
+  // Keyed on the last sync time so it re-fetches whenever a sync completes; TanStack Query also
+  // refetches on tab focus / reconnect and dedups/retries — same data layer as the main sync state.
   const { state } = useSync();
   const syncedAt = state?.lastSync?.syncedAt ?? null;
   const { data, error } = useQuery({
@@ -32,19 +33,20 @@ export default function Trends() {
     );
   }
   if (!data) {
-    // S3-1: mirrors the loaded scaffold (title → 7-day glance → insights → paired chart cards).
+    // S3-1: mirrors the loaded scaffold (title → verdict strip → insights → grouped chart cards).
     return (
-      <SkeletonScreen className="space-y-3">
+      <SkeletonScreen className="space-y-6">
         <div>
           <Skeleton className="h-6 w-28" />
-          <Skeleton className="mt-1.5 h-4 w-80 max-w-full" />
+          <Skeleton className="mt-1.5 h-4 w-64 max-w-full" />
         </div>
-        <Skeleton className="h-28" />
-        <Skeleton className="h-40" />
+        <Skeleton className="h-14" />
+        <Skeleton className="h-36" />
         <div className="grid gap-3 lg:grid-cols-2">
           <Skeleton className="h-56" />
           <Skeleton className="h-56" />
         </div>
+        <Skeleton className="h-56" />
       </SkeletonScreen>
     );
   }
@@ -85,223 +87,142 @@ export default function Trends() {
     },
   ];
   const energyHasData = energySeries.some((s) => s.points.length >= 2);
+  // The killed tile row's surviving tenants, as a quiet stat line inside the Load & fuel card.
+  const fuelStats = [
+    data.recent?.latestWeightKg != null ? `weight ${data.recent.latestWeightKg.toFixed(1)} kg` : null,
+    data.recent?.weightTrend7Day != null
+      ? `${data.recent.weightTrend7Day > 0 ? "+" : ""}${data.recent.weightTrend7Day.toFixed(1)} kg/7d`
+      : null,
+    data.recent?.lastKcalConsumed != null ? `last intake ${data.recent.lastKcalConsumed} kcal` : null,
+  ].filter((s): s is string => s !== null);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
       <div className="flex items-baseline justify-between">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Trends</h1>
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            What your second brain has learned over time — not a duplicate of intervals.icu.
-          </p>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Am I improving?</p>
         </div>
         {data.syncedAt && (
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">synced {timeAgo(data.syncedAt)}</span>
         )}
       </div>
 
-      {noData && (
+      {noData ? (
         <p className="rounded-lg border border-zinc-200 bg-white px-4 py-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
           No synced data yet. Sync from the dashboard to populate trends.
         </p>
-      )}
+      ) : (
+        <>
+          {/* Fold-1: the page answer, then the ranked insights (top 3 + disclosure). */}
+          <div className="space-y-3">
+            <VerdictStrip data={data} />
+            <InsightsFold
+              insights={data.insights}
+              validation={data.validation}
+              recentInterventions={data.recentInterventions}
+            />
+          </div>
 
-      {data.recent &&
-        (data.recent.latestWeightKg != null ||
-          data.recent.load7Day != null ||
-          data.recent.lastKcalConsumed != null) && (
-          <Card title="Last 7 days" hint="recent snapshot">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <StatTile
-                label="Latest weight"
-                value={data.recent.latestWeightKg != null ? `${data.recent.latestWeightKg.toFixed(1)} kg` : "—"}
-              />
-              <StatTile
-                label="7-day trend"
-                value={
-                  data.recent.weightTrend7Day != null
-                    ? `${data.recent.weightTrend7Day > 0 ? "+" : ""}${data.recent.weightTrend7Day.toFixed(1)} kg`
-                    : "—"
-                }
-              />
-              <StatTile label="7-day load" value={data.recent.load7Day != null ? String(data.recent.load7Day) : "—"} />
-              <StatTile
-                label="Last intake"
-                value={data.recent.lastKcalConsumed != null ? `${data.recent.lastKcalConsumed} kcal` : "—"}
-              />
-            </div>
-          </Card>
-        )}
-
-      {data.insights.length > 0 && (
-        <Card title="Coach insights" hint="learned from your execution history">
-          <ul className="space-y-1.5">
-            {data.insights.map((ins, i) => {
-              const dot =
-                ins.severity === "alert"
-                  ? "bg-red-500"
-                  : ins.severity === "watch"
-                  ? "bg-amber-500"
-                  : "bg-green-500";
-              return (
-                <li key={i} className="flex items-start gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-                  <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">{ins.title}</p>
-                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                      {ins.evidence} <span className="text-zinc-700 dark:text-zinc-300">→ {ins.suggestion}</span>
-                    </p>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">
-            These also steer the next block you generate.
-          </p>
-        </Card>
-      )}
-
-      {data.validation && (data.validation.evaluated > 0 || data.validation.pending > 0) && (
-        <Card
-          title="Insight track record"
-          hint={`${data.validation.evaluated} evaluated · ${data.validation.pending} pending`}
-        >
-          {data.recentInterventions.length > 0 ? (
-            <ul className="space-y-1.5">
-              {data.recentInterventions.map((iv, i) => {
-                const dot =
-                  iv.verdict === "validated" ? "bg-green-500" : iv.verdict === "refuted" ? "bg-red-500" : "bg-zinc-400";
-                const deltas = [
-                  iv.execDelta != null ? `exec ${iv.execDelta > 0 ? "+" : ""}${iv.execDelta}` : null,
-                  iv.physDelta != null ? `${iv.physMetric} ${iv.physDelta > 0 ? "+" : ""}${iv.physDelta}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-                return (
-                  <li key={i} className="flex items-start gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-zinc-800 dark:text-zinc-100">{iv.title}</p>
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                        <span className="uppercase tracking-wide">{iv.verdict}</span>
-                        {deltas ? ` · ${deltas}` : ""} · since {iv.firedAt}
-                      </p>
+          {(data.ef.length >= 3 || data.ctl.length >= 3) && (
+            <section id="group-engine" className="scroll-mt-4 space-y-3">
+              <SectionDivider label="Engine — is the motor getting bigger?" />
+              <div className="grid items-stretch gap-3 lg:grid-cols-2">
+                {data.ef.length >= 3 && (
+                  <Card className="h-full" title="Pw:HR — power-to-heart-rate" hint={`${data.ef.length} outdoor rides · ≥45 min`}>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className={`text-xs font-medium ${efTrend.cls}`}>{efTrend.label}</span>
+                      <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                        latest {data.ef[data.ef.length - 1].value.toFixed(2)}
+                      </span>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="rounded-md bg-zinc-50 px-3 py-3 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-              {data.validation.pending} intervention{data.validation.pending === 1 ? "" : "s"} recorded — outcomes evaluate after ~4 weeks.
-            </p>
-          )}
-          <p className="mt-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">
-            Whether acting on each past insight actually moved execution or a physiological marker — the closed learning loop.
-          </p>
-        </Card>
-      )}
-
-      {/* Fitness pair — aerobic efficiency vs. fitness trajectory, side by side to correlate */}
-      {(data.ef.length >= 3 || data.ctl.length >= 3) && (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {data.ef.length >= 3 && (
-            <Card title="Pw:HR — power-to-heart-rate" hint={`${data.ef.length} outdoor rides · ≥45 min`}>
-              <div className="mb-1 flex items-center justify-between">
-                <span className={`text-xs font-medium ${efTrend.cls}`}>{efTrend.label}</span>
-                <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                  latest {data.ef[data.ef.length - 1].value.toFixed(2)}
-                </span>
+                    <Sparkline points={data.ef} format={(v) => v.toFixed(2)} />
+                    <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      Power-to-HR on steady endurance rides. Rising = more output at the same HR = better aerobic base.
+                    </p>
+                  </Card>
+                )}
+                {data.ctl.length >= 3 && (
+                  <Card className="h-full" title="Fitness trajectory — CTL" hint="last ~6 months">
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className={`text-xs font-medium ${ctlTrend.cls}`}>{ctlTrend.label}</span>
+                      <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                        now {data.ctl[data.ctl.length - 1].value.toFixed(1)}
+                      </span>
+                    </div>
+                    <Sparkline
+                      points={data.ctl}
+                      format={(v) => v.toFixed(1)}
+                      strokeClass="stroke-purple-400 dark:stroke-[#00d4ff]/70"
+                      dotClass="fill-purple-500 dark:fill-[#00d4ff]"
+                      tipTextClass="fill-zinc-800 dark:fill-[#00d4ff]"
+                      tipAccentClass="stroke-zinc-300 dark:stroke-[#00d4ff]/40"
+                    />
+                  </Card>
+                )}
               </div>
-              <Sparkline points={data.ef} format={(v) => v.toFixed(2)} />
-              <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
-                Power-to-HR on steady endurance rides. Rising = more output at the same HR = better aerobic base.
-              </p>
-            </Card>
+            </section>
           )}
-          {data.ctl.length >= 3 && (
-            <Card title="Fitness trajectory — CTL" hint="last ~6 months">
-              <div className="mb-1 flex items-center justify-between">
-                <span className={`text-xs font-medium ${ctlTrend.cls}`}>{ctlTrend.label}</span>
-                <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                  now {data.ctl[data.ctl.length - 1].value.toFixed(1)}
-                </span>
+
+          {(data.scores.length >= 2 || data.planVsActual.length > 0) && (
+            <section id="group-delivery" className="scroll-mt-4 space-y-3">
+              <SectionDivider label="Delivery — do I ride what's prescribed?" />
+              <DeliveryCard scores={data.scores} planVsActual={data.planVsActual} ftpRetest={data.ftpRetest} />
+            </section>
+          )}
+
+          {(energyHasData || data.weeklyHours.length >= 2) && (
+            <section id="group-fuel" className="scroll-mt-4 space-y-3">
+              <SectionDivider label="Load & fuel — am I feeding the work?" />
+              <div className="grid items-stretch gap-3 lg:grid-cols-[1.7fr_1fr]">
+                {energyHasData && (
+                  <Card
+                    className="h-full"
+                    title="Fueling & weight"
+                    hint="complete weeks · tap to isolate"
+                    action={
+                      fuelStats.length > 0 ? (
+                        <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">{fuelStats.join(" · ")}</span>
+                      ) : undefined
+                    }
+                  >
+                    <MultiSparkline series={energySeries} />
+                    <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      Per complete week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. The current in-progress week is excluded until it closes. Tap a legend chip to show/hide; isolating one fills the area.
+                    </p>
+                  </Card>
+                )}
+                {data.weeklyHours.length >= 2 && (
+                  <Card
+                    className="h-full"
+                    title="Weekly volume"
+                    hint="context"
+                    tip="Total ride hours per complete week over the last ~16 weeks (the in-progress week is excluded). Bar height and blue shade both track weekly training volume — consistency and ramp at a glance."
+                  >
+                    <WeeklyVolumeBars weeks={data.weeklyHours} />
+                  </Card>
+                )}
               </div>
-              <Sparkline
-                points={data.ctl}
-                format={(v) => v.toFixed(1)}
-                strokeClass="stroke-purple-400 dark:stroke-[#00d4ff]/70"
-                dotClass="fill-purple-500 dark:fill-[#00d4ff]"
-                tipTextClass="fill-zinc-800 dark:fill-[#00d4ff]"
-                tipAccentClass="stroke-zinc-300 dark:stroke-[#00d4ff]/40"
-              />
-            </Card>
+            </section>
           )}
-        </div>
-      )}
 
-      {/* Execution quality + recent baselines — compact pair so they stop spreading wide. */}
-      {(data.scores.length >= 2 || cards.length > 0) && (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {data.scores.length >= 2 && (
-            <Card
-              title="Execution quality"
-              hint="per-ride completion score"
-              tip="How completely you delivered each session (1–10): duration × power against the plan, over your last 24 matched rides. Taller / greener = better execution; the immutable score the coach and trends read from."
-            >
-              <ScoreBars scores={data.scores} />
-            </Card>
+          {(cards.length > 0 || data.blocks.length > 0) && (
+            <section id="group-milestones" className="scroll-mt-4 space-y-3">
+              <SectionDivider label="Milestones" />
+              {cards.length > 0 && (
+                <Card title="Recent baselines" hint="rolling 90 days">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {cards.map((c) => (
+                      <StatTile key={c.label} label={c.label} value={c.value} />
+                    ))}
+                  </div>
+                </Card>
+              )}
+              <BlockTimeline blocks={data.blocks} />
+            </section>
           )}
-          {cards.length > 0 && (
-            <Card title="Recent baselines" hint="rolling 90 days">
-              <div className="grid grid-cols-2 gap-2">
-                {cards.map((c) => (
-                  <StatTile key={c.label} label={c.label} value={c.value} />
-                ))}
-              </div>
-            </Card>
-          )}
-        </div>
+        </>
       )}
-
-      {/* Weekly volume (the landing view for the Today trend-pulse tile, UX-2) paired with the #4
-          planned-vs-actual read — the formerly empty right column now earns its keep. */}
-      {(data.weeklyHours.length >= 2 || data.planVsActual.length > 0) && (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {data.weeklyHours.length >= 2 && (
-            <Card
-              title="Weekly volume"
-              hint="ride hours · complete weeks"
-              tip="Total ride hours per complete week over the last ~16 weeks (the in-progress week is excluded). Bar height and blue shade both track weekly training volume — your consistency and ramp at a glance."
-            >
-              <WeeklyVolumeBars weeks={data.weeklyHours} />
-            </Card>
-          )}
-          {data.planVsActual.length > 0 && (
-            <Card
-              title="Planned vs actual"
-              hint="by session type · last 90 days"
-              tip="Prescription vs delivery for each planned session type over the trailing 90 days: the FTP-derived target IF band (Threshold/VO2max), your mean ridden IF, completion and execution. Consistently delivering above the band at high completion triggers the FTP re-test advisory."
-            >
-              <PlanVsActual rows={data.planVsActual} ftpRetest={data.ftpRetest} />
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Fueling & weight — kept wide; it carries three weekly series */}
-      {energyHasData && (
-        <Card title="Fueling & weight" hint="complete weeks · tap to isolate">
-          <MultiSparkline series={energySeries} />
-          <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
-            Per complete week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. The current in-progress week is excluded until it closes. Tap a legend chip to show/hide; isolating one fills the area.
-          </p>
-        </Card>
-      )}
-
-      {/* Block history — the long archive, at the bottom */}
-      <BlockTimeline blocks={data.blocks} />
     </div>
   );
 }
