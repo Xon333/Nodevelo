@@ -23,7 +23,7 @@ function Field({
   );
 }
 
-function ToggleRow({
+export function ToggleRow({
   label,
   hint,
   checked,
@@ -121,13 +121,12 @@ export default function BlockSettingsForm() {
   };
 
   if (!settings) {
-    // S3-1: one placeholder per settings card (volume / structure / philosophy / platform) so the
+    // S3-1: one placeholder per settings card (volume / structure / philosophy) so the
     // page below the "Settings" h1 holds its height while the form loads.
     return (
       <SkeletonScreen className="space-y-6">
         <Skeleton className="h-64" />
         <Skeleton className="h-64" />
-        <Skeleton className="h-44" />
         <Skeleton className="h-44" />
       </SkeletonScreen>
     );
@@ -262,25 +261,6 @@ export default function BlockSettingsForm() {
             ))}
           </div>
         </Field>
-      </Card>
-
-      {/* Platform behavior */}
-      <Card title="Platform behavior">
-        <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">How Nodevelo handles syncing and write-back.</p>
-        <div className="space-y-2">
-          <ToggleRow
-            label="Auto-sync on open"
-            hint="When you open Today and the data is stale, pull from Intervals.icu automatically."
-            checked={settings.autoSyncOnOpen}
-            onChange={(v) => set("autoSyncOnOpen", v)}
-          />
-          <ToggleRow
-            label="Auto-post coach note to Intervals.icu"
-            hint="After each analysis, write the coach note back to your Intervals.icu calendar automatically."
-            checked={settings.autoPostCoachNote}
-            onChange={(v) => set("autoPostCoachNote", v)}
-          />
-        </div>
       </Card>
 
       {/* Save */}
