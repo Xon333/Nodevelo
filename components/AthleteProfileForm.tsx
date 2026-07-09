@@ -445,112 +445,152 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       <section className="space-y-4">
         <SectionDivider label="Goals & weakpoints" />
         <Section title="Goals & Weakpoints">
-        <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
           What you&apos;re working toward, and where you&apos;re weak — the coach reads these every generation.
         </p>
-        <div className="space-y-2">
-          {goals.map((g, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-              <label className="min-w-[8rem] flex-1">
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Goal</span>
-                <input
-                  type="text"
-                  value={g.goal}
-                  onChange={(e) => updateGoal(i, { goal: e.target.value })}
-                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                />
-              </label>
-              <label className="min-w-[8rem] flex-1">
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Target</span>
-                <input
-                  type="text"
-                  value={g.target}
-                  onChange={(e) => updateGoal(i, { target: e.target.value })}
-                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                />
-              </label>
-              <label>
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Focus</span>
-                <select
-                  value={g.focus}
-                  onChange={(e) => updateGoal(i, { focus: e.target.value as ProfileResponse["goals"][number]["focus"] })}
-                  className="mt-1 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                >
-                  <option value="general">general</option>
-                  <option value="aerobic-base">aerobic-base</option>
-                  <option value="threshold">threshold</option>
-                  <option value="vo2max">vo2max</option>
-                  <option value="anaerobic">anaerobic</option>
-                  <option value="durability">durability</option>
-                  <option value="sharpen">sharpen</option>
-                </select>
-              </label>
-              <button
-                onClick={() => removeGoal(i)}
-                title="Remove this goal"
-                className="rounded-md border border-red-300 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
-              >
-                ×
-              </button>
+        {goals.length === 0 && weakpoints.length === 0 ? (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">None yet — open Edit below to add your first goal.</p>
+        ) : (
+          <>
+            <ul className="space-y-1">
+              {goals.map((g, i) => (
+                <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+                  <span className="font-medium text-zinc-800 dark:text-zinc-200">{g.goal || "—"}</span>
+                  {g.target && (
+                    <>
+                      <span aria-hidden className="text-zinc-400 dark:text-zinc-500">→</span>
+                      <span className="text-zinc-600 dark:text-zinc-300">{g.target}</span>
+                    </>
+                  )}
+                  <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-700/60 dark:text-zinc-300">
+                    {g.focus}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {weakpoints.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {weakpoints.map((w, i) => (
+                  <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">weak</span>
+                    <span className="font-medium text-zinc-800 dark:text-zinc-200">{w.weakpoint}</span>
+                    {w.detail && <span className="text-zinc-500 dark:text-zinc-400">· {w.detail}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Edit
+          </summary>
+          <div className="mt-2">
+            <div className="space-y-2">
+              {goals.map((g, i) => (
+                <div key={i} className="flex flex-wrap items-end gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
+                  <label className="min-w-[8rem] flex-1">
+                    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Goal</span>
+                    <input
+                      type="text"
+                      value={g.goal}
+                      onChange={(e) => updateGoal(i, { goal: e.target.value })}
+                      className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
+                    />
+                  </label>
+                  <label className="min-w-[8rem] flex-1">
+                    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Target</span>
+                    <input
+                      type="text"
+                      value={g.target}
+                      onChange={(e) => updateGoal(i, { target: e.target.value })}
+                      className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
+                    />
+                  </label>
+                  <label>
+                    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Focus</span>
+                    <select
+                      value={g.focus}
+                      onChange={(e) => updateGoal(i, { focus: e.target.value as ProfileResponse["goals"][number]["focus"] })}
+                      className="mt-1 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
+                    >
+                      <option value="general">general</option>
+                      <option value="aerobic-base">aerobic-base</option>
+                      <option value="threshold">threshold</option>
+                      <option value="vo2max">vo2max</option>
+                      <option value="anaerobic">anaerobic</option>
+                      <option value="durability">durability</option>
+                      <option value="sharpen">sharpen</option>
+                    </select>
+                  </label>
+                  <button
+                    onClick={() => removeGoal(i)}
+                    title="Remove this goal"
+                    className="rounded-md border border-red-300 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <button
-          onClick={addGoal}
-          className="mt-3 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-        >
-          + Add goal
-        </button>
+            <button
+              onClick={addGoal}
+              className="mt-3 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+            >
+              + Add goal
+            </button>
 
-        <div className="mt-4 space-y-2">
-          {weakpoints.map((w, i) => (
-            <div key={i} className="flex flex-wrap items-end gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
-              <label className="min-w-[8rem] flex-1">
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Weakpoint</span>
-                <input
-                  type="text"
-                  value={w.weakpoint}
-                  onChange={(e) => updateWeakpoint(i, { weakpoint: e.target.value })}
-                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                />
-              </label>
-              <label className="min-w-[10rem] flex-1">
-                <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Detail</span>
-                <input
-                  type="text"
-                  value={w.detail}
-                  onChange={(e) => updateWeakpoint(i, { detail: e.target.value })}
-                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
-                />
-              </label>
-              <button
-                onClick={() => removeWeakpoint(i)}
-                title="Remove this weakpoint"
-                className="rounded-md border border-red-300 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
-              >
-                ×
-              </button>
+            <div className="mt-4 space-y-2">
+              {weakpoints.map((w, i) => (
+                <div key={i} className="flex flex-wrap items-end gap-2 rounded bg-zinc-50 px-2.5 py-2 dark:bg-zinc-900">
+                  <label className="min-w-[8rem] flex-1">
+                    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Weakpoint</span>
+                    <input
+                      type="text"
+                      value={w.weakpoint}
+                      onChange={(e) => updateWeakpoint(i, { weakpoint: e.target.value })}
+                      className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
+                    />
+                  </label>
+                  <label className="min-w-[10rem] flex-1">
+                    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Detail</span>
+                    <input
+                      type="text"
+                      value={w.detail}
+                      onChange={(e) => updateWeakpoint(i, { detail: e.target.value })}
+                      className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
+                    />
+                  </label>
+                  <button
+                    onClick={() => removeWeakpoint(i)}
+                    title="Remove this weakpoint"
+                    className="rounded-md border border-red-300 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <button
-          onClick={addWeakpoint}
-          className="mt-3 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-        >
-          + Add weakpoint
-        </button>
+            <button
+              onClick={addWeakpoint}
+              className="mt-3 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+            >
+              + Add weakpoint
+            </button>
 
-        <div className="mt-3 flex items-center gap-3">
-          <button
-            onClick={saveGoals}
-            disabled={goalsSaveState.state === "saving"}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-          >
-            {goalsSaveState.state === "saving" ? "Saving…" : "Save"}
-          </button>
-          {goalsSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
-          {goalsSaveState.state === "error" && <span className="text-xs text-red-600">{goalsSaveState.message}</span>}
-        </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={saveGoals}
+                disabled={goalsSaveState.state === "saving"}
+                className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
+              >
+                {goalsSaveState.state === "saving" ? "Saving…" : "Save"}
+              </button>
+              {goalsSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
+              {goalsSaveState.state === "error" && <span className="text-xs text-red-600">{goalsSaveState.message}</span>}
+            </div>
+          </div>
+        </details>
         </Section>
       </section>
 
@@ -561,33 +601,16 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           Drives the deterministic formula that pre-computes daily targets for every generated session.
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(
-            [
-              { key: "baseCalories", label: "Base calories", unit: "kcal" },
-              { key: "restDayTarget", label: "Rest day target", unit: "kcal" },
-              { key: "buffer", label: "Training buffer", unit: "kcal" },
-              { key: "targetWeightKg", label: "Target weight", unit: "kg" },
-            ] as const
-          ).map((f) => (
-            <label key={f.key}>
-              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                {f.label} <span className="text-zinc-500 dark:text-zinc-400">({f.unit})</span>
-              </span>
-              <input
-                type="number"
-                value={nut[f.key]}
-                onChange={(e) => {
-                  setNut((s) => ({ ...s, [f.key]: e.target.value }));
-                  if (saveState.state === "saved") setSaveState({ state: "idle" });
-                }}
-                className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
-              />
-            </label>
-          ))}
-        </div>
+        <p className="mb-2 font-mono text-sm text-zinc-800 dark:text-zinc-100">
+          {data.nutrition.baseCalories.toLocaleString()} base
+          <span className="text-zinc-500 dark:text-zinc-400"> · </span>
+          {data.nutrition.restDayTarget.toLocaleString()} rest-day
+          <span className="text-zinc-500 dark:text-zinc-400"> · </span>+{data.nutrition.buffer} buffer
+          <span className="text-zinc-500 dark:text-zinc-400"> · target </span>
+          {data.nutrition.targetWeightKg} kg
+        </p>
 
-        <div className="mt-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+        <div className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Buffer auto-adjustment</p>
           <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-300">
             Configured {data.nutrition.buffer} kcal → applied{" "}
@@ -597,17 +620,50 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{bufferStatus.reason}</p>
         </div>
 
-        <div className="mt-3 flex items-center gap-3">
-          <button
-            onClick={saveNutrition}
-            disabled={saveState.state === "saving"}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-          >
-            {saveState.state === "saving" ? "Saving…" : "Save"}
-          </button>
-          {saveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
-          {saveState.state === "error" && <span className="text-xs text-red-600">{saveState.message}</span>}
-        </div>
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Edit
+          </summary>
+          <div className="mt-2">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {(
+                [
+                  { key: "baseCalories", label: "Base calories", unit: "kcal" },
+                  { key: "restDayTarget", label: "Rest day target", unit: "kcal" },
+                  { key: "buffer", label: "Training buffer", unit: "kcal" },
+                  { key: "targetWeightKg", label: "Target weight", unit: "kg" },
+                ] as const
+              ).map((f) => (
+                <label key={f.key}>
+                  <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                    {f.label} <span className="text-zinc-500 dark:text-zinc-400">({f.unit})</span>
+                  </span>
+                  <input
+                    type="number"
+                    value={nut[f.key]}
+                    onChange={(e) => {
+                      setNut((s) => ({ ...s, [f.key]: e.target.value }));
+                      if (saveState.state === "saved") setSaveState({ state: "idle" });
+                    }}
+                    className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                onClick={saveNutrition}
+                disabled={saveState.state === "saving"}
+                className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
+              >
+                {saveState.state === "saving" ? "Saving…" : "Save"}
+              </button>
+              {saveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
+              {saveState.state === "error" && <span className="text-xs text-red-600">{saveState.message}</span>}
+            </div>
+          </div>
+        </details>
         </Section>
       </section>
     </div>
