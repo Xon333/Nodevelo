@@ -460,16 +460,23 @@ export async function deleteEvents(eventIds: number[]): Promise<{ deleted: numbe
 }
 
 export async function createEvent(event: IntervalsEventPayload): Promise<number | null> {
-  // Upsert on the stable `uid` when the payload carries one. Block writes stamp a deterministic
-  // `nodevelo-<date>` uid (see planDayToEvent), so a retried/partially-failed block write UPDATES the
-  // events it already created instead of duplicating them — the write becomes idempotent and safely
-  // retryable. Ad-hoc events without a uid (coach notes, manual note write-back) keep create semantics.
-  const upsert = typeof event.uid === "string" && event.uid.length > 0;
-  const data = await icuFetch(athletePath(`/events?upsertOnUid=${upsert}`), {
+  // Upsert on the stable `external_id` when the payload carries one. Block writes stamp a deterministic
+  // `nodevelo-<date>` external_id (see planDayToEvent), so a retried/partially-failed block write UPDATES
+  // the events it already created instead of duplicating them — the write becomes idempotent and safely
+  // retryable. Ad-hoc events without an external_id (coach notes, manual note write-back) keep create
+  // semantics. NOTE: the singular /events endpoint's `upsertOnUid` param does NOT work — Intervals.icu
+  // ignores a client-supplied `uid` (it's a server-assigned, read-only UUID always regenerated on write)
+  // and would create a duplicate every time. The real upsert mechanism is the BULK endpoint keyed on
+  // `external_id`, confirmed live: two bulk-upsert calls with the same external_id on the same date
+  // return the identical numeric id both times, with the second call's content replacing the first's.
+  const upsert = typeof event.external_id === "string" && event.external_id.length > 0;
+  const data = await icuFetch(athletePath(`/events/bulk?upsert=${upsert}`), {
     method: "POST",
-    body: JSON.stringify(event),
+    body: JSON.stringify([event]),
   });
-  return num(asRecord(data).id);
+  // The bulk endpoint returns an ARRAY of event objects (one per input), not a single object.
+  const arr = Array.isArray(data) ? data : [];
+  return num(asRecord(arr[0]).id);
 }
 
 // Pure mapper for the events list — exported for tests; drops anything without an id-or-uid + date.
@@ -481,12 +488,14 @@ export function parseCalendarEvents(raw: unknown): IntervalsCalendarEvent[] {
     const r = item as Record<string, unknown>;
     const id = typeof r.id === "number" ? r.id : null;
     const uid = typeof r.uid === "string" && r.uid.length > 0 ? r.uid : null;
+    const externalId = typeof r.external_id === "string" && r.external_id.length > 0 ? r.external_id : null;
     const sdl = typeof r.start_date_local === "string" ? r.start_date_local : "";
     const date = sdl.slice(0, 10);
     if ((id === null && uid === null) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
     out.push({
       id,
       uid,
+      externalId,
       date,
       name: typeof r.name === "string" ? r.name : "",
       description: typeof r.description === "string" ? r.description : "",

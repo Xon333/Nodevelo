@@ -798,10 +798,11 @@ export interface IntervalsEventPayload {
   description: string;
   type?: string; // Ride, WeightTraining — omitted for NOTE events
   moving_time?: number; // seconds
-  // Stable external id. When present, createEvent posts with upsertOnUid=true so a re-written block
-  // updates the same event instead of creating a duplicate (idempotent writes). Block days set
-  // `nodevelo-<date>`; ad-hoc events (notes) omit it and keep create semantics.
-  uid?: string;
+  // Client-chosen idempotency key. When present, createEvent posts to /events/bulk?upsert=true so a
+  // re-written block updates the same event instead of creating a duplicate (idempotent writes). Block
+  // days set `nodevelo-<date>`; ad-hoc events (notes) omit it and keep create semantics. NOT the same
+  // concept as IntervalsCalendarEvent.uid — that's a server-assigned id Intervals.icu ignores on write.
+  external_id?: string;
 }
 
 // A calendar event as READ from Intervals.icu (GET /athlete/{id}/events) — the mirror's inbound shape.
@@ -809,7 +810,12 @@ export interface IntervalsEventPayload {
 // CurrentBlockDay stores no description (it lives only on the calendar event).
 export interface IntervalsCalendarEvent {
   id: number | null;
+  // Server-assigned, read-only UUID. Intervals.icu regenerates this on every write and ignores any
+  // client-supplied value — do NOT match on this for upsert/reconcile purposes; use externalId instead.
   uid: string | null;
+  // The client's idempotency key (external_id on the wire) — what inbound matching/reconcile logic
+  // actually uses to find "the event NodeVelo wrote for this date."
+  externalId: string | null;
   date: string;
   name: string;
   description: string;

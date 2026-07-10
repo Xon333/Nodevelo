@@ -71,14 +71,15 @@ describe("planDayToEvent", () => {
     expect(event.moving_time).toBe(45 * 60);
   });
 
-  it("stamps a stable nodevelo-<date> uid so re-writes upsert instead of duplicating (idempotent)", () => {
-    // The uid is what makes createEvent post upsertOnUid=true; re-writing or retrying a partial block
-    // write then updates the same per-day event instead of creating a duplicate on the calendar.
-    expect(planDayToEvent(RIDE_DAY).uid).toBe("nodevelo-2026-06-15"); // WORKOUT
-    expect(planDayToEvent(REST_DAY).uid).toBe("nodevelo-2026-06-17"); // NOTE (rest)
+  it("stamps a stable nodevelo-<date> external_id so re-writes upsert instead of duplicating (idempotent)", () => {
+    // external_id is the client idempotency key that makes createEvent post to /events/bulk?upsert=true;
+    // re-writing or retrying a partial block write then updates the same per-day event instead of
+    // creating a duplicate on the calendar.
+    expect(planDayToEvent(RIDE_DAY).external_id).toBe("nodevelo-2026-06-15"); // WORKOUT
+    expect(planDayToEvent(REST_DAY).external_id).toBe("nodevelo-2026-06-17"); // NOTE (rest)
     const strength: PlannedDay = { ...RECOVERY_DAY, type: "Strength" };
-    expect(planDayToEvent(strength).uid).toBe(`nodevelo-${RECOVERY_DAY.date}`);
-    // Deterministic: same day in → same uid out, so a retry can't duplicate.
-    expect(planDayToEvent(RIDE_DAY).uid).toBe(planDayToEvent(RIDE_DAY).uid);
+    expect(planDayToEvent(strength).external_id).toBe(`nodevelo-${RECOVERY_DAY.date}`);
+    // Deterministic: same day in → same external_id out, so a retry can't duplicate.
+    expect(planDayToEvent(RIDE_DAY).external_id).toBe(planDayToEvent(RIDE_DAY).external_id);
   });
 });

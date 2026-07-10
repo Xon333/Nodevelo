@@ -1,6 +1,7 @@
 // §7 lean slice — the bidirectional calendar mirror's DECISIONS (pure) plus one IO orchestrator.
-// The invariant both directions preserve: one NodeVelo-owned event per block date, keyed by uid
-// `nodevelo-<date>` (createEvent upserts on it) and tracked by CurrentBlockDay.eventId.
+// The invariant both directions preserve: one NodeVelo-owned event per block date, keyed by external_id
+// `nodevelo-<date>` (createEvent upserts on it via /events/bulk?upsert=true) and tracked by
+// CurrentBlockDay.eventId.
 // Descriptions live ONLY on the calendar (CurrentBlockDay has no description field), so an outbound
 // move carries the source event's description wholesale instead of rebuilding-and-losing it.
 
@@ -14,9 +15,9 @@ export type PlannedMove = { from: string; to: string | null };
 // description explicitly, because a block day carries none of its own.
 export function dayToEventPayload(day: CurrentBlockDay, description: string): IntervalsEventPayload {
   const start_date_local = `${day.date}T00:00:00`;
-  const uid = `nodevelo-${day.date}`;
+  const external_id = `nodevelo-${day.date}`;
   if (day.type === "Rest" || day.durationMin <= 0) {
-    return { category: "NOTE", start_date_local, name: day.name || "Rest day", description, uid };
+    return { category: "NOTE", start_date_local, name: day.name || "Rest day", description, external_id };
   }
   const isStrength = day.type === "Strength";
   return {
@@ -29,7 +30,7 @@ export function dayToEventPayload(day: CurrentBlockDay, description: string): In
     // CurrentBlockDay.workoutText is not re-appended here: appending it would duplicate the step text
     // already embedded in a carried-over event description.
     description,
-    uid,
+    external_id,
     ...(isStrength && day.durationMin > 0 ? { moving_time: day.durationMin * 60 } : {}),
   };
 }
@@ -83,16 +84,16 @@ export function buildMovePayloads(
 //     conflict warnings for manual resolution (ponytail: handle singles; add swap pairing if real use
 //     hits the warning often);
 //   - a vanished future workout event warns — the app never deletes a prescription off the calendar's say-so.
-// Known limit: an accepted inbound move leaves the event's uid stamped with its OLD date. eventId
-// (which we re-key here) is the true key everywhere (blockEventIds/staleEventIds/this reconcile), so
-// cleanup and future matching are unaffected.
+// Known limit: an accepted inbound move leaves the event's external_id stamped with its OLD date.
+// eventId (which we re-key here) is the true key everywhere (blockEventIds/staleEventIds/this
+// reconcile), so cleanup and future matching are unaffected.
 export function reconcileInboundMoves(
   block: CurrentBlock,
   events: IntervalsCalendarEvent[],
   today: string
 ): { days: CurrentBlockDay[]; applied: Array<{ from: string; to: string }>; warnings: string[] } | null {
   const byId = new Map(events.filter((e) => e.id !== null).map((e) => [e.id as number, e]));
-  const byUid = new Map(events.filter((e) => e.uid !== null).map((e) => [e.uid as string, e]));
+  const byExternalId = new Map(events.filter((e) => e.externalId !== null).map((e) => [e.externalId as string, e]));
   const dayAt = new Map(block.days.map((d) => [d.date, d]));
 
   const applied: Array<{ from: string; to: string }> = [];
@@ -101,7 +102,7 @@ export function reconcileInboundMoves(
 
   for (const d of block.days) {
     if (d.date < today || d.durationMin <= 0 || d.type === "Rest") continue;
-    const evt = (typeof d.eventId === "number" ? byId.get(d.eventId) : undefined) ?? byUid.get(`nodevelo-${d.date}`);
+    const evt = (typeof d.eventId === "number" ? byId.get(d.eventId) : undefined) ?? byExternalId.get(`nodevelo-${d.date}`);
     if (!evt) {
       warnings.push(`Calendar event for ${d.date} (${d.name}) is missing on Intervals.icu — plan kept; re-write the block or restore the event.`);
       continue;
@@ -142,7 +143,7 @@ export async function applyCalendarMirror(
   let eventByDate = new Map<string, IntervalsCalendarEvent>();
   try {
     const events = await fetchEvents(block.startDate, block.endDate);
-    eventByDate = new Map(events.filter((e) => e.uid?.startsWith("nodevelo-")).map((e) => [e.uid!.slice("nodevelo-".length), e]));
+    eventByDate = new Map(events.filter((e) => e.externalId?.startsWith("nodevelo-")).map((e) => [e.externalId!.slice("nodevelo-".length), e]));
   } catch {
     // No description source — destination payloads fall back to an empty description rather than failing the mirror.
   }

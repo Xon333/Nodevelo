@@ -445,6 +445,7 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
   const mkEvent = (over: Partial<IntervalsCalendarEvent> & { date: string }): IntervalsCalendarEvent => ({
     id: null,
     uid: null,
+    externalId: null,
     name: "Ride",
     description: "",
     category: "WORKOUT",

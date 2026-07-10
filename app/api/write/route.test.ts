@@ -71,13 +71,13 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
   });
 
-  it("on full success writes the block and posts every day with a stable nodevelo-<date> uid", async () => {
+  it("on full success writes the block and posts every day with a stable nodevelo-<date> external_id", async () => {
     h.createEvent.mockResolvedValue(200);
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
     expect(store.writeCurrentBlock).toHaveBeenCalledTimes(1);
-    const uids = h.createEvent.mock.calls.map((c) => (c[0] as { uid?: string }).uid);
-    expect(uids).toEqual(["nodevelo-2026-06-15", "nodevelo-2026-06-16"]);
+    const externalIds = h.createEvent.mock.calls.map((c) => (c[0] as { external_id?: string }).external_id);
+    expect(externalIds).toEqual(["nodevelo-2026-06-15", "nodevelo-2026-06-16"]);
   });
 
   it("auto-rolls-back the days that wrote when a later day fails (RV-9)", async () => {

@@ -11,18 +11,18 @@ import type { IntervalsEventPayload, PlannedDay } from "./types";
 // description; plain-text lines (our nutrition block) remain as notes.
 export function planDayToEvent(day: PlannedDay): IntervalsEventPayload {
   const startDateLocal = `${day.date}T00:00:00`;
-  // One NodeVelo-owned event per calendar day. A stable uid makes the block write idempotent:
-  // re-writing (or retrying a partial write of) a block upserts each day instead of duplicating it,
-  // and a regenerated block cleanly replaces the prior NodeVelo event on the same date. The
-  // `nodevelo-` prefix namespaces it so it never collides with the athlete's own Intervals events.
-  const uid = `nodevelo-${day.date}`;
+  // One NodeVelo-owned event per calendar day. A stable external_id (the client idempotency key) makes
+  // the block write idempotent: re-writing (or retrying a partial write of) a block upserts each day
+  // instead of duplicating it, and a regenerated block cleanly replaces the prior NodeVelo event on the
+  // same date. The `nodevelo-` prefix namespaces it so it never collides with the athlete's own events.
+  const external_id = `nodevelo-${day.date}`;
   if (day.type === "Rest") {
     return {
       category: "NOTE",
       start_date_local: startDateLocal,
       name: day.name || "Rest day",
       description: day.description,
-      uid,
+      external_id,
     };
   }
   const isStrength = day.type === "Strength";
@@ -35,7 +35,7 @@ export function planDayToEvent(day: PlannedDay): IntervalsEventPayload {
     name: day.name,
     type: isStrength ? "WeightTraining" : "Ride",
     description,
-    uid,
+    external_id,
     // Rides get their time from parsed steps; strength has no steps.
     ...(isStrength && day.durationMin > 0 ? { moving_time: day.durationMin * 60 } : {}),
   };

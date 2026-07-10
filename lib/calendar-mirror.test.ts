@@ -19,7 +19,7 @@ const day = (over: Partial<CurrentBlockDay> & { date: string }): CurrentBlockDay
   name: "Z2", type: "Z2", durationMin: 120, ...over,
 });
 const ev = (over: Partial<IntervalsCalendarEvent> & { date: string }): IntervalsCalendarEvent => ({
-  id: 100, uid: `nodevelo-${over.date}`, name: "Ride", description: "steps\n\nintent text", category: "WORKOUT", type: "Ride", ...over,
+  id: 100, uid: `nodevelo-${over.date}`, externalId: `nodevelo-${over.date}`, name: "Ride", description: "steps\n\nintent text", category: "WORKOUT", type: "Ride", ...over,
 });
 const mkBlock = (days: CurrentBlockDay[]): CurrentBlock => ({
   goal: "g", lengthWeeks: 4, startDate: days[0].date, endDate: days[days.length - 1].date,
@@ -29,9 +29,9 @@ const mkBlock = (days: CurrentBlockDay[]): CurrentBlock => ({
 describe("dayToEventPayload", () => {
   it("builds WORKOUT for rides, NOTE for rest, with the nodevelo uid", () => {
     const p = dayToEventPayload(day({ date: "2026-07-15", name: "Threshold 2x20", type: "Threshold", durationMin: 75, workoutText: "- 2x20m 95%" }), "desc");
-    expect(p).toMatchObject({ category: "WORKOUT", type: "Ride", uid: "nodevelo-2026-07-15", start_date_local: "2026-07-15T00:00:00", description: "desc" });
+    expect(p).toMatchObject({ category: "WORKOUT", type: "Ride", external_id: "nodevelo-2026-07-15", start_date_local: "2026-07-15T00:00:00", description: "desc" });
     const r = dayToEventPayload(day({ date: "2026-07-16", name: "Rest", type: "Rest", durationMin: 0 }), "rest note");
-    expect(r).toMatchObject({ category: "NOTE", uid: "nodevelo-2026-07-16" });
+    expect(r).toMatchObject({ category: "NOTE", external_id: "nodevelo-2026-07-16" });
     expect(r.type).toBeUndefined();
   });
 });
@@ -47,7 +47,7 @@ describe("buildMovePayloads", () => {
     const out = buildMovePayloads(days, [{ from: "2026-07-14", to: "2026-07-16" }], eventByDate, "2026-07-13");
     const dest = out.find((o) => o.date === "2026-07-16")!;
     expect(dest.payload.description).toBe("the original threshold description");
-    expect(dest.payload.uid).toBe("nodevelo-2026-07-16");
+    expect(dest.payload.external_id).toBe("nodevelo-2026-07-16");
     expect(dest.payload.name).toBe("Threshold 2x20"); // name from the day now living there
     const src = out.find((o) => o.date === "2026-07-14")!;
     expect(src.payload.category).toBe("NOTE"); // the day is now Rest
