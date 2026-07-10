@@ -45,7 +45,7 @@ describe("staleEventIds (prune on replace)", () => {
     expect(staleEventIds(prev, newDates, today)).toEqual([3, 4]);
   });
 
-  it("keeps a re-covered date (same uid is upserted, not orphaned)", () => {
+  it("keeps a re-covered date (same external_id is upserted, not orphaned)", () => {
     expect(staleEventIds(prev, newDates, today)).not.toContain(2);
   });
 

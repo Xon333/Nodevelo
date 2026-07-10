@@ -77,8 +77,8 @@ export async function POST(req: Request) {
 
   // Auto-rollback (RV-9): a partial write must never leave a half-written block on the calendar. Delete
   // the days that DID write so the calendar returns to its pre-write state, and report it. The stable
-  // per-day uid (RV-2) means a later clean re-Write still won't duplicate — this just doesn't make the
-  // user live with a half-block in the meantime. Nothing is persisted locally on a failed write.
+  // per-day external_id (RV-2) means a later clean re-Write still won't duplicate — this just doesn't make
+  // the user live with a half-block in the meantime. Nothing is persisted locally on a failed write.
   if (!allOk) {
     const created = results.filter((r) => r.ok && r.eventId !== null).map((r) => r.eventId as number);
     const { deleted, failed } = created.length > 0 ? await deleteEvents(created) : { deleted: [], failed: [] };
@@ -157,8 +157,8 @@ export async function POST(req: Request) {
   await writeCurrentBlock(currentBlock);
 
   // Clean the replaced block's now-orphaned events (RV-9): future planned days the new block doesn't
-  // re-cover. A shared date is upserted in place (same uid) so it's left alone; past days keep their
-  // marker (the athlete may have ridden them). Best-effort — never fail the write on cleanup.
+  // re-cover. A shared date is upserted in place (same external_id) so it's left alone; past days keep
+  // their marker (the athlete may have ridden them). Best-effort — never fail the write on cleanup.
   if (existing) {
     const stale = staleEventIds(existing, currentBlock.days.map((d) => d.date), utcToday());
     if (stale.length > 0) await deleteEvents(stale);

@@ -153,7 +153,7 @@ export async function applyCalendarMirror(
   let days = block.days;
   for (const { date, payload } of payloads) {
     try {
-      const id = await createEvent(payload); // upserts on uid
+      const id = await createEvent(payload); // upserts on external_id
       mirrored.push(date);
       if (id !== null) days = days.map((d) => (d.date === date ? { ...d, eventId: id } : d));
     } catch {

@@ -14,7 +14,7 @@ export function blockEventIds(block: CurrentBlock | null): number[] {
 
 // The previous block's events to prune when it's REPLACED by a freshly-written block. Two guards keep
 // it from deleting the wrong things:
-//   - a date the new block re-covers is upserted in place (same nodevelo-<date> uid → same event), so
+//   - a date the new block re-covers is upserted in place (same nodevelo-<date> external_id → same event), so
 //     it must NOT be deleted, or the just-written event would vanish;
 //   - only FUTURE dropped dates (≥ today) are pruned — a past planned day the athlete may have already
 //     ridden keeps its calendar marker; we only clear forward-looking plan that's being replaced.

@@ -27,7 +27,7 @@ const mkBlock = (days: CurrentBlockDay[]): CurrentBlock => ({
 });
 
 describe("dayToEventPayload", () => {
-  it("builds WORKOUT for rides, NOTE for rest, with the nodevelo uid", () => {
+  it("builds WORKOUT for rides, NOTE for rest, with the nodevelo external_id", () => {
     const p = dayToEventPayload(day({ date: "2026-07-15", name: "Threshold 2x20", type: "Threshold", durationMin: 75, workoutText: "- 2x20m 95%" }), "desc");
     expect(p).toMatchObject({ category: "WORKOUT", type: "Ride", external_id: "nodevelo-2026-07-15", start_date_local: "2026-07-15T00:00:00", description: "desc" });
     const r = dayToEventPayload(day({ date: "2026-07-16", name: "Rest", type: "Rest", durationMin: 0 }), "rest note");

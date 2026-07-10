@@ -4,7 +4,7 @@ import type { RideScoreEntry, WorkoutType } from "@/lib/types";
 // Integration test for /api/write (RV-9, regression for RV-2). Proves the route's partial-failure
 // safety at the IO boundary the pure tests can't reach: a mid-loop createEvent failure must NOT
 // write a local block or archive history (no half-applied state), and on success every day POSTed
-// to Intervals.icu carries the stable `nodevelo-<date>` uid that makes the write idempotent.
+// to Intervals.icu carries the stable `nodevelo-<date>` external_id that makes the write idempotent.
 
 const h = vi.hoisted(() => ({
   createEvent: vi.fn(),
