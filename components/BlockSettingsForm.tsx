@@ -111,6 +111,7 @@ export default function BlockSettingsForm() {
       // exclude them so a save here can never silently revert a platform toggle saved moments
       // earlier in the same session; the route merges any field absent from the body against
       // fresh on-disk state.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- extracted only to omit them from `body`
       const { autoSyncOnOpen: _autoSyncOnOpen, autoPostCoachNote: _autoPostCoachNote, ...body } = settings;
       const updated = await api<BlockSettings>("/api/settings", {
         method: "PUT",
