@@ -804,6 +804,19 @@ export interface IntervalsEventPayload {
   uid?: string;
 }
 
+// A calendar event as READ from Intervals.icu (GET /athlete/{id}/events) — the mirror's inbound shape.
+// `date` is the YYYY-MM-DD part of start_date_local; description is carried wholesale on moves because
+// CurrentBlockDay stores no description (it lives only on the calendar event).
+export interface IntervalsCalendarEvent {
+  id: number | null;
+  uid: string | null;
+  date: string;
+  name: string;
+  description: string;
+  category: string; // WORKOUT | NOTE (loosely typed — upstream may add values)
+  type: string | null; // Ride, WeightTraining, …
+}
+
 export interface WriteResult {
   date: string;
   name: string;

@@ -5,6 +5,7 @@ import type {
   ActivitySummary,
   ExecutedInterval,
   FitnessMetrics,
+  IntervalsCalendarEvent,
   IntervalsEventPayload,
   PhysiologySnapshot,
   PowerCurvePoint,
@@ -469,4 +470,39 @@ export async function createEvent(event: IntervalsEventPayload): Promise<number 
     body: JSON.stringify(event),
   });
   return num(asRecord(data).id);
+}
+
+// Pure mapper for the events list — exported for tests; drops anything without an id-or-uid + date.
+export function parseCalendarEvents(raw: unknown): IntervalsCalendarEvent[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IntervalsCalendarEvent[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const id = typeof r.id === "number" ? r.id : null;
+    const uid = typeof r.uid === "string" && r.uid.length > 0 ? r.uid : null;
+    const sdl = typeof r.start_date_local === "string" ? r.start_date_local : "";
+    const date = sdl.slice(0, 10);
+    if ((id === null && uid === null) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    out.push({
+      id,
+      uid,
+      date,
+      name: typeof r.name === "string" ? r.name : "",
+      description: typeof r.description === "string" ? r.description : "",
+      category: typeof r.category === "string" ? r.category : "",
+      type: typeof r.type === "string" ? r.type : null,
+    });
+  }
+  return out;
+}
+
+// All calendar events in a date window (GET /athlete/{id}/events?oldest=&newest=) — the inbound half
+// of the calendar mirror, and the description source for outbound moves. Endpoint proven live in the
+// SUB-2 legacy-backfill investigation (ROADMAP "Data substrate").
+export async function fetchEvents(oldestDate: string, newestDate: string): Promise<IntervalsCalendarEvent[]> {
+  const data = await icuFetch(
+    athletePath(`/events?oldest=${encodeURIComponent(oldestDate)}&newest=${encodeURIComponent(newestDate)}`)
+  );
+  return parseCalendarEvents(data);
 }
