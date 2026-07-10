@@ -12,6 +12,76 @@ exact commits.
 
 ---
 
+## UX v2 — the zero-based redesign, Waves 1–5 (2026-07-08 → 2026-07-09)
+
+A moment-first zero-based review of all seven surfaces (live-app walkthrough with real data, desktop
+1440×900) that re-justified every card, metric, and nav slot from scratch — no page or component was
+assumed to keep its place. Governed by [UX-CONSTITUTION.md](UX-CONSTITUTION.md); sequenced into 5
+waves per [UX-MASTERPLAN.md](UX-MASTERPLAN.md) (the framework — moment map, moves ledger, per-page
+target layouts — full detail lives there). Each wave closed with a whole-wave review (Fable 5, Opus
+4.8 fallback); the final wave's review walked the entire UX-MASTERPLAN §8 success-measures list as a
+program-closing gate. Distinct from, and shipped after, the v1 defect-audit UX program below —
+v2 started from a blank page rather than fixing findings against the existing layout.
+
+- **Wave 1 — nav tiering + relocations** (2026-07-08, commits `4fe638c`…`a8c29e9`; plan
+  `docs/superpowers/plans/2026-07-08-ux-v2-wave-1-nav-and-relocations.md`). The flat 7-tab rail
+  became a 3-tier rail (Today/Plan/Trends full-weight · Profile/Model under "YOU & THE COACH" ·
+  Settings/Knowledge under "SYSTEM"). Every pure cross-page relocation from the moves ledger executed
+  as a straight component move, no redesign yet: goals off Plan → Profile, effort bands Model →
+  Profile, season Profile → Plan, delete-block → overflow menu. "Knowledge Base"/"Docs" unified to
+  one name, "Knowledge," everywhere. Final review found one fix: season save now refreshes the
+  roadmap + generator context co-located on `/plan`.
+- **Wave 2 — Today auto-switch** (2026-07-08; plan
+  `docs/superpowers/plans/2026-07-08-ux-v2-wave-2-today-auto-switch.md`). Today's mode is now
+  data-derived, never a tab the athlete picks: a synced ride matching today's *local* date
+  (`localToday()`, per AGENTS.md) puts the page in post-ride mode, otherwise pre-ride. Pre-ride is
+  capped at ≤3 elements by construction (alert → verdict → session prescription); post-ride leads
+  with the debrief. Cut entirely: `TrendPulse` (duplicated Trends' own question) and the
+  viewport-lock + internal-scroll edge-fade machinery (pre-ride now fits without it; post-ride
+  scrolls like every other page). Constitution §3/§4 amended same-commit (moment-aware layout
+  clause; one-canonical-home-per-metric rule).
+- **Wave 3 — Trends rebuild** (2026-07-09; plan
+  `docs/superpowers/plans/2026-07-09-ux-v2-wave-3-trends-rebuild.md`). Nine equal-weight sections
+  replaced by a verdict-first structure: a new pure `lib/trends-verdict.ts` derives a three-axis
+  verdict (engine / delivery / fueling) client-side over the existing payload, rendered as one
+  sentence in fold-1 with the ranked coach insights promoted alongside it (top 3 visible, rest
+  disclosed). Below it, four named groups (ENGINE, DELIVERY, LOAD & FUEL, MILESTONES) replace the
+  nine sections; the Delivery merge folds session-level execution bars and per-type
+  planned-vs-actual into one card behind a toggle. Cut: the "Last 7 days" tile row, the
+  not-a-duplicate-of-intervals.icu mission-statement intro.
+- **Wave 4 — Model three-groups + Profile dossier** (2026-07-09; plan
+  `docs/superpowers/plans/2026-07-09-ux-v2-wave-4-profile-model.md`). Model reorganized into NOW
+  (fused score + ranked drivers as signed magnitude bars, largest first) / LEARNED (one calibration
+  card per learned value — number, provenance, confidence tier, override) / STANDING GUIDANCE
+  (directives rendered straight from their structured source, sharing the demote rule with the
+  generator — `CoachDirectivesCard` retired). Profile became a read-first dossier: rider read
+  (power curve, phenotype, current performance, weight, PR strip) → zones/effort bands → goals &
+  weakpoints (compact read, edit behind inline "▸ edit") → nutrition formula, each editable on
+  demand rather than a long scroll of always-open forms.
+- **Wave 5 — Plan hero + Settings/Knowledge + density polish** (2026-07-09, commits
+  `fe81520`…`56a9f1f`; plan
+  `docs/superpowers/plans/2026-07-09-ux-v2-wave-5-plan-settings-knowledge-polish.md`). Plan's hero
+  gained week orientation: "Active block — week N of M · `<week character>`" plus an in-hero week
+  strip (hours vs. target · load · top session) — `<week character>` is explicitly disclosed as
+  volume-derived, not a per-week periodization phase (the data model has none); `WeeklyDebrief`
+  retired as the strip absorbs it. Settings split into GENERATION (volume targets, weekly structure,
+  philosophy & equipment) and PLATFORM (platform behavior, AI usage & cost, backup & restore) —
+  fixing a real bug where the platform-behavior card rendered under the wrong divider. Knowledge
+  gained a one-line provenance header (which files feed generation vs. reference-only). Density
+  polish cleared the whole Waves 3–4 backlog in the same wave: driver bars negative→red (matching
+  `driverEffectClass`, DESIGN §2), touch-readable driver notes, calibration confidence adjacency,
+  `DeliveryCard` toggle accessibility (`type=button` + `role=group`), `InsightsFold` empty-state
+  hint honesty, Profile rider-read empty-state + weight-tile gating + double-label removal.
+
+**Two small open items surfaced by the Wave 5 closing review, not actioned (out of that wave's
+scope, tracked in [ROADMAP.md](ROADMAP.md) "UI refinements"):** `components/trends/verdict.tsx`'s
+`VerdictStrip` still colors its "down" axis chip amber where every other declining signal in the app
+uses red (the same fix already applied to `StateDriversCard`'s bars); `lib/trends-verdict.ts`'s
+score-to-word mapping can label the verdict "Mixed" even when no two axes actually disagree (a
+labeling nit in the score→word bucket, not a logic bug).
+
+---
+
 ## Pre-ride loading loop — Track C (2026-07-08)
 
 Deterministic day-before carb-loading prescription (7 g/kg, all templates A–E), one-tap loaded/skipped
@@ -33,7 +103,7 @@ a retro-ask response now back-stamps an already-born ledger entry at POST time (
 
 ---
 
-## UX program — full-product audit through implementation, Waves 1–4 (2026-07-03 → 2026-07-05)
+## UX program v1 — full-product audit through implementation, Waves 1–4 (2026-07-03 → 2026-07-05)
 
 A ground-up UX audit of all seven surfaces (Today, Plan, Trends, Profile, Model, Settings, Knowledge)
 against timeless HCI/trust principles and red-team personas (first-time athlete, injured athlete,

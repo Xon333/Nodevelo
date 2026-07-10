@@ -33,6 +33,23 @@ accrue. The first full turnover is SUB-5, days away.
 
 ---
 
+## Ready to execute — plans already written
+
+Two fully-specified `subagent-driven-development` plans exist but haven't been run. Pick these up
+once SUB-5 clears (or in parallel, if the athlete wants to work ahead) — the design work is done,
+this is "just" execution:
+
+- **`docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`** — computes the precise weekly
+  intake-vs-need ratio (logged kcal vs. the app's own daily targets + ride kJ out) and surfaces it on
+  Trends + `CoachSnapshot.fuel`. Closes `#1`'s last reserved slot (`intakeVsNeed`) — see `§6` below.
+- **`docs/superpowers/plans/2026-07-08-reschedule-calendar-mirror.md`** — in-app session move + a
+  bidirectional Intervals.icu calendar mirror. Fixes a live UTC-today bug (`app/api/reschedule/route.ts:7`
+  and `:35` both inline `new Date().toISOString().slice(0,10)` — AGENTS.md's recurring bug class) and
+  closes the plan/calendar desync risk that serves the athlete's head unit the wrong workout on the
+  wrong day — see `§7` below.
+
+---
+
 ## Data substrate — turn the loop over ⭐ (audit P1–3)
 
 SUB-1 (block-history durable corpus), SUB-3 (sync/generate route tests), and SUB-4's off-machine
@@ -100,8 +117,9 @@ adequate line is `← Track C`. #1 stays as the cross-ref handle.
 
 ### #3 · Proactive reschedule — slivers
 Decision thresholds → per-athlete `← #2`; let the **reactive** `RescheduleBanner` adopt the shared
-`findMakeUpSlot` (still rest-only); calendar mirror `← §7`; possible fully-automatic fatigue-path
-downgrade (on `fatigueAlert`, before a miss).
+`findMakeUpSlot` (still rest-only); calendar mirror `← §7` (plan now written and ready — see
+"Ready to execute" above); possible fully-automatic fatigue-path downgrade (on `fatigueAlert`,
+before a miss).
 
 ### §5 · Athlete-state — slivers
 Energy-availability evaluator `← Track C`; *derive* the per-athlete fusion weights off the engine
@@ -168,11 +186,20 @@ dormant until `carbs_ingested` data accrues, like every calibrated param. What's
   [UX-MASTERPLAN.md](UX-MASTERPLAN.md) (per-item detail, governed by
   [UX-CONSTITUTION.md](UX-CONSTITUTION.md)). Nothing left open; S2-4 (mobile nav IA) was evaluated
   and deliberately deferred.
+- **UX v2 — the zero-based redesign, all 5 waves shipped 2026-07-08/09** →
+  [ARCHIVE.md](ARCHIVE.md) (summary) · [UX-MASTERPLAN.md](UX-MASTERPLAN.md) (per-wave detail).
 - **Energy-availability tile — open sliver** — the deterministic EA proxy shipped → ARCHIVE. Left:
   a *personalised* "adequate" line `← Track C` calibration.
 - **Pw:HR × fuel Trends overlay** — carb-intake g/h on the existing `efSeries` chart (build w/ Track C).
-- **Page density** — **Trends** (~1.6/2.2 folds) and **Today on mobile** still run over the fold
-  (the EA tile added a row to the readiness glance) — tighten card rhythm / collapse there next.
+- **Mobile density polish** — UX-MASTERPLAN §3 recorded but deliberately deferred all mobile
+  execution (desktop-first scope decision); no desktop page runs over the fold post-v2.
+- **Two small UI-polish items surfaced by the UX v2 Wave 5 closing review** (real, open, out of
+  that wave's scope): `components/trends/verdict.tsx`'s `VerdictStrip` colors its "down" axis chip
+  amber where every other declining signal (`trendDir`, `driverEffectClass`, `ScoreBars`) uses red —
+  the same fix Wave 5 already applied to `StateDriversCard`'s bars, just not here; and
+  `lib/trends-verdict.ts`'s score-to-word mapping can bucket "Mixed" even when no two axes actually
+  disagree (e.g. steady + steady + fueling-down nets −1, which buckets "Mixed") — a labeling nit,
+  not a logic bug.
 
 ---
 
@@ -190,10 +217,16 @@ does not change.
 
 - **6a · Event-aware race planning** ⭐ — structured event (date / A-B-C priority / type) → taper +
   carb-load + race-day timeline. KB already holds the protocol; LLM only phrases it, never invents grams.
-- **§6 · Nutrition energy-balance** — Track C's surfacing layer: weekly kJ-out vs intake → `fuelingState`;
-  then precise fluid/sodium/carb targets pre/intra/post by IF + duration.
-- **§7 · Calendar flexibility** — condition-driven swaps + **bidirectional Intervals.icu sync**
-  (large + API-risk; only `createEvent` exists today). Unblocks the calendar-mirror slivers under #3.
+- **§6 · Nutrition energy-balance** — Track C's surfacing layer: weekly kJ-out vs intake →
+  `fuelingState`. Plan written and ready:
+  `docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`. Then precise fluid/sodium/carb
+  targets pre/intra/post by IF + duration — still genuinely later-scoped, out of this plan.
+- **§7 · Calendar flexibility** — in-app rescheduling + **bidirectional Intervals.icu sync**. Plan
+  written and ready: `docs/superpowers/plans/2026-07-08-reschedule-calendar-mirror.md` — its own
+  research resolved the prior API-risk framing (the `/events` GET endpoint is live, already proven
+  in the SUB-2 investigation); the remaining risk is scope (in-app rescheduling + bidirectional
+  mirror), not API availability. Condition-driven auto-swaps stay out of this plan's scope. Unblocks
+  the calendar-mirror slivers under #3.
 - **8 · NP-missing → "unverified"** — when NP is absent on an outdoor ride, stamp the entry `unverified`
   instead of scoring off raw avg power. Small.
 - **Wearable morning-readiness** — when a wearable lands, objective HRV / sleep / resting-HR slots
