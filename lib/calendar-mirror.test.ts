@@ -1,5 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { buildMovePayloads, dayToEventPayload, reconcileInboundMoves } from "./calendar-mirror";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// Only persistMirroredMove needs these mocked — the pure decision functions above don't touch IO.
+vi.mock("./intervals-api", () => ({
+  isIntervalsConfigured: vi.fn(),
+  fetchEvents: vi.fn(),
+  createEvent: vi.fn(),
+}));
+vi.mock("./data-store", () => ({
+  writeCurrentBlock: vi.fn(),
+}));
+
+import { buildMovePayloads, dayToEventPayload, persistMirroredMove, reconcileInboundMoves } from "./calendar-mirror";
+import * as intervalsApi from "./intervals-api";
+import * as dataStore from "./data-store";
 import type { CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent } from "./types";
 
 const day = (over: Partial<CurrentBlockDay> & { date: string }): CurrentBlockDay => ({
@@ -117,5 +130,59 @@ describe("reconcileInboundMoves", () => {
 
   it("returns null when calendar and plan agree", () => {
     expect(reconcileInboundMoves(block, [ev({ date: "2026-07-14", id: 41 }), ev({ date: "2026-07-16", id: 43 })], "2026-07-13")).toBeNull();
+  });
+});
+
+// The shared persist-then-best-effort-mirror orchestrator used by both /api/reschedule and
+// /api/morning-check (Task 4 extraction). Route tests mock this function as a unit; this suite
+// covers its own gating/success/per-date-failure behavior for real, with only the true IO boundary
+// (intervals-api, data-store) mocked.
+describe("persistMirroredMove", () => {
+  const blk = mkBlock([
+    day({ date: "2026-07-14", name: "VO2 5x3", type: "VO2max", durationMin: 60 }),
+    day({ date: "2026-07-16", name: "Rest", type: "Rest", durationMin: 0 }),
+  ]);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(dataStore.writeCurrentBlock).mockResolvedValue(undefined);
+  });
+
+  it("not configured → writes the local move straight through, no mirror calls", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(false);
+    const days = blk.days.map((d) => (d.date === "2026-07-14" ? { ...d, name: "Recovery" } : d));
+
+    const res = await persistMirroredMove(blk, days, [{ from: "2026-07-14", to: null }], "2026-07-13");
+
+    expect(intervalsApi.fetchEvents).not.toHaveBeenCalled();
+    expect(intervalsApi.createEvent).not.toHaveBeenCalled();
+    expect(res).toEqual({ updatedBlock: { ...blk, days }, mirrored: [], failed: [] });
+    expect(dataStore.writeCurrentBlock).toHaveBeenCalledWith({ ...blk, days });
+  });
+
+  it("configured + mirror succeeds → stamps the fresh eventId and persists it", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
+    vi.mocked(intervalsApi.fetchEvents).mockResolvedValue([]);
+    vi.mocked(intervalsApi.createEvent).mockResolvedValue(777);
+
+    const res = await persistMirroredMove(blk, blk.days, [{ from: "2026-07-14", to: null }], "2026-07-13");
+
+    expect(res.mirrored).toEqual(["2026-07-14"]);
+    expect(res.failed).toEqual([]);
+    expect(res.updatedBlock.days.find((d) => d.date === "2026-07-14")!.eventId).toBe(777);
+    const written = vi.mocked(dataStore.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
+    expect(written.days.find((d) => d.date === "2026-07-14")!.eventId).toBe(777);
+  });
+
+  it("configured + createEvent rejects for a date → reports it failed, still persists the local move", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
+    vi.mocked(intervalsApi.fetchEvents).mockResolvedValue([]);
+    vi.mocked(intervalsApi.createEvent).mockRejectedValue(new Error("network down"));
+
+    const res = await persistMirroredMove(blk, blk.days, [{ from: "2026-07-14", to: null }], "2026-07-13");
+
+    expect(res.mirrored).toEqual([]);
+    expect(res.failed).toEqual(["2026-07-14"]);
+    expect(dataStore.writeCurrentBlock).toHaveBeenCalled(); // local move still stands despite the mirror failure
   });
 });

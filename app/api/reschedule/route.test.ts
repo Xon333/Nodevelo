@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Integration test for the reschedule route handlers. The IO boundary (data-store, the calendar
-// mirror, and the "is Intervals.icu configured" check) is mocked; the local move/date logic runs
-// for real. Modeled on app/api/morning-check/route.test.ts's mocking pattern.
+// Integration test for the reschedule route handlers. The IO boundary (data-store, plus the shared
+// persistMirroredMove — its own gating/catch orchestration is covered by lib/calendar-mirror.test.ts)
+// is mocked; the local move/date logic runs for real.
 vi.mock("@/lib/data-store", () => ({
   readCurrentBlock: vi.fn(),
   readDispositions: vi.fn(),
@@ -11,16 +11,11 @@ vi.mock("@/lib/data-store", () => ({
 }));
 
 vi.mock("@/lib/calendar-mirror", () => ({
-  applyCalendarMirror: vi.fn(),
-}));
-
-vi.mock("@/lib/intervals-api", () => ({
-  isIntervalsConfigured: vi.fn(),
+  persistMirroredMove: vi.fn(),
 }));
 
 import * as store from "@/lib/data-store";
 import * as mirror from "@/lib/calendar-mirror";
-import * as intervalsApi from "@/lib/intervals-api";
 import { POST, PUT } from "@/app/api/reschedule/route";
 import type { CurrentBlock } from "@/lib/types";
 
@@ -58,33 +53,39 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(store.readCurrentBlock).mockResolvedValue(block());
   vi.mocked(store.writeCurrentBlock).mockResolvedValue(undefined);
-  vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(false); // opt in per test
+  // Default: a no-op mirror (as if Intervals.icu isn't configured) that still persists the local
+  // move, mirroring persistMirroredMove's real contract — writeCurrentBlock, then report {[], []}.
+  vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
+    const updatedBlock = { ...b, days };
+    await store.writeCurrentBlock(updatedBlock);
+    return { updatedBlock, mirrored: [], failed: [] };
+  });
 });
 
 describe("POST /api/reschedule — make-up move", () => {
   it("moves the missed session onto `to`, keeps `from` as history, calls the mirror, and persists mirror-updated eventIds", async () => {
-    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
-    vi.mocked(mirror.applyCalendarMirror).mockImplementation(async (b) => ({
-      updatedBlock: { ...b, days: b.days.map((d) => (d.date === "2026-06-21" ? { ...d, eventId: 999 } : d)) },
-      mirrored: ["2026-06-21"],
-      failed: [],
-    }));
+    vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
+      const updatedBlock = { ...b, days: days.map((d) => (d.date === "2026-06-21" ? { ...d, eventId: 999 } : d)) };
+      await store.writeCurrentBlock(updatedBlock);
+      return { updatedBlock, mirrored: ["2026-06-21"], failed: [] };
+    });
 
     const res = await POST(postReq({ from: "2026-06-18", to: "2026-06-21", today: TODAY }));
     const json = await res.json();
     expect(res.status).toBe(200);
     expect(json).toMatchObject({ ok: true, mirrored: ["2026-06-21"], mirrorFailed: [] });
 
-    // The mirror is called with the LOCALLY-moved block (before the mirror mutates it), the move, and
+    // persistMirroredMove is called with the ORIGINAL block, the LOCALLY-moved days, the move, and
     // the client's today.
-    const [calledBlock, calledMoves, calledToday] = vi.mocked(mirror.applyCalendarMirror).mock.calls[0];
-    const movedToDay = calledBlock.days.find((d) => d.date === "2026-06-21")!;
+    const [calledBlock, calledDays, calledMoves, calledToday] = vi.mocked(mirror.persistMirroredMove).mock.calls[0];
+    const movedToDay = calledDays.find((d) => d.date === "2026-06-21")!;
     expect(movedToDay).toMatchObject({ name: "VO2 6x3", type: "VO2max", durationMin: 70, workoutText: "3x8min VO2" });
     expect(calledMoves).toEqual([{ from: "2026-06-18", to: "2026-06-21" }]);
     expect(calledToday).toBe(TODAY);
+    expect(calledBlock).toEqual(block()); // the original, unmodified block
 
     // `from` stays as history, untouched.
-    const fromDay = calledBlock.days.find((d) => d.date === "2026-06-18")!;
+    const fromDay = calledDays.find((d) => d.date === "2026-06-18")!;
     expect(fromDay).toMatchObject({ name: "VO2 6x3", type: "VO2max", durationMin: 70 });
 
     // Persisted block is the mirror's updatedBlock (carrying the fresh eventId), not the pre-mirror one.
@@ -96,7 +97,7 @@ describe("POST /api/reschedule — make-up move", () => {
     const res = await POST(postReq({ from: "2026-06-18", to: TODAY, today: TODAY }));
     expect(res.status).toBe(400);
     expect(store.writeCurrentBlock).not.toHaveBeenCalled();
-    expect(mirror.applyCalendarMirror).not.toHaveBeenCalled();
+    expect(mirror.persistMirroredMove).not.toHaveBeenCalled();
   });
 });
 
@@ -128,8 +129,11 @@ describe("PUT /api/reschedule — manual move", () => {
 
 describe("mirror failure surfaces without blocking the local move", () => {
   it("PUT: a rejected mirror call still persists the local move — 200 with mirrorFailed populated", async () => {
-    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
-    vi.mocked(mirror.applyCalendarMirror).mockRejectedValue(new Error("network down"));
+    vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days, moves) => {
+      const updatedBlock = { ...b, days }; // mirror failed — local move still stands, no eventId changes
+      await store.writeCurrentBlock(updatedBlock);
+      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])) };
+    });
 
     const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY }));
     const json = await res.json();

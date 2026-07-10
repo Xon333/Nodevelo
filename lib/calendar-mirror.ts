@@ -4,7 +4,8 @@
 // Descriptions live ONLY on the calendar (CurrentBlockDay has no description field), so an outbound
 // move carries the source event's description wholesale instead of rebuilding-and-losing it.
 
-import { createEvent, fetchEvents } from "./intervals-api";
+import { createEvent, fetchEvents, isIntervalsConfigured } from "./intervals-api";
+import { writeCurrentBlock } from "./data-store";
 import type { CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, IntervalsEventPayload } from "./types";
 
 export type PlannedMove = { from: string; to: string | null };
@@ -159,4 +160,31 @@ export async function applyCalendarMirror(
     }
   }
   return { updatedBlock: days === block.days ? block : { ...block, days }, mirrored, failed };
+}
+
+// Shared: persist the local change, then best-effort mirror it to the Intervals.icu calendar. The local
+// move ALWAYS stands; a mirror failure is surfaced, never a rollback (the athlete can re-sync later).
+// Used by both /api/reschedule (manual/make-up moves) and /api/morning-check (proactive swap/downgrade)
+// so the gating (isIntervalsConfigured) + try/catch-and-report shape lives in exactly one place.
+export async function persistMirroredMove(
+  block: CurrentBlock,
+  days: CurrentBlockDay[],
+  moves: PlannedMove[],
+  today: string
+): Promise<{ updatedBlock: CurrentBlock; mirrored: string[]; failed: string[] }> {
+  let updated: CurrentBlock = { ...block, days };
+  let mirrored: string[] = [];
+  let failed: string[] = [];
+  if (isIntervalsConfigured()) {
+    try {
+      const res = await applyCalendarMirror(updated, moves, today);
+      updated = res.updatedBlock;
+      mirrored = res.mirrored;
+      failed = res.failed;
+    } catch {
+      failed = moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from]));
+    }
+  }
+  await writeCurrentBlock(updated);
+  return { updatedBlock: updated, mirrored, failed };
 }

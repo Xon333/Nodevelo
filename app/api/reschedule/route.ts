@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { readCurrentBlock, readDispositions, readScoreLog, writeCurrentBlock } from "@/lib/data-store";
+import { readCurrentBlock, readDispositions, readScoreLog } from "@/lib/data-store";
 import { suggestReschedule, type DispositionByDate } from "@/lib/reschedule";
-import { applyCalendarMirror, type PlannedMove } from "@/lib/calendar-mirror";
-import { isIntervalsConfigured } from "@/lib/intervals-api";
+import { persistMirroredMove } from "@/lib/calendar-mirror";
 import { resolveToday } from "@/lib/date";
-import type { CurrentBlock, CurrentBlockDay } from "@/lib/types";
+import type { CurrentBlockDay } from "@/lib/types";
 
 // GET → the current reschedule suggestion (or null). `today` comes from the client (local date),
 // falling back to UTC — the previous inline toISOString() drifted a day near midnight (AGENTS.md
@@ -15,26 +14,6 @@ export async function GET(req: Request) {
   const scoredDates = new Set(scoreLog.entries.map((e) => e.date));
   const dispositionByDate: DispositionByDate = Object.fromEntries(dispositions.entries.map((e) => [e.date, e.disposition]));
   return NextResponse.json({ suggestion: suggestReschedule(block, scoredDates, dispositionByDate, today) });
-}
-
-// Shared: persist the local change, then best-effort mirror to the Intervals.icu calendar. The local
-// move ALWAYS stands; a mirror failure is surfaced, never a rollback (the athlete can re-sync later).
-async function persistAndMirror(block: CurrentBlock, days: CurrentBlockDay[], moves: PlannedMove[], today: string) {
-  let updated: CurrentBlock = { ...block, days };
-  let mirrored: string[] = [];
-  let mirrorFailed: string[] = [];
-  if (isIntervalsConfigured()) {
-    try {
-      const res = await applyCalendarMirror(updated, moves, today);
-      updated = res.updatedBlock;
-      mirrored = res.mirrored;
-      mirrorFailed = res.failed;
-    } catch {
-      mirrorFailed = moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from]));
-    }
-  }
-  await writeCurrentBlock(updated);
-  return { mirrored, mirrorFailed };
 }
 
 function parseBody(body: unknown): { from: string; to: string; today: string } | null {
@@ -76,7 +55,7 @@ export async function POST(req: Request) {
         }
       : d
   );
-  const { mirrored, mirrorFailed } = await persistAndMirror(block, days, [{ from: p.from, to: p.to }], p.today);
+  const { mirrored, failed: mirrorFailed } = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today);
   return NextResponse.json({ ok: true, mirrored, mirrorFailed });
 }
 
@@ -109,6 +88,6 @@ export async function PUT(req: Request) {
     if (d.date === p.from) return { date: p.from, name: `Rest (moved to ${p.to})`, type: "Rest" as CurrentBlockDay["type"], durationMin: 0 };
     return d;
   });
-  const { mirrored, mirrorFailed } = await persistAndMirror(block, days, [{ from: p.from, to: p.to }], p.today);
+  const { mirrored, failed: mirrorFailed } = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today);
   return NextResponse.json({ ok: true, mirrored, mirrorFailed });
 }

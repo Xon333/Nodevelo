@@ -10,7 +10,15 @@ vi.mock("@/lib/data-store", () => ({
   writeCurrentBlock: vi.fn(),
 }));
 
+// The calendar mirror is mocked as a unit (its own gating/catch orchestration is covered by
+// lib/calendar-mirror.test.ts) — the route's job is just to derive the right `moves` and relay
+// mirrored/failed into the response. Modeled on app/api/reschedule/route.test.ts's pattern.
+vi.mock("@/lib/calendar-mirror", () => ({
+  persistMirroredMove: vi.fn(),
+}));
+
 import * as store from "@/lib/data-store";
+import * as mirror from "@/lib/calendar-mirror";
 import { GET, POST, PUT } from "@/app/api/morning-check/route";
 import type { CurrentBlock, MorningCheckEntry, MorningCheckFlag, MorningCheckLog, TodayAnalysis } from "@/lib/types";
 
@@ -47,6 +55,13 @@ beforeEach(() => {
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
   vi.mocked(store.writeMorningChecks).mockResolvedValue(undefined);
   vi.mocked(store.writeCurrentBlock).mockResolvedValue(undefined);
+  // Default: a no-op mirror (as if Intervals.icu isn't configured) that still persists the local
+  // move, mirroring persistMirroredMove's real contract — writeCurrentBlock, then report {[], []}.
+  vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
+    const updatedBlock = { ...b, days };
+    await store.writeCurrentBlock(updatedBlock);
+    return { updatedBlock, mirrored: [], failed: [] };
+  });
 });
 
 describe("POST /api/morning-check", () => {
@@ -134,6 +149,73 @@ describe("PUT /api/morning-check — the apply guard", () => {
     expect(json.ok).toBe(true);
     expect(json.to).toBeNull();
     expect(json.note).toContain("2026-06-21");
+  });
+});
+
+describe("PUT /api/morning-check — mirrors the applied swap/downgrade to Intervals.icu", () => {
+  // Default block(): TODAY is VO2max, 06-21 is Rest, 06-22 is an easy Z2 → applyProactiveReschedule
+  // finds an easy-day swap slot at 06-22 (see lib/reschedule.ts findMakeUpSlot).
+  it("swap applied → mirrors both directions and persists the mirror-updated block", async () => {
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
+    vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
+      const updatedBlock = { ...b, days: days.map((d) => (d.date === "2026-06-22" ? { ...d, eventId: 555 } : d)) };
+      await store.writeCurrentBlock(updatedBlock);
+      return { updatedBlock, mirrored: [TODAY, "2026-06-22"], failed: [] };
+    });
+
+    const res = await PUT(req("PUT", { today: TODAY }));
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.to).toBe("2026-06-22");
+    expect(json.mirrored).toEqual([TODAY, "2026-06-22"]);
+    expect(json.mirrorFailed).toEqual([]);
+
+    const [, , calledMoves, calledToday] = vi.mocked(mirror.persistMirroredMove).mock.calls[0];
+    expect(calledMoves).toEqual([
+      { from: TODAY, to: "2026-06-22" },
+      { from: "2026-06-22", to: TODAY },
+    ]);
+    expect(calledToday).toBe(TODAY);
+
+    const written = vi.mocked(store.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
+    expect(written.days.find((d) => d.date === "2026-06-22")!.eventId).toBe(555);
+  });
+
+  it("downgrade with no swap slot → mirrors a single to:null move", async () => {
+    const b: CurrentBlock = {
+      ...block(),
+      days: [
+        { date: TODAY, name: "VO2 6x3", type: "VO2max", durationMin: 70 },
+        { date: "2026-06-21", name: "Rest", type: "Rest", durationMin: 0 },
+        { date: "2026-06-22", name: "Strength", type: "Strength", durationMin: 45 }, // not easy → no swap slot
+      ],
+    };
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(b);
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
+
+    const res = await PUT(req("PUT", { today: TODAY }));
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.to).toBeNull();
+
+    const [, , calledMoves] = vi.mocked(mirror.persistMirroredMove).mock.calls[0];
+    expect(calledMoves).toEqual([{ from: TODAY, to: null }]);
+  });
+
+  it("mirror failure still applies locally — 200 with mirrorFailed populated", async () => {
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
+    vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days, moves) => {
+      const updatedBlock = { ...b, days }; // mirror failed — local move still stands, no eventId changes
+      await store.writeCurrentBlock(updatedBlock);
+      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])) };
+    });
+
+    const res = await PUT(req("PUT", { today: TODAY }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.mirrorFailed.length).toBeGreaterThan(0);
+    expect(store.writeCurrentBlock).toHaveBeenCalled(); // local move still persists
   });
 });
 

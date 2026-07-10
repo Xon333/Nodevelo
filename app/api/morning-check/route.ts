@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { readCurrentBlock, readMorningChecks, readTodayAnalysis, writeCurrentBlock, writeMorningChecks } from "@/lib/data-store";
+import { readCurrentBlock, readMorningChecks, readTodayAnalysis, writeMorningChecks } from "@/lib/data-store";
 import { decideMorningCheck, mergeMorningCheck, proactiveApplyBlock } from "@/lib/morning-check";
 import { applyProactiveReschedule, suggestProactiveReschedule } from "@/lib/reschedule";
+import { persistMirroredMove, type PlannedMove } from "@/lib/calendar-mirror";
 import { resolveToday } from "@/lib/date";
 import type { CurrentBlock, MorningCheckEntry, MorningCheckFlag, WorkoutType } from "@/lib/types";
 
@@ -70,10 +71,11 @@ export async function POST(req: Request) {
   });
 }
 
-// PUT → athlete-confirmed apply: downgrade today + move/swap/defer the quality stimulus. Local block only
-// (the Intervals.icu calendar mutation is a separate, larger step — the note tells the athlete to mirror
-// it), matching the reactive /api/reschedule POST. Guarded: only applies when today's stored flag
-// recommended a downgrade and the ride hasn't already been logged (the route is the contract, not just UI).
+// PUT → athlete-confirmed apply: downgrade today + move/swap/defer the quality stimulus, then best-effort
+// mirror the change to the Intervals.icu calendar (never blocks the local move — a failure surfaces via
+// mirrorFailed), matching the reactive /api/reschedule POST. Guarded: only applies when today's stored
+// flag recommended a downgrade and the ride hasn't already been logged (the route is the contract, not
+// just UI).
 export async function PUT(req: Request) {
   let body: unknown = null;
   try {
@@ -94,12 +96,19 @@ export async function PUT(req: Request) {
   const updated: CurrentBlock = { ...block, days: applied.days };
   // No make-up slot → carry the dropped stimulus forward so the next block re-prioritises it (CR-6).
   if (applied.deferred) updated.deferredQuality = [...(block.deferredQuality ?? []), applied.deferred];
-  await writeCurrentBlock(updated);
+
+  // A swap touches both dates (today ↔ the easy day); an honest deload only touches today (to: null).
+  const moves: PlannedMove[] =
+    applied.to !== null ? [{ from: date, to: applied.to }, { from: applied.to, to: date }] : [{ from: date, to: null }];
+  const { mirrored, failed } = await persistMirroredMove(updated, updated.days, moves, date);
+
   return NextResponse.json({
     ok: true,
     to: applied.to,
+    mirrored,
+    mirrorFailed: failed,
     note: applied.to
-      ? "Swapped with that day's easy ride in the app plan. Mirror it on your Intervals.icu calendar."
+      ? "Swapped with that day's easy ride — mirrored to your Intervals.icu calendar."
       : applied.skippedRestDay
         ? `Deloaded today — adding a hard session to your ${applied.skippedRestDay} rest day isn't worth it while you're compromised, so it carries to your next block.`
         : "Deloaded today; no make-up slot left this block — it's a priority for your next block.",
