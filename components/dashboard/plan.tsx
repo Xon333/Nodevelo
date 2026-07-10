@@ -242,6 +242,7 @@ function BlockCalendar({
                       tabIndex={0}
                       role="button"
                       aria-describedby={cellId}
+                      aria-controls={cellId}
                       aria-expanded={pinned}
                       onClick={() => setPinnedDate(pinned ? null : day.date)}
                       onKeyDown={(e) => {
@@ -273,7 +274,8 @@ function BlockCalendar({
                         mechanic as ui.tsx's MetricTip. */}
                     <div
                       id={cellId}
-                      role="tooltip"
+                      role={pinned ? "dialog" : "tooltip"}
+                      aria-label={pinned ? `Move ${day.name}` : undefined}
                       className={
                         pinned
                           ? `pointer-events-auto absolute bottom-full mb-2 z-40 opacity-100 w-max max-w-[160px] ${alignClass}`
