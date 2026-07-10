@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
+import { localToday } from "@/lib/date";
 import { useSync, type AppState } from "./SyncProvider";
 import { LoadFailed, useMountLoad } from "./ui";
 
@@ -14,7 +15,8 @@ interface Suggestion {
 }
 
 // Surfaces the deterministic reschedule suggestion: a not-delivered quality session + the next
-// rest day to make it up on. Athlete-confirmed — "Apply" rewrites the local block plan.
+// rest day to make it up on. Athlete-confirmed — "Apply" rewrites the local block plan and mirrors
+// the move to the Intervals.icu calendar (best-effort; a failed mirror never blocks the local move).
 export default function RescheduleBanner() {
   const { setState } = useSync();
   const [s, setS] = useState<Suggestion | null>(null);
@@ -22,10 +24,13 @@ export default function RescheduleBanner() {
   const [dismissed, setDismissed] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // Set right after a successful apply: [] means every mirrored date wrote clean, non-empty names
+  // the dates that didn't. null = nothing to report (either not applied yet, or dismissed).
+  const [mirrorFailed, setMirrorFailed] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await api<{ suggestion: Suggestion | null }>("/api/reschedule");
+      const r = await api<{ suggestion: Suggestion | null }>(`/api/reschedule?today=${localToday()}`);
       setS(r.suggestion);
       setLoadFailed(false);
     } catch {
@@ -37,17 +42,38 @@ export default function RescheduleBanner() {
 
   if (dismissed) return null;
   if (loadFailed) return <LoadFailed what="the reschedule check" retry={() => void load()} />;
-  if (!s) return null;
+  if (!s) {
+    if (mirrorFailed === null) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+        {mirrorFailed.length === 0 ? (
+          <p className="text-green-700 dark:text-green-400">Calendar updated on Intervals.icu ✓</p>
+        ) : (
+          <p className="min-w-0 flex-1 text-amber-700 dark:text-amber-400">
+            Moved in the app — Intervals.icu update failed for {mirrorFailed.join(", ")}; re-syncing later or moving it
+            there manually keeps them aligned.
+          </p>
+        )}
+        <button onClick={() => setMirrorFailed(null)} className="shrink-0 text-zinc-500 hover:underline dark:text-zinc-400">
+          Dismiss
+        </button>
+      </div>
+    );
+  }
 
   const apply = async () => {
     if (!s.to || busy) return;
     setBusy(true);
     setApplyError(null);
     try {
-      await api("/api/reschedule", { method: "POST", body: JSON.stringify({ from: s.from, to: s.to }) });
+      const res = await api<{ ok: boolean; mirrored: string[]; mirrorFailed: string[] }>("/api/reschedule", {
+        method: "POST",
+        body: JSON.stringify({ from: s.from, to: s.to, today: localToday() }),
+      });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);
       setS(null);
+      setMirrorFailed(res.mirrorFailed);
     } catch {
       setApplyError("Couldn't apply the move — try again.");
     } finally {
