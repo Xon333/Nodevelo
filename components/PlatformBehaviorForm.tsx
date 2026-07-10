@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
-import { Card, Skeleton, SkeletonScreen } from "./ui";
+import { Card, LoadFailed, Skeleton, SkeletonScreen, useMountLoad } from "./ui";
 import { ToggleRow } from "./BlockSettingsForm";
 import type { BlockSettings } from "@/lib/types";
 
@@ -15,12 +15,19 @@ export default function PlatformBehaviorForm() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => {
-    api<BlockSettings>("/api/settings")
-      .then((s) => setSettings({ autoSyncOnOpen: s.autoSyncOnOpen, autoPostCoachNote: s.autoPostCoachNote }))
-      .catch(() => setError("Failed to load platform settings."));
+  const load = useCallback(async () => {
+    try {
+      const s = await api<BlockSettings>("/api/settings");
+      setSettings({ autoSyncOnOpen: s.autoSyncOnOpen, autoPostCoachNote: s.autoPostCoachNote });
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true); // visible failure (S1-3) — an infinite skeleton hides a broken endpoint
+    }
   }, []);
+
+  useMountLoad(load);
 
   const set = (key: "autoSyncOnOpen" | "autoPostCoachNote", value: boolean) => {
     setSettings((s) => (s ? { ...s, [key]: value } : s));
@@ -44,6 +51,9 @@ export default function PlatformBehaviorForm() {
     }
   };
 
+  if (loadFailed) {
+    return <LoadFailed what="platform settings" retry={() => void load()} />;
+  }
   if (!settings) {
     return (
       <SkeletonScreen>

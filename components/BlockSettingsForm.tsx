@@ -107,9 +107,14 @@ export default function BlockSettingsForm() {
     setSaving(true);
     setError(null);
     try {
+      // This form no longer owns autoSyncOnOpen/autoPostCoachNote (PlatformBehaviorForm does) —
+      // exclude them so a save here can never silently revert a platform toggle saved moments
+      // earlier in the same session; the route merges any field absent from the body against
+      // fresh on-disk state.
+      const { autoSyncOnOpen: _autoSyncOnOpen, autoPostCoachNote: _autoPostCoachNote, ...body } = settings;
       const updated = await api<BlockSettings>("/api/settings", {
         method: "PUT",
-        body: JSON.stringify(settings),
+        body: JSON.stringify(body),
       });
       setSettings(updated);
       setSaved(true);

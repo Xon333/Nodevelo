@@ -136,7 +136,7 @@ export default function KnowledgeBaseEditor() {
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {isRetro
           ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block."
-          : "Injected into every generation prompt. Edits apply immediately to the next generation."}
+          : "Edits apply immediately to the next generation."}
       </p>
       {pendingSwitch && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/40">

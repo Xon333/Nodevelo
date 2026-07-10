@@ -439,22 +439,24 @@ export function CurrentBlockSection({
           )}
         </div>
         {block.overview && <BlockOverview text={block.overview} />}
-        <div className="mt-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">This week</p>
-          <div className="mt-1.5 flex flex-wrap gap-2">
-            <StatTile label="Hours vs target" value={`${weekActualHours.toFixed(1)} / ${weekPlannedHours.toFixed(1)} h`} />
-            {weekLoad > 0 && <StatTile label="Load" value={String(Math.round(weekLoad))} />}
-          </div>
-          {weekTop && (
-            <div className="mt-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Top session</p>
-              <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800 dark:text-zinc-100">{weekTop.name}</p>
-              {weekTop.trainingLoad != null && (
-                <p className="mt-0.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{weekTop.trainingLoad} Load</p>
-              )}
+        {daysRemaining > 0 && (
+          <div className="mt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">This week</p>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              <StatTile label="Hours vs target" value={`${weekActualHours.toFixed(1)} / ${weekPlannedHours.toFixed(1)} h`} />
+              {weekLoad > 0 && <StatTile label="Load" value={String(Math.round(weekLoad))} />}
             </div>
-          )}
-        </div>
+            {weekTop && (
+              <div className="mt-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+                <p className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Top session</p>
+                <p className="mt-0.5 text-sm font-medium leading-snug text-zinc-800 dark:text-zinc-100">{weekTop.name}</p>
+                {weekTop.trainingLoad != null && (
+                  <p className="mt-0.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">{weekTop.trainingLoad} Load</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <BlockCalendar weeks={weeks} characters={characters} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
       </div>
     </section>
