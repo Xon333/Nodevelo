@@ -12,6 +12,88 @@ exact commits.
 
 ---
 
+## In-app rescheduling + bidirectional calendar mirror — §7 lean slice (2026-07-08, shipped 2026-07-10)
+
+Lets the athlete move a planned session in-app and keeps the Intervals.icu calendar in step in
+both directions, closing the "app serves the wrong workout on the wrong day" risk (the athlete's
+head unit reads from the calendar, not the app). Plan:
+`docs/superpowers/plans/2026-07-08-reschedule-calendar-mirror.md`.
+
+- **Manual move** — a click-to-pin popover on any future Plan day cell (`components/MoveDay.tsx`)
+  lets the athlete shift a planned session onto a clear rest day; `PUT /api/reschedule` validates
+  server-side (future-only, rest-target-only, past days immutable).
+- **Outbound mirror** — every app-initiated move — this manual move, the existing reactive make-up
+  POST, and the morning-check proactive swap/downgrade (`app/api/morning-check/route.ts`) — now
+  mirrors onto the athlete's real Intervals.icu calendar. `lib/calendar-mirror.ts`
+  (`dayToEventPayload`, `buildMovePayloads`, `applyCalendarMirror`, `persistMirroredMove`) owns the
+  decisions; `createEvent` does the write. The mirror was originally built on the pre-existing
+  uid-upsert path (`?upsertOnUid=true` + a client-supplied `uid`) — since corrected to a real
+  `external_id`-keyed upsert, a separate foundational bug fix documented in the next entry below. A
+  moved day carries its **source event's description wholesale** to the destination — descriptions
+  live only on the calendar (`CurrentBlockDay` has no description field), so a delete+recreate would
+  silently drop the intent/nutrition text the athlete actually reads.
+- **Inbound reconcile** — `POST /api/sync` (`app/api/sync/route.ts`) now fetches the block window's
+  events once (`lib/intervals-api.ts` gained `fetchEvents`/`parseCalendarEvents`) and reconciles
+  calendar-side moves (the athlete dragging a NodeVelo event on Intervals.icu itself) into the local
+  block before scoring, via `reconcileInboundMoves`. Deliberately limited: future-only both sides;
+  applies only onto rest/empty days; a calendar-side **swap** (two events trading dates) surfaces as
+  two separate conflict warnings rather than being auto-paired (deferred, not a bug); a vanished
+  future event warns rather than silently deleting the local prescription. Nothing ambiguous ever
+  mutates silently.
+- **Design invariant** — one NodeVelo-owned calendar event per block date; past dates are never
+  mutated by either direction; a local move always persists even if the calendar mirror call fails
+  (failure surfaces as a warning, never a rollback).
+- **Known limitation (cosmetic, documented in code)** — an inbound-accepted move leaves the
+  calendar event's `external_id` stamped with its OLD date; `CurrentBlockDay.eventId` (the numeric
+  id) is the true key everywhere the app matches events, so this doesn't affect correctness, only
+  the calendar's own bookkeeping field.
+- **Fixed same slice:** a pre-existing UTC-vs-local-date bug in `/api/reschedule` — both GET and
+  POST previously inlined `new Date().toISOString().slice(0,10)` (AGENTS.md's recurring bug class);
+  now uses `resolveToday`/`localToday` like the rest of the app.
+
+**Live verification (2026-07-10):** the current block had zero rest days left (ends 2026-07-12,
+taper week), so a full "move a real session onto a real rest day" round trip wasn't possible this
+session — flagged as a follow-up for the next block that has rest days. What *was* verified live:
+(a) the calendar API round-trip itself — create → read-back with description intact → delete,
+against the real Intervals.icu API; (b) the manual-move UI's full interaction chain end-to-end
+through a real rejected move — clicking a future day cell pins an accessible popover
+(`role="dialog"`), the date input is bounded correctly (tomorrow through block end), submitting
+calls the real `PUT /api/reschedule`, the server correctly rejected an occupied-target attempt with
+a clear message, and the UI surfaced that error via `role="alert"` without losing state or
+persisting anything (the block was confirmed unchanged after).
+
+---
+
+## Fix: createEvent's upsert was broken (external_id, not uid) — discovered during §7 live verification (2026-07-10)
+
+`createEvent` (`lib/intervals-api.ts`) POSTed to the singular `/athlete/{id}/events` endpoint with
+`?upsertOnUid=true` and a client-supplied `uid`, intending an idempotent per-date upsert. It never
+worked: Intervals.icu ignores a client-supplied `uid` (server-assigned, read-only) and silently
+created a **new duplicate event on every call** instead of updating the existing one — confirmed
+live by calling it twice with the same `uid` and getting two different event ids back. This
+predates the §7 calendar-mirror plan entirely (traces to the app's first commit); every historical
+block write, regeneration, or reschedule that touched an already-written date has likely been
+leaving orphaned duplicate events on the athlete's real calendar since day one. It surfaced only now
+because §7's live-verification step (above) was the first time a round-trip against the real
+calendar API was actually watched closely.
+
+**Fix** (commit `aa16797`, cosmetic-comment follow-up `ec9e591`): `createEvent` now calls
+`POST /athlete/{id}/events/bulk?upsert=true` with the event wrapped in a single-element array,
+using `external_id` (not `uid`) as the client idempotency key — confirmed against Intervals.icu's
+own published integration cookbook. `IntervalsEventPayload.uid` was renamed to `external_id`
+(snake_case, since this interface is serialized verbatim as the wire body); `IntervalsCalendarEvent`
+kept its existing `uid` field (now documented as read-only/server-assigned) and gained a new
+`externalId` field (what inbound matching actually uses). All call sites (`lib/calendar-mirror.ts`,
+`lib/plan-parser.ts`) and test fixtures updated to match. Live-reconfirmed end-to-end through the
+actual fixed application code: the same `external_id` sent twice now returns the identical numeric
+id, content genuinely replaces, and the event count on the calendar stays at one.
+
+Not part of the §7 plan's original scope — a foundational primitive fix that plan's
+live-verification step happened to uncover, documented separately rather than folded silently into
+the calendar-mirror feature entry above.
+
+---
+
 ## UX v2 — the zero-based redesign, Waves 1–5 (2026-07-08 → 2026-07-09)
 
 A moment-first zero-based review of all seven surfaces (live-app walkthrough with real data, desktop

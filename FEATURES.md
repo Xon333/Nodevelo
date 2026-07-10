@@ -130,6 +130,13 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
 - **Reactive reschedule** — a missed/compromised quality session is detected and offered a make-up on the
   next clear rest day (athlete-confirmed, local block). `lib/reschedule.ts`, `components/RescheduleBanner.tsx`
 - **Proactive reschedule** — the morning check-in's downgrade path, with a load-preserving rest-or-easy-day swap (Track B / §3 slot-finder).
+- **Manual move (§7)** — a click-to-pin popover on a future day cell lets the athlete shift a planned
+  session directly onto a clear rest day, no waiting for a miss; validated server-side (future-only,
+  rest-target-only). `PUT /api/reschedule`, `components/MoveDay.tsx`
+- **Bidirectional calendar mirror (§7)** — every app-initiated move (reactive, proactive, manual) mirrors
+  outbound to the athlete's real Intervals.icu calendar; moves made ON Intervals.icu itself (dragging a
+  NodeVelo event) reconcile inbound at sync time — future-only, onto rest days only; anything ambiguous
+  surfaces as a sync warning, never a silent mutation. `lib/calendar-mirror.ts`
 
 ## Trends page (Wave 5, verdict-first rebuild)
 - **Fold-1 verdict** — one sentence, three axes: engine ↑/↓/steady (CTL slope + Pw:HR trend) ·

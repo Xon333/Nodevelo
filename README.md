@@ -328,9 +328,14 @@ and labels a *partial* session for what it was instead of a flat "completed."
 ## 4. Data sync & reconciliation — the single source of truth
 
 **Intervals.icu is authoritative for physiology; the athlete is authoritative for intent.**
-NodeVelo never writes FTP or zones back to Intervals.icu — physiology is a one-way pull. The
-challenge is that FTP and zones change over time, so the system **effective-dates** them and
-anchors every historical analysis to the values that were live when each ride happened.
+NodeVelo never writes FTP or zones back to Intervals.icu — physiology is a one-way pull. Planned-
+workout calendar events are a separate concern: since §7's reschedule/calendar-mirror slice, every
+app-initiated move (manual, reactive make-up, proactive downgrade/swap) mirrors outbound to the
+athlete's real Intervals.icu calendar, and calendar-side moves reconcile inbound at sync time
+(`lib/calendar-mirror.ts`) — physiology itself stays strictly one-way; the two sync directions are
+never conflated. The challenge is that FTP and zones change over time, so the system
+**effective-dates** them and anchors every historical analysis to the values that were live when
+each ride happened.
 
 ### The physiology store (`lib/physiology.ts`, `data/physiology.json`)
 
@@ -494,7 +499,8 @@ deliberate cornering practice.
 | `/api/disposition` | GET / POST | Read/set a session's athlete attribution (completed/partial/compromised); re-stamps the ledger immediately |
 | `/api/export` / `/api/import` | GET / POST | Download a full `data/` + `knowledge-base/` backup bundle / restore one (path-traversal-guarded, self-identifying) |
 | `/api/morning-check` | GET / POST / PUT | Proactive check-in: UI state / submit + deterministic decision / apply the downgrade + reschedule |
-| `/api/retrospective`, `/api/history`, `/api/note`, `/api/reschedule` | — | Block retro generation, block history, manual note write-back, auto-reschedule |
+| `/api/reschedule` | GET / POST / PUT | Reactive suggestion / confirm the make-up move / manual move (§7) — all three mirror to Intervals.icu |
+| `/api/retrospective`, `/api/history`, `/api/note` | — | Block retro generation, block history, manual note write-back |
 
 ---
 
@@ -526,6 +532,7 @@ deliberate cornering practice.
 | `calibration.ts` | Auto-tuned EWMA alpha + ACWR bands + per-athlete edge resolvers |
 | `readiness.ts` | ACWR, intensity distribution, fatigue/load-ramp signals |
 | `reschedule.ts` | Reschedule missed/compromised quality sessions (reactive) + proactive downgrade/swap onto a rest-or-easy day |
+| `calendar-mirror.ts` | Bidirectional Intervals.icu calendar mirror (§7): outbound event payloads for every app-initiated move (manual/reactive/proactive) + inbound reconciliation of calendar-side moves at sync time |
 | `athlete-state.ts` | §5 signal fusion: one 0–100 athlete-state score + drivers from the fused signals |
 | `coach-snapshot.ts` | Resolved-numbers bundle fed to Ask-Coach + generation so the LLM can't invent figures (#1) |
 | `morning-check.ts` | Proactive check-in decision — subjective strain + objective form → proceed/downgrade (#3) |

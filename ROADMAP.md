@@ -35,18 +35,13 @@ accrue. The first full turnover is SUB-5, days away.
 
 ## Ready to execute — plans already written
 
-Two fully-specified `subagent-driven-development` plans exist but haven't been run. Pick these up
-once SUB-5 clears (or in parallel, if the athlete wants to work ahead) — the design work is done,
-this is "just" execution:
+One fully-specified `subagent-driven-development` plan exists but hasn't been run. Pick it up once
+SUB-5 clears (or in parallel, if the athlete wants to work ahead) — the design work is done, this
+is "just" execution:
 
 - **`docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`** — computes the precise weekly
   intake-vs-need ratio (logged kcal vs. the app's own daily targets + ride kJ out) and surfaces it on
   Trends + `CoachSnapshot.fuel`. Closes `#1`'s last reserved slot (`intakeVsNeed`) — see `§6` below.
-- **`docs/superpowers/plans/2026-07-08-reschedule-calendar-mirror.md`** — in-app session move + a
-  bidirectional Intervals.icu calendar mirror. Fixes a live UTC-today bug (`app/api/reschedule/route.ts:7`
-  and `:35` both inline `new Date().toISOString().slice(0,10)` — AGENTS.md's recurring bug class) and
-  closes the plan/calendar desync risk that serves the athlete's head unit the wrong workout on the
-  wrong day — see `§7` below.
 
 ---
 
@@ -117,9 +112,8 @@ adequate line is `← Track C`. #1 stays as the cross-ref handle.
 
 ### #3 · Proactive reschedule — slivers
 Decision thresholds → per-athlete `← #2`; let the **reactive** `RescheduleBanner` adopt the shared
-`findMakeUpSlot` (still rest-only); calendar mirror `← §7` (plan now written and ready — see
-"Ready to execute" above); possible fully-automatic fatigue-path downgrade (on `fatigueAlert`,
-before a miss).
+`findMakeUpSlot` (still rest-only); possible fully-automatic fatigue-path downgrade (on
+`fatigueAlert`, before a miss).
 
 ### §5 · Athlete-state — slivers
 Energy-availability evaluator `← Track C`; *derive* the per-athlete fusion weights off the engine
@@ -221,12 +215,12 @@ does not change.
   `fuelingState`. Plan written and ready:
   `docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`. Then precise fluid/sodium/carb
   targets pre/intra/post by IF + duration — still genuinely later-scoped, out of this plan.
-- **§7 · Calendar flexibility** — in-app rescheduling + **bidirectional Intervals.icu sync**. Plan
-  written and ready: `docs/superpowers/plans/2026-07-08-reschedule-calendar-mirror.md` — its own
-  research resolved the prior API-risk framing (the `/events` GET endpoint is live, already proven
-  in the SUB-2 investigation); the remaining risk is scope (in-app rescheduling + bidirectional
-  mirror), not API availability. Condition-driven auto-swaps stay out of this plan's scope. Unblocks
-  the calendar-mirror slivers under #3.
+- **§7 · Calendar flexibility — remaining scope** — the in-app rescheduling + bidirectional
+  Intervals.icu calendar mirror lean slice shipped 2026-07-10 → [ARCHIVE.md](ARCHIVE.md). Left,
+  deliberately out of that plan: **condition-driven auto-swaps** (react to a fatigue/load condition
+  directly, not just a missed session or a manual move) and **content-edit inbound sync** (an
+  athlete editing a workout's content — not just its date — on Intervals.icu, flowing back into
+  the block).
 - **8 · NP-missing → "unverified"** — when NP is absent on an outdoor ride, stamp the entry `unverified`
   instead of scoring off raw avg power. Small.
 - **Wearable morning-readiness** — when a wearable lands, objective HRV / sleep / resting-HR slots
