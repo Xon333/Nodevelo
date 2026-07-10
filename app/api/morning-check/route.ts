@@ -100,7 +100,11 @@ export async function PUT(req: Request) {
   // A swap touches both dates (today ↔ the easy day); an honest deload only touches today (to: null).
   const moves: PlannedMove[] =
     applied.to !== null ? [{ from: date, to: applied.to }, { from: applied.to, to: date }] : [{ from: date, to: null }];
-  const { mirrored, failed } = await persistMirroredMove(updated, updated.days, moves, date);
+  // 5th arg (Fix A, final review): `updated.days` is POST-swap — applyProactiveReschedule's carry()
+  // builds each destination from {name, type, durationMin, workoutText?, prescription?} only, so it
+  // drops eventId from BOTH swapped days. The original pre-move `block` (still in scope, untouched)
+  // still carries them, which is what the description-carry lookup inside persistMirroredMove needs.
+  const { mirrored, failed } = await persistMirroredMove(updated, updated.days, moves, date, block.days);
 
   return NextResponse.json({
     ok: true,

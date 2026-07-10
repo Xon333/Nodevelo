@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { snapshotBackup } from "@/lib/backup";
-import { deleteEvents, fetchEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { createEvent, deleteEvents, fetchEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { blockEventIds } from "@/lib/block-events";
-import { reconcileInboundMoves } from "@/lib/calendar-mirror";
+import { dayToEventPayload, reconcileInboundMoves } from "@/lib/calendar-mirror";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
@@ -432,6 +432,36 @@ export async function POST(req: Request) {
               block = { ...block, days: rec.days };
               await writeCurrentBlock(block);
               warnings.push(...rec.applied.map((m) => `Calendar move applied: ${m.from} → ${m.to} (from Intervals.icu).`));
+
+              // Fix B (final review): reconcileInboundMoves relocates the block day but — by that
+              // function's own documented limit — never re-keys the calendar event's own external_id,
+              // which is still stamped with its OLD date. Left alone, a SUBSEQUENT outbound move
+              // touching this date would miss it (buildMovePayloads' id-keyed lookup finds nothing) and
+              // createEvent would spawn a duplicate instead of updating it. Re-stamp best-effort, per
+              // move, via create+delete (not an unverified bulk re-key-by-id — create+delete are the
+              // primitives already proven to work live): create a fresh event at `to` with the current
+              // `nodevelo-<to>` external_id, carrying the OLD (drifted) event's description, then delete
+              // the old numeric id. A failure here never fails the sync — the local move already stands.
+              const byCalendarId = new Map(calendarEvents.filter((e) => e.id !== null).map((e) => [e.id as number, e]));
+              let restamped = false;
+              for (const { to } of rec.applied) {
+                try {
+                  const toDay = block.days.find((d) => d.date === to);
+                  if (!toDay || typeof toDay.eventId !== "number") continue;
+                  const oldId = toDay.eventId;
+                  const matched = byCalendarId.get(oldId);
+                  const newId = await createEvent(dayToEventPayload(toDay, matched?.description ?? ""));
+                  if (newId !== null) {
+                    await deleteEvents([oldId]);
+                    block = { ...block, days: block.days.map((d) => (d.date === to ? { ...d, eventId: newId } : d)) };
+                    restamped = true;
+                  }
+                } catch (e) {
+                  logWarn("/api/sync", "calendar-restamp", e instanceof Error ? e.message : String(e));
+                  warnings.push(`Calendar external_id re-stamp failed for ${to} — a later outbound move to/from this date may create a duplicate event.`);
+                }
+              }
+              if (restamped) await writeCurrentBlock(block);
             }
             warnings.push(...rec.warnings);
           }

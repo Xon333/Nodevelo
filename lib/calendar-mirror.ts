@@ -39,10 +39,16 @@ export function dayToEventPayload(day: CurrentBlockDay, description: string): In
 // from the day now living there, carrying the OLD source event's description; a vacated source
 // re-upserts as its new self (rest note / swapped-in easy day) — but only when it's today-or-future
 // (a past date keeps its history marker untouched). A swap is two moves; each date emits exactly once.
+// Description lookup is id-based (Fix A, final review): the source's fetched calendar event is found
+// via its numeric eventId (sourceEventIdByDate → eventById), not by parsing a date out of externalId —
+// that missed for every event that predates the external_id-on-write fix (Bug 1: a silently empty
+// destination workout). A miss (no pre-move eventId tracked, or no matching fetched event) falls back
+// to the destination day's own workoutText rather than an empty description.
 export function buildMovePayloads(
   days: CurrentBlockDay[],
   moves: PlannedMove[],
-  eventByDate: Map<string, IntervalsCalendarEvent>,
+  eventById: Map<number, IntervalsCalendarEvent>,
+  sourceEventIdByDate: Map<string, number>,
   today: string
 ): Array<{ date: string; payload: IntervalsEventPayload }> {
   const byDate = new Map(days.map((d) => [d.date, d]));
@@ -62,9 +68,13 @@ export function buildMovePayloads(
     const sourceOfContent = destinationSource.get(date);
     if (sourceOfContent) {
       if (date < today) continue; // a destination in the past is immutable, same as a vacated source
-      // Destination: carry the moved workout's original description (intent + nutrition text).
-      const oldEvent = eventByDate.get(sourceOfContent);
-      out.push({ date, payload: dayToEventPayload(d, oldEvent?.description ?? "") });
+      // Destination: carry the moved workout's original description (intent + nutrition text), found
+      // via the source's PRE-move eventId. `||` (not `??`) so an empty-string carried description also
+      // falls through to workoutText, instead of writing a genuinely blank workout.
+      const sourceEventId = sourceEventIdByDate.get(sourceOfContent);
+      const oldEvent = typeof sourceEventId === "number" ? eventById.get(sourceEventId) : undefined;
+      const description = oldEvent?.description || d.workoutText?.trim() || "";
+      out.push({ date, payload: dayToEventPayload(d, description) });
     } else if (date >= today) {
       // Vacated source, still in the future → its event becomes what the day now is. Preserve any real
       // workout text (e.g. a downgraded-but-not-Rest day) alongside the boilerplate rather than losing it.
@@ -84,9 +94,12 @@ export function buildMovePayloads(
 //     conflict warnings for manual resolution (ponytail: handle singles; add swap pairing if real use
 //     hits the warning often);
 //   - a vanished future workout event warns — the app never deletes a prescription off the calendar's say-so.
-// Known limit: an accepted inbound move leaves the event's external_id stamped with its OLD date.
-// eventId (which we re-key here) is the true key everywhere (blockEventIds/staleEventIds/this
-// reconcile), so cleanup and future matching are unaffected.
+// An accepted inbound move leaves the event's external_id stamped with its OLD date — this function
+// does not re-key it (that's IO, and this one stays pure); /api/sync's caller does it best-effort
+// (create+delete) right after calling this (Fix B, final review) so a later outbound move's id-keyed
+// lookup (buildMovePayloads) doesn't miss it and spawn a duplicate. eventId (which we re-key here) is
+// the true key everywhere in the meantime (blockEventIds/staleEventIds/this reconcile), so cleanup and
+// matching stay correct even before the re-stamp lands.
 export function reconcileInboundMoves(
   block: CurrentBlock,
   events: IntervalsCalendarEvent[],
@@ -135,19 +148,28 @@ export function reconcileInboundMoves(
 // The one IO step (Task 3+ wire it): read the block window's events (description source), upsert the
 // affected dates, re-stamp eventIds on the updated days. Best-effort per date — a failure never
 // unwinds the local move; callers surface `failed` as a warning.
+// `preMoveDays` (Fix A, final review): the block's PRE-move days, threaded in separately from
+// `block.days` (post-move) because the source's eventId isn't reliably found there — different callers
+// leave it in different places post-move (a reschedule-POST leaves it at `from`; a reschedule-PUT moves
+// it to `to`; morning-check's swap `carry()` drops it from both days entirely). Building
+// sourceEventIdByDate off the pre-move snapshot instead sidesteps that entirely.
 export async function applyCalendarMirror(
   block: CurrentBlock,
   moves: PlannedMove[],
-  today: string
+  today: string,
+  preMoveDays: CurrentBlockDay[]
 ): Promise<{ updatedBlock: CurrentBlock; mirrored: string[]; failed: string[] }> {
-  let eventByDate = new Map<string, IntervalsCalendarEvent>();
+  let eventById = new Map<number, IntervalsCalendarEvent>();
+  const sourceEventIdByDate = new Map<string, number>(
+    preMoveDays.filter((d): d is CurrentBlockDay & { eventId: number } => typeof d.eventId === "number").map((d) => [d.date, d.eventId])
+  );
   try {
     const events = await fetchEvents(block.startDate, block.endDate);
-    eventByDate = new Map(events.filter((e) => e.externalId?.startsWith("nodevelo-")).map((e) => [e.externalId!.slice("nodevelo-".length), e]));
+    eventById = new Map(events.filter((e) => e.id !== null).map((e) => [e.id as number, e]));
   } catch {
-    // No description source — destination payloads fall back to an empty description rather than failing the mirror.
+    // No description source — destination payloads fall back to workoutText/empty rather than failing the mirror.
   }
-  const payloads = buildMovePayloads(block.days, moves, eventByDate, today);
+  const payloads = buildMovePayloads(block.days, moves, eventById, sourceEventIdByDate, today);
   const mirrored: string[] = [];
   const failed: string[] = [];
   let days = block.days;
@@ -167,18 +189,23 @@ export async function applyCalendarMirror(
 // move ALWAYS stands; a mirror failure is surfaced, never a rollback (the athlete can re-sync later).
 // Used by both /api/reschedule (manual/make-up moves) and /api/morning-check (proactive swap/downgrade)
 // so the gating (isIntervalsConfigured) + try/catch-and-report shape lives in exactly one place.
+// `preMoveDays` (Fix A, final review) defaults to `block.days`, which covers /api/reschedule's POST and
+// PUT — `block` there genuinely IS the pre-move state. /api/morning-check's PUT is the one caller that
+// must override it explicitly (its `updated.days` loses the swap sources' eventIds — see
+// applyCalendarMirror's comment).
 export async function persistMirroredMove(
   block: CurrentBlock,
   days: CurrentBlockDay[],
   moves: PlannedMove[],
-  today: string
+  today: string,
+  preMoveDays: CurrentBlockDay[] = block.days
 ): Promise<{ updatedBlock: CurrentBlock; mirrored: string[]; failed: string[] }> {
   let updated: CurrentBlock = { ...block, days };
   let mirrored: string[] = [];
   let failed: string[] = [];
   if (isIntervalsConfigured()) {
     try {
-      const res = await applyCalendarMirror(updated, moves, today);
+      const res = await applyCalendarMirror(updated, moves, today, preMoveDays);
       updated = res.updatedBlock;
       mirrored = res.mirrored;
       failed = res.failed;

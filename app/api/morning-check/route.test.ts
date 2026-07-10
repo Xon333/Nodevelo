@@ -181,6 +181,36 @@ describe("PUT /api/morning-check — mirrors the applied swap/downgrade to Inter
     expect(written.days.find((d) => d.date === "2026-06-22")!.eventId).toBe(555);
   });
 
+  // Fix A (final review): applyProactiveReschedule's swap builds each destination's day from
+  // {name, type, durationMin, workoutText?, prescription?} only (lib/reschedule.ts's carry()) — so
+  // `updated.days` (the route's 2nd arg to persistMirroredMove) drops eventId from BOTH swapped dates.
+  // The route must pass the ORIGINAL pre-move `block.days` as the 5th arg so the description-carry
+  // lookup inside persistMirroredMove can still find each source's eventId.
+  it("passes the ORIGINAL pre-move block.days as persistMirroredMove's 5th arg (swap drops eventId from updated.days)", async () => {
+    const withIds: CurrentBlock = {
+      ...block(),
+      days: [
+        { date: TODAY, name: "VO2 6x3", type: "VO2max", durationMin: 70, eventId: 41 },
+        { date: "2026-06-21", name: "Rest", type: "Rest", durationMin: 0 },
+        { date: "2026-06-22", name: "Easy", type: "Z2", durationMin: 60, eventId: 42 },
+      ],
+    };
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(withIds);
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
+
+    await PUT(req("PUT", { today: TODAY }));
+
+    const call = vi.mocked(mirror.persistMirroredMove).mock.calls[0];
+    const calledDays = call[1];
+    const calledPreMoveDays = call[4];
+    // updated.days (2nd arg, post-swap) lost both eventIds.
+    expect(calledDays.find((d) => d.date === TODAY)?.eventId).toBeUndefined();
+    expect(calledDays.find((d) => d.date === "2026-06-22")?.eventId).toBeUndefined();
+    // The 5th arg is the block's ORIGINAL pre-move days, which still has both.
+    expect(calledPreMoveDays?.find((d) => d.date === TODAY)?.eventId).toBe(41);
+    expect(calledPreMoveDays?.find((d) => d.date === "2026-06-22")?.eventId).toBe(42);
+  });
+
   it("downgrade with no swap slot → mirrors a single to:null move", async () => {
     const b: CurrentBlock = {
       ...block(),

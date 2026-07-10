@@ -20,6 +20,7 @@ vi.mock("@/lib/intervals-api", async (orig) => {
     fetchHrStream: vi.fn(async () => []),
     deleteEvents: vi.fn(async () => ({ deleted: [], failed: [] })),
     fetchEvents: vi.fn(async () => []),
+    createEvent: vi.fn(async () => null),
   };
 });
 vi.mock("@/lib/anthropic-api", async (orig) => {
@@ -172,6 +173,7 @@ beforeEach(() => {
   vi.mocked(api.fetchHrStream).mockResolvedValue([]);
   vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [], failed: [] });
   vi.mocked(api.fetchEvents).mockResolvedValue([]);
+  vi.mocked(api.createEvent).mockResolvedValue(null);
   vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(false);
   vi.mocked(phys.readPhysiology).mockResolvedValue(null);
   vi.mocked(phys.readPowerZones).mockResolvedValue([]);
@@ -499,6 +501,51 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     const json = await res.json();
     expect(store.writeCurrentBlock).not.toHaveBeenCalled();
     expect(json.warnings.some((w: string) => /Calendar move applied/.test(w))).toBe(false);
+  });
+
+  // Fix B (final review): reconcileInboundMoves relocates the block day locally but never re-keys the
+  // calendar event's own external_id (documented limit on that function) — it's still stamped
+  // `nodevelo-<TOMORROW>` (stale) even though the event now sits on TODAY. Left alone, a SUBSEQUENT
+  // outbound move touching TODAY would miss it (id-keyed lookup finds nothing new) and createEvent would
+  // spawn a duplicate. The route re-stamps it best-effort via create+delete right after applying the move.
+  it("re-stamps the relocated event's external_id via create+delete after an inbound move applies", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [movedDay, restDay] }));
+    const staleEvent = mkEvent({ date: TODAY, id: 41, description: "original threshold description" });
+    vi.mocked(api.fetchEvents).mockResolvedValue([staleEvent]);
+    vi.mocked(api.createEvent).mockResolvedValue(777);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a-today" })] }));
+
+    const res = await postSync();
+    expect(res.status).toBe(200);
+
+    // A fresh event is created at TODAY, carrying the OLD (stale-id'd) event's description, keyed by
+    // the CURRENT (nodevelo-<TODAY>) external_id.
+    expect(api.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ external_id: `nodevelo-${TODAY}`, description: "original threshold description" })
+    );
+    // The old drifted event (numeric id 41, still stamped nodevelo-<TOMORROW>) is deleted.
+    expect(api.deleteEvents).toHaveBeenCalledWith([41]);
+
+    // The block day's eventId is re-stamped to the newly-created event's id — the old id is gone.
+    const written = vi.mocked(store.writeCurrentBlock).mock.calls.at(-1)![0] as CurrentBlock;
+    expect(written.days.find((d) => d.date === TODAY)?.eventId).toBe(777);
+  });
+
+  it("a re-stamp failure (createEvent rejects) is best-effort — sync still succeeds, local move still stands", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [movedDay, restDay] }));
+    vi.mocked(api.fetchEvents).mockResolvedValue([mkEvent({ date: TODAY, id: 41 })]);
+    vi.mocked(api.createEvent).mockRejectedValue(new Error("network down"));
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a-today" })] }));
+
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.warnings.some((w: string) => /re-stamp failed/i.test(w))).toBe(true);
+    expect(api.deleteEvents).not.toHaveBeenCalled(); // create never succeeded → never reached delete
+
+    // The local move (from the reconcile itself) still stands, with the OLD eventId intact.
+    const written = vi.mocked(store.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
+    expect(written.days.find((d) => d.date === TODAY)).toMatchObject({ eventId: 41 });
   });
 });
 
