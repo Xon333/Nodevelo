@@ -6,6 +6,7 @@ import { TYPE_STYLES } from "@/lib/workout-types";
 import { localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, CyberFrame, InfoDot } from "../ui";
 import { weekCharacters } from "@/lib/plan-week-character";
+import MoveDay from "../MoveDay";
 
 // Relative label for the "next: <session>, <when>" pointer. Parse with an explicit local midnight so
 // the weekday doesn't drift a day via UTC. `date` is always strictly after `today` at the call site.
@@ -156,13 +157,31 @@ export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
 
 // ---------- Current block card ----------
 
-function BlockCalendar({ weeks, characters, scores, compromisedDates, partialDates }: { weeks: CurrentBlock["days"][]; characters: string[]; scores: RideScoreEntry[]; compromisedDates: string[]; partialDates: string[] }) {
+function BlockCalendar({
+  weeks,
+  characters,
+  scores,
+  compromisedDates,
+  partialDates,
+  blockEndDate,
+}: {
+  weeks: CurrentBlock["days"][];
+  characters: string[];
+  scores: RideScoreEntry[];
+  compromisedDates: string[];
+  partialDates: string[];
+  blockEndDate: string;
+}) {
   // S2-1: each day cell's detail was hover-only (the calendar's whole story was mouse-only). One id
   // per cell, tabIndex + aria-describedby + role="tooltip" — same pattern as Wave 1's MetricTip.
   const idBase = useId();
   const compromisedSet = new Set(compromisedDates);
   const partialSet = new Set(partialDates);
   const today = todayIso();
+  // §7 manual move: click/tap a cell to pin its tooltip open as an interactive popover (hosting
+  // MoveDay for eligible days) instead of the pure hover/focus preview.
+  const [pinnedDate, setPinnedDate] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const scoreByDate = new Map(scores.map((s) => [s.date, s.executionScore]));
   const scoreColor = (v: number) =>
     v >= 7 ? "text-green-700 dark:text-green-400" : v >= 5 ? "text-amber-700 dark:text-amber-400" : "text-red-600 dark:text-red-400";
@@ -170,8 +189,22 @@ function BlockCalendar({ weeks, characters, scores, compromisedDates, partialDat
     week.reduce((s, d) => s + d.durationMin, 0)
   );
 
+  // Close a pinned popover on an outside click/tap. The ref sits on the whole calendar grid, so a
+  // pointerdown anywhere inside it — another cell, or the pinned popover's own date input/buttons —
+  // is "inside" and doesn't close the pin; only a pointerdown outside the grid entirely does.
+  useEffect(() => {
+    if (!pinnedDate) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setPinnedDate(null);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [pinnedDate]);
+
   return (
-    <div className="mt-3 space-y-1">
+    <div ref={containerRef} className="mt-3 space-y-1">
       {weeks.map((week, i) => {
         const mins = weeklyMinutes[i];
         const h = Math.floor(mins / 60);
@@ -199,11 +232,26 @@ function BlockCalendar({ weeks, characters, scores, compromisedDates, partialDat
                 const partial = completed && partialSet.has(day.date);
                 const missed = !completed && !compromised && day.date < today && day.type !== "Rest";
                 const cellId = `${idBase}-${day.date}`;
+                // §7 manual move: only a real, not-yet-happened session can be moved. Ineligible/rest/
+                // past cells still toggle `pinnedDate` on click (harmless — MoveDay just never mounts).
+                const eligible = day.date >= today && day.durationMin > 0 && day.type !== "Rest";
+                const pinned = pinnedDate === day.date;
                 return (
                   <div key={day.date} className="group relative flex-1">
                     <div
                       tabIndex={0}
+                      role="button"
                       aria-describedby={cellId}
+                      aria-expanded={pinned}
+                      onClick={() => setPinnedDate(pinned ? null : day.date)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setPinnedDate(pinned ? null : day.date);
+                        } else if (e.key === "Escape") {
+                          setPinnedDate(null);
+                        }
+                      }}
                       className={`flex h-7 w-full items-center justify-center rounded text-[10px] font-medium ${TYPE_STYLES[day.type].cell} ${
                         day.type === "Rest" ? "text-zinc-600" : "text-white"
                       } ${day.date === today ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-[#ff49c8] dark:ring-offset-zinc-800" : ""} ${
@@ -226,7 +274,11 @@ function BlockCalendar({ weeks, characters, scores, compromisedDates, partialDat
                     <div
                       id={cellId}
                       role="tooltip"
-                      className={`pointer-events-none absolute bottom-full mb-2 z-30 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 w-max max-w-[160px] ${alignClass}`}
+                      className={
+                        pinned
+                          ? `pointer-events-auto absolute bottom-full mb-2 z-40 opacity-100 w-max max-w-[160px] ${alignClass}`
+                          : `pointer-events-none absolute bottom-full mb-2 z-30 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 w-max max-w-[160px] ${alignClass}`
+                      }
                     >
                       <div className="rounded border border-zinc-200 bg-white px-2.5 py-2 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
                         <p className="text-[11px] font-semibold leading-tight text-zinc-800 dark:text-zinc-100">
@@ -258,6 +310,11 @@ function BlockCalendar({ weeks, characters, scores, compromisedDates, partialDat
                         <p className="mt-0.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-600">
                           {day.date}
                         </p>
+                        {eligible && pinned && (
+                          <div className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-700">
+                            <MoveDay date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -457,7 +514,14 @@ export function CurrentBlockSection({
             )}
           </div>
         )}
-        <BlockCalendar weeks={weeks} characters={characters} scores={scores} compromisedDates={compromisedDates} partialDates={partialDates} />
+        <BlockCalendar
+          weeks={weeks}
+          characters={characters}
+          scores={scores}
+          compromisedDates={compromisedDates}
+          partialDates={partialDates}
+          blockEndDate={block.endDate}
+        />
       </div>
     </section>
   );
