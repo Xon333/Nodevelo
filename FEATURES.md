@@ -16,9 +16,10 @@ AI — and the AI only ever phrases numbers the code already computed.
   effective today ("FTP changed 288 → 300 W on …; zones updated"). `reconcile()`
 - **History anchored to the right FTP** — each ride is scored against the physiology in effect *that day*.
 
-## Season & macro-periodization (Plan / Profile pages)
+## Season & macro-periodization (Plan page)
 - **Season objective + target events** — an athlete-owned objective string and A/B/C-priority event
-  list, edited on `/profile`'s Season section. `GET`/`PUT /api/season`, `lib/season.ts`
+  list; a compact objective + upcoming-events card sits on `/plan` beside the generator it feeds.
+  `GET`/`PUT /api/season`, `lib/season.ts`
 - **Macro-periodization engine** — a rolling base→build→realize cycle (deload cadence + ACWR-capped
   load ramp) is the live default with no event on the calendar; a fully-built event-anchored mode
   (backward taper→peak→build scheduling) activates automatically the moment a future A-event exists.
@@ -31,6 +32,12 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Block-completion prompt** — once the active block's `endDate` has passed, the Today planned-
   session card proactively nudges the athlete to generate the next one instead of sitting on stale
   "no session planned" copy. `isBlockFinished`, `lib/date.ts`, `components/dashboard/today.tsx`
+- **Plan hero orientation (Wave 5)** — header reads "week N of M · `<week character>`"; the week
+  character label is volume-derived (planned weekly volume relative to the block), an honest read
+  not real per-week periodization — the data model carries one whole-block `seasonPhase`, never
+  spread per week. A "next: `<session>`, `<when>`" pointer sits alongside.
+- **In-hero week strip** — hours-vs-target (aligned current-block-week window) · load · top session,
+  replacing the old standalone "This week" panel. `components/dashboard/plan.tsx`
 
 ## Block generation (Plan page)
 - **Goal-driven, KB-grounded generation** — knowledge base + live zones + athlete-model insights +
@@ -54,6 +61,13 @@ AI — and the AI only ever phrases numbers the code already computed.
   `lib/generate-cache.ts`
 
 ## Today page
+- **Pre-ride / post-ride auto-switch (Wave 2)** — mode is data-derived, never athlete-picked: a
+  synced ride matching today's *local* date (`localToday()`) → post-ride mode, else pre-ride.
+  Pre-ride promotes the readiness verdict + full session-prescription card (name, type, duration,
+  step/rep targets — *what am I about to ride*). Post-ride compresses the verdict to a one-line
+  strip and promotes the debrief hero + an "Eat today" fuel card. A quiet corner link flips the view
+  client-side for the odd case (evening plan-check after a morning ride); no persistence.
+  `components/dashboard/today.tsx`
 - **Readiness zone** — one verdict: the fused **Athlete State** card (0–100 + band + recommendation,
   §5 signal fusion; visible score/band without interaction, ranked drivers behind hover/focus), with
   triggered fatigue/load-ramp alerts above it (alarms outrank verdicts) and the raw TSB·ACWR·polarization·
@@ -67,11 +81,13 @@ AI — and the AI only ever phrases numbers the code already computed.
   *any* ride day (including easy ones — the motion itself is the risk) and recommends *rest* — no swap,
   no make-up, just guidance to see a professional if it persists; there's nothing for the reschedule
   machinery to move. `components/MorningCheckIn.tsx`, `lib/morning-check.ts`, `app/api/morning-check`
-- **Today's ride card** — planned vs actual, a curated metric strip (IF + effort band + **basis stamp**
-  `· NP`/`· avg` · NP · avg power · RPE), the 1–10 execution score, prescription-vs-execution rep breakdown,
-  a smoothed power/HR trace with interval bands, power-zone bars, and advised daily intake. *Decoupling*
-  lives in the collapsed "Power execution" drill-down (it's context, not a scored signal); avg speed was
-  dropped. `components/dashboard/today.tsx`, `lib/trace.ts`
+- **Debrief hero (post-ride)** — execution score leads (not buried): planned vs actual, a curated
+  metric strip (IF + effort band + **basis stamp** `· NP`/`· avg` · NP · avg power · RPE), the 1–10
+  execution score, prescription-vs-execution rep breakdown, a smoothed power/HR trace with interval
+  bands, and power-zone bars. *Decoupling* lives in the collapsed "Power execution" drill-down (it's
+  context, not a scored signal); avg speed was dropped. `components/dashboard/today.tsx`, `lib/trace.ts`
+- **"Eat today" fuel card** — advised daily intake + the base+ride+buffer formula, its own promoted
+  card post-ride (no longer embedded in the ride card). `lib/nutrition.ts`
 - **Energy-availability tile** ⭐ — a deterministic fuel proxy `(logged intake − ride burn)/kg`, averaged
   over recent *complete* days (today excluded), with a week-over-week trend. No clinical band (it's a
   body-weight proxy off self-logged intake — said so in copy); withheld below 3 logged days. `lib/nutrition.ts`
@@ -84,7 +100,6 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Ask-Coach** — a low-token spot-check that reads the resolved **CoachSnapshot** (block, today's
   execution, form + TSB modifier, fuel, directives, the morning check, and the disposition guard).
   `app/api/ask`, `lib/coach-snapshot.ts`
-- **Trend pulse + coach accuracy** — a glanceable improvement read + how often matured directives proved right.
 
 ## Coaching intelligence & learning
 - **Immutable execution ledger** — every ride scored 1–10 once, frozen against that day's FTP.
@@ -100,17 +115,37 @@ AI — and the AI only ever phrases numbers the code already computed.
   and generation, so the LLM can't invent numbers. `lib/coach-snapshot.ts`
 - **Per-athlete calibration (partial)** — auto-tuned EWMA α + ACWR bands (the hybrid auto/manual hook). `lib/calibration.ts`
 
+## Model page (Wave 5)
+Three stacked groups, reading order matching how the athlete actually asks:
+- **NOW** — the fused state's ranked drivers as signed-magnitude bars (−10/−9/−8/+4 …, largest
+  first; negative bars render red) — the same data Today's "why? →" links to, finally visual.
+- **LEARNED** — one calibration card per learned value: number · provenance ("learned · N rides") ·
+  confidence tier · override/contest inline with a "use learned value" escape.
+- **STANDING GUIDANCE** — directives grouped by dimension, evidence behind "why ▸", validation ✓
+  marks where earned; the group header also carries **coach accuracy** — how often matured
+  directives proved right (moved here from Today's retired Trend Pulse tile).
+Effort bands live on Profile; long-form metric explanations live here. `app/model/page.tsx`, `components/StandingGuidance.tsx`
+
 ## Adaptive scheduling
 - **Reactive reschedule** — a missed/compromised quality session is detected and offered a make-up on the
   next clear rest day (athlete-confirmed, local block). `lib/reschedule.ts`, `components/RescheduleBanner.tsx`
 - **Proactive reschedule** — the morning check-in's downgrade path, with a load-preserving rest-or-easy-day swap (Track B / §3 slot-finder).
 
-## Trends page
-- **Pw:HR efficiency trajectory** (outdoor-only, endurance band, ≥45 min) · **CTL fitness** curve ·
-  **execution-quality** + **weekly-volume** bars (magnitude-shaded, with hovers) · **fueling & weight**
-  (complete weeks only) · **insight track record** · **block history**. `lib/trends.ts`, `components/Trends.tsx`
-- **Recent baselines (curated)** — single numbers not already a chart: **w/kg @ threshold** · weekly hours ·
-  rides/week · avg load/ride (90-day rolling, "Load" naming aligned to Intervals.icu). `components/trends/sections.tsx`
+## Trends page (Wave 5, verdict-first rebuild)
+- **Fold-1 verdict** — one sentence, three axes: engine ↑/↓/steady (CTL slope + Pw:HR trend) ·
+  delivery avg + direction (execution average) · fueling banded off the energy-availability proxy —
+  each axis carries a derivation tip. Ranked coach insights follow (top 3 visible, rest + the
+  validation track record behind a disclosure). `lib/trends-verdict.ts`
+- **ENGINE group** — Pw:HR efficiency trajectory (outdoor-only, endurance band, ≥45 min) and CTL
+  fitness curve, side by side.
+- **DELIVERY group** — execution-quality per-session bars and per-type planned-vs-actual merged into
+  **one card with a toggle** (previously two separate flat sections).
+- **LOAD & FUEL group** — fueling & weight (complete weeks only; absorbs latest weight, weight
+  trend, and last intake — the old "Last 7 days" tile row is gone, its tenants relocated here) ·
+  weekly volume as small context chart.
+- **MILESTONES group** — recent baselines row (**w/kg @ threshold** · weekly hours · rides/week ·
+  avg load/ride, 90-day rolling, "Load" naming aligned to Intervals.icu) · block history, collapsed.
+  `lib/trends.ts`, `components/Trends.tsx`, `components/trends/sections.tsx`
 
 ## Nutrition (code, not AI)
 - **Deterministic targets** — daily kcal (base + session kJ + buffer; flat on rest days) + pre/in/post
@@ -125,11 +160,26 @@ AI — and the AI only ever phrases numbers the code already computed.
   on a proven no-effect. `lib/loading.ts`, `app/api/loading`
 
 ## Profile · Knowledge · Settings
-- **Profile** — synced performance (FTP, threshold/max HR), all-time PRs, an add/edit/delete goals &
-  weakpoints form (each goal taggable by `SeasonFocus`), a Season section (objective + target
-  events), nutrition settings.
-- **Knowledge** — in-place markdown editor for the KB + retrospectives (read fresh on every generation).
-- **Settings** — volume/structure knobs, polarised vs sweet-spot, quality budget, platform toggles.
+
+### Profile (Wave 5, read-first dossier)
+- **The rider read (hero)** — power curve + phenotype line, current performance (FTP · tHR · maxHR,
+  from Plan), synced weight, all-time PR strip — provenance badges kept.
+- **Zones & effort bands** — synced, compact table (moved here from Model).
+- **Goals & weakpoints** — compact read view (goal → target · type); the add/edit/delete form
+  (each goal taggable by `SeasonFocus`) sits behind an inline "▸ edit" disclosure, no modal.
+- **Nutrition formula** — compact read + buffer-adjustment status; the full form is behind a
+  disclosure. Season objective/events moved to Plan — no longer edited here.
+
+### Knowledge
+- In-place markdown editor for the KB + retrospectives (read fresh on every generation), plus a
+  new always-visible one-line **provenance header** above the file list — which files feed
+  generation vs. reference-only vs. manual vs. seed (previously this context only surfaced per-file
+  after selecting one).
+
+### Settings (Wave 5, two labelled groups)
+- **GENERATION** — weekly volume targets, weekly structure, training philosophy & equipment.
+- **PLATFORM** — platform-behavior toggles (auto-sync-on-open, auto-post-coach-note), AI usage &
+  cost, backup & restore. (Fixed a mis-grouping bug: these previously rendered under GENERATION.)
 
 ## Platform & reliability (local-first)
 - **TanStack Query** client (focus/reconnect refetch, dedup) · **observability + cost** tracking ·
