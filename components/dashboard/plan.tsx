@@ -274,8 +274,8 @@ function BlockCalendar({
                         mechanic as ui.tsx's MetricTip. */}
                     <div
                       id={cellId}
-                      role={pinned ? "dialog" : "tooltip"}
-                      aria-label={pinned ? `Move ${day.name}` : undefined}
+                      role={eligible && pinned ? "dialog" : "tooltip"}
+                      aria-label={eligible && pinned ? `Move ${day.name}` : undefined}
                       className={
                         pinned
                           ? `pointer-events-auto absolute bottom-full mb-2 z-40 opacity-100 w-max max-w-[160px] ${alignClass}`
