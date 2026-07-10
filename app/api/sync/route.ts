@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { snapshotBackup } from "@/lib/backup";
-import { deleteEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
+import { deleteEvents, fetchEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { blockEventIds } from "@/lib/block-events";
+import { reconcileInboundMoves } from "@/lib/calendar-mirror";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
@@ -277,7 +278,7 @@ export async function POST(req: Request) {
     // Morning-check log read once here and reused for the snapshot below (CS-6 — previously read twice).
     const morningChecks = await readMorningChecks();
     {
-      const block = await readCurrentBlock();
+      let block = await readCurrentBlock();
       const blockHistory = await readBlockHistory();
       const blockStarts = [block?.startDate, ...blockHistory.map((h) => h.startDate)].filter(
         (d): d is string => !!d
@@ -414,6 +415,31 @@ export async function POST(req: Request) {
         const rec = loadingLog.entries.find((l) => l.rideDate === date);
         return rec ? { loaded: rec.response === "loaded", targetG: rec.targetG } : null;
       };
+
+      // §7 inbound: the athlete may have moved NodeVelo events on the Intervals.icu calendar (the head
+      // unit's source of truth). Reconcile date moves into the local block BEFORE scoring, so this
+      // sync's planned-day matching sees the same calendar the athlete rode from. Best-effort — a
+      // calendar hiccup must never fail the sync. Note: this does NOT retroactively update the
+      // birth-adherence `plannedByDate` map built earlier in this block (lines 306-315) — that map is a
+      // separate, already-existing best-effort enhancement scoped to PAST dates; buildRideScores below
+      // is the consumer this task cares about, and it sees the reconciled `block` directly.
+      if (block) {
+        try {
+          const calendarEvents = await fetchEvents(block.startDate, block.endDate);
+          const rec = reconcileInboundMoves(block, calendarEvents, today);
+          if (rec) {
+            if (rec.applied.length > 0) {
+              block = { ...block, days: rec.days };
+              await writeCurrentBlock(block);
+              warnings.push(...rec.applied.map((m) => `Calendar move applied: ${m.from} → ${m.to} (from Intervals.icu).`));
+            }
+            warnings.push(...rec.warnings);
+          }
+        } catch (e) {
+          logWarn("/api/sync", "calendar-reconcile", e instanceof Error ? e.message : String(e));
+          warnings.push("Intervals.icu calendar check skipped (fetch failed) — plan/calendar may be out of step until the next sync.");
+        }
+      }
 
       const fresh = buildRideScores(
         block,

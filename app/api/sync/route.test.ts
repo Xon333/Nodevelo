@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import type { ActivitySummary, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
+import type { ActivitySummary, CurrentBlock, IntervalsCalendarEvent, RideScoreEntry, SyncData } from "@/lib/types";
 
 // Route tests for /api/sync (SUB-3): the 500-line orchestrator guarding the immutable ledger.
 // Network (intervals-api) + fs (data-store, physiology) are mocked at the module boundary; the
@@ -19,6 +19,7 @@ vi.mock("@/lib/intervals-api", async (orig) => {
     fetchPowerStream: vi.fn(async () => []),
     fetchHrStream: vi.fn(async () => []),
     deleteEvents: vi.fn(async () => ({ deleted: [], failed: [] })),
+    fetchEvents: vi.fn(async () => []),
   };
 });
 vi.mock("@/lib/anthropic-api", async (orig) => {
@@ -170,6 +171,7 @@ beforeEach(() => {
   vi.mocked(api.fetchPowerStream).mockResolvedValue([]);
   vi.mocked(api.fetchHrStream).mockResolvedValue([]);
   vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [], failed: [] });
+  vi.mocked(api.fetchEvents).mockResolvedValue([]);
   vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(false);
   vi.mocked(phys.readPhysiology).mockResolvedValue(null);
   vi.mocked(phys.readPowerZones).mockResolvedValue([]);
@@ -420,6 +422,82 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     const res = await postSync();
     expect(res.status).toBe(200);
     expect((await res.json()).warnings.some((w: string) => /Intervention validation failed: corrupt log/.test(w))).toBe(true);
+  });
+});
+
+describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
+  // A future planned day (tomorrow) the athlete moved onto TODAY's rest slot on the Intervals.icu
+  // calendar. Both source and destination must be today-or-future for reconcileInboundMoves to touch
+  // them (its own future-only gating) — landing the move ON today (rather than further out) also lets
+  // buildRideScores' own `act.date > today` gate see the moved-in ride and score it, proving (c).
+  // Drives the REAL reconcileInboundMoves logic (not mocked) through a mocked fetchEvents — genuine
+  // coverage of the wiring, per lib/calendar-mirror.ts.
+  const TOMORROW = "2026-06-23";
+  const movedDay = {
+    date: TOMORROW,
+    name: "Threshold 3x12",
+    type: "Threshold" as const,
+    durationMin: 75,
+    eventId: 41,
+    workoutText: "Main Set 3x\n- 12m 95%",
+  };
+  const restDay = { date: TODAY, name: "Rest", type: "Rest" as const, durationMin: 0 };
+  const mkEvent = (over: Partial<IntervalsCalendarEvent> & { date: string }): IntervalsCalendarEvent => ({
+    id: null,
+    uid: null,
+    name: "Ride",
+    description: "",
+    category: "WORKOUT",
+    type: "Ride",
+    ...over,
+  });
+
+  it("relocates a day the athlete moved on the calendar, persists it, warns, and scores against the new date", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [movedDay, restDay] }));
+    vi.mocked(api.fetchEvents).mockResolvedValue([mkEvent({ date: TODAY, id: 41 })]); // event 41 now sits on TODAY
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a-today" })] })); // rides TODAY
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+
+    // (a) block persisted with the day relocated
+    const written = vi.mocked(store.writeCurrentBlock).mock.calls.at(-1)![0] as CurrentBlock;
+    expect(written.days.find((d) => d.date === TODAY)).toMatchObject({
+      name: "Threshold 3x12",
+      type: "Threshold",
+      durationMin: 75,
+      eventId: 41,
+    });
+    expect(written.days.find((d) => d.date === TOMORROW)?.type).toBe("Rest");
+
+    // (b) response warnings include a "Calendar move applied" line
+    expect(json.warnings.some((w: string) => new RegExp(`Calendar move applied: ${TOMORROW} → ${TODAY}`).test(w))).toBe(true);
+
+    // (c) scoring runs against the NEW date, not the vacated old one
+    const entry = scoreEntries.find((e) => e.date === TODAY);
+    expect(entry).toBeDefined();
+    expect(entry?.planned).toBe(true);
+    expect(scoreEntries.find((e) => e.date === TOMORROW)).toBeUndefined();
+  });
+
+  it("survives a fetchEvents rejection: sync still succeeds with a calendar-check-skipped warning", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [movedDay, restDay] }));
+    vi.mocked(api.fetchEvents).mockRejectedValueOnce(new Error("upstream 500"));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.warnings.some((w: string) => /calendar check skipped/i.test(w))).toBe(true);
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the block when the calendar agrees with the plan (no moves, no warnings)", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [movedDay, restDay] }));
+    vi.mocked(api.fetchEvents).mockResolvedValue([mkEvent({ date: TOMORROW, id: 41 })]); // unmoved
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+    expect(json.warnings.some((w: string) => /Calendar move applied/.test(w))).toBe(false);
   });
 });
 
