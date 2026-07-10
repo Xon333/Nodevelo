@@ -66,6 +66,24 @@ describe("buildMovePayloads", () => {
     expect(out).toHaveLength(1);
     expect(out[0].payload.name).toBe("Recovery (downgraded from VO2max)");
   });
+
+  it("a destination date in the past is never emitted (immutable history, same as a vacated source)", () => {
+    const pastDays = [
+      day({ date: "2026-07-10", name: "Threshold 2x20", type: "Threshold", durationMin: 75 }), // destination, but in the past
+      day({ date: "2026-07-16", name: "Rest", type: "Rest", durationMin: 0 }), // vacated source, future
+    ];
+    const out = buildMovePayloads(pastDays, [{ from: "2026-07-16", to: "2026-07-10" }], new Map(), "2026-07-13");
+    expect(out.map((o) => o.date)).not.toContain("2026-07-10");
+  });
+
+  it("a vacated source with real workoutText keeps it alongside the reschedule boilerplate", () => {
+    const withText = [
+      day({ date: "2026-07-14", name: "Recovery (downgraded from VO2max)", type: "Recovery", durationMin: 45, workoutText: "- 30m Z1 spin" }),
+    ];
+    const out = buildMovePayloads(withText, [{ from: "2026-07-14", to: null }], new Map(), "2026-07-13");
+    expect(out[0].payload.description).toContain("- 30m Z1 spin");
+    expect(out[0].payload.description).toContain("Rescheduled by NodeVelo — see the moved session.");
+  });
 });
 
 describe("reconcileInboundMoves", () => {

@@ -59,12 +59,17 @@ export function buildMovePayloads(
     if (!d) continue;
     const sourceOfContent = destinationSource.get(date);
     if (sourceOfContent) {
+      if (date < today) continue; // a destination in the past is immutable, same as a vacated source
       // Destination: carry the moved workout's original description (intent + nutrition text).
       const oldEvent = eventByDate.get(sourceOfContent);
       out.push({ date, payload: dayToEventPayload(d, oldEvent?.description ?? "") });
     } else if (date >= today) {
-      // Vacated source, still in the future → its event becomes what the day now is.
-      out.push({ date, payload: dayToEventPayload(d, `Rescheduled by NodeVelo — see the moved session.`) });
+      // Vacated source, still in the future → its event becomes what the day now is. Preserve any real
+      // workout text (e.g. a downgraded-but-not-Rest day) alongside the boilerplate rather than losing it.
+      const description = [d.workoutText?.trim() ?? "", "Rescheduled by NodeVelo — see the moved session."]
+        .filter(Boolean)
+        .join("\n\n");
+      out.push({ date, payload: dayToEventPayload(d, description) });
     } // past vacated source: leave the calendar marker as history
   }
   return out;
