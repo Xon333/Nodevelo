@@ -54,7 +54,7 @@ Five design decisions define the whole app — everything else follows from them
 | [todo.md](todo.md) | Lean live punch-list for incoming bugs / feedback |
 | [DESIGN.md](DESIGN.md) | Design source of truth — tokens, type ladder, per-page hierarchy |
 | [UX-CONSTITUTION.md](UX-CONSTITUTION.md) | UX decision rules (verdict hierarchy, trust/provenance, disclosure limits) — governs UX-MASTERPLAN.md |
-| [UX-MASTERPLAN.md](UX-MASTERPLAN.md) | Evidence-ranked UX audit + backlog, sequenced into waves |
+| [UX-MASTERPLAN.md](UX-MASTERPLAN.md) | Evidence-ranked UX audit + backlog, sequenced into waves (all 5 waves shipped) |
 | `AGENTS.md` · `CLAUDE.md` | Operating constraints for AI coding agents |
 | [WORKFLOW.md](WORKFLOW.md) | Personal cheat sheet — daily commands, session workflow |
 | `CONTINUE.md` | Session-handoff note — written only via `/handoff`, read to resume; may lag reality between handoffs |
@@ -470,13 +470,13 @@ deliberate cornering practice.
 
 | Page | Purpose |
 |---|---|
-| `/today` (default) | Fused athlete-state + readiness tiles (CTL/ATL/TSB, ACWR, polarization), proactive morning check-in, today's session & fuel, smoothed power trace, PR trophy banner, trend pulse, coach note, ask-coach spot-check, a block-completion nudge once the active block's dates have passed |
-| `/plan` | Active block calendar, collapsible block generator (season-aware length/goal pre-fill + a season-context readout) + preview, goals vs. this week, history |
-| `/trends` | Last-7-day snapshot, learned insights, paired graphs (Pw:HR ‖ CTL, execution ‖ compliance), fueling & weight, block history |
-| `/profile` | Synced performance (FTP, threshold/max HR), all-time PRs, an add/edit/delete goals & weakpoints form, season objective + target events, nutrition settings |
-| `/knowledge` | In-place markdown editor for the knowledge base + retrospectives |
-| `/settings` | Volume/structure knobs, training philosophy, platform toggles |
-| `/model` | What the second brain knows and why: state drivers, standing coaching directives + track record, per-athlete calibration (with a contest/correct manual override) |
+| `/today` (default) | Auto-switches on whether a synced ride matches today's local date — never an athlete-picked tab. **Pre-ride:** readiness verdict + a promoted session-prescription card (name/type/duration/full prescription) + inline morning check-in. **Post-ride:** compressed one-line verdict strip + a debrief hero (execution score, planned-vs-actual, IF/NP/avg, a ≤3-sentence coach takeaway with the full note behind a disclosure) + an "Eat today" fuel card. TrendPulse and the old viewport-lock scrolling are gone; the page scrolls naturally |
+| `/plan` | Active-block hero: week orientation (week N of M + a volume-derived week "character," honestly disclosed as not real per-week periodization) + an in-hero week strip (hours vs. target · load · top session, replacing the old standalone "This week" panel) + a "next session" pointer — alongside the calendar, collapsible block generator, and season card |
+| `/trends` | Verdict-first: fold-1 is a one-sentence three-axis verdict (engine/delivery/fueling, each with a derivation tip) + ranked coach insights. Below it, four named groups — ENGINE, DELIVERY (execution bars and planned-vs-actual merged into one toggled card), LOAD & FUEL, MILESTONES — replace the old flat pile of 9 equal sections |
+| `/profile` | Read-first dossier: the rider read (power curve/phenotype/current-performance/synced weight), zones & effort bands, goals & weakpoints, nutrition formula. Goals and nutrition show a compact read view with the edit form behind an inline disclosure, never visible until opened. Season objective/events moved to `/plan` |
+| `/model` | Three stacked groups: NOW (fused-state ranked drivers as signed magnitude bars), LEARNED (per-athlete calibration, one card per parameter with provenance/confidence/contest-correct override), STANDING GUIDANCE (directives rendered from their structured source, grouped by dimension, evidence behind a "why" disclosure, validated/proven-poor track marks) — replacing the old single synthesized text blob |
+| `/settings` | Two labeled groups: GENERATION (weekly volume targets, weekly structure, training philosophy) and PLATFORM (platform behavior toggles, AI usage & cost, backup & restore) — platform behavior no longer mis-grouped under GENERATION |
+| `/knowledge` | In-place markdown editor for the knowledge base + retrospectives, now with a one-line always-visible provenance header above the file list (which files feed generation vs. reference-only vs. manual vs. seed) |
 
 | Route | Method | Role |
 |---|---|---|
@@ -532,6 +532,7 @@ deliberate cornering practice.
 | `session-requirements.ts` | Goal/weakpoint → required session types (terrain/race ⇒ RaceSim), injected + validated (Track B) |
 | `durability.ts` | Durability template taxonomy (A–E) + deterministic, limiter-driven/rotated selection (Track B) |
 | `season.ts` | Macro-periodization engine (see "Season & macro-periodization" above): `replanSeasonArc`, `currentPeriod`/`formatSeasonContext`, `suggestedBlockWeeks`, `filterGoalsByFocus` |
+| `plan-week-character.ts` | Derives the Plan hero's volume-derived per-week character label (no per-week phase exists in the data model) |
 | `zones.ts` | Re-bucket power/HR streams into the athlete's own zones |
 | `ride-analysis.ts` | Build today's analysis from a synced activity — metrics, IF, execution, trace (pure; route does IO) |
 | `sync-analysis.ts` | The single LLM step of a sync (coach note), split out so `/api/sync` returns the deterministic analysis fast |
@@ -539,7 +540,9 @@ deliberate cornering practice.
 | `loading.ts` | Pre-ride loading loop: target, prompt, power-only effect assessment (Track C) |
 | `kb-loader.ts` | Knowledge-base + retrospective IO and parsing |
 | `trends.ts` | Trends time-series transforms (outdoor-only Pw:HR, complete-week energy) |
+| `trends-verdict.ts` | Derives Trends' fold-1 three-axis verdict (engine/delivery/fueling) from existing signals |
 | `trace.ts` | Downsampled + 30s-smoothed ride streams + interval bands for the power chart |
+| `text.ts` | `splitLeadSentences`: truncates the Today coach note to its lead sentences (≤3-sentence-visible rule) |
 
 ---
 
@@ -568,7 +571,7 @@ day-before) plus athlete attribution; delivery-grade outcome (power-only), no HR
 ## Development
 
 ```bash
-npm test       # vitest (830+ tests across 69 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, planned-vs-actual, fuel-prompt, …)
+npm test       # vitest (877 tests across 74 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, planned-vs-actual, fuel-prompt, trends verdict, week-character derivation, …)
 npm run lint
 npm run build
 ```
