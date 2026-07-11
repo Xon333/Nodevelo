@@ -86,10 +86,10 @@ describe("efSeries (TRENDS-1)", () => {
 describe("hrrcSeries", () => {
   it("returns outdoor rides with a non-null HRRc, sorted by date", () => {
     const activities = [
-      { date: "2026-06-20", type: "Ride", hrrc: 22 } as any,
-      { date: "2026-06-10", type: "Ride", hrrc: 30 } as any,
-      { date: "2026-06-15", type: "Ride", hrrc: null } as any, // no qualifying effort
-      { date: "2026-06-18", type: "VirtualRide", hrrc: 25 } as any, // indoor — excluded
+      act({ date: "2026-06-20", type: "Ride", hrrc: 22 }),
+      act({ date: "2026-06-10", type: "Ride", hrrc: 30 }),
+      act({ date: "2026-06-15", type: "Ride", hrrc: null }), // no qualifying effort
+      act({ date: "2026-06-18", type: "VirtualRide", hrrc: 25 }), // indoor — excluded
     ];
     const series = hrrcSeries(activities);
     expect(series).toEqual([
