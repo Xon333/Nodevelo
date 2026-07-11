@@ -12,12 +12,11 @@ const FOCUS_COLOR: Record<SeasonFocus, string> = {
 };
 
 // Season roadmap stepper for /plan (MACRO-UI, Task 10): a compact strip of done/current/upcoming
-// focus-period cards plus a flag for the next upcoming event. Withholds entirely (no error UI) when
-// there's no season plan yet or it has zero periods — mirrors this codebase's other best-effort tiles.
+// focus-period cards plus a flag for the next upcoming event. Shows a 3-step teaching stub when
+// there's no season plan yet or it has zero periods; a fetch failure renders visibly (LoadFailed).
 export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
   const [plan, setPlan] = useState<SeasonPlan | null>(null);
   const [failed, setFailed] = useState(false);
-  // No plan / zero periods stays silent (absence); a fetch failure renders visibly (S1-3).
   const load = useCallback(async () => {
     try {
       const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
