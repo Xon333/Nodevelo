@@ -81,6 +81,16 @@ describe("deriveTrendsVerdict — the word", () => {
     });
     expect(v.word).toBe("Mixed");
   });
+  it("steady engine + steady delivery + fueling down is Holding, not Mixed — no axis actually disagrees", () => {
+    // (10500 − 3500) / 7 / 70 = 14.3 → low → fueling down. Engine and delivery both flat: nothing is
+    // in tension, so this should NOT read "Mixed" just because the net score dips slightly negative.
+    const v = deriveTrendsVerdict({
+      ctl: [], ef: pts(1.2, 1.2, 1.2, 1.2),
+      scores: scores(7, 7, 7, 7, 7, 7),
+      energy: [week(10500, 3500, 70)],
+    });
+    expect(v.word).toBe("Holding");
+  });
   it("no verdict at all without an engine or delivery read", () => {
     const v = deriveTrendsVerdict({ ctl: pts(50), ef: [], scores: [], energy: [week(17500, 3500, 70)] });
     expect(v.word).toBeNull();

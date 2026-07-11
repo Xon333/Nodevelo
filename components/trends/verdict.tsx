@@ -13,7 +13,7 @@ import type { TrendsData } from "./types";
 const DIR_CLS: Record<string, string> = {
   up: "text-green-600 dark:text-emerald-400",
   steady: "text-zinc-600 dark:text-zinc-300",
-  down: "text-amber-600 dark:text-amber-400",
+  down: "text-red-600 dark:text-red-400",
 };
 
 const WORD_CLS: Record<string, string> = {

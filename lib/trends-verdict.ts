@@ -107,6 +107,17 @@ export function deriveTrendsVerdict(input: {
   if (engineDir === null && deliveryDir === null) return { word: null, axes };
   const val = (d: AxisDir | null) => (d === "up" ? 1 : d === "down" ? -1 : 0);
   const score = 2 * val(engineDir) + val(deliveryDir) + (fuelingDir === "down" ? -1 : 0);
-  const word = score >= 2 ? "Improving" : score >= 0 ? "Holding" : score >= -2 ? "Mixed" : "Slipping";
+  // "Mixed" means genuine tension — the two real trend axes (engine, delivery) pointing opposite
+  // ways — not just a middling net score. Fueling can only ever drag the score down, so on its own
+  // it should never turn a flat picture into "Mixed"; magnitude alone decides Improving/Slipping.
+  const disagreement =
+    (engineDir === "up" && deliveryDir === "down") || (engineDir === "down" && deliveryDir === "up");
+  const word = disagreement
+    ? "Mixed"
+    : score >= 2
+      ? "Improving"
+      : score >= -2
+        ? "Holding"
+        : "Slipping";
   return { word, axes };
 }
