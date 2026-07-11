@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { efSeries, mondayOf, weeklyEnergy } from "./trends";
+import { efSeries, latestWeeklyBalance, mondayOf, weeklyEnergy } from "./trends";
 import type { ActivitySummary, WellnessEntry } from "./types";
 
 const act = (over: Partial<ActivitySummary>): ActivitySummary => ({
@@ -114,7 +114,65 @@ describe("weeklyEnergy (TRENDS-2)", () => {
       today
     );
     expect(out).toHaveLength(1);
-    expect(out[0]).toEqual({ date: "2026-06-01", burnKcal: 1200, intakeKcal: 6300, weightKg: 71 });
+    expect(out[0]).toEqual({
+      date: "2026-06-01",
+      burnKcal: 1200,
+      intakeKcal: 6300,
+      weightKg: 71,
+      needKcal: null,
+      ratio: null,
+      loggedDays: 0,
+    });
+  });
+});
+
+describe("weeklyEnergy balance columns", () => {
+  const settings = { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 70 };
+  // Week Mon 2026-06-22 … Sun 2026-06-28; today Wed 2026-07-01 → that week is complete.
+  const wellness = [
+    // 5 logged-intake days (2500 each), 2 unlogged (null)
+    { date: "2026-06-22", kcalConsumed: 2500 }, // rest day
+    { date: "2026-06-23", kcalConsumed: 2500 }, // ride day (1000 kJ)
+    { date: "2026-06-24", kcalConsumed: null },
+    { date: "2026-06-25", kcalConsumed: 2500 }, // rest day
+    { date: "2026-06-26", kcalConsumed: 2500 }, // ride day (1500 kJ)
+    { date: "2026-06-27", kcalConsumed: null }, // ride day 800 kJ — UNLOGGED, must not enter need
+    { date: "2026-06-28", kcalConsumed: 2500 }, // rest day
+  ].map((w) => well(w));
+  const activities = [
+    { date: "2026-06-23", kj: 1000 },
+    { date: "2026-06-26", kj: 1500 },
+    { date: "2026-06-27", kj: 800 },
+  ].map((a) => act(a));
+
+  it("computes need day-matched to logged-intake days and the ratio", () => {
+    const [week] = weeklyEnergy(activities, wellness, "2026-07-01", settings);
+    // need = 3 rest days × 2600 + (2000+1000+300) + (2000+1500+300) = 7800 + 3300 + 3800 = 14900
+    expect(week.needKcal).toBe(14900);
+    expect(week.loggedDays).toBe(5);
+    // intake = 5 × 2500 = 12500 → ratio 12500/14900 = 0.8389… → 0.84
+    expect(week.ratio).toBe(0.84);
+  });
+
+  it("withholds the ratio below 4 logged days and without settings", () => {
+    const thin = wellness.map((w, i) => (i > 2 ? { ...w, kcalConsumed: null } : w)); // 2 logged
+    expect(weeklyEnergy(activities, thin, "2026-07-01", settings)[0].ratio).toBeNull();
+    expect(weeklyEnergy(activities, wellness, "2026-07-01")[0].ratio).toBeNull();
+  });
+});
+
+describe("latestWeeklyBalance", () => {
+  it("returns the immediately-prior complete week only", () => {
+    const pts = [
+      { date: "2026-06-15", burnKcal: 1, intakeKcal: 1, weightKg: null, needKcal: 14000, ratio: 0.95, loggedDays: 6 },
+      { date: "2026-06-22", burnKcal: 1, intakeKcal: 12500, weightKg: null, needKcal: 14900, ratio: 0.84, loggedDays: 5 },
+    ];
+    expect(latestWeeklyBalance(pts, "2026-07-01")).toEqual({
+      weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84, loggedDays: 5,
+    });
+    // Prior week under-logged (ratio null) → withheld, NOT the older week substituted
+    const gap = [pts[0], { ...pts[1], ratio: null }];
+    expect(latestWeeklyBalance(gap, "2026-07-01")).toBeNull();
   });
 });
 

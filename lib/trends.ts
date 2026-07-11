@@ -1,7 +1,7 @@
 // Pure transforms for the Trends page's time-series. Extracted from the route so the
 // data-quality rules (which rides count, which weeks show) are deterministic + unit-testable.
 
-import type { ActivitySummary, WellnessEntry } from "./types";
+import type { ActivitySummary, NutritionSettings, WellnessEntry } from "./types";
 
 // Monday (UTC) of the ISO week containing `dateStr`, as YYYY-MM-DD.
 export function mondayOf(dateStr: string): string {
@@ -59,6 +59,22 @@ export interface WeeklyEnergyPoint {
   burnKcal: number | null;
   intakeKcal: number | null;
   weightKg: number | null;
+  // §6 energy balance — filled only when nutrition settings are supplied AND the week has enough
+  // logged-intake days. Need is DAY-MATCHED: summed only over days whose intake was logged, so
+  // under-logging withholds the ratio instead of faking a deficit.
+  needKcal: number | null;
+  ratio: number | null; // intakeKcal / needKcal, 2 dp
+  loggedDays: number;
+}
+
+export const MIN_LOGGED_DAYS_FOR_BALANCE = 4; // a weekly verdict needs most of the week logged
+
+export interface WeeklyEnergyBalance {
+  weekOf: string;
+  intakeKcal: number;
+  needKcal: number;
+  ratio: number;
+  loggedDays: number;
 }
 
 // Energy balance & weight aggregated by week (Monday-anchored): total ride burn (≈kJ) and total
@@ -68,14 +84,22 @@ export interface WeeklyEnergyPoint {
 export function weeklyEnergy(
   activities: ActivitySummary[],
   wellness: WellnessEntry[],
-  today: string
+  today: string,
+  settings?: NutritionSettings | null
 ): WeeklyEnergyPoint[] {
   const currentMonday = mondayOf(today);
-  const wk = new Map<string, { burn: number; burnN: number; intake: number; intakeN: number; weights: number[] }>();
+  // Burn for the NEED formula counts every activity carrying kJ (same convention as the EA proxy —
+  // a strength session costs energy too); the chart's burn series stays rides-only as before.
+  const needBurnByDate = new Map<string, number>();
+  for (const a of activities) {
+    if (a.kj === null) continue;
+    needBurnByDate.set(a.date, (needBurnByDate.get(a.date) ?? 0) + a.kj);
+  }
+  const wk = new Map<string, { burn: number; burnN: number; intake: number; intakeN: number; weights: number[]; need: number; logged: number }>();
   const getW = (monday: string) => {
     let e = wk.get(monday);
     if (!e) {
-      e = { burn: 0, burnN: 0, intake: 0, intakeN: 0, weights: [] };
+      e = { burn: 0, burnN: 0, intake: 0, intakeN: 0, weights: [], need: 0, logged: 0 };
       wk.set(monday, e);
     }
     return e;
@@ -89,19 +113,43 @@ export function weeklyEnergy(
   }
   for (const w of wellness) {
     const e = getW(mondayOf(w.date));
-    if (w.kcalConsumed !== null) {
+    if (w.kcalConsumed !== null && w.kcalConsumed > 0) {
       e.intake += w.kcalConsumed;
       e.intakeN += 1;
+      // Day-matched need: the app's own daily-target formula for THIS day. Flat config buffer — the
+      // live formula's weight-trend adjustment is a *current* steering signal, unknowable for past
+      // weeks; ±150 kcal/day noise is inside the bands' coarseness.
+      if (settings) {
+        const dayBurn = needBurnByDate.get(w.date) ?? 0;
+        e.need += dayBurn > 0 ? settings.baseCalories + dayBurn + settings.buffer : settings.restDayTarget;
+        e.logged += 1;
+      }
     }
     if (w.weightKg !== null) e.weights.push(w.weightKg);
   }
   return [...wk.entries()]
     .filter(([date]) => date < currentMonday) // complete weeks only
-    .map(([date, e]) => ({
-      date,
-      burnKcal: e.burnN > 0 ? Math.round(e.burn) : null,
-      intakeKcal: e.intakeN > 0 ? Math.round(e.intake) : null,
-      weightKg: e.weights.length > 0 ? Math.round(median(e.weights) * 10) / 10 : null,
-    }))
+    .map(([date, e]) => {
+      const hasBalance = settings != null && e.logged >= MIN_LOGGED_DAYS_FOR_BALANCE && e.need > 0;
+      return {
+        date,
+        burnKcal: e.burnN > 0 ? Math.round(e.burn) : null,
+        intakeKcal: e.intakeN > 0 ? Math.round(e.intake) : null,
+        weightKg: e.weights.length > 0 ? Math.round(median(e.weights) * 10) / 10 : null,
+        needKcal: hasBalance ? Math.round(e.need) : null,
+        ratio: hasBalance ? Math.round((e.intake / e.need) * 100) / 100 : null,
+        loggedDays: e.logged,
+      };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// The snapshot's slot wants exactly ONE honest number: the week that just closed. An older week is
+// stale coaching context, so a missing/under-logged prior week withholds (null) rather than substitutes.
+export function latestWeeklyBalance(points: WeeklyEnergyPoint[], today: string): WeeklyEnergyBalance | null {
+  const priorMonday = new Date(Date.parse(mondayOf(today)) - 7 * 86_400_000).toISOString().slice(0, 10); // pure day math
+  const p = points.find((x) => x.date === priorMonday);
+  return p && p.ratio !== null && p.needKcal !== null && p.intakeKcal !== null
+    ? { weekOf: p.date, intakeKcal: p.intakeKcal, needKcal: p.needKcal, ratio: p.ratio, loggedDays: p.loggedDays }
+    : null;
 }
