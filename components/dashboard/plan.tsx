@@ -314,7 +314,7 @@ function BlockCalendar({
                           {day.date}
                         </p>
                         {eligible && pinned && (
-                          <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-700">
+                          <div className="mt-2 flex flex-col gap-1 border-t border-zinc-100 pt-2 dark:border-zinc-700">
                             <MoveDay date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
                             <SwapDay date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
                           </div>
