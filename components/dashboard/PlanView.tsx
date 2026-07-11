@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, nextMonday } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks } from "@/lib/season";
+import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks, FOCUS_LABELS } from "@/lib/season";
 import type { BlockHistoryEntry, CurrentBlock, GeneratedPlan, SeasonPlan, WriteResult } from "@/lib/types";
 import { useSync } from "../SyncProvider";
 import PlanPreview from "../PlanPreview";
@@ -31,6 +31,8 @@ export default function PlanView() {
   const [weakpointsText, setWeakpointsText] = useState("");
   const [startDate, setStartDate] = useState(nextMonday());
   const [seasonReadout, setSeasonReadout] = useState<string | null>(null);
+  const [focusLabel, setFocusLabel] = useState<string | null>(null);
+  const [goalCount, setGoalCount] = useState(0);
   // Bumped after a successful Season save so the roadmap strip and generator context re-fetch
   // instead of going stale until reload (UX v2 W1 review, Finding 1).
   const [seasonVersion, setSeasonVersion] = useState(0);
@@ -108,15 +110,23 @@ export default function PlanView() {
       if (period) {
         setLengthWeeks(suggestedBlockWeeks(period, today));
         setSeasonReadout(formatSeasonContext(plan, today));
+        setFocusLabel(FOCUS_LABELS[period.focus]);
         if (rawGoals.length > 0) {
           const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, period.focus);
+          setGoalCount(filtered.length);
           setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
         }
-      } else if (rawGoals.length > 0) {
-        setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+      } else {
+        // No current period — nothing to target, so the generator's context line stays hidden.
+        setFocusLabel(null);
+        if (rawGoals.length > 0) {
+          setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+        }
       }
       setSeasonCtxFailed(false);
     } catch {
+      // Failed fetch — same as "no season": don't show a stale target from a prior successful load.
+      setFocusLabel(null);
       setSeasonCtxFailed(true);
     }
   }, [rawGoals]);
@@ -258,6 +268,8 @@ export default function PlanView() {
         anthropicConfigured={state.anthropicConfigured}
         showSyncTip={!state.lastSync && state.configured}
         seasonReadout={seasonReadout}
+        focusLabel={focusLabel}
+        goalCount={goalCount}
       />
 
       {plan && (

@@ -25,6 +25,8 @@ export interface BlockGeneratorProps {
   anthropicConfigured: boolean;
   showSyncTip: boolean; // no cached sync yet but Intervals is configured → nudge to sync first
   seasonReadout: string | null;
+  focusLabel: string | null; // current season phase this block targets (display label), or null (no season)
+  goalCount: number; // how many profile goals are being pulled into this focus
 }
 
 export default function BlockGenerator({
@@ -46,6 +48,8 @@ export default function BlockGenerator({
   anthropicConfigured,
   showSyncTip,
   seasonReadout,
+  focusLabel,
+  goalCount,
 }: BlockGeneratorProps) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
@@ -110,6 +114,14 @@ export default function BlockGenerator({
           {seasonReadout && (
             <p className="mt-3 rounded bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
               {seasonReadout}
+            </p>
+          )}
+          {focusLabel && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+              <span>Targeting</span>
+              <span className="rounded-full bg-[#ff49c8]/10 px-2 py-0.5 font-medium text-[#b8348f] dark:text-[#ff49c8]">{focusLabel}</span>
+              {goalCount > 0 && <span>· pulling {goalCount} goal{goalCount === 1 ? "" : "s"} from your profile</span>}
+              <a href="/profile" className="text-cyan-700 hover:underline dark:text-[#00d4ff]">edit profile →</a>
             </p>
           )}
           <div className="mt-4 grid gap-4 border-t border-zinc-100 pt-4 sm:grid-cols-2 lg:grid-cols-4 dark:border-zinc-700">
