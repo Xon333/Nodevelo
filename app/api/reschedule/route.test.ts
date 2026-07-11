@@ -16,7 +16,7 @@ vi.mock("@/lib/calendar-mirror", () => ({
 
 import * as store from "@/lib/data-store";
 import * as mirror from "@/lib/calendar-mirror";
-import { POST, PUT } from "@/app/api/reschedule/route";
+import { PATCH, POST, PUT } from "@/app/api/reschedule/route";
 import type { CurrentBlock } from "@/lib/types";
 
 const TODAY = "2026-06-20";
@@ -48,6 +48,7 @@ const block = (): CurrentBlock => ({
 
 const postReq = (body: unknown) => new Request("http://t/api/reschedule", { method: "POST", body: JSON.stringify(body) });
 const putReq = (body: unknown) => new Request("http://t/api/reschedule", { method: "PUT", body: JSON.stringify(body) });
+const patchReq = (body: unknown) => new Request("http://t/api/reschedule", { method: "PATCH", body: JSON.stringify(body) });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -124,6 +125,91 @@ describe("PUT /api/reschedule — manual move", () => {
     const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-22", today: TODAY }));
     expect(res.status).toBe(400);
     expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+  });
+});
+
+// The two success-path swap tests use the fixture's only pair of occupied days that BOTH carry an
+// eventId (2026-06-18 ↔ 2026-06-23). 2026-06-18 sits before TODAY, so those tests pass an earlier
+// client `today` — the swap must see both sides as future while still exercising eventId carry-over
+// on both sides of the trade.
+const SWAP_TODAY = "2026-06-17";
+
+describe("PATCH /api/reschedule — swap two occupied sessions", () => {
+  it("trades both days' full content symmetrically and calls the mirror with the swap pair", async () => {
+    const res = await PATCH(patchReq({ from: "2026-06-18", to: "2026-06-23", today: SWAP_TODAY }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+
+    const [calledBlock, calledDays, calledMoves, calledToday] = vi.mocked(mirror.persistMirroredMove).mock.calls[0];
+    expect(calledMoves).toEqual([
+      { from: "2026-06-18", to: "2026-06-23" },
+      { from: "2026-06-23", to: "2026-06-18" },
+    ]);
+    expect(calledToday).toBe(SWAP_TODAY);
+    expect(calledBlock).toEqual(block()); // the original, unmodified block — persistMirroredMove's preMoveDays default relies on this
+
+    // 2026-06-23 now holds what 2026-06-18 used to (VO2 6x3), keeping 2026-06-18's own eventId.
+    const newSix23 = calledDays.find((d) => d.date === "2026-06-23")!;
+    expect(newSix23).toMatchObject({ name: "VO2 6x3", type: "VO2max", durationMin: 70, workoutText: "3x8min VO2", eventId: 111 });
+
+    // 2026-06-18 now holds what 2026-06-23 used to (VO2 5x4), keeping 2026-06-23's own eventId.
+    const newSix18 = calledDays.find((d) => d.date === "2026-06-18")!;
+    expect(newSix18).toMatchObject({ name: "VO2 5x4", type: "VO2max", durationMin: 75, workoutText: "5x4min VO2", eventId: 222 });
+    expect(newSix18.prescription).toEqual([{ reps: 5, durationSec: 240, targetPctFtp: 120, targetWatts: 300, label: "5×4m @ 300W" }]);
+
+    // Neither day becomes Rest.
+    expect(newSix18.type).not.toBe("Rest");
+    expect(newSix23.type).not.toBe("Rest");
+  });
+
+  it("rejects from === to (400)", async () => {
+    const res = await PATCH(patchReq({ from: "2026-06-18", to: "2026-06-18", today: TODAY }));
+    expect(res.status).toBe(400);
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a past `from` or `to` (400)", async () => {
+    const pastFrom = await PATCH(patchReq({ from: "2026-06-19", to: TODAY, today: TODAY }));
+    expect(pastFrom.status).toBe(400);
+    const pastTo = await PATCH(patchReq({ from: "2026-06-22", to: "2026-06-19", today: TODAY }));
+    expect(pastTo.status).toBe(400);
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when either side has no real session (400), naming the day and pointing at Move", async () => {
+    // 2026-06-21 is Rest — no session to swap.
+    const res = await PATCH(patchReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY }));
+    const json = await res.json();
+    expect(res.status).toBe(400);
+    expect(json.error).toContain("2026-06-21");
+    expect(json.error).toContain("Move");
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("rejects from/to not in the current block (400)", async () => {
+    const res = await PATCH(patchReq({ from: "2026-06-18", to: "2099-01-01", today: TODAY }));
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("PATCH mirror failure surfaces without blocking the local swap", () => {
+  it("a rejected mirror call still persists the local swap — 200 with mirrorFailed populated", async () => {
+    vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days, moves) => {
+      const updatedBlock = { ...b, days };
+      await store.writeCurrentBlock(updatedBlock);
+      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])) };
+    });
+
+    const res = await PATCH(patchReq({ from: "2026-06-18", to: "2026-06-23", today: SWAP_TODAY }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.mirrorFailed).toEqual(expect.arrayContaining(["2026-06-18", "2026-06-23"]));
+
+    const written = vi.mocked(store.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
+    expect(written.days.find((d) => d.date === "2026-06-23")).toMatchObject({ name: "VO2 6x3" });
+    expect(written.days.find((d) => d.date === "2026-06-18")).toMatchObject({ name: "VO2 5x4" });
   });
 });
 

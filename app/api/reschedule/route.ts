@@ -91,3 +91,51 @@ export async function PUT(req: Request) {
   const { mirrored, failed: mirrorFailed } = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today);
   return NextResponse.json({ ok: true, mirrored, mirrorFailed });
 }
+
+// PATCH { from, to, today } → SWAP two occupied sessions (§7 follow-on): both days trade their full
+// content, symmetrically. Unlike PUT (move onto a clear rest day), neither side becomes Rest — this
+// is "swap Tuesday's Threshold with Saturday's long ride," not "move X onto empty space." Each day's
+// content carries its OWN eventId to its new date (mirrors PUT's precedent of always stamping the
+// source's eventId onto the destination in the local write) — if the calendar mirror is configured
+// and succeeds, persistMirroredMove overwrites both with the freshly-created events' real ids anyway;
+// this only matters as the value that survives when isIntervalsConfigured() is false.
+export async function PATCH(req: Request) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+  const p = parseBody(body);
+  if (!p) return NextResponse.json({ error: "from and to dates are required." }, { status: 400 });
+
+  const block = await readCurrentBlock();
+  if (!block) return NextResponse.json({ error: "No active block." }, { status: 400 });
+  const fromDay = block.days.find((d) => d.date === p.from);
+  const toDay = block.days.find((d) => d.date === p.to);
+  if (!fromDay || !toDay) return NextResponse.json({ error: "from/to not in the current block." }, { status: 400 });
+  if (p.from === p.to) return NextResponse.json({ error: "from and to must be different days." }, { status: 400 });
+  if (p.from < p.today) return NextResponse.json({ error: "Can't swap a past session." }, { status: 400 });
+  if (p.to < p.today) return NextResponse.json({ error: "Can't swap onto a past day." }, { status: 400 });
+  if (fromDay.durationMin <= 0 || fromDay.type === "Rest") {
+    return NextResponse.json({ error: `${p.from} has no session — use Move instead.` }, { status: 400 });
+  }
+  if (toDay.durationMin <= 0 || toDay.type === "Rest") {
+    return NextResponse.json({ error: `${p.to} has no session — use Move instead.` }, { status: 400 });
+  }
+
+  const { date: _fd, eventId: _fe, ...fromContent } = fromDay;
+  const { date: _td, eventId: _te, ...toContent } = toDay;
+  const days = block.days.map((d) => {
+    if (d.date === p.to) return { date: p.to, ...fromContent, ...(typeof fromDay.eventId === "number" ? { eventId: fromDay.eventId } : {}) };
+    if (d.date === p.from) return { date: p.from, ...toContent, ...(typeof toDay.eventId === "number" ? { eventId: toDay.eventId } : {}) };
+    return d;
+  });
+  const { mirrored, failed: mirrorFailed } = await persistMirroredMove(
+    block,
+    days,
+    [{ from: p.from, to: p.to }, { from: p.to, to: p.from }],
+    p.today
+  );
+  return NextResponse.json({ ok: true, mirrored, mirrorFailed });
+}
