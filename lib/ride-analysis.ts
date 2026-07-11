@@ -4,7 +4,7 @@
 // assembles the TodayAnalysis. Splitting it out makes the hardest part of the sync (execution scoring,
 // compliance capping, advised intake, coach-note preservation) unit-testable without mocking HTTP.
 import { adjustBuffer } from "./nutrition";
-import { computeExecutionScore, resolveCompliance, timeAboveZ2Fraction, type ScoringCalibration } from "./execution-score";
+import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
 import { gradeDurabilityDelivery } from "./durability-score";
 import type {
@@ -131,8 +131,8 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
         ? intervalComparison.effectiveAdherencePct
         : null,
     rpe: activity.rpe,
-    // Easy-ride discipline (Z2/Recovery only) from the route-rebucketed zone times.
-    aboveZ2Frac: timeAboveZ2Fraction(input.powerZoneTimes),
+    // Easy-ride effort judged on HR (terrain-immune), not power-zone time.
+    aboveAerobicHrFrac: timeAboveAerobicHrFraction(input.hrZoneTimes),
     // Off-plan (no planned session today) → score the non-circular aerobic read, matching the ledger.
     intrinsic: plannedDay == null,
     aerobicEffPct: input.aerobicEffPct,

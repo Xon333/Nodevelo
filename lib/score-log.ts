@@ -4,7 +4,7 @@
 // on intrinsic quality (decoupling, pacing) against an inferred type. Each entry records the
 // FTP it used so the immutable ledger never re-shifts when FTP later changes.
 
-import { computeExecutionScore, resolveCompliance, timeAboveZ2Fraction, type ScoringCalibration } from "./execution-score";
+import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, type ScoringCalibration } from "./execution-score";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "./aerobic";
 import { inferWorkoutType } from "./ride-classify";
 import { round1, round2 } from "./stats";
@@ -134,7 +134,7 @@ export function buildRideScores(
         ? round2(act.normalizedPower / act.avgWatts)
         : null;
     // Easy-ride discipline signal (Z2/Recovery only, applied in computeExecutionScore).
-    const aboveZ2Frac = timeAboveZ2Fraction(act.powerZoneTimes);
+    const aboveAerobicHrFrac = timeAboveAerobicHrFraction(act.hrZoneTimes);
     // Context-stamp (ROADMAP #2): the objective form the athlete carried into this date.
     // Spread-ready so an entry stays context-free when no wellness covers the date.
     const ctx = contextForDate?.(act.date) ?? null;
@@ -159,7 +159,7 @@ export function buildRideScores(
         intensityFactor,
         plannedType: planned.type,
         variabilityIndex,
-        aboveZ2Frac,
+        aboveAerobicHrFrac,
         // Interval-target adherence (scoring-core gap): a structural plan/detection mismatch means the
         // duration comparison was untrustworthy, not that the session failed — treat it as no signal
         // (same as no lookup) rather than let a bogus adherence number drive the score.
@@ -212,7 +212,7 @@ export function buildRideScores(
         intensityFactor,
         plannedType: inferredType,
         variabilityIndex,
-        aboveZ2Frac, // gated to prescribed Z2/Recovery in computeExecutionScore — inert here (intrinsic)
+        aboveAerobicHrFrac, // gated to prescribed Z2/Recovery in computeExecutionScore — inert here (intrinsic)
         intrinsic: true,
         // The non-circular aerobic read for off-plan rides: this ride's Z2 Pw:HR vs the athlete's baseline
         // from qualifying rides BEFORE it (no self-reference). Null (too little Z2 / no baseline) → no effect.
