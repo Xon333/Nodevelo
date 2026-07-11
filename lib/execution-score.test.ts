@@ -34,10 +34,12 @@ describe("computeExecutionScore", () => {
   });
 
   it("doesn't penalise above-Z2 time on a durability template that embeds efforts; template A still does (Track B)", () => {
-    const drifted = { ...base, compliancePct: 100, intensityFactor: 0.7, plannedType: "Z2", variabilityIndex: 1.05, aboveZ2Frac: 0.4 };
-    const plainZ2 = computeExecutionScore(drifted)!; // easy-discipline penalty applies
-    expect(computeExecutionScore({ ...drifted, durabilityTemplate: "B" })!).toBeGreaterThan(plainZ2); // B embeds efforts → not penalised
-    expect(computeExecutionScore({ ...drifted, durabilityTemplate: "A" })!).toBe(plainZ2); // A = unbroken Z2 → still penalised
+    // re-baselined: easy-ride effort now HR-judged, power/VI reward-only — aboveZ2Frac is inert; use
+    // aboveAerobicHrFrac (hot) so the HR judge actually has something to gate on.
+    const drifted = { ...base, compliancePct: 100, intensityFactor: 0.7, plannedType: "Z2", variabilityIndex: 1.05, aboveAerobicHrFrac: 0.4 };
+    const plainZ2 = computeExecutionScore(drifted)!; // hot HR read → easy-discipline penalty applies
+    expect(computeExecutionScore({ ...drifted, durabilityTemplate: "B" })!).toBeGreaterThan(plainZ2); // B embeds efforts → HR judge skipped
+    expect(computeExecutionScore({ ...drifted, durabilityTemplate: "A" })!).toBe(plainZ2); // A = unbroken Z2 → still HR-gated
   });
 
   it("applies the durability effort-delivery signal (Track B)", () => {
@@ -207,12 +209,15 @@ describe("computeExecutionScore", () => {
   });
 
   it("clamps the worst case to 1", () => {
+    // re-baselined: easy-ride effort now HR-judged, power/VI reward-only — IF/VI no longer carry a
+    // penalty branch for Z2, so a hot HR read is needed to still reach the score-1 floor.
     const score = computeExecutionScore({
       ...base,
       compliancePct: 30,
       intensityFactor: 1.2,
       plannedType: "Z2",
       variabilityIndex: 1.3,
+      aboveAerobicHrFrac: 0.5, // hot — the only "too hard" judge left for Z2
     });
     expect(score).toBe(1);
   });
@@ -299,25 +304,27 @@ describe("computeExecutionScore — per-type IF-band offset (ROADMAP #2)", () =>
   });
 });
 
-describe("computeExecutionScore — easy-ride discipline (time above the Z2 cap)", () => {
-  // A clean-on-average Z2 ride (IF 0.68); only aboveZ2Frac varies.
-  const z2 = (aboveZ2Frac?: number | null, type = "Z2"): number =>
-    computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.68, plannedType: type, aboveZ2Frac })!;
+describe("computeExecutionScore — easy-ride discipline (HR time above the aerobic ceiling)", () => {
+  // re-baselined: easy-ride effort now HR-judged, power/VI reward-only — this whole block used to drive
+  // the removed power-based aboveZ2Frac penalty ladder; it now drives aboveAerobicHrFrac, the field the
+  // scorer actually reads (dialed ≤0.10 → +1, drift ≤0.25 → 0, hot >0.25 → −4).
+  // A clean-on-average Z2 ride (IF 0.68); only aboveAerobicHrFrac varies.
+  const z2 = (aboveAerobicHrFrac?: number | null, type = "Z2"): number =>
+    computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.68, plannedType: type, aboveAerobicHrFrac })!;
 
-  it("is inert when zone data is absent — scoring is unchanged", () => {
-    const baseline = z2(); // no aboveZ2Frac at all
+  it("is inert when HR-zone data is absent — scoring is unchanged", () => {
+    const baseline = z2(); // no aboveAerobicHrFrac at all
     expect(z2(null)).toBe(baseline);
     expect(z2(undefined)).toBe(baseline);
   });
 
-  it("rewards a dialed-in easy ride and grades down as it drifts above zone", () => {
-    expect(z2(0.02)).toBeGreaterThan(z2(0.1)); // dialed in > merely fine
-    expect(z2(0.1)).toBeGreaterThan(z2(0.25)); // fine > drifted
-    expect(z2(0.25)).toBeGreaterThan(z2(0.45)); // drifted > blew it
+  it("rewards a dialed-in easy ride and grades down as HR drifts above the aerobic ceiling", () => {
+    expect(z2(0.05)).toBeGreaterThan(z2(0.15)); // dialed (+1) > drift (0)
+    expect(z2(0.15)).toBeGreaterThan(z2(0.30)); // drift (0) > hot (−4)
   });
 
   it("penalises a Z2 ride that hid its spikes behind a clean AVERAGE IF (the whole point)", () => {
-    // Identical textbook 0.68 avg IF; the one that spent 40% above the cap must score lower.
+    // Identical textbook 0.68 avg IF; the one whose HEART sat above the aerobic ceiling must score lower.
     expect(z2(0.4)).toBeLessThan(z2(0.03));
   });
 
@@ -325,14 +332,14 @@ describe("computeExecutionScore — easy-ride discipline (time above the Z2 cap)
     expect(z2(0.4, "Recovery")).toBeLessThan(z2(0.02, "Recovery"));
   });
 
-  it("does not touch non-easy types — a Threshold ride ignores time-above-Z2", () => {
+  it("does not touch non-easy types — a Threshold ride ignores HR time-above-aerobic", () => {
     const args = { ...base, compliancePct: 100, intensityFactor: 0.9, plannedType: "Threshold" };
-    expect(computeExecutionScore({ ...args, aboveZ2Frac: 0.5 })).toBe(computeExecutionScore(args));
+    expect(computeExecutionScore({ ...args, aboveAerobicHrFrac: 0.5 })).toBe(computeExecutionScore(args));
   });
 
   it("does not apply off-plan (intrinsic) — there was no plan to be disciplined against", () => {
     const args = { ...base, intensityFactor: 0.68, plannedType: "Z2", intrinsic: true };
-    expect(computeExecutionScore({ ...args, aboveZ2Frac: 0.5 })).toBe(computeExecutionScore(args));
+    expect(computeExecutionScore({ ...args, aboveAerobicHrFrac: 0.5 })).toBe(computeExecutionScore(args));
   });
 });
 
