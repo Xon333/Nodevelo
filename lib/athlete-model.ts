@@ -139,7 +139,8 @@ export function deriveInsights(model: AthleteModel): Insight[] {
       severity: "alert",
       title: "Execution trending down",
       evidence: `Overall quality ${model.overallExecEwma}/10 and falling.`,
-      suggestion: "Likely accumulated fatigue — insert recovery before adding load.",
+      suggestion:
+        "Execution is drifting down — could be accumulated fatigue, a harder block, or more outdoor riding. Check recovery signals before adding load.",
     });
   }
 

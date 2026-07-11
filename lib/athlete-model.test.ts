@@ -84,4 +84,14 @@ describe("deriveInsights", () => {
     const tooFew = deriveInsights(buildAthleteModel([entry("SIT", 3), entry("SIT", 3)]));
     expect(tooFew.find((i) => i.dimension === "SIT")).toBeUndefined();
   });
+
+  it("flags a downtrending overall execution as a hypothesis, not a diagnosis", () => {
+    day = 0;
+    const scores = [entry("Z2", 8), entry("Z2", 7), entry("Z2", 6), entry("Z2", 5), entry("Z2", 4), entry("Z2", 3)];
+    const insights = deriveInsights(buildAthleteModel(scores));
+    const downtrend = insights.find((i) => i.title === "Execution trending down")!;
+    expect(downtrend.suggestion).toBe(
+      "Execution is drifting down — could be accumulated fatigue, a harder block, or more outdoor riding. Check recovery signals before adding load."
+    );
+  });
 });
