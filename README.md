@@ -558,7 +558,9 @@ deliberate cornering practice.
 `lib/nutrition.ts` deterministically computes daily targets (base + session kJ + buffer; flat
 target on rest days) plus pre/in/post-ride carbs and protein. The buffer self-adjusts ±150 kcal
 against the synced 7-day weight trend (capped 0–600). The AI receives these as a reference table
-and only phrases them in natural language — it never calculates nutrition.
+and only phrases them in natural language — it never calculates nutrition. The weekly
+intake-vs-need ratio (§6) is the same discipline applied to a full week: computed day-matched
+against the app's own prescribed targets, and only ever phrased by the LLM, never calculated by it.
 
 Same pattern extends to logging, not just targets: `lib/fuel-prompt.ts`'s `deriveFuelPrompt()` is a
 pure, unit-tested decision — no LLM, no I/O — that runs once per sync against today's ride. On a

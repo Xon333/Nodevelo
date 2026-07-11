@@ -33,18 +33,6 @@ accrue. The first full turnover is SUB-5, days away.
 
 ---
 
-## Ready to execute — plans already written
-
-One fully-specified `subagent-driven-development` plan exists but hasn't been run. Pick it up once
-SUB-5 clears (or in parallel, if the athlete wants to work ahead) — the design work is done, this
-is "just" execution:
-
-- **`docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`** — computes the precise weekly
-  intake-vs-need ratio (logged kcal vs. the app's own daily targets + ride kJ out) and surfaces it on
-  Trends + `CoachSnapshot.fuel`. Closes `#1`'s last reserved slot (`intakeVsNeed`) — see `§6` below.
-
----
-
 ## Data substrate — turn the loop over ⭐ (audit P1–3)
 
 SUB-1 (block-history durable corpus), SUB-3 (sync/generate route tests), and SUB-4's off-machine
@@ -106,9 +94,9 @@ generate→ride→score verdicts accrue over ~4wk horizons (a usage problem, not
 Track B template-scoring + #2.
 
 ### #1 · CoachSnapshot — fill the reserved slots
-The energy-availability read fills both slots (`fuelingState`, `intakeVsNeed`) → ARCHIVE. Left: the
-*precise* weekly intake-vs-need ratio (kJ-out vs intake) is `§6` energy-balance; a *personalised*
-adequate line is `← Track C`. #1 stays as the cross-ref handle.
+Reserved slots all filled (EA-proxy `fuelingState`/`intakeVsNeed`, then the precise weekly ratio →
+ARCHIVE) → #1 stays as the cross-ref handle; nothing left under it. (The separately-tracked
+*personalised* adequate line is `← Track C` — not one of #1's slots.)
 
 ### #3 · Proactive reschedule — slivers
 Decision thresholds → per-athlete `← #2`; let the **reactive** `RescheduleBanner` adopt the shared
@@ -211,10 +199,10 @@ does not change.
 
 - **6a · Event-aware race planning** ⭐ — structured event (date / A-B-C priority / type) → taper +
   carb-load + race-day timeline. KB already holds the protocol; LLM only phrases it, never invents grams.
-- **§6 · Nutrition energy-balance** — Track C's surfacing layer: weekly kJ-out vs intake →
-  `fuelingState`. Plan written and ready:
-  `docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`. Then precise fluid/sodium/carb
-  targets pre/intra/post by IF + duration — still genuinely later-scoped, out of this plan.
+- **§6 · Nutrition energy-balance** — Track C's surfacing layer. Part (a) shipped: the precise
+  weekly intake-vs-need ratio → `fuelingState` → [ARCHIVE.md](ARCHIVE.md). Remaining open scope:
+  precise fluid/sodium/carb targets pre/intra/post by IF + duration — always out of that plan,
+  still genuinely later-scoped.
 - **§7 · Calendar flexibility — remaining scope** — the in-app rescheduling + bidirectional
   Intervals.icu calendar mirror lean slice shipped 2026-07-10, plus the two-way session swap shipped
   2026-07-11 → [ARCHIVE.md](ARCHIVE.md). Left, deliberately out of scope: **condition-driven

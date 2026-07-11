@@ -161,6 +161,10 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
 - **Deterministic targets** — daily kcal (base + session kJ + buffer; flat on rest days) + pre/in/post
   carbs & protein; buffer self-adjusts ±150 kcal against the 7-day weight trend. The AI only phrases the
   pre-computed table. `lib/nutrition.ts`
+- **Weekly energy balance (§6)** — precise intake-vs-need ratio per complete week (need = the app's
+  own daily-target formula, day-matched to logged days), banded low/adequate/ample; owns the
+  snapshot's `fuelingState` when present (EA proxy is the fallback). Trends readout + CoachSnapshot.
+  `lib/trends.ts`, `lib/nutrition.ts`
 - **Post-ride fuel prompt** — log-nudge on qualifying rides (≥90 min or a Threshold/VO2max/SIT/RaceSim
   day) left unlogged; once calibration is trustworthy, a gap-vs-derived-optimum read instead. Quiet
   Today-card chip + one-line coach-note mention. `lib/fuel-prompt.ts`

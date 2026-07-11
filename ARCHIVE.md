@@ -12,6 +12,41 @@ exact commits.
 
 ---
 
+## Weekly energy-balance surfacing — §6 part (a) / closes #1's last slot (2026-07-08)
+
+Computes the precise weekly intake-vs-need ratio (logged kcal vs. the app's own deterministic daily
+targets + ride kJ out) and surfaces it on Trends and in `CoachSnapshot.fuel` — closing `#1`'s last
+reserved slot. Plan: `docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`.
+
+- **Day-matched need formula** — `weeklyEnergy` (`lib/trends.ts`) sums "need" using the app's own
+  daily-target formula (`baseCalories + ride kJ + buffer` on ride days, `restDayTarget` otherwise)
+  **only over days with logged intake**, so under-logging withholds the ratio instead of faking a
+  deficit. `balanceLevel` (`lib/nutrition.ts`) bands the ratio low/adequate/ample (<0.9 / 0.9–1.05 /
+  >1.05), reusing the existing `EaLevel` vocabulary rather than inventing a new one.
+- **Withholding rules** — a week's ratio only computes with ≥4 logged-intake days
+  (`MIN_LOGGED_DAYS_FOR_BALANCE`); `latestWeeklyBalance` fills the CoachSnapshot slot with the
+  immediately-prior complete week **only** — a missing or under-logged prior week withholds (`null`)
+  rather than substituting an older, stale week.
+- **`fuelingState` precedence** — one verdict, never two disagreeing ones (UX-CONSTITUTION §4
+  discipline): the precise weekly ratio owns `fuelingState` when present; the daily EA proxy
+  (`eaLevel`) remains the fallback band when the weekly ratio is absent (thin data). Documented on
+  `CoachSignals.weeklyBalance` and the `fuel` build site in `lib/coach-snapshot.ts`.
+- **Two surfaces, deliberately different pickers** — the Trends readout (`components/Trends.tsx`,
+  under the fueling & weight chart) shows the **latest available** ratio week (a trends surface:
+  show whatever data exists); the CoachSnapshot prompt line shows specifically the week that **just
+  closed** (a coaching-context slot: a stale week is worse than silence). Both read off the same
+  `weeklyEnergy`/`balanceLevel` computation — never two separate formulas.
+
+**Live verification (2026-07-11):** a real `/api/ask` POST ("How was my fueling last week?") against
+the running app returned: *"Your fueling last week was **adequate but slightly short** — you
+consumed 95% of your estimated need (21,851 vs 23,001 kcal), which is acceptable for a training
+block but leaves minimal margin. Your weight held steady and energy availability sits at a healthy
+~33 kcal/kg, so no immediate concern..."* The cited 21,851 / 23,001 / 95% figures were independently
+confirmed to exactly match the real `/trends` page numbers for the same week — the LLM phrased the
+pre-computed numbers verbatim; it did not invent them.
+
+---
+
 ## In-app rescheduling + bidirectional calendar mirror — §7 lean slice (2026-07-08, shipped 2026-07-10)
 
 Lets the athlete move a planned session in-app and keeps the Intervals.icu calendar in step in
