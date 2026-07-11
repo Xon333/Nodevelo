@@ -457,7 +457,12 @@ export function formatFormFuelLine(s: CoachSnapshot): string | null {
     const t = s.fuel.weightTrend7dKg;
     parts.push(`weight trend 7d ${t > 0 ? "+" : ""}${t.toFixed(1)} kg`);
   }
-  if (s.fuel.fuelingState != null) parts.push(`energy availability ${s.fuel.fuelingState}`);
+  if (s.fuel.fuelingState != null) {
+    // Same precedence rule as formatCoachSnapshot's fuel line: fuelingState's source switches
+    // (weekly ratio > EA proxy), so the label must track whichever actually owns the verdict.
+    const label = s.fuel.weekBalance ? "fueling" : "energy availability";
+    parts.push(`${label} ${s.fuel.fuelingState}`);
+  }
   if (parts.length === 0) return null;
   return `CURRENT FORM & FUEL (resolved — do not invent): ${parts.join(" · ")}.`;
 }

@@ -363,4 +363,15 @@ describe("formatFormFuelLine", () => {
     const empty = buildCoachSnapshot(baseInput({ fitness: null, acwr: null, readiness: null, todayAnalysis: null, weightTrend7dKg: null }));
     expect(formatFormFuelLine(empty)).toBeNull();
   });
+
+  it("labels 'fueling', not 'energy availability', when the weekly ratio owns fuelingState", () => {
+    // Same mislabel bug formatCoachSnapshot's fuel line had (fixed 2026-07-11) — this is the milder
+    // sibling in the /api/generate block-generation line, which had no test on this path.
+    const wb = { weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
+    const line = formatFormFuelLine(
+      buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }))
+    );
+    expect(line).toContain("fueling low");
+    expect(line).not.toContain("energy availability low");
+  });
 });

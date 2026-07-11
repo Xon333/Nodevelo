@@ -86,13 +86,6 @@ the shared `deriveExecutionEdge` engine — all in ARCHIVE). What's left:
   too soft for Recovery specifically in real use.
 - **Power-zone source of truth** — decide: keep zones strictly Intervals.icu vs. a sanctioned local
   override in the calibration framework. (Lean strict-consistency.)
-- **`formatFormFuelLine`'s fuel line has the milder sibling of a fixed mislabel bug** — the
-  `/api/generate` block-generation prompt's fuel line unconditionally says "energy availability X"
-  even when `fuelingState` actually came from the weekly intake-vs-need ratio, not the EA proxy (the
-  same bug `formatCoachSnapshot`'s Ask-Coach fuel line had, fixed 2026-07-11 → ARCHIVE). Milder here
-  — no contradicting kcal/kg figure attached, just the wrong label — and no existing test exercises
-  the weekly-ratio-present path through this specific function. Same fix shape as the one already
-  shipped.
 
 ### #4 · Validation loop → auto-down-weight  (mechanism-complete; dormant until data)
 Both halves shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md) ("Directive demote", "FTP-retest advisory

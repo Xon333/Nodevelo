@@ -12,6 +12,33 @@ exact commits.
 
 ---
 
+## `formatFormFuelLine` mislabel bug closed — block-generation fuel line tracks fuelingState's real source (2026-07-11)
+
+Closed the milder sibling of the `formatCoachSnapshot` fuel-line mislabel bug (fixed earlier the same
+day, see the weekly energy-balance entry further down this file): `formatFormFuelLine`
+(`lib/coach-snapshot.ts`, feeds the `/api/generate` block-generation prompt) unconditionally labeled
+`fuelingState` "energy availability" even when the weekly intake-vs-need ratio, not the EA proxy, was
+the actual source — no contradicting kcal/kg figure attached like the Ask-Coach line had, just the
+wrong word ("energy availability low" when the athlete's own EA band would call the same kcal/kg
+figure adequate).
+
+- **Fix.** Same shape as the already-shipped fix: `label = weekBalance ? "fueling" : "energy
+  availability"`, applied before the `fuelingState` value in the generation prompt line.
+- **Coverage gap closed.** No existing test exercised the weekly-ratio-present path through this
+  specific function (ROADMAP had flagged this) — added one using the same `weekBalance` fixture the
+  sibling `formatCoachSnapshot` tests use.
+- **No live block-generation smoke run.** `/api/generate` unconditionally re-plans and persists
+  `data/season-plan.json` on every call (`replanSeasonArc` → `writeSeasonPlan`) before generating, and
+  the generation call itself takes 1–2 minutes against the larger generation model — both a real
+  mutation of shared live app state and a real cost, disproportionate to verifying a one-word label
+  swap in one line of a much larger, otherwise-unchanged prompt. Verified instead via the new unit
+  test against the real `weekBalance` fixture shape, plus typecheck + the full suite green
+  (951 tests). The sibling label fix already got a live LLM verification on the equivalent text
+  (formatCoachSnapshot → real `/api/ask` call, see below) confirming the LLM handles this label
+  correctly when it appears in a prompt.
+
+---
+
 ## Coach-prompt aerobic-discipline gap closed — `CoachSnapshot.today.execution` reads the HR-judged signal (2026-07-11)
 
 Closed the gap the HR-judged easy-ride discipline rework surfaced but didn't fix (see "HR-judged
@@ -84,8 +111,8 @@ availability" and attached the EA kcal/kg figure — wrong once the weekly ratio
 disagreement case reads self-contradictory, e.g. "energy availability low (~30 kcal/kg)" when the
 app's own EA banding calls 30 kcal/kg adequate). Label now tracks the actual source: "fueling X" with
 no EA figure when the weekly ratio owns it, unchanged "energy availability X (~Y kcal/kg)" otherwise.
-A milder sibling (`formatFormFuelLine`, used by `/api/generate`) has the same label-only mismatch,
-not yet fixed — tracked in ROADMAP.
+A milder sibling (`formatFormFuelLine`, used by `/api/generate`) had the same label-only mismatch —
+fixed same day, see "`formatFormFuelLine` mislabel bug closed" at the top of this file.
 
 ---
 
