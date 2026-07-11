@@ -127,7 +127,7 @@ export default function Trends() {
           {(data.ef.length >= 3 || data.ctl.length >= 3) && (
             <section id="group-engine" className="scroll-mt-4 space-y-3">
               <SectionDivider label="Engine — is the motor getting bigger?" />
-              <div className="grid items-stretch gap-3 lg:grid-cols-2">
+              <div className="grid items-stretch gap-3 lg:grid-cols-2 xl:grid-cols-3">
                 {data.ef.length >= 3 && (
                   <Card className="h-full" title="Pw:HR — power-to-heart-rate" hint={`${data.ef.length} outdoor rides · ≥45 min`}>
                     <div className="mb-1 flex items-center justify-between">
@@ -158,6 +158,29 @@ export default function Trends() {
                       tipTextClass="fill-zinc-800 dark:fill-[#00d4ff]"
                       tipAccentClass="stroke-zinc-300 dark:stroke-[#00d4ff]/40"
                     />
+                  </Card>
+                )}
+                {data.hrrc.length >= 3 && (
+                  <Card className="h-full" title="HRRc — heart-rate recovery" hint={`${data.hrrc.length} hard rides`}>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">context only</span>
+                      <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                        latest {data.hrrc[data.hrrc.length - 1].value.toFixed(0)} bpm
+                      </span>
+                    </div>
+                    <Sparkline
+                      points={data.hrrc}
+                      format={(v) => `${v.toFixed(0)} bpm`}
+                      strokeClass="stroke-teal-400 dark:stroke-teal-300"
+                      dotClass="fill-teal-500 dark:fill-teal-300"
+                      tipTextClass="fill-zinc-800 dark:fill-teal-200"
+                      tipAccentClass="stroke-zinc-300 dark:stroke-teal-400/40"
+                    />
+                    <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      HR drop in the 60s after your hardest effort each ride, on threshold+ days. Deliberately
+                      unscored: rising OR falling can both be normal depending on where you are in a training
+                      block — read the trend alongside how the block is going, not as a verdict on its own.
+                    </p>
                   </Card>
                 )}
               </div>
