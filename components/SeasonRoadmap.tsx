@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { FOCUS_LABELS, roadmapView } from "@/lib/season";
+import { roadmapView } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
 import { LoadFailed, useMountLoad } from "./ui";
 

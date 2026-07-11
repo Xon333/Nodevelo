@@ -124,7 +124,7 @@ export default function Trends() {
             />
           </div>
 
-          {(data.ef.length >= 3 || data.ctl.length >= 3) && (
+          {(data.ef.length >= 3 || data.ctl.length >= 3 || data.hrrc.length >= 3) && (
             <section id="group-engine" className="scroll-mt-4 space-y-3">
               <SectionDivider label="Engine — is the motor getting bigger?" />
               <div className="grid items-stretch gap-3 lg:grid-cols-2 xl:grid-cols-3">
