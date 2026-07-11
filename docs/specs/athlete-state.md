@@ -56,10 +56,15 @@ constants (see below). Positive effect = better state.
 - **acwr** — from `computeAcwr().level`. Optimal → ~0; high → −; danger → −−.
 - **execution** — from `AthleteModel.overallExecEwma` (1–10) + `overallTrend`. Above mid + trending up
   → +; below mid + trending down → −. (How well recent sessions are actually being executed.)
-- **aerobicEff** — latest ride's Z2-isolated Pw:HR (`icu_power_hr_z2`, intervals.icu) vs the athlete's
-  recent baseline, both gated to rides with ≥15 min of Z2. Higher than baseline → + (fresher/fitter);
-  below → − (aerobic strain). Z2-isolated by intervals.icu, so it's clean even on an interval day —
-  no whole-ride-decoupling ride-structure confound. Absent (signal sits out) when no qualifying ride.
+- **aerobicEff** — smoothed Z2-isolated Pw:HR (`icu_power_hr_z2`, intervals.icu): the mean of the last
+  ≤3 qualifying rides in the recency window (never a single ride — a lone qualifying ride sits the signal
+  out entirely) vs the athlete's recent baseline, both gated to rides with ≥15 min of Z2. Higher than
+  baseline → + (fresher/fitter); below → − (aerobic strain). Z2-isolated by intervals.icu, so it's clean
+  even on an interval day — no whole-ride-decoupling ride-structure confound. A flaky, confound-prone
+  metric (heat/hydration/caffeine/sleep), so it carries two separate thresholds: `deadband` (any score
+  effect at all) and the stricter `livedAt` (counts as a "lived" negative below, ≈2× deadband) — a modest
+  dip nudges the score without alone helping trigger the override. Absent (signal sits out) when fewer
+  than 2 qualifying rides are in the recency window.
 - **rpe** — recent mean session RPE vs a longer baseline mean. Higher-than-baseline → −. (Perceived
   cost.)
 - **behaviour** — `AthleteModel.behaviour.offPlanPct`. Light input: very high off-plan drift → small −.
@@ -69,7 +74,8 @@ constants (see below). Positive effect = better state.
 The load model (tsb/acwr) can read "fresh" while the body is wrecked. So: **if ≥2 of the lived signals
 {execution-down, aerobicEff-down, rpe-up} corroborate strongly, cap the score down** (and force
 `band ≤ strained`, `recommendation ≤ soften`) even when tsb/acwr are positive. The ≥2 threshold guards
-against one noisy reading flipping the conclusion.
+against one noisy reading flipping the conclusion. "aerobicEff-down" here means past its stricter
+`livedAt` bar specifically, not merely past `deadband` — see the evaluator note above.
 
 ### Score → band → recommendation
 

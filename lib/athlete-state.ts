@@ -21,7 +21,10 @@ export interface AthleteStateInputs {
   execEwma: number | null; // overall execution EWMA, 1–10
   execTrend: "up" | "down" | "flat" | null;
   execSampleSize: number; // planned-ride sample behind the EWMA
-  aerobicEffLatest: number | null; // latest ride's Z2 Pw:HR (icu_power_hr_z2), if recent + enough Z2; else null
+  // Smoothed "now" read: mean Z2 Pw:HR (icu_power_hr_z2) over the last <=3 qualifying rides inside the
+  // recency window, but only when >=2 rides back it (AEROBIC_MIN_RECENT_SAMPLES) — a lone recent ride
+  // sits out entirely rather than reporting itself disguised as a "smoothed" value. Else null.
+  aerobicEffLatest: number | null;
   aerobicEffBaseline: number | null; // mean Z2 Pw:HR over qualifying rides (90d); null if too few
   // RPE intentionally not an input (FB-2026-06-30): it swung the state too hard against a near-zero
   // historical baseline. The calibration `rpe` weights stay dormant so re-enabling = re-adding evalRpe.
