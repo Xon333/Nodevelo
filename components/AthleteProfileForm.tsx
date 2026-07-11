@@ -279,21 +279,18 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             return (
               <div key={s.system} className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{SYSTEM_LABELS[s.system]}</p>
-                <p className="font-mono text-sm font-semibold text-zinc-900 dark:text-[#00d4ff]">{s.watts}W</p>
-                {s.wattsPerKg !== null && (
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{s.wattsPerKg} W/kg</p>
-                )}
                 <p
                   className={
                     strong
-                      ? "mt-0.5 text-[11px] font-medium text-cyan-700 dark:text-[#00d4ff]"
+                      ? "mt-0.5 text-sm font-semibold text-cyan-700 dark:text-[#00d4ff]"
                       : weak
-                        ? "mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400"
-                        : "mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400"
+                        ? "mt-0.5 text-sm font-semibold text-amber-700 dark:text-amber-400"
+                        : "mt-0.5 text-sm font-medium text-zinc-600 dark:text-zinc-300"
                   }
                 >
-                  {pct > 0 ? "+" : ""}{pct}% vs expected
+                  {pct > 0 ? "+" : ""}{pct}%
                 </p>
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500">vs expected</p>
               </div>
             );
           })}
