@@ -64,18 +64,21 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
   return (
     <Card title="Season">
       <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-        What you&apos;re training for, and any target events — the coach plans the season arc around these.
+        Your season is the arc the coach periodizes — one line on what you&apos;re chasing, plus any target
+        events. Blocks are generated <span className="font-medium">against</span> it.
       </p>
       {seasonLoadFailed ? (
         <LoadFailed what="your season (objective & events)" retry={() => void loadSeason()} />
       ) : (
         <>
       <label className="block">
-        <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Objective</span>
+        <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+          Objective <span className="font-normal text-zinc-400 dark:text-zinc-500">— the one outcome the whole season serves</span>
+        </span>
         <input
           type="text"
           value={objective}
-          placeholder="e.g. get faster: FTP + punch for hilly KOMs"
+          placeholder="e.g. faster on hilly KOMs — raise FTP + 1–5 min punch"
           onChange={(e) => {
             setObjective(e.target.value);
             if (seasonSaveState.state === "saved") setSeasonSaveState({ state: "idle" });
