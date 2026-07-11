@@ -125,6 +125,24 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.model).toBeUndefined();
   });
 
+  it("attaches aerobicDiscipline for an easy ride from HR-zone time", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "Z2 endurance", type: "Z2", durationMin: 60 },
+      hrZoneTimes: [600, 2700, 300], // ~8% above aerobic → dialed
+    });
+    expect(todayAnalysis.aerobicDiscipline).toBe("dialed");
+  });
+
+  it("aerobicDiscipline is null for an interval day (not an easy ride)", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "VO2max 5x3", type: "VO2max", durationMin: 60 },
+      hrZoneTimes: [300, 600, 900, 1200],
+    });
+    expect(todayAnalysis.aerobicDiscipline).toBeNull();
+  });
+
   it("drops interval adherence from scoring on a structural mismatch", () => {
     const mismatch = buildTodayAnalysis({
       ...base,

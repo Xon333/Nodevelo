@@ -302,7 +302,7 @@ export function TodayRideCard({
       {/* Power execution — the card's focal group: prescription vs execution, the
           power/HR trace, and power time-in-zone. There is no separate HR zone bar;
           HR comparison lives in the trace overlay (decoupling = the gap widening). */}
-      {(analysis.powerZoneTimes || analysis.trace || analysis.activityDecoupling != null || (analysis.intervalComparison && analysis.intervalComparison.reps.length > 0)) && (
+      {(analysis.powerZoneTimes || analysis.trace || analysis.activityDecoupling != null || (analysis.intervalComparison && analysis.intervalComparison.reps.length > 0) || analysis.aerobicDiscipline != null) && (
         <details className="mt-3">
           <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
             {/* EC-7: "Power execution" only with real power content; a decoupling-only ride (no
@@ -332,6 +332,27 @@ export function TodayRideCard({
                 {analysis.activityDecoupling.toFixed(1)}%
               </span>
               <MetricTip id={`${tipId}-decoupling`} text="Aerobic drift — how much power-to-HR drifted across the ride. Context only: it's no longer part of your execution score (too noisy per-ride), kept as a steady-ride durability reference. Lower is better; ~5%+ on a steady endurance ride hints at fatigue or under-fuelling." />
+            </div>
+          )}
+
+          {analysis.aerobicDiscipline != null && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-zinc-500 dark:text-zinc-400">Aerobic discipline</span>
+              <span
+                className={
+                  analysis.aerobicDiscipline === "dialed"
+                    ? "font-medium text-emerald-600 dark:text-emerald-400"
+                    : analysis.aerobicDiscipline === "hot"
+                      ? "font-medium text-amber-600 dark:text-amber-400"
+                      : "text-zinc-600 dark:text-zinc-300"
+                }
+              >
+                {analysis.aerobicDiscipline === "dialed"
+                  ? "✓ Dialed in — HR stayed aerobic"
+                  : analysis.aerobicDiscipline === "drift"
+                    ? "~ Some drift — a few efforts crept up"
+                    : "✗ Ran hot — HR sat above easy"}
+              </span>
             </div>
           )}
 

@@ -147,6 +147,12 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
   const preserved = input.preserved?.activityDate === input.today ? input.preserved : null;
   const coachNote = preserved?.coachNote ?? "";
 
+  // Easy-ride effort read for the debrief (Z2/Recovery only; null otherwise). Same HR signal the score used.
+  const aerobicDiscipline =
+    scoringType === "Z2" || scoringType === "Recovery"
+      ? aerobicDisciplineRead(timeAboveAerobicHrFraction(input.hrZoneTimes))
+      : null;
+
   const todayAnalysis: TodayAnalysis = {
     analysedAt: new Date().toISOString(),
     activityDate: input.today,
@@ -161,6 +167,7 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     activityTrainingLoad: activity.trainingLoad,
     activityRpe: activity.rpe,
     activityDecoupling: activity.decoupling,
+    aerobicDiscipline,
     activityDistanceMeters: activity.distanceMeters,
     plannedName: plannedDay?.name ?? null,
     plannedType: plannedDay?.type ?? null,
