@@ -20,6 +20,25 @@ context — applies them the same way.
 | README.md | Architectural manual. Keep the "Documentation map" table in sync whenever a doc is added or removed. |
 | CONTINUE.md | Session-handoff only. Don't touch during a docs sweep unless asked — use the `handoff` skill instead. |
 
+## Full-repo sweep scope
+
+("sweep/restructure all the documentation" — broader than the table above.)
+
+**In scope:** README.md, ROADMAP.md, ARCHIVE.md, todo.md, research.md, DESIGN.md, FEATURES.md,
+`docs/specs/*.md`, `docs/superpowers/specs/*.md` (design specs — stamp `Status: Shipped` + a date
+once built; don't leave them saying "Approved design (pre-implementation)" forever),
+`knowledge-base-defaults/*.md` (the committed KB skeleton — real user-facing copy, not just a
+fixture).
+
+**Out of scope:** CONTINUE.md (see table above), CLAUDE.md/AGENTS.md (agent operating instructions
+— a different category from project docs; flag as excluded rather than silently touching or
+silently skipping), `docs/superpowers/plans/*.md` (point-in-time execution records, immutable like
+commits — don't rewrite history).
+
+**Doc drift from concurrent sessions:** this repo is trunk-based with a shared checkout, so a
+feature can ship (with its own commit) while the docs describing it are never updated in the same
+pass — cross-check `git log` against what ROADMAP/ARCHIVE claim is "open" before trusting either.
+
 ## Procedure
 
 1. Diff intent vs. reality: check whether ROADMAP.md or todo.md still lists anything that ARCHIVE.md
