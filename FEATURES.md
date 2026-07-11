@@ -133,6 +133,9 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
 - **Manual move (§7)** — a click-to-pin popover on a future day cell lets the athlete shift a planned
   session directly onto a clear rest day, no waiting for a miss; validated server-side (future-only,
   rest-target-only). `PUT /api/reschedule`, `components/MoveDay.tsx`
+- **Session swap (§7 follow-on)** — trade any two future, already-occupied sessions directly (e.g.
+  today's ride with tomorrow's) — the gap Manual Move can't reach (it only moves onto a clear rest
+  day). Reuses the existing swap-pair calendar mirror. `PATCH /api/reschedule`, `components/SwapDay.tsx`
 - **Bidirectional calendar mirror (§7)** — every app-initiated move (reactive, proactive, manual) mirrors
   outbound to the athlete's real Intervals.icu calendar; moves made ON Intervals.icu itself (dragging a
   NodeVelo event) reconcile inbound at sync time — future-only, onto rest days only; anything ambiguous

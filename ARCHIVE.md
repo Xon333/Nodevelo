@@ -94,6 +94,21 @@ the calendar-mirror feature entry above.
 
 ---
 
+## Two-way session swap — §7 follow-on (2026-07-11)
+
+Closes the gap the original §7 lean slice deliberately left open: Manual Move only moves a session
+onto a *clear rest day*; this adds a genuine swap between two already-occupied future sessions (e.g.
+today's ride with tomorrow's), reusing the swap-pair calendar-mirror path the morning-check proactive
+swap already exercised and this session's final-review fixes already hardened (id-based
+description-carry). `PATCH /api/reschedule` validates both days are in-block, future, distinct, and
+both carry a real session; `components/SwapDay.tsx` mounts alongside the existing `MoveDay` in the
+same pinned day-cell popover. Outbound only — calendar-side (inbound) swap-pairing stays deferred, per
+`lib/calendar-mirror.ts`'s existing `reconcileInboundMoves` comment. Design:
+`docs/superpowers/specs/2026-07-11-session-swap-design.md`. Plan:
+`docs/superpowers/plans/2026-07-11-session-swap.md`.
+
+---
+
 ## UX v2 — the zero-based redesign, Waves 1–5 (2026-07-08 → 2026-07-09)
 
 A moment-first zero-based review of all seven surfaces (live-app walkthrough with real data, desktop

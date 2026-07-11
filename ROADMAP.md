@@ -216,11 +216,13 @@ does not change.
   `docs/superpowers/plans/2026-07-08-energy-balance-surfacing.md`. Then precise fluid/sodium/carb
   targets pre/intra/post by IF + duration — still genuinely later-scoped, out of this plan.
 - **§7 · Calendar flexibility — remaining scope** — the in-app rescheduling + bidirectional
-  Intervals.icu calendar mirror lean slice shipped 2026-07-10 → [ARCHIVE.md](ARCHIVE.md). Left,
-  deliberately out of that plan: **condition-driven auto-swaps** (react to a fatigue/load condition
-  directly, not just a missed session or a manual move) and **content-edit inbound sync** (an
-  athlete editing a workout's content — not just its date — on Intervals.icu, flowing back into
-  the block).
+  Intervals.icu calendar mirror lean slice shipped 2026-07-10, plus the two-way session swap shipped
+  2026-07-11 → [ARCHIVE.md](ARCHIVE.md). Left, deliberately out of scope: **condition-driven
+  auto-swaps** (react to a fatigue/load condition directly and automatically, not an athlete-initiated
+  swap) and **content-edit inbound sync** (an athlete editing a workout's content — not just its
+  date — on Intervals.icu, flowing back into the block). Calendar-side (inbound) swap-pairing also
+  stays open — a swap made directly on Intervals.icu still surfaces as two separate conflict
+  warnings, not auto-applied.
 - **8 · NP-missing → "unverified"** — when NP is absent on an outdoor ride, stamp the entry `unverified`
   instead of scoring off raw avg power. Small.
 - **Wearable morning-readiness** — when a wearable lands, objective HRV / sleep / resting-HR slots
