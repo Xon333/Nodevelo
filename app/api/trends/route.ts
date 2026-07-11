@@ -11,7 +11,7 @@ import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { weightTrendFromWellness } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
-import { efSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
+import { efSeries, hrrcSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
 import { resolveToday } from "@/lib/date";
 import { aggregatePlanVsActual, detectFtpRetest } from "@/lib/plan-vs-actual";
 
@@ -35,6 +35,11 @@ export async function GET(req: Request) {
   const today = resolveToday(new URL(req.url).searchParams.get("today"));
   // Pw:HR efficiency-factor trend — outdoor, steady-endurance, ≥45-min rides only (lib/trends).
   const ef = efSeries(sync?.activities ?? [], ftp);
+
+  // HRRc — heart-rate recovery on hard/threshold+ rides. Trends-only (see the plan): its "good" direction
+  // depends on training-phase intent (functional overreaching raises it), so it's shown as a trend, never
+  // scored or fused into Athlete State.
+  const hrrc = hrrcSeries(sync?.activities ?? []);
 
   // CTL trajectory over the synced window.
   const ctl = (sync?.wellness ?? [])
@@ -137,6 +142,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ef,
+    hrrc,
     ctl,
     energy,
     blocks,

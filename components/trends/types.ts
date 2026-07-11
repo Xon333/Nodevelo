@@ -64,6 +64,7 @@ export interface InterventionRow {
 
 export interface TrendsData {
   ef: Point[];
+  hrrc: Point[]; // heart-rate recovery per qualifying hard ride — context only, no verdict (see the plan's Architecture note)
   ctl: Point[];
   energy: EnergyRow[];
   blocks: TrendBlock[];
