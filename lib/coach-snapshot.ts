@@ -23,7 +23,7 @@ import type {
   WorkoutType,
 } from "./types";
 import { computeAcwr, computeLoadRamp, computeReadiness } from "./readiness";
-import { timeAboveZ2Fraction } from "./execution-score";
+import type { AerobicDiscipline } from "./execution-score";
 import { detectFtpRetest, type FtpRetestSignal } from "./plan-vs-actual";
 import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
 import { balanceLevel, computeEnergyAvailability, eaLevel, weightTrendFromWellness, type EnergyAvailability } from "./nutrition";
@@ -50,9 +50,10 @@ export interface CoachSnapshot {
       powerPct: number | null; // avg power adherence
       durationPct: number | null; // avg duration completion
       structuralMismatch: boolean; // plan-vs-detection mismatch guard
-      // % of an easy aerobic ride (Z2/Recovery) spent above the Z2 cap — the discipline signal the
-      // average IF hides. null when not an easy day or no zone data. See timeAboveZ2Fraction.
-      aboveZ2Pct: number | null;
+      // The terrain-immune HR-judged easy-ride discipline read (dialed/drift/hot), lifted straight from
+      // TodayAnalysis.aerobicDiscipline — already gated Z2/Recovery-only, on-plan, !embedsEfforts by
+      // ride-analysis.ts. null when not an easy day, off-plan, a durability template B–E, or no HR-zone data.
+      aerobicDiscipline: AerobicDiscipline | null;
     } | null;
     // The athlete's manual morning override (ROADMAP #3), null until they flag today.
     morningCheck: {
@@ -225,11 +226,6 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
   const { block, todayAnalysis, date } = input;
   const ride = todayAnalysis && todayAnalysis.activityDate === date ? todayAnalysis : null;
   const ic = ride?.intervalComparison ?? null;
-  // Easy-ride discipline % — only meaningful on a prescribed Z2/Recovery day with zone data.
-  const z2Frac =
-    ride && (ride.plannedType === "Z2" || ride.plannedType === "Recovery")
-      ? timeAboveZ2Fraction(ride.powerZoneTimes)
-      : null;
 
   return {
     date,
@@ -255,7 +251,7 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
               powerPct: ic?.avgAdherencePct ?? null,
               durationPct: ic?.avgDurationPct ?? null,
               structuralMismatch: ic?.structuralMismatch ?? false,
-              aboveZ2Pct: z2Frac != null ? Math.round(z2Frac * 100) : null,
+              aerobicDiscipline: ride?.aerobicDiscipline ?? null,
             }
           : null,
       morningCheck: input.morningCheck
@@ -380,9 +376,10 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
         ex.powerPct != null && ex.durationPct != null ? ` (power ${ex.powerPct}% × duration ${ex.durationPct}%)` : "";
       parts.push(`effective ${ex.effectivePct}%${pd}`);
     }
-    if (ex.aboveZ2Pct != null) {
-      const tag = ex.aboveZ2Pct > 30 ? "drifted hard above zone" : ex.aboveZ2Pct > 15 ? "drifted above zone" : "dialed in";
-      parts.push(`${ex.aboveZ2Pct}% above Z2 cap (${tag})`);
+    if (ex.aerobicDiscipline != null) {
+      const label =
+        ex.aerobicDiscipline === "dialed" ? "dialed in" : ex.aerobicDiscipline === "drift" ? "some drift" : "ran hot";
+      parts.push(`aerobic discipline: ${label}`);
     }
     if (parts.length > 0) {
       lines.push(`- Execution (today): ${parts.join(" · ")}${ex.structuralMismatch ? " · ⚠ plan/detection mismatch — duration is unreliable, judge on power" : ""}.`);

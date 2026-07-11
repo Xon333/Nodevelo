@@ -12,6 +12,40 @@ exact commits.
 
 ---
 
+## Coach-prompt aerobic-discipline gap closed — `CoachSnapshot.today.execution` reads the HR-judged signal (2026-07-11)
+
+Closed the gap the HR-judged easy-ride discipline rework surfaced but didn't fix (see "HR-judged
+easy-ride discipline" further down this file): `formatCoachSnapshot`'s `today.execution` block
+(`lib/coach-snapshot.ts`) independently recomputed `z2Frac` from the old, terrain-confounded
+`timeAboveZ2Fraction(ride.powerZoneTimes)`, so the Ask-Coach prompt could still call a genuinely easy,
+hilly outdoor ride "drifted hard above zone" on the same ride the HR-based score and Today debrief UI
+had already correctly rewarded.
+
+- **Fix.** Deleted the recomputation entirely — `CoachSnapshot.today.execution` now reads
+  `ride?.aerobicDiscipline ?? null` straight off `TodayAnalysis`, the field `lib/ride-analysis.ts`
+  already computes with the correct HR-based measure and the correct gating (on-plan, Z2/Recovery
+  only, `!embedsEfforts`). No gating logic is duplicated in `coach-snapshot.ts` anymore, so it can't
+  independently drift from the score's own gates again.
+- **Type + prompt line.** `CoachSnapshot.today.execution.aboveZ2Pct: number | null` (a percentage)
+  became `aerobicDiscipline: AerobicDiscipline | null` (`"dialed" | "drift" | "hot"`).
+  `formatCoachSnapshot`'s SITUATION line changed from `"25% above Z2 cap (dialed in)"` to
+  `"aerobic discipline: dialed in"` / `"some drift"` / `"ran hot"` — matching the Today debrief UI's
+  own wording exactly, so the athlete and the coach prompt now say the same thing.
+
+**Live verification (2026-07-11):** real `/api/ask` POST against the running app, using the actual
+2026-07-10 synced Z2 ride (92 min, hilly outdoor route — HR only 9.6% above aerobic ceiling but power
+zones 3+ totalled 20% of ride time). Before this fix that ride's old power-based measure would have
+rendered `"20% above Z2 cap (drifted above zone)"` in the coach prompt; the correctly-gated HR read is
+`"dialed"`. Patched the one missing field into a scratch copy of `data/today-analysis.json` (the
+on-disk record predates this rework and was missing `aerobicDiscipline` — a genuine pre-existing-file
+migration gap, not new; the field will backfill on the next real sync) with the exact value the real
+`aerobicDisciplineRead(timeAboveAerobicHrFraction(...))` functions compute for that ride's real
+HR-zone data, called the live endpoint, then restored the original file. The LLM's actual reply opened
+with *"You nailed the aerobic discipline yesterday—that's your strength"* — the terrain-confound bug
+is gone on this surface too.
+
+---
+
 ## Weekly energy-balance surfacing — §6 part (a) / closes #1's last slot (2026-07-08, shipped 2026-07-11)
 
 Computes the precise weekly intake-vs-need ratio (logged kcal vs. the app's own deterministic daily
@@ -148,11 +182,12 @@ historical ledger (`data/score-log.json`) was deliberately **not** rebuilt with 
 as part of this work (that's a separate, one-time-migration-gated operation, too consequential to
 trigger for a smoke check) — past scores stay frozen until a real sync or an explicit rebuild.
 
-**Known gap surfaced by this work, not yet closed:** `CoachSnapshot.today.execution.aboveZ2Pct` (the
-LLM-facing coach-prompt line, `lib/coach-snapshot.ts`) still computes its own "% above Z2 cap" from
-the old power-based `timeAboveZ2Fraction`, entirely independent of this rework — the coach's own
-prompt can still call an outdoor ride "drifted hard above zone" on the same ride the HR-based score
-just correctly rewarded. Tracked in ROADMAP under "Scoring-core gaps."
+**Known gap surfaced by this work, closed 2026-07-11:** `CoachSnapshot.today.execution.aboveZ2Pct`
+(the LLM-facing coach-prompt line, `lib/coach-snapshot.ts`) computed its own "% above Z2 cap" from the
+old power-based `timeAboveZ2Fraction`, entirely independent of this rework — the coach's own prompt
+could still call an outdoor ride "drifted hard above zone" on the same ride the HR-based score just
+correctly rewarded. Fixed same-day — see "Coach-prompt aerobic-discipline gap closed" further up this
+file.
 
 ---
 
@@ -1146,9 +1181,10 @@ coach-note non-display is a client render bug — SYNC-1 — and that "no power 
 
 **Superseded 2026-07-11** — the *scoring* mechanism below (`aboveZ2Frac`, the power-based ±2 band) was
 replaced by an HR-based, terrain-immune read; see "HR-judged easy-ride discipline" further up this file.
-The `CoachSnapshot.today.execution.aboveZ2Pct` *surfacing* described here is a separate, still-live
-code path that was **not** touched by that rework and still uses the power-based measure — a known,
-tracked gap (ROADMAP, "Scoring-core gaps"). Kept below as the historical record of what originally shipped.
+The `CoachSnapshot.today.execution.aboveZ2Pct` *surfacing* described here initially survived that
+rework untouched, then was itself replaced the same day by the HR-based `aerobicDiscipline` field — see
+"Coach-prompt aerobic-discipline gap closed" at the top of this file. Kept below as the historical
+record of what originally shipped.
 
 Closed the ROADMAP scoring-core gap: easy aerobic rides were scored on *average* IF + decoupling, so a
 Z2 ride that averaged a textbook 0.68 IF while repeatedly surging into Tempo+ read as disciplined — the

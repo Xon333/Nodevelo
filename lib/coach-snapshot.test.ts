@@ -119,22 +119,22 @@ describe("buildCoachSnapshot", () => {
     });
   });
 
-  it("surfaces easy-ride discipline (% above the Z2 cap) on a Z2 day", () => {
-    // total 3600s, 900s in zones 3+ (above the cap) → 25%.
+  it("surfaces the HR-judged aerobic discipline read on a Z2 day", () => {
+    // Lifted straight from TodayAnalysis.aerobicDiscipline — already gated by ride-analysis.ts.
     const z2Ride = {
       ...todayAnalysis,
       plannedType: "Z2",
       intervalComparison: null,
-      powerZoneTimes: [1800, 900, 600, 300, 0, 0, 0],
+      aerobicDiscipline: "drift",
     } as unknown as TodayAnalysis;
     const s = buildCoachSnapshot(baseInput({ todayAnalysis: z2Ride, todaySessionType: "Z2" }));
-    expect(s.today.execution?.aboveZ2Pct).toBe(25);
-    expect(formatCoachSnapshot(s)).toContain("25% above Z2 cap");
+    expect(s.today.execution?.aerobicDiscipline).toBe("drift");
+    expect(formatCoachSnapshot(s)).toContain("aerobic discipline: some drift");
   });
 
-  it("leaves aboveZ2Pct null on a non-easy day", () => {
-    // The base fixture is a Threshold interval session — discipline-% doesn't apply.
-    expect(buildCoachSnapshot(baseInput()).today.execution?.aboveZ2Pct).toBeNull();
+  it("leaves aerobicDiscipline null on a non-easy day", () => {
+    // The base fixture is a Threshold interval session — discipline read doesn't apply.
+    expect(buildCoachSnapshot(baseInput()).today.execution?.aerobicDiscipline).toBeNull();
   });
 
   it("resolves form (TSB modifier, ACWR, readiness, load ramp) and block week", () => {

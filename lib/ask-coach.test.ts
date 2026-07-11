@@ -90,7 +90,7 @@ describe("buildAskCoachPrompt", () => {
           today: {
             sessionType: "Threshold",
             rideLogged: true,
-            execution: { score: 1, completed: 0, total: 5, effectivePct: 10, powerPct: 20, durationPct: 50, structuralMismatch: false, aboveZ2Pct: null },
+            execution: { score: 1, completed: 0, total: 5, effectivePct: 10, powerPct: 20, durationPct: 50, structuralMismatch: false, aerobicDiscipline: null },
             morningCheck: null,
           },
         }),

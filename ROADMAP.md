@@ -86,16 +86,6 @@ the shared `deriveExecutionEdge` engine — all in ARCHIVE). What's left:
   too soft for Recovery specifically in real use.
 - **Power-zone source of truth** — decide: keep zones strictly Intervals.icu vs. a sanctioned local
   override in the calibration framework. (Lean strict-consistency.)
-- **`CoachSnapshot.today.execution.aboveZ2Pct` still terrain-confounded** — the 2026-07-11 HR-judged
-  rework (→ ARCHIVE) replaced the power-based easy-ride discipline read everywhere in *scoring* and
-  in the Today debrief UI, but `formatCoachSnapshot`'s `today.execution` block
-  (`lib/coach-snapshot.ts`) independently recomputes `z2Frac` from the old, terrain-confounded
-  `timeAboveZ2Fraction(powerZoneTimes)` and surfaces it to the LLM coach prompt as "X% above Z2 cap
-  (dialed in / drifted / drifted hard)". The coach's own prompt can therefore still call a genuinely
-  easy, hilly outdoor ride "drifted hard above zone" on the same ride the HR-based score just
-  correctly rewarded — the identical terrain-confound bug the rework fixed, on a different surface.
-  Fix: read the already-computed `TodayAnalysis.aerobicDiscipline` (terrain-immune) instead of
-  recomputing from power-zone data; needs a live LLM smoke run per AGENTS.md once changed.
 - **`formatFormFuelLine`'s fuel line has the milder sibling of a fixed mislabel bug** — the
   `/api/generate` block-generation prompt's fuel line unconditionally says "energy availability X"
   even when `fuelingState` actually came from the weekly intake-vs-need ratio, not the EA proxy (the
