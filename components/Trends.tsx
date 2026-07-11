@@ -190,6 +190,18 @@ export default function Trends() {
                     <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
                       Per complete week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. The current in-progress week is excluded until it closes. Tap a legend chip to show/hide; isolating one fills the area.
                     </p>
+                    {(() => {
+                      const withRatio = data.energy.filter((e) => e.ratio != null);
+                      const last = withRatio[withRatio.length - 1];
+                      if (!last) return null;
+                      const pct = Math.round((last.ratio as number) * 100);
+                      return (
+                        <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                          Last complete week: {last.intakeKcal?.toLocaleString()} kcal eaten vs{" "}
+                          {last.needKcal?.toLocaleString()} needed — {pct}% of target ({last.loggedDays}/7 days logged).
+                        </p>
+                      );
+                    })()}
                   </Card>
                 )}
                 {data.weeklyHours.length >= 2 && (

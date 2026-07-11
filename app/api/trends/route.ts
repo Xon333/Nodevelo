@@ -44,7 +44,7 @@ export async function GET(req: Request) {
 
   // Energy balance & weight by week (Monday-anchored), COMPLETE weeks only — the in-progress
   // week's running totals are misleadingly low, so it's dropped (TRENDS-2). See lib/trends.
-  const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today);
+  const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, profile.nutrition);
 
   // Weekly training volume (hours) — for the Trend Pulse "are you building or slipping?" bar.
   // Keeps the current (in-progress) week, which the Trend Pulse labels "this wk".

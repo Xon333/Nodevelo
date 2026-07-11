@@ -31,6 +31,10 @@ export interface EnergyRow {
   burnKcal: number | null;
   intakeKcal: number | null;
   weightKg: number | null;
+  // §6 energy balance — see lib/trends.ts WeeklyEnergyPoint.
+  needKcal: number | null;
+  ratio: number | null;
+  loggedDays: number;
 }
 
 export interface RecentSnapshot {
