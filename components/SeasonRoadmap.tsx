@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { roadmapView } from "@/lib/season";
+import { FOCUS_LABELS, roadmapView } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
 import { LoadFailed, useMountLoad } from "./ui";
 
@@ -31,7 +31,27 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
   useMountLoad(load, refreshKey);
 
   if (failed) return <LoadFailed what="the season roadmap" retry={() => void load()} />;
-  if (!plan || plan.periods.length === 0) return null;
+  // No season yet: instead of vanishing, teach the model in three steps (structure over prose). This is
+  // the answer to "what changes once I generate a season?" — shown, not explained in a paragraph.
+  if (!plan || plan.periods.length === 0) {
+    return (
+      <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-3 dark:border-zinc-600 dark:bg-zinc-800">
+        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          How planning works
+        </h2>
+        <ol className="flex flex-col gap-1.5 text-xs text-zinc-600 dark:text-zinc-300 sm:flex-row sm:items-center sm:gap-3">
+          <li className="flex items-baseline gap-1.5"><span className="font-mono text-[#ff49c8]">1</span> Set a <span className="font-medium">season</span> — your focus arc (base → build → sharpen).</li>
+          <li aria-hidden className="hidden text-zinc-400 sm:block">→</li>
+          <li className="flex items-baseline gap-1.5"><span className="font-mono text-[#ff49c8]">2</span> <span className="font-medium">Blocks</span> fill it in, 2–8 weeks at a time.</li>
+          <li aria-hidden className="hidden text-zinc-400 sm:block">→</li>
+          <li className="flex items-baseline gap-1.5"><span className="font-mono text-[#ff49c8]">3</span> Each block auto-targets the current phase &amp; your goals.</li>
+        </ol>
+        <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+          Add an objective &amp; a target event below to generate your season.
+        </p>
+      </section>
+    );
+  }
   const today = localToday();
   const view = roadmapView(plan, today);
   const nextEvent = plan.events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
