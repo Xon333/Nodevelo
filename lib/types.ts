@@ -88,6 +88,12 @@ export interface ActivitySummary {
   elevationGain: number | null; // metres
   powerZoneTimes: number[] | null; // seconds in each power zone [z1, z2, ..., z7]
   hrZoneTimes: number[] | null; // seconds in each HR zone
+  // Heart-rate recovery: bpm dropped in 60s after a qualifying sustained hard/threshold effort.
+  // null on rides with no qualifying effort (e.g. pure Z2 days) or when intervals.icu didn't compute one.
+  // Live-verified against a real sync (42 rides, ~45 days): the value sits NESTED at `icu_hrr.hrr` —
+  // `icu_hrr` itself is an object ({ start_index, end_index, start_bpm, end_bpm, hrr, ... }) or null, not
+  // a flat number. `icu_hrrc` does not exist in the real payload. See fetchActivities for the parse.
+  hrrc: number | null;
 }
 
 export interface WellnessEntry {

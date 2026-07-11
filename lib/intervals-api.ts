@@ -251,6 +251,12 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       elevationGain: num(a.total_elevation_gain),
       powerZoneTimes: zoneSecs(a.icu_power_zone_times ?? a.icu_zone_times),
       hrZoneTimes: zoneSecs(a.icu_hr_zone_times),
+      // HRRc (heart-rate recovery): live-verified against a real sync — `icu_hrr` is a NESTED OBJECT
+      // ({ start_bpm, end_bpm, hrr, ... }) or null, NOT a flat number; the bpm-drop value is at
+      // `icu_hrr.hrr`. `a` is untyped raw JSON, so `a.icu_hrr` is `unknown` and can't be optional-chained
+      // directly — route it through asRecord() first, same pattern as fetchIntervals/fetchActivityStream
+      // above. `icu_hrrc`/`hrrc` never appeared in the real payload; kept as harmless dead fallbacks.
+      hrrc: numLoose(asRecord(a.icu_hrr).hrr) ?? numLoose(a.icu_hrrc) ?? numLoose(a.hrrc),
     };
   });
 }

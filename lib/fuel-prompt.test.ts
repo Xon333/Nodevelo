@@ -30,6 +30,7 @@ describe('deriveFuelPrompt', () => {
     elevationGain: null,
     powerZoneTimes: null,
     hrZoneTimes: null,
+    hrrc: null,
     ...overrides,
   });
 

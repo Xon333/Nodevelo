@@ -146,7 +146,7 @@ describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
     maxWatts: 300, icuFtp: null, avgHr: 140, maxHr: 160, kj: 500, trainingLoad: 50, rpe: null,
     carbsIngestedG: null, decoupling: 4, efficiencyFactor: null, powerHrZ2: 1.5, powerHrZ2Mins: 60,
     description: null, avgCadence: null, distanceMeters: null, elevationGain: null,
-    powerZoneTimes: null, hrZoneTimes: null, ...over,
+    powerZoneTimes: null, hrZoneTimes: null, hrrc: null, ...over,
   });
   const model = { sampleSize: 0, overallExecEwma: 0, overallTrend: "flat", behaviour: { offPlanPct: 0 } } as unknown as AthleteModel;
   const sync = (activities: ActivitySummary[]): SyncData =>

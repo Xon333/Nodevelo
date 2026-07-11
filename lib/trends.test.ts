@@ -28,6 +28,7 @@ const act = (over: Partial<ActivitySummary>): ActivitySummary => ({
   elevationGain: null,
   powerZoneTimes: null,
   hrZoneTimes: null,
+  hrrc: null,
   ...over,
 });
 const well = (over: Partial<WellnessEntry>): WellnessEntry => ({

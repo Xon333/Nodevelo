@@ -161,6 +161,51 @@ describe("intervals-api network failure handling (CR-B)", () => {
     const [a] = await fetchActivities("2026-06-01", "2026-06-23");
     expect(a.decoupling).toBe(4.5);
   });
+
+  it("maps HRRc off the real nested shape (icu_hrr.hrr), live-verified against a real sync", async () => {
+    // Real shape from intervals.icu: icu_hrr is an OBJECT, not a flat number — the bpm-drop value is
+    // nested at icu_hrr.hrr. (icu_hrrc, the plan's original guess, does not exist in the real payload.)
+    const raw = [{
+      id: "h1", start_date_local: "2026-06-15T08:00:00", type: "Ride", name: "Threshold — Over-Unders",
+      moving_time: 3600, icu_average_watts: 220, icu_weighted_avg_watts: 230,
+      icu_hrr: {
+        start_index: 3851, end_index: 3911, start_time: 4295, end_time: 4355,
+        start_bpm: 181, end_bpm: 120, average_watts: null, hrr: 28,
+      },
+      average_heartrate: 155, max_heartrate: 178,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-06-01", "2026-06-23");
+    expect(a.hrrc).toBe(28);
+  });
+
+  it("falls back to the flat icu_hrrc key when icu_hrr is absent (dead-fallback safety net)", async () => {
+    const raw = [{
+      id: "h2", start_date_local: "2026-06-16T08:00:00", type: "Ride", name: "VO2max reps",
+      moving_time: 2700, icu_average_watts: 210, icu_weighted_avg_watts: 240,
+      icu_hrrc: 24, average_heartrate: 160, max_heartrate: 182,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-06-01", "2026-06-23");
+    expect(a.hrrc).toBe(24);
+  });
+
+  it("is null when icu_hrr is null (real shape for an easy ride with no qualifying hard effort)", async () => {
+    const raw = [{
+      id: "h3", start_date_local: "2026-06-17T08:00:00", type: "Ride", name: "MyWhoosh - Z2",
+      moving_time: 5400, icu_average_watts: 160, icu_weighted_avg_watts: 165,
+      icu_hrr: null, average_heartrate: 128, max_heartrate: 140,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-06-01", "2026-06-23");
+    expect(a.hrrc).toBeNull();
+  });
 });
 
 describe("fetchWellness — subjective self-report mapping", () => {

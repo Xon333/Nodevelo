@@ -108,6 +108,7 @@ const mkActivity = (over: Partial<ActivitySummary> = {}): ActivitySummary => ({
   elevationGain: 300,
   powerZoneTimes: null,
   hrZoneTimes: null,
+  hrrc: null,
   ...over,
 });
 

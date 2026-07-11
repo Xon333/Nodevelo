@@ -28,6 +28,7 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     elevationGain: 300,
     powerZoneTimes: null,
     hrZoneTimes: null,
+    hrrc: null,
     ...over,
   };
 }
