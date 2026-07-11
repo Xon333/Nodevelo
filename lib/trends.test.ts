@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { efSeries, latestWeeklyBalance, mondayOf, weeklyEnergy } from "./trends";
+import { efSeries, hrrcSeries, latestWeeklyBalance, mondayOf, weeklyEnergy } from "./trends";
 import type { ActivitySummary, WellnessEntry } from "./types";
 
 const act = (over: Partial<ActivitySummary>): ActivitySummary => ({
@@ -80,6 +80,25 @@ describe("efSeries (TRENDS-1)", () => {
     );
     expect(out[0].value).toBe(1.55);
     expect(out[1].value).toBe(1.5); // 210/140
+  });
+});
+
+describe("hrrcSeries", () => {
+  it("returns outdoor rides with a non-null HRRc, sorted by date", () => {
+    const activities = [
+      { date: "2026-06-20", type: "Ride", hrrc: 22 } as any,
+      { date: "2026-06-10", type: "Ride", hrrc: 30 } as any,
+      { date: "2026-06-15", type: "Ride", hrrc: null } as any, // no qualifying effort
+      { date: "2026-06-18", type: "VirtualRide", hrrc: 25 } as any, // indoor — excluded
+    ];
+    const series = hrrcSeries(activities);
+    expect(series).toEqual([
+      { date: "2026-06-10", value: 30 },
+      { date: "2026-06-20", value: 22 },
+    ]);
+  });
+  it("returns [] when no rides qualify", () => {
+    expect(hrrcSeries([])).toEqual([]);
   });
 });
 

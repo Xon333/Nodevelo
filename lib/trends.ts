@@ -54,6 +54,17 @@ export function efSeries(activities: ActivitySummary[], ftp: number): { date: st
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// Heart-rate recovery (HRRc) per ride — outdoor only, same environmental-confound rationale as
+// isSteadyEnduranceRide (indoor/no wind cooling distorts HR-derived signals). No steady-endurance-band
+// gate here (unlike efSeries): HRRc only ever populates on a ride with a qualifying hard effort, so its
+// presence is already the qualifying signal — intervals.icu's own Z5 gate did the filtering upstream.
+export function hrrcSeries(activities: ActivitySummary[]): { date: string; value: number }[] {
+  return activities
+    .filter((a) => a.type === "Ride" && a.hrrc !== null && a.hrrc > 0)
+    .map((a) => ({ date: a.date, value: a.hrrc as number }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export interface WeeklyEnergyPoint {
   date: string; // Monday of the week
   burnKcal: number | null;
