@@ -149,7 +149,7 @@ export function WeeklyVolumeBars({ weeks }: { weeks: TrendsData["weeklyHours"] }
   };
   return (
     <div>
-      <div className="flex items-end gap-px" style={{ height: 56 }}>
+      <div className="flex items-end gap-px" style={{ height: 130 }}>
         {recent.map((w) => (
           <div
             key={w.date}
