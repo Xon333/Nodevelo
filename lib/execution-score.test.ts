@@ -407,3 +407,38 @@ describe("aerobicDisciplineRead", () => {
     expect(aerobicDisciplineRead(undefined)).toBeNull();
   });
 });
+
+describe("easy-ride execution — HR judges effort, terrain does not", () => {
+  const baseZ2 = {
+    compliancePct: 100,      // rode the planned duration (or longer)
+    intensityFactor: 0.68,   // NP/FTP of a genuine outdoor Z2 ride
+    plannedType: "Z2" as const,
+    variabilityIndex: 1.15,  // surgy — outdoor terrain, NOT a discipline failure
+  };
+
+  it("scores a well-ridden OUTDOOR Z2 highly despite power spikes and high VI", () => {
+    // HR stayed aerobic (only 8% of HR-time above zone) → the ride was genuinely easy.
+    const score = computeExecutionScore({ ...baseZ2, aboveAerobicHrFrac: 0.08 });
+    expect(score).not.toBeNull();
+    expect(score as number).toBeGreaterThanOrEqual(7); // "Good" is now reachable outdoors
+  });
+
+  it("does NOT penalize surgy VI or brief power spikes on an easy ride", () => {
+    const steady = computeExecutionScore({ ...baseZ2, variabilityIndex: 1.02, aboveAerobicHrFrac: 0.08 });
+    const surgy = computeExecutionScore({ ...baseZ2, variabilityIndex: 1.20, aboveAerobicHrFrac: 0.08 });
+    // Steady may earn the +1 VI bonus, but surgy is never penalized below steady-minus-bonus.
+    expect(surgy as number).toBeGreaterThanOrEqual((steady as number) - 1);
+    expect(surgy as number).toBeGreaterThanOrEqual(7);
+  });
+
+  it("still flags a genuinely over-cooked easy ride via HR (the overtraining guardrail)", () => {
+    // 40% of HR-time above aerobic → the heart was working; this was not an easy ride.
+    const score = computeExecutionScore({ ...baseZ2, aboveAerobicHrFrac: 0.40 });
+    expect(score as number).toBeLessThanOrEqual(5);
+  });
+
+  it("no HR data → no HR penalty (rides on duration + power bonuses)", () => {
+    const score = computeExecutionScore({ ...baseZ2, aboveAerobicHrFrac: null });
+    expect(score as number).toBeGreaterThanOrEqual(7);
+  });
+});

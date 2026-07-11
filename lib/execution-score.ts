@@ -35,11 +35,11 @@ export interface ExecutionScoreInput {
   variabilityIndex: number | null; // NP / avg power; ~1.0 = perfectly steady
   adherencePct?: number | null; // avg interval power vs prescribed target (interval days)
   rpe?: number | null; // perceived exertion 1-10
-  // Fraction (0–1) of the ride's measured time spent ABOVE the Z2 aerobic cap (power zones 3+), for
-  // easy aerobic days. The "dialed-in" discipline signal: an easy ride that repeatedly drifts into
-  // Tempo+ isn't truly Z2 even when its AVERAGE IF looks fine. Only scored for prescribed Z2/Recovery;
-  // absent → no effect (older rides without zone data score unchanged). See timeAboveZ2Fraction.
-  aboveZ2Frac?: number | null;
+  // Easy-ride effort judge (Z2/Recovery): fraction (0–1) of the ride's HR-zone time spent ABOVE the
+  // aerobic ceiling (HR zones 3+), from timeAboveAerobicHrFraction. Terrain-immune — this, not power,
+  // decides whether an "easy" ride was actually easy. Only applied for prescribed Z2/Recovery; null/absent
+  // → no HR penalty. Replaces the old power-based aboveZ2Frac, which penalized outdoor rides for terrain.
+  aboveAerobicHrFrac?: number | null;
   // Off-plan ride: the type was inferred FROM intensity, so scoring intensity against that
   // type would be circular. When set, the intensity-vs-type branch is skipped and the score
   // rests on the intent-independent signals (pacing, RPE, and the aerobic read below).
@@ -123,15 +123,13 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
     const o = input.calibration?.ifBandOffsets?.[plannedType] ?? 0;
     switch (plannedType) {
       case "Z2":
+        // Reward-only for easy rides: NP/FTP in-band is a nice controlled ride (+1), but being over is
+        // NOT penalized here — outdoor NP inflates on terrain, and the HR read below is the sole "too hard"
+        // judge. `o` is the per-athlete zone-edge offset (ROADMAP #2).
         if (IF >= 0.60 + o && IF <= 0.74 + o) score += 1;
-        else if (IF > 0.74 + o && IF <= 0.82 + o) score -= 1;
-        else if (IF > 0.82 + o) score -= 2;
-        else if (IF < 0.52 + o) score -= 1;
         break;
       case "Recovery":
-        if (IF < 0.60 + o) score += 1;
-        else if (IF >= 0.70 + o) score -= 2;
-        else score -= 1;
+        if (IF < 0.60 + o) score += 1; // genuinely gentle — a bonus, never a penalty (HR judges "too hard")
         break;
       case "Threshold": {
         const b = FTP_ANCHORED_IF_BANDS.Threshold;
@@ -166,28 +164,22 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
     }
   }
 
-  // --- Easy-ride discipline: time above the Z2 aerobic cap (±2) --- prescribed Z2/Recovery only.
-  // Complements the IF-vs-type band, which sees only the AVERAGE: a ride can average a textbook Z2 IF
-  // yet spend a fifth of itself surging into Tempo+, which the mean hides and VI only blurs. Repeated
-  // time above the aerobic cap means the "easy" ride wasn't dialed in. Skipped for off-plan rides
-  // (the type was inferred from intensity — no plan to be disciplined against) and when zone data is
-  // absent, so existing rides without power-zone times score exactly as before.
-  // Skipped for durability templates B–E (Track B): those embed efforts INSIDE the long Z2 ride, so
-  // above-Z2 time is the prescribed stimulus, not a discipline lapse — penalising it would mark down a
-  // correctly-ridden durability session. Template A (pure accumulation) stays unbroken Z2 and is still held
-  // to the easy-discipline standard.
+  // --- Easy-ride effort judge: HR time above the aerobic ceiling (+1 / 0 / −2) --- prescribed Z2/Recovery.
+  // The terrain-immune "was this actually easy?" read (aerobicDisciplineRead over HR-zone time), and the
+  // ONLY penalty axis for easy rides: dialed in = +1, some drift = 0, ran hot = −2 (the overtraining
+  // guardrail — a genuinely too-hard easy day is still flagged). Skipped for off-plan rides (no plan to be
+  // easy against), for durability templates B–E (efforts INSIDE the ride are the point — Track B), and when
+  // HR-zone data is absent (older rides / no HR monitor score exactly as before, on duration + bonuses).
   if (
-    input.aboveZ2Frac != null &&
-    Number.isFinite(input.aboveZ2Frac) &&
+    input.aboveAerobicHrFrac != null &&
     !intrinsic &&
     !embedsEfforts &&
     (plannedType === "Z2" || plannedType === "Recovery")
   ) {
-    const f = input.aboveZ2Frac;
-    if (f <= 0.05) score += 1; // genuinely dialed in — almost all time in Z1–Z2
-    else if (f <= 0.15) score += 0; // fine — the odd roller or surge
-    else if (f <= 0.3) score -= 1; // drifted above the aerobic cap repeatedly
-    else score -= 2; // spent so long above zone it wasn't really an easy ride
+    const read = aerobicDisciplineRead(input.aboveAerobicHrFrac);
+    if (read === "dialed") score += 1;
+    else if (read === "hot") score -= 2;
+    // "drift" → 0 (lenient middle: the odd climb or brief effort is fine).
   }
 
   // --- Track B: durability effort delivery (±2) --- did the template's prescribed efforts actually
@@ -224,8 +216,9 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
     switch (plannedType) {
       case "Z2":
       case "Recovery":
-        if (vi <= 1.06) score += 1; // held the zone steadily, as intended
-        else if (vi >= 1.12) score -= 1; // surgy easy ride — didn't ride to plan
+        if (vi <= 1.06) score += 1; // held the zone steadily, as intended — a bonus only.
+        // No penalty for high VI: outdoor easy rides are naturally surgy (terrain), which is not a
+        // discipline failure. The HR read is the sole "too hard" judge for easy rides.
         break;
       case "Threshold":
         if (vi <= 1.08) score += 1; // well-controlled threshold effort
