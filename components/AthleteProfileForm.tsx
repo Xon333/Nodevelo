@@ -9,6 +9,8 @@ import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
 import type { IfBandOffsetRow } from "@/lib/calibration";
+import { groupGoalsByFocus } from "@/lib/profile-goals";
+import { FOCUS_LABELS } from "@/lib/season";
 
 interface NutritionSettings {
   baseCalories: number;
@@ -460,22 +462,28 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           <p className="text-xs text-zinc-500 dark:text-zinc-400">None yet — open Edit below to add your first goal.</p>
         ) : (
           <>
-            <ul className="space-y-1">
-              {goals.map((g, i) => (
-                <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
-                  <span className="font-medium text-zinc-800 dark:text-zinc-200">{g.goal || "—"}</span>
-                  {g.target && (
-                    <>
-                      <span aria-hidden className="text-zinc-400 dark:text-zinc-500">→</span>
-                      <span className="text-zinc-600 dark:text-zinc-300">{g.target}</span>
-                    </>
-                  )}
-                  <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-700/60 dark:text-zinc-300">
-                    {g.focus}
-                  </span>
-                </li>
+            <div className="space-y-2.5">
+              {groupGoalsByFocus(goals).map((grp) => (
+                <div key={grp.focus}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                    {FOCUS_LABELS[grp.focus]}
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {grp.goals.map((g, i) => (
+                      <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+                        <span className="font-medium text-zinc-800 dark:text-zinc-200">{g.goal || "—"}</span>
+                        {g.target && (
+                          <>
+                            <span aria-hidden className="text-zinc-400 dark:text-zinc-500">→</span>
+                            <span className="text-zinc-600 dark:text-zinc-300">{g.target}</span>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
             {weakpoints.length > 0 && (
               <ul className="mt-2 space-y-1">
                 {weakpoints.map((w, i) => (
