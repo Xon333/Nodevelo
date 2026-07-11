@@ -138,7 +138,11 @@ export interface AthleteStateWeights {
   tsb: { scale: number; cap: number; freshAbove: number; deepBelow: number };
   acwr: { optimal: number; low: number; high: number; danger: number };
   exec: { mid: number; perPoint: number; trend: number; cap: number };
-  aerobicEff: { perPct: number; cap: number; deadband: number }; // Pw:HR-Z2 vs baseline (higher = fresher)
+  // Pw:HR-Z2 vs baseline (higher = fresher). `livedAt` (relPct magnitude) is a SEPARATE, stricter bar than
+  // `deadband`: below deadband → no effect; between deadband and livedAt → nudges the score via perPct/cap
+  // but does not corroborate the fatigue override; past livedAt → counts as a lived negative. Flaky metric,
+  // so the bar to "confidently real" is deliberately higher than the bar to "any signal at all".
+  aerobicEff: { perPct: number; cap: number; deadband: number; livedAt: number };
   rpe: { perPoint: number; cap: number; deadband: number };
   behaviour: { highOffPlan: number; effect: number };
   override: { livedThreshold: number; scoreCap: number }; // ≥N lived-negatives → cap the score
@@ -153,7 +157,10 @@ export const DEFAULT_ATHLETE_STATE_WEIGHTS: AthleteStateWeights = {
   // Bounds unchanged so a coach could re-weight it; only the DEFAULT is demoted.
   acwr: { optimal: 2, low: -1, high: -4, danger: -8 },
   exec: { mid: 6, perPoint: 4, trend: 4, cap: 16 },
-  aerobicEff: { perPct: 1.5, cap: 9, deadband: 2 }, // effect = relative %Δ from baseline × perPct, capped
+  // deadband widened 2→3 (a smoothed ±3% is a genuine move; ±2% is still noise). livedAt=6 is the new,
+  // stricter "counts as a lived negative" bar — roughly double the deadband, so only a confidently large
+  // dip can help corroborate fatigue via the override.
+  aerobicEff: { perPct: 1.5, cap: 9, deadband: 3, livedAt: 6 },
   rpe: { perPoint: 5, cap: 10, deadband: 0.5 },
   behaviour: { highOffPlan: 60, effect: -4 },
   override: { livedThreshold: 2, scoreCap: 40 },
@@ -173,7 +180,7 @@ const ATHLETE_STATE_WEIGHT_BOUNDS = {
   tsb: { scale: [0, 3], cap: [0, 40], freshAbove: [0, 30], deepBelow: [-40, 0] },
   acwr: { optimal: [0, 15], low: [-15, 10], high: [-40, 5], danger: [-60, 0] },
   exec: { mid: [3, 8], perPoint: [0, 12], trend: [0, 12], cap: [0, 30] },
-  aerobicEff: { perPct: [0, 6], cap: [0, 30], deadband: [0, 8] },
+  aerobicEff: { perPct: [0, 6], cap: [0, 30], deadband: [0, 8], livedAt: [0, 15] },
   rpe: { perPoint: [0, 15], cap: [0, 30], deadband: [0, 3] },
   behaviour: { highOffPlan: [0, 100], effect: [-20, 0] },
   override: { livedThreshold: [1, 3], scoreCap: [0, 70] },

@@ -152,19 +152,6 @@ describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
   const sync = (activities: ActivitySummary[]): SyncData =>
     ({ syncedAt: "", activities, wellness: [], powerCurve: [], powerCurveAllTime: [], fitness: { ctl: null, atl: null, tsb: null } });
 
-  it("uses the latest ride with enough Z2, and excludes it from its own baseline (RV2-4)", () => {
-    const activities = [
-      act({ date: iso(0), powerHrZ2: 1.31, powerHrZ2Mins: 8 }), // interval day, only 8 Z2 min → excluded
-      act({ date: iso(1), powerHrZ2: 1.55, powerHrZ2Mins: 60 }), // recent → latest qualifying
-      act({ date: iso(20), powerHrZ2: 1.4, powerHrZ2Mins: 50 }), // older than the 14d recency window → baseline
-      act({ date: iso(30), powerHrZ2: 1.4, powerHrZ2Mins: 70 }),
-      act({ date: iso(45), powerHrZ2: 1.4, powerHrZ2Mins: 70 }),
-    ];
-    const inputs = athleteStateInputsFrom(sync(activities), model, null);
-    expect(inputs.aerobicEffLatest).toBe(1.55); // the recent ≥15-min-Z2 ride
-    expect(inputs.aerobicEffBaseline).toBe(1.4); // mean of the OLDER rides only — the latest isn't averaged in
-  });
-
   it("sits the baseline out when every qualifying ride is recent (can't self-compare — RV2-4)", () => {
     const activities = [
       act({ date: iso(1), powerHrZ2: 1.55, powerHrZ2Mins: 60 }),
@@ -184,5 +171,65 @@ describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
     );
     expect(inputs.aerobicEffLatest).toBeNull();
     expect(inputs.aerobicEffBaseline).toBeNull();
+  });
+
+  // Pre-existing test (RV2-4) recomputed for the min-sample floor (Task 2): a lone recent ride no longer
+  // reports as "the" aerobicEffLatest, so the fixture now carries two recent qualifying rides — the
+  // baseline-exclusion property under test is otherwise unchanged.
+  it("uses the smoothed recent rides, and excludes the recency window from its own baseline (RV2-4)", () => {
+    const activities = [
+      act({ date: iso(0), powerHrZ2: 1.31, powerHrZ2Mins: 8 }), // interval day, only 8 Z2 min → excluded
+      act({ date: iso(1), powerHrZ2: 1.55, powerHrZ2Mins: 60 }), // recent → qualifying
+      act({ date: iso(3), powerHrZ2: 1.65, powerHrZ2Mins: 55 }), // recent → qualifying, 2nd recent ride
+      act({ date: iso(20), powerHrZ2: 1.4, powerHrZ2Mins: 50 }), // older than the 14d recency window → baseline
+      act({ date: iso(30), powerHrZ2: 1.4, powerHrZ2Mins: 70 }),
+      act({ date: iso(45), powerHrZ2: 1.4, powerHrZ2Mins: 70 }),
+    ];
+    const inputs = athleteStateInputsFrom(sync(activities), model, null);
+    expect(inputs.aerobicEffLatest).toBe(1.6); // mean(1.55, 1.65) — the two recent qualifying rides
+    expect(inputs.aerobicEffBaseline).toBe(1.4); // mean of the OLDER rides only — the recent window isn't averaged in
+  });
+
+  describe("aerobic efficiency: smoothing + minimum-sample floor", () => {
+    it("smooths aerobic efficiency over the last few rides, not one noisy latest", () => {
+      // Two normal rides then one outlier-low latest (a hot/caffeinated day), all inside the recency window.
+      const activities = [
+        act({ date: iso(1), powerHrZ2: 2.0, powerHrZ2Mins: 60 }),
+        act({ date: iso(3), powerHrZ2: 2.0, powerHrZ2Mins: 60 }),
+        act({ date: iso(8), powerHrZ2: 1.2, powerHrZ2Mins: 60 }), // outlier
+      ];
+      const inputs = athleteStateInputsFrom(sync(activities), model, null);
+      // Smoothed latest = mean(2.0, 2.0, 1.2) ≈ 1.73, NOT the raw 1.2 — one hot day can't cap the state alone.
+      expect(inputs.aerobicEffLatest).toBeGreaterThan(1.5);
+    });
+
+    it("does NOT trust a single ride even disguised as 'smoothed' — needs ≥2 in the window", () => {
+      const activities = [
+        act({ date: iso(1), powerHrZ2: 1.2, powerHrZ2Mins: 60 }), // only one qualifying ride in the window
+      ];
+      const inputs = athleteStateInputsFrom(sync(activities), model, null);
+      expect(inputs.aerobicEffLatest).toBeNull(); // sits out entirely rather than reporting a lone ride
+    });
+  });
+});
+
+describe("aerobic efficiency: a modest dip nudges but doesn't alone corroborate fatigue", () => {
+  const dipBase: AthleteStateInputs = {
+    tsb: 20, acwrLevel: "optimal", execEwma: 4.5, execTrend: "down", execSampleSize: 10,
+    aerobicEffLatest: 2.0, aerobicEffBaseline: 2.0, offPlanPct: 0,
+  };
+
+  it("a modest ~5% dip (past deadband, short of livedAt) nudges the score but does not cap it", () => {
+    // relPct = (1.9-2.0)/2.0*100 = -5%. deadband=3 (past it → real effect), livedAt=6 (short → not "lived").
+    const result = computeAthleteState({ ...dipBase, aerobicEffLatest: 1.9 })!;
+    expect(result.drivers.find((d) => d.key === "aerobicEff")?.livedNegative).not.toBe(true);
+    expect(result.score).toBeGreaterThan(40); // only 1 confirmed lived negative (execution) — no cap
+  });
+
+  it("a severe ~10% dip (past livedAt) DOES corroborate — now 2 lived negatives cap the score", () => {
+    // relPct = (1.8-2.0)/2.0*100 = -10%, past livedAt=6 → counts as a lived negative.
+    const result = computeAthleteState({ ...dipBase, aerobicEffLatest: 1.8 })!;
+    expect(result.drivers.find((d) => d.key === "aerobicEff")?.livedNegative).toBe(true);
+    expect(result.score).toBeLessThanOrEqual(40); // override.scoreCap — execution + aerobicEff both lived
   });
 });

@@ -77,7 +77,10 @@ function evalAerobicEff(i: AthleteStateInputs, C: AthleteStateWeights): SignalCo
   const effect = round(clamp(relPct * C.aerobicEff.perPct, -C.aerobicEff.cap, C.aerobicEff.cap));
   const dir = relPct > 0 ? "up" : "down"; // "up" = efficiency rising = better
   const note = dir === "up" ? `Aerobic efficiency ${relPct.toFixed(0)}% above baseline` : `Aerobic efficiency ${(-relPct).toFixed(0)}% below baseline`;
-  return { key: "aerobicEff", label: "Aerobic efficiency", dir, effect, note };
+  // Flaky metric — a modest dip (between deadband and livedAt) still nudges `effect` above, but only a
+  // confidently large one (past livedAt) is trusted enough to corroborate the fatigue override below.
+  const livedNegative = dir === "down" && relPct <= -C.aerobicEff.livedAt;
+  return { key: "aerobicEff", label: "Aerobic efficiency", dir, effect, note, livedNegative };
 }
 
 function evalBehaviour(i: AthleteStateInputs, C: AthleteStateWeights): SignalContribution | null {
@@ -88,7 +91,9 @@ function evalBehaviour(i: AthleteStateInputs, C: AthleteStateWeights): SignalCon
 // The lived signals (what the body/sessions actually say, vs the load model). ≥2 corroborating
 // "worse" readings here cap the score even when TSB/ACWR look fresh — the reconciliation rule.
 function isLivedNegative(c: SignalContribution): boolean {
-  return (c.key === "execution" && c.dir === "down") || (c.key === "aerobicEff" && c.dir === "down");
+  // execution's own "down" IS its strict bar. aerobicEff — a flaky, confound-prone metric — needs the
+  // separate, stricter `livedNegative` flag (past `livedAt`, not just past the smaller `deadband`).
+  return (c.key === "execution" && c.dir === "down") || (c.key === "aerobicEff" && c.livedNegative === true);
 }
 
 function bandFor(score: number): { band: AthleteState["band"]; recommendation: AthleteState["recommendation"] } {
@@ -142,6 +147,9 @@ export function computeAthleteState(
 // (lib/aerobic.ts) so the "qualifying ride" definition can't drift between the two consumers. The recency
 // exclusion is athlete-state-specific (the "now" state grades the latest reading against its own history).
 const AEROBIC_RECENCY_DAYS = 14; // a reading older than this isn't "now" aerobic state
+const AEROBIC_MIN_RECENT_SAMPLES = 2; // never trust a single ride's Pw:HR alone — even "smoothed" over 1
+// sample is just that one ride. Flaky metric (heat/hydration/caffeine/sleep); the smoothing in
+// athleteStateInputsFrom only counts as smoothing once ≥2 rides actually back it.
 
 export function athleteStateInputsFrom(
   sync: SyncData | null,
@@ -160,9 +168,17 @@ export function athleteStateInputsFrom(
   // above a Z2-minutes floor (a few warmup minutes are noisy); the latest must be recent. Baseline = mean
   // over qualifying rides in the window; too few → null → the signal sits out (better absent than wrong).
   const qualifying = acts.filter((a) => qualifyingPwHr(a) != null);
-  const latestQual = [...qualifying].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
+  // Smooth the "now" read over the last few qualifying rides in the recency window rather than trusting a
+  // single latest ride — per-ride Pw:HR is dominated by heat/hydration/caffeine, so one bad day shouldn't
+  // cap the state. The baseline below (older than the recency window) is unchanged, so no overlap.
+  const recentQual = [...qualifying]
+    .filter((a) => a.date >= daysAgo(AEROBIC_RECENCY_DAYS))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 3);
   const aerobicEffLatest =
-    latestQual && latestQual.date >= daysAgo(AEROBIC_RECENCY_DAYS) ? latestQual.powerHrZ2 : null;
+    recentQual.length >= AEROBIC_MIN_RECENT_SAMPLES
+      ? round2(recentQual.reduce((s, a) => s + (a.powerHrZ2 as number), 0) / recentQual.length)
+      : null; // fewer than 2 rides in the window → sit out rather than report a lone ride as "smoothed"
   // Baseline EXCLUDES the recent window the latest reading comes from (RV2-4) — otherwise the latest sits
   // inside its own baseline and the comparison is self-muted. Too few qualifying rides outside the window
   // → null → the signal sits out (better absent than self-comparing).

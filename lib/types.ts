@@ -722,6 +722,12 @@ export interface SignalContribution {
   dir: "up" | "down" | "flat"; // the signal's own movement (e.g. decoupling "up" = worse)
   effect: number; // signed points added to the score (− = worse state)
   note: string; // one-line plain-English reason
+  // Stricter-than-`dir` flag: true only when this signal is confidently real enough to corroborate the
+  // fatigue override (isLivedNegative), not merely outside its deadband. Currently only set by
+  // evalAerobicEff — Pw:HR is a flaky metric (heat/hydration/caffeine/sleep), so a modest dip should nudge
+  // the score without alone helping trigger the hard score-cap. Undefined for every other signal (their
+  // `dir === "down"` IS their strict bar).
+  livedNegative?: boolean;
 }
 
 // The glanceable "what the second brain thinks of you right now" metric — a 0–100 score that fuses
