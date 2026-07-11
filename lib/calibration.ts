@@ -148,7 +148,10 @@ export interface AthleteStateWeights {
 export const DEFAULT_ATHLETE_STATE_WEIGHTS: AthleteStateWeights = {
   BASE: 60,
   tsb: { scale: 0.6, cap: 18, freshAbove: 5, deepBelow: -5 },
-  acwr: { optimal: 4, low: -2, high: -10, danger: -20 },
+  // ACWR demoted (redundant with TSB + the load-ramp readiness check, and unreliable for endurance
+  // readiness — Impellizzeri et al.): a minor nudge now, not a dominant hammer. TSB carries the load story.
+  // Bounds unchanged so a coach could re-weight it; only the DEFAULT is demoted.
+  acwr: { optimal: 2, low: -1, high: -4, danger: -8 },
   exec: { mid: 6, perPoint: 4, trend: 4, cap: 16 },
   aerobicEff: { perPct: 1.5, cap: 9, deadband: 2 }, // effect = relative %Δ from baseline × perPct, capped
   rpe: { perPoint: 5, cap: 10, deadband: 0.5 },

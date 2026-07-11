@@ -183,6 +183,23 @@ describe("resolveAthleteStateWeights (ROADMAP §5 — fusion weights)", () => {
   });
 });
 
+describe("athlete-state weights: ACWR demoted", () => {
+  it("demotes ACWR so it can no longer dominate the score", () => {
+    // Was danger −20 / optimal +4 — a hammer. Now a nudge; TSB carries the load story.
+    expect(Math.abs(DEFAULT_ATHLETE_STATE_WEIGHTS.acwr.danger)).toBeLessThanOrEqual(8);
+    expect(DEFAULT_ATHLETE_STATE_WEIGHTS.acwr.optimal).toBeLessThanOrEqual(2);
+  });
+  it("keeps TSB the dominant load signal (its cap outweighs ACWR danger)", () => {
+    expect(DEFAULT_ATHLETE_STATE_WEIGHTS.tsb.cap).toBeGreaterThan(
+      Math.abs(DEFAULT_ATHLETE_STATE_WEIGHTS.acwr.danger)
+    );
+  });
+  it("the demoted defaults survive the resolver unchanged (inside bounds)", () => {
+    const w = resolveAthleteStateWeights(null);
+    expect(w.acwr.danger).toBe(DEFAULT_ATHLETE_STATE_WEIGHTS.acwr.danger); // not clamped
+  });
+});
+
 describe("isAthleteStateWeightsOverridden", () => {
   it("detects a real (possibly deep) override vs none", () => {
     expect(isAthleteStateWeightsOverridden(null)).toBe(false);
