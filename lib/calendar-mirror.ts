@@ -130,11 +130,14 @@ export function reconcileInboundMoves(
       warnings.push(`Calendar moved ${d.date} (${d.name}) onto ${evt.date}, but ${target.name} is planned there — resolve manually.`);
       continue;
     }
-    // Apply: the workout's content (and eventId) relocates; the old date becomes a rest day.
+    // Apply: the workout's content relocates; the old date becomes a rest day. eventId is always
+    // re-stamped from the just-matched `evt.id`, not carried forward from `d.eventId` — when this
+    // match came from the byExternalId fallback (not byId), `d.eventId` is stale/wrong and carrying
+    // it forward would silently break the id-keyed lookups downstream (description-carry, restamp).
     days = days.map((x) => {
       if (x.date === evt.date) {
-        const { date: _old, ...content } = d;
-        return { date: evt.date, ...content };
+        const { date: _old, eventId: _staleId, ...content } = d;
+        return { date: evt.date, ...content, ...(typeof evt.id === "number" ? { eventId: evt.id } : {}) };
       }
       if (x.date === d.date) return { date: d.date, name: `Rest (moved to ${evt.date})`, type: "Rest" as CurrentBlockDay["type"], durationMin: 0 };
       return x;

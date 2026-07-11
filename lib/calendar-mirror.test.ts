@@ -154,6 +154,21 @@ describe("reconcileInboundMoves", () => {
   it("returns null when calendar and plan agree", () => {
     expect(reconcileInboundMoves(block, [ev({ date: "2026-07-14", id: 41 }), ev({ date: "2026-07-16", id: 43 })], "2026-07-13")).toBeNull();
   });
+
+  // Regression (final review round 2): when the byId lookup misses and the byExternalId fallback is
+  // what actually matched, the relocated day must be re-keyed to the MATCHED event's real id — not
+  // carry forward the day's stale d.eventId. Otherwise every downstream id-keyed lookup (description
+  // carry, the inbound-accept restamp) silently misses this day forever.
+  it("re-keys eventId to the matched event's real id when found via the externalId fallback, not the stale d.eventId", () => {
+    // day's stored eventId (41) matches no fetched event's id → forces the byExternalId fallback. The
+    // matched event's externalId still says the OLD date even though it now sits at a different date
+    // (mirrors real drift: an uncorrected inbound move, or any event whose external_id lags reality).
+    const drifted = ev({ date: "2026-07-15", id: 999, externalId: "nodevelo-2026-07-14" });
+    const res = reconcileInboundMoves(block, [drifted, ev({ date: "2026-07-16", id: 43 })], "2026-07-13")!;
+    expect(res.applied).toEqual([{ from: "2026-07-14", to: "2026-07-15" }]);
+    const moved = res.days.find((d) => d.date === "2026-07-15")!;
+    expect(moved.eventId).toBe(999); // the matched event's real id, NOT the stale d.eventId (41)
+  });
 });
 
 // The shared persist-then-best-effort-mirror orchestrator used by both /api/reschedule and
