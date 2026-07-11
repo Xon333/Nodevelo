@@ -26,8 +26,9 @@ import { computeAcwr, computeLoadRamp, computeReadiness } from "./readiness";
 import { timeAboveZ2Fraction } from "./execution-score";
 import { detectFtpRetest, type FtpRetestSignal } from "./plan-vs-actual";
 import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
-import { computeEnergyAvailability, eaLevel, weightTrendFromWellness, type EnergyAvailability } from "./nutrition";
+import { balanceLevel, computeEnergyAvailability, eaLevel, weightTrendFromWellness, type EnergyAvailability } from "./nutrition";
 import { utcToday } from "./date";
+import type { WeeklyEnergyBalance } from "./trends";
 import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveAthleteStateWeights, resolveTsbEdgesOverride, resolveTsbModifierEdges, type AcwrBands, type AthleteStateWeights, type DeepPartial, type TsbModifierEdges } from "./calibration";
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import { synthesizeCoachingDirectives } from "./synthesis";
@@ -74,9 +75,11 @@ export interface CoachSnapshot {
     weightTrend7dKg: number | null;
     // Energy-availability read (Track C / #1): `fuelingState` = the low/adequate/ample band, `intakeVsNeed`
     // = its kcal/kg figure (energy left after exercise per kg body weight — a body-weight proxy for whether
-    // intake meets need, NOT the clinical FFM cutoff). Both null until ≥3 complete logged days exist. The
-    // precise weekly intake-vs-need ratio is still §6 energy-balance.
+    // intake meets need, NOT the clinical FFM cutoff). Both null until ≥3 complete logged days exist.
     intakeVsNeed: number | null;
+    // §6: the precise weekly ratio for the week that just closed — null when under-logged. Present →
+    // owns fuelingState (precedence over the EA proxy band above).
+    weekBalance: { weekOf: string; intakeKcal: number; needKcal: number; ratio: number } | null;
     fuelingState: string | null;
   };
   state: { score: number; band: AthleteState["band"]; recommendation: AthleteState["recommendation"]; headline: string } | null;
@@ -99,6 +102,11 @@ export interface CoachSignals {
   athleteState: AthleteState | null;
   weightTrend7dKg: number | null;
   energyAvailability: EnergyAvailability | null;
+  // §6: the precise intake-vs-need read for the week that just closed (day-matched, complete weeks
+  // only — lib/trends.ts latestWeeklyBalance). Null when the prior week was under-logged. When
+  // present it OWNS fuelingState; the daily EA proxy is the fallback band (one verdict, two sources,
+  // documented precedence — never two disagreeing fuel verdicts in one snapshot).
+  weeklyBalance: WeeklyEnergyBalance | null;
   // Execution-driven FTP-retest advisory (#4) — resolved here so /ask, /sync and /generate can't
   // drift (CR-9). Null below the overdelivery gates (thin data / nothing over / no current FTP).
   ftpRetest: FtpRetestSignal | null;
@@ -138,9 +146,10 @@ export function resolveCoachSignals(
   // the retest detector's inputs. Omitted → the advisory resolves null (same silent-degradation
   // contract as the optional `today` above; the failure direction is conservative: flag absent).
   scoreEntries: RideScoreEntry[] = [],
-  currentFtp: number | null = null
+  currentFtp: number | null = null,
+  weeklyBalance: WeeklyEnergyBalance | null = null
 ): CoachSignals {
-  if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null, energyAvailability: null, ftpRetest: null };
+  if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null, energyAvailability: null, weeklyBalance: null, ftpRetest: null };
   void baselines; // see note above — kept in the signature, not used
   const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride), today);
   return {
@@ -156,6 +165,7 @@ export function resolveCoachSignals(
     // Same proxy the Today EA tile shows — anchored to the resolved local day so today's still-logging
     // intake is excluded. Null until ≥3 complete logged days; then it fills the fuel slots below.
     energyAvailability: computeEnergyAvailability(sync.wellness, sync.activities, today ?? utcToday()),
+    weeklyBalance,
     ftpRetest: detectFtpRetest(scoreEntries, today ?? utcToday(), currentFtp),
   };
 }
@@ -268,7 +278,15 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
       rideBurnKj: ride?.activityKj ?? null,
       weightTrend7dKg: input.weightTrend7dKg,
       intakeVsNeed: input.energyAvailability?.eaKcalPerKg ?? null, // EA kcal/kg (Track C / #1)
-      fuelingState: input.energyAvailability ? eaLevel(input.energyAvailability.eaKcalPerKg) : null, // low/adequate/ample band
+      weekBalance: input.weeklyBalance
+        ? { weekOf: input.weeklyBalance.weekOf, intakeKcal: input.weeklyBalance.intakeKcal, needKcal: input.weeklyBalance.needKcal, ratio: input.weeklyBalance.ratio }
+        : null,
+      // Precedence: precise weekly ratio > daily EA proxy band > null (see CoachSignals.weeklyBalance).
+      fuelingState: input.weeklyBalance
+        ? balanceLevel(input.weeklyBalance.ratio)
+        : input.energyAvailability
+          ? eaLevel(input.energyAvailability.eaKcalPerKg)
+          : null,
     },
     state: input.athleteState
       ? {
@@ -300,6 +318,9 @@ export interface CoachSnapshotSources {
   dispositions: DispositionEntry[];
   interventionLog: InterventionLog;
   morningChecks: MorningCheckEntry[];
+  // §6: caller-computed weekly intake-vs-need ratio (lib/trends.ts latestWeeklyBalance) — threaded
+  // through to CoachSignals.weeklyBalance so this builder stays IO-free.
+  weeklyBalance: WeeklyEnergyBalance | null;
   acwrBandsOverride?: Partial<AcwrBands> | null;
   tsbModifierEdgesOverride?: Partial<TsbModifierEdges> | null;
   athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null;
@@ -307,7 +328,7 @@ export interface CoachSnapshotSources {
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
   const athleteModel = buildAthleteModel(s.scoreEntries);
-  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date, s.scoreEntries, s.ftp);
+  const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date, s.scoreEntries, s.ftp, s.weeklyBalance);
   // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;
   return buildCoachSnapshot({
@@ -399,6 +420,12 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
   if (s.fuel.fuelingState != null) {
     fuelParts.push(
       `energy availability ${s.fuel.fuelingState}${s.fuel.intakeVsNeed != null ? ` (~${s.fuel.intakeVsNeed} kcal/kg, body-weight proxy)` : ""}`
+    );
+  }
+  if (s.fuel.weekBalance) {
+    const wb = s.fuel.weekBalance;
+    fuelParts.push(
+      `last week ${wb.intakeKcal.toLocaleString()} kcal vs ${wb.needKcal.toLocaleString()} needed (ratio ${wb.ratio.toFixed(2)} — ${balanceLevel(wb.ratio)})`
     );
   }
   if (fuelParts.length > 0) lines.push(`- Fuel: ${fuelParts.join(" · ")}.`);

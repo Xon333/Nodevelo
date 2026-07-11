@@ -9,7 +9,7 @@ function snapshot(overrides: Partial<CoachSnapshot> = {}): CoachSnapshot {
     block: { goal: "Build threshold", weekOfBlock: 2, totalWeeks: 4, overview: "Sweet-spot progression." },
     today: { sessionType: "Threshold", rideLogged: false, execution: null, morningCheck: null },
     form: { tsb: 3, acwr: "optimal", readiness: "Build", loadRamp: null, tsbModifier: { band: "balanced", guidance: "balanced form." } },
-    fuel: { todayTargetKcal: null, rideBurnKj: null, weightTrend7dKg: null, intakeVsNeed: null, fuelingState: null },
+    fuel: { todayTargetKcal: null, rideBurnKj: null, weightTrend7dKg: null, intakeVsNeed: null, weekBalance: null, fuelingState: null },
     state: null,
     directives: null,
     disposition: null,

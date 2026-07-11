@@ -57,6 +57,7 @@ function baseInput(overrides: Partial<CoachSnapshotInput> = {}): CoachSnapshotIn
     todayAnalysis,
     weightTrend7dKg: -0.4,
     energyAvailability: null,
+    weeklyBalance: null,
     directives: "Prioritise threshold durability; under-delivering on VO2max.",
     disposition: null,
     morningCheck: null,
@@ -180,6 +181,31 @@ describe("buildCoachSnapshot", () => {
   });
 });
 
+describe("weekly energy balance in the fuel slot (§6 / #1)", () => {
+  const wb = { weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
+
+  it("weekBalance fills and the weekly ratio owns fuelingState over the EA band", () => {
+    // Build an input where energyAvailability would band "adequate" (eaKcalPerKg 30) but the
+    // weekly ratio is low (0.84) — the precise signal must win.
+    const snap = buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }));
+    expect(snap.fuel.weekBalance).toEqual({ weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84 });
+    expect(snap.fuel.fuelingState).toBe("low");
+  });
+
+  it("falls back to the EA band when no weekly balance exists", () => {
+    const snap = buildCoachSnapshot(baseInput({ weeklyBalance: null, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }));
+    expect(snap.fuel.weekBalance).toBeNull();
+    expect(snap.fuel.fuelingState).toBe("adequate");
+  });
+
+  it("renders the week line in the prompt only when present", () => {
+    const withLine = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: wb })));
+    expect(withLine).toContain("last week 12,500 kcal vs 14,900 needed (ratio 0.84 — low)");
+    const without = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: null, energyAvailability: null })));
+    expect(without).not.toContain("last week");
+  });
+});
+
 describe("buildCoachSnapshotFromSources", () => {
   const baselines: RollingBaselines = { avgTss90d: null, avgDecoupling90d: null, avgCtl90d: null, avgWeeklyHours90d: null, ridesPerWeek90d: null, updatedAt: "" };
   const sync = { syncedAt: "", fitness: { ctl: 60, atl: 70, tsb: -10 }, activities: [], wellness: [], powerCurve: [] } as unknown as SyncData;
@@ -199,6 +225,7 @@ describe("buildCoachSnapshotFromSources", () => {
     interventionLog,
     morningChecks: [] as MorningCheckEntry[],
     acwrBandsOverride: null,
+    weeklyBalance: null,
     ...overrides,
   });
 

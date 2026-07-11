@@ -41,7 +41,7 @@ import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
 import { weightTrendFromWellness } from "@/lib/nutrition";
-import { isSteadyEnduranceRide } from "@/lib/trends";
+import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
@@ -121,6 +121,7 @@ export async function GET(req: Request) {
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
     athleteStateWeightsOverride: settings.athleteStateWeights,
+    weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, profile.nutrition), today),
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -733,6 +734,7 @@ export async function POST(req: Request) {
       acwrBandsOverride: settingsForSnap.acwrBands,
       tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
       athleteStateWeightsOverride: settingsForSnap.athleteStateWeights,
+      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, profileForSnap.nutrition), today),
     });
 
     // SUB-4: best-effort off-machine snapshot. A no-op (not a failure) when NODEVELO_BACKUP_DIR isn't

@@ -13,6 +13,7 @@ vi.mock("@/lib/data-store", () => ({
   readInterventionLog: vi.fn(),
   readMorningChecks: vi.fn(),
   readBlockSettings: vi.fn(),
+  readAthleteProfile: vi.fn(),
 }));
 vi.mock("@/lib/physiology", () => ({ readPhysiology: vi.fn() }));
 vi.mock("@/lib/anthropic-api", () => ({
@@ -50,6 +51,9 @@ beforeEach(() => {
   vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readBlockSettings).mockResolvedValue(DEFAULT_BLOCK_SETTINGS);
   vi.mocked(readPhysiology).mockResolvedValue({ current: { ftp: 280 } } as never);
+  vi.mocked(store.readAthleteProfile).mockResolvedValue({
+    nutrition: { baseCalories: 2200, restDayTarget: 2000, buffer: 300, targetWeightKg: 70 },
+  } as never);
 });
 
 describe("POST /api/ask", () => {

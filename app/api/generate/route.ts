@@ -36,6 +36,7 @@ import { deriveSessionRequirements, formatSessionRequirements, validateSessionRe
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
 import { currentPeriod, formatSeasonContext, replanSeasonArc, validateSeasonFit } from "@/lib/season";
+import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
 // Generation calls take 1–2 minutes for a 4-week block.
@@ -164,7 +165,20 @@ export async function POST(req: Request) {
     // systemic state, not just per-dimension execution history.
     // Form/fuel/state signals via the shared resolver, so generation + Ask-Coach can't drift (CR-9);
     // the resolver owns the band resolution (RR-5).
-    const signals = resolveCoachSignals(sync, athleteModel, baselines, blockSettings.acwrBands, blockSettings.athleteStateWeights, new Date().toISOString().slice(0, 10), scoreLog.entries, profile.performance.ftp);
+    const signals = resolveCoachSignals(
+      sync,
+      athleteModel,
+      baselines,
+      blockSettings.acwrBands,
+      blockSettings.athleteStateWeights,
+      new Date().toISOString().slice(0, 10),
+      scoreLog.entries,
+      profile.performance.ftp,
+      latestWeeklyBalance(
+        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], new Date().toISOString().slice(0, 10), profile.nutrition),
+        new Date().toISOString().slice(0, 10)
+      )
+    );
     const stateContext = signals.athleteState
       ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${signals.athleteState.headline} — state ${signals.athleteState.score}/100, recommendation: ${signals.athleteState.recommendation}.`
       : "";
