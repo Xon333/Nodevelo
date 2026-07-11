@@ -276,6 +276,25 @@ export function timeAboveAerobicHrFraction(hrZoneTimes: number[] | null | undefi
   return above / total;
 }
 
+// Research-grounded easy-ride discipline bands, on the HR-time-above-aerobic fraction. A single easy
+// ride should be ~100% aerobic (80/20 polarized principle); ≤10% above tolerates terrain-driven HR bumps
+// (climbs, the odd brief effort); >25% means the HEART sat above the aerobic ceiling for a quarter-plus of
+// the ride — it genuinely wasn't an easy ride. Friel's LTHR Zone-2 ceiling (~89% LTHR) = the top of HR
+// zone 2, so "above zone 2" is the physiological line these bands sit on.
+export const AEROBIC_HR_DIALED_MAX = 0.10;
+export const AEROBIC_HR_DRIFT_MAX = 0.25;
+
+export type AerobicDiscipline = "dialed" | "drift" | "hot";
+
+// Map the HR-time-above-aerobic fraction to a lenient three-state read. Null (no HR-zone data) → no read,
+// and the scorer applies no HR penalty (an easy ride with no HR monitor rests on duration + power bonuses).
+export function aerobicDisciplineRead(aboveAerobicHrFrac: number | null | undefined): AerobicDiscipline | null {
+  if (aboveAerobicHrFrac == null || !Number.isFinite(aboveAerobicHrFrac)) return null;
+  if (aboveAerobicHrFrac <= AEROBIC_HR_DIALED_MAX) return "dialed";
+  if (aboveAerobicHrFrac <= AEROBIC_HR_DRIFT_MAX) return "drift";
+  return "hot";
+}
+
 export function executionScoreLabel(score: number): string {
   if (score >= 9) return "Excellent";
   if (score >= 7) return "Good";

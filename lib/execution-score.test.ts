@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
+import { aerobicDisciplineRead, AEROBIC_HR_DIALED_MAX, AEROBIC_HR_DRIFT_MAX, computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
 
 const base: ExecutionScoreInput = {
   compliancePct: null,
@@ -387,5 +387,23 @@ describe("timeAboveAerobicHrFraction", () => {
   });
   it("ignores non-finite / negative buckets", () => {
     expect(timeAboveAerobicHrFraction([600, NaN, -5, 200])).toBeCloseTo(200 / 800, 5);
+  });
+});
+
+describe("aerobicDisciplineRead", () => {
+  it("dialed in when almost all time is aerobic", () => {
+    expect(aerobicDisciplineRead(0.05)).toBe("dialed");
+    expect(aerobicDisciplineRead(AEROBIC_HR_DIALED_MAX)).toBe("dialed"); // boundary inclusive
+  });
+  it("some drift in the tolerance band", () => {
+    expect(aerobicDisciplineRead(0.18)).toBe("drift");
+    expect(aerobicDisciplineRead(AEROBIC_HR_DRIFT_MAX)).toBe("drift"); // boundary inclusive
+  });
+  it("ran hot above the drift ceiling", () => {
+    expect(aerobicDisciplineRead(0.4)).toBe("hot");
+  });
+  it("null when there is no HR data", () => {
+    expect(aerobicDisciplineRead(null)).toBeNull();
+    expect(aerobicDisciplineRead(undefined)).toBeNull();
   });
 });
