@@ -176,13 +176,8 @@ dormant until `carbs_ingested` data accrues, like every calibrated param. What's
 - **Pw:HR × fuel Trends overlay** — carb-intake g/h on the existing `efSeries` chart (build w/ Track C).
 - **Mobile density polish** — UX-MASTERPLAN §3 recorded but deliberately deferred all mobile
   execution (desktop-first scope decision); no desktop page runs over the fold post-v2.
-- **Two small UI-polish items surfaced by the UX v2 Wave 5 closing review** (real, open, out of
-  that wave's scope): `components/trends/verdict.tsx`'s `VerdictStrip` colors its "down" axis chip
-  amber where every other declining signal (`trendDir`, `driverEffectClass`, `ScoreBars`) uses red —
-  the same fix Wave 5 already applied to `StateDriversCard`'s bars, just not here; and
-  `lib/trends-verdict.ts`'s score-to-word mapping can bucket "Mixed" even when no two axes actually
-  disagree (e.g. steady + steady + fueling-down nets −1, which buckets "Mixed") — a labeling nit,
-  not a logic bug.
+- **Two small UI-polish items surfaced by the UX v2 Wave 5 closing review — both shipped 2026-07-11**
+  → [ARCHIVE.md](ARCHIVE.md).
 
 ---
 
@@ -212,8 +207,6 @@ does not change.
   date — on Intervals.icu, flowing back into the block). Calendar-side (inbound) swap-pairing also
   stays open — a swap made directly on Intervals.icu still surfaces as two separate conflict
   warnings, not auto-applied.
-- **8 · NP-missing → "unverified"** — when NP is absent on an outdoor ride, stamp the entry `unverified`
-  instead of scoring off raw avg power. Small.
 - **Wearable morning-readiness** — when a wearable lands, objective HRV / sleep / resting-HR slots
   into readiness + athlete-state, replacing the manual ill/fatigue flag for the fatigue case (the
   subjective-wellness sync was deliberately removed 2026-06-26 — don't re-propose it).

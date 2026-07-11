@@ -12,6 +12,38 @@ exact commits.
 
 ---
 
+## NP-missing ledger honesty stamp + two UX v2 Wave 5 polish nits (2026-07-11)
+
+Three small, independently-diagnosed items closed together from ROADMAP's UI-refinements and
+scoring-core-gaps sections.
+
+- **`RideScoreEntry.npUnverified` (ROADMAP #8).** The Today debrief already shows an "NP"/"avg" IF
+  provenance badge for the live ride (`components/dashboard/today.tsx`), but the historical ledger
+  had no equivalent — a ride whose `intensityFactor` fell back from normalized power to raw avg
+  watts (NP absent) was indistinguishable from a true NP-based entry once frozen. `npStampFor`
+  (`lib/score-log.ts`, mirroring the existing `calStampFor`/`fuelStampFor` provenance-stamp pattern)
+  freezes `npUnverified: true` onto both planned and off-plan entries in `buildRideScores` when
+  `normalizedPower` is null but `avgWatts` still let the IF compute — sparse-field convention, absent
+  (not `false`) on every other entry, so the corpus's trainable data carries this honesty signal
+  without a migration. Provenance only for now, same as `formState`/`fuel`/`preLoad` — no new UI
+  consumer yet.
+- **`VerdictStrip`'s "down" axis chip colored amber, not red** (`components/trends/verdict.tsx`) —
+  every other declining Trends signal (`trendDir`, `driverEffectClass`, `ScoreBars`,
+  `StateDriversCard`'s bars) uses red for a decline; this one didn't. One-line fix:
+  `DIR_CLS.down` now reuses the same `text-red-600 dark:text-red-400` the file's own `WORD_CLS`
+  already used for "Slipping". Live-verified: a real "delivery ↓" chip rendered red immediately.
+- **`deriveTrendsVerdict`'s "Mixed" bucket fired on net score alone, not real disagreement**
+  (`lib/trends-verdict.ts`) — e.g. steady engine + steady delivery + fueling-down netted a mildly
+  negative score and bucketed "Mixed," even though no axis was actually in tension with another,
+  while a genuine disagreement case (engine down, delivery up) landed on "Holding" instead — backwards
+  from what the word should mean. Fixed by gating "Mixed" on an explicit engine-vs-delivery direction
+  conflict (one up, one down) instead of a score range; everything else falls through to a
+  magnitude-only Improving/Holding/Slipping read (fueling still only ever drags, never lifts). All 4
+  pre-existing word tests — including the genuine-disagreement case — still pass unchanged; one new
+  test pins the fixed steady+steady+fueling-down → Holding case.
+
+---
+
 ## `formatFormFuelLine` mislabel bug closed — block-generation fuel line tracks fuelingState's real source (2026-07-11)
 
 Closed the milder sibling of the `formatCoachSnapshot` fuel-line mislabel bug (fixed earlier the same
