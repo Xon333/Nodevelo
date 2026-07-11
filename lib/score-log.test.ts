@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRideScores, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, summariseBehaviour, truncateBlockDays } from "./score-log";
+import { buildRideScores, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, npStampFor, summariseBehaviour, truncateBlockDays } from "./score-log";
 import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, IntervalComparison, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
@@ -376,6 +376,45 @@ describe("fuelStampFor", () => {
 
   it("stamps nothing when moving time is zero (avoids divide-by-zero)", () => {
     expect(fuelStampFor({ ...base, movingTimeSec: 0, carbsIngestedG: 50 })).toEqual({});
+  });
+});
+
+describe("npStampFor", () => {
+  const base = activity({ date: "2026-01-01" }); // default fixture: normalizedPower 185, avgWatts 180
+
+  it("stamps npUnverified when NP is absent but avg power let intensityFactor still compute", () => {
+    expect(npStampFor({ ...base, normalizedPower: null, avgWatts: 180 })).toEqual({ npUnverified: true });
+  });
+
+  it("stamps nothing when NP is present (the real signal)", () => {
+    expect(npStampFor({ ...base, normalizedPower: 185, avgWatts: 180 })).toEqual({});
+  });
+
+  it("stamps nothing when both NP and avg power are absent — nothing was scored off avg power either", () => {
+    expect(npStampFor({ ...base, normalizedPower: null, avgWatts: null })).toEqual({});
+  });
+});
+
+describe("buildRideScores — NP-unverified provenance", () => {
+  const ftpFor = () => 200;
+
+  it("flags a planned ride's entry npUnverified when it scored off avg power, not NP", () => {
+    const z2Block = block([{ date: "2026-01-01", type: "Z2", durationMin: 60 }]);
+    const acts = [activity({ date: "2026-01-01", normalizedPower: null, avgWatts: 135 })]; // IF 0.675 @ ftp200
+    const [entry] = buildRideScores(z2Block, acts, ftpFor, "2026-01-02");
+    expect(entry.npUnverified).toBe(true);
+  });
+
+  it("flags an off-plan ride's entry the same way", () => {
+    const acts = [activity({ date: "2026-01-01", normalizedPower: null, avgWatts: 135 })];
+    const [entry] = buildRideScores(null, acts, ftpFor, "2026-01-02");
+    expect(entry.npUnverified).toBe(true);
+  });
+
+  it("leaves the field absent when NP is present (byte-identical to before this change)", () => {
+    const acts = [activity({ date: "2026-01-01", normalizedPower: 138, avgWatts: 135 })];
+    const [entry] = buildRideScores(null, acts, ftpFor, "2026-01-02");
+    expect(entry.npUnverified).toBeUndefined();
   });
 });
 

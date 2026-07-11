@@ -472,6 +472,12 @@ export interface RideScoreEntry {
   compromised?: boolean;
   compliancePct: number | null; // null for off-plan rides (no prescription to compare against)
   intensityFactor: number | null;
+  // Provenance stamp (ROADMAP #8): true when normalizedPower was absent and intensityFactor fell back to
+  // avg power instead (score-log.ts's `ifBasis = normalizedPower ?? avgWatts`) — an avg-based IF
+  // understates variable/surgy efforts vs a true NP read. Mirrors the "NP"/"avg" badge the Today debrief
+  // already shows for the live ride; this freezes the same distinction onto the historical ledger.
+  // Absent (not `false`) when NP was present, or when there was no power data to fall back to at all.
+  npUnverified?: boolean;
   ftpUsed: number; // FTP this entry was scored against — frozen so history never re-shifts
   durationMin: number; // feeds the behaviour/volume signal
   tss: number | null;

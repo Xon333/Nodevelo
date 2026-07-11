@@ -48,6 +48,14 @@ export function fuelStampFor(act: ActivitySummary): { fuel: { carbsGPerH: number
   return { fuel: { carbsGPerH } };
 }
 
+// NP-provenance stamp (ROADMAP #8): flags an entry whose intensityFactor fell back to avg power
+// because normalizedPower was absent — mirrors the "NP"/"avg" badge the Today debrief already shows
+// live. Spread-ready `{}` when NP was present, or when there's no avg power to fall back to either
+// (nothing was scored off avg power in that case, so nothing to flag as unverified).
+export function npStampFor(act: ActivitySummary): { npUnverified: true } | Record<string, never> {
+  return act.normalizedPower === null && act.avgWatts !== null ? { npUnverified: true } : {};
+}
+
 // Interval-adherence stamp (ROADMAP scoring-core gap): maps the prescription-vs-execution comparison
 // down to the four fields the ledger freezes as `intervals`. One mapping, used by this module AND the
 // sync route's today-patch, so the two capture points can never diverge on what "the stamp" means.
@@ -196,6 +204,7 @@ export function buildRideScores(
           ...calStampFor(calibration, planned.type, false),
           ...contextStamp,
           ...fuelStampFor(act),
+          ...npStampFor(act),
           // Frozen even when structuralMismatch suppressed it from scoring THIS time — the comparison is
           // still real provenance for a later rebuild/correlation (structuralMismatch means duration was
           // untrustworthy, not that the whole comparison is worthless).
@@ -235,6 +244,7 @@ export function buildRideScores(
           ...calStampFor(calibration, inferredType, true),
           ...contextStamp,
           ...fuelStampFor(act),
+          ...npStampFor(act),
         };
       }
     }
