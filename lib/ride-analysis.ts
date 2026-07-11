@@ -147,9 +147,11 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
   const preserved = input.preserved?.activityDate === input.today ? input.preserved : null;
   const coachNote = preserved?.coachNote ?? "";
 
-  // Easy-ride effort read for the debrief (Z2/Recovery only; null otherwise). Same HR signal the score used.
+  // Easy-ride effort read for the debrief (Z2/Recovery only; null for off-plan rides — the score's own
+  // HR-judge axis is gated !intrinsic, so an off-plan ride's inferred Z2/Recovery type never actually used
+  // this signal in scoring). The same HR signal the score used, gated the same way (never applied off-plan).
   const aerobicDiscipline =
-    scoringType === "Z2" || scoringType === "Recovery"
+    plannedDay != null && (scoringType === "Z2" || scoringType === "Recovery")
       ? aerobicDisciplineRead(timeAboveAerobicHrFraction(input.hrZoneTimes))
       : null;
 

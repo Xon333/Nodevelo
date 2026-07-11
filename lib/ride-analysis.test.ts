@@ -143,6 +143,19 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.aerobicDiscipline).toBeNull();
   });
 
+  it("aerobicDiscipline is null for an off-plan ride even when its inferred type is Z2", () => {
+    // No planned session (intrinsic) + power data that infers to Z2 (IF 0.64) + HR data that would
+    // otherwise read "hot". The score's own HR-judge axis is gated !intrinsic and never sees this ride,
+    // so the debrief must not show a read the score didn't use.
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: null,
+      activity: activity({ normalizedPower: 160, avgWatts: 150 }), // IF 0.64 → infers Z2
+      hrZoneTimes: [300, 300, 2400], // 80% above aerobic → would be "hot" if scored
+    });
+    expect(todayAnalysis.aerobicDiscipline).toBeNull();
+  });
+
   it("drops interval adherence from scoring on a structural mismatch", () => {
     const mismatch = buildTodayAnalysis({
       ...base,
