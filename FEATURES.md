@@ -18,17 +18,25 @@ AI — and the AI only ever phrases numbers the code already computed.
 
 ## Season & macro-periodization (Plan page)
 - **Season objective + target events** — an athlete-owned objective string and A/B/C-priority event
-  list; a compact objective + upcoming-events card sits on `/plan` beside the generator it feeds.
-  `GET`/`PUT /api/season`, `lib/season.ts`
+  list; a compact objective + upcoming-events card sits on `/plan` beside the generator it feeds. The
+  intro copy + objective label state the season↔block relationship explicitly ("blocks are generated
+  *against* it") rather than reading as a vague freeform box. `GET`/`PUT /api/season`, `lib/season.ts`,
+  `components/SeasonSection.tsx`
 - **Macro-periodization engine** — a rolling base→build→realize cycle (deload cadence + ACWR-capped
   load ramp) is the live default with no event on the calendar; a fully-built event-anchored mode
   (backward taper→peak→build scheduling) activates automatically the moment a future A-event exists.
   `replanSeasonArc`, `validateSeasonFit` — `lib/season.ts`
+- **Honest focus labels** — `FOCUS_LABELS` maps a goal's `"general"` tag to **"all phases"** display
+  text instead of a meaningless-looking default (stored value unchanged; display-only). Shared by the
+  Profile goals grouping below. `lib/season.ts`
+- **No-season teaching stub** — when no season exists yet, the `/plan` roadmap slot teaches "what a
+  season does" in three steps instead of sitting empty. `components/SeasonRoadmap.tsx`
 - **Season-aware block pre-fill** — the block generator's length selector (now **2/4/6/8** weeks)
   pre-fills from the season's current period (`suggestedBlockWeeks`); the goal textarea pre-fills to
   goals tagged with the period's focus + every general-tagged goal (`filterGoalsByFocus`); a
-  one-line season-context readout renders above the generator fields. All freely overridable, never
-  locked. `components/dashboard/{PlanView,BlockGenerator}.tsx`
+  "Targeting `<phase>` · pulling N goals · edit profile →" line renders above the generator fields
+  stating what it's pulling from. All freely overridable, never locked.
+  `components/dashboard/{PlanView,BlockGenerator}.tsx`
 - **Block-completion prompt** — once the active block's `endDate` has passed, the Today planned-
   session card proactively nudges the athlete to generate the next one instead of sitting on stale
   "no session planned" copy. `isBlockFinished`, `lib/date.ts`, `components/dashboard/today.tsx`
@@ -38,6 +46,9 @@ AI — and the AI only ever phrases numbers the code already computed.
   spread per week. A "next: `<session>`, `<when>`" pointer sits alongside.
 - **In-hero week strip** — hours-vs-target (aligned current-block-week window) · load · top session,
   replacing the old standalone "This week" panel. `components/dashboard/plan.tsx`
+- **Block calendar hoisted + resized** — sits directly under the hero header (was buried under
+  393px of text/stats), with a proper drag/tap cell height for reschedule — the block's primary
+  artifact reads as primary. `components/dashboard/plan.tsx`
 
 ## Block generation (Plan page)
 - **Goal-driven, KB-grounded generation** — knowledge base + live zones + athlete-model insights +
@@ -146,13 +157,18 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
   delivery avg + direction (execution average) · fueling banded off the energy-availability proxy —
   each axis carries a derivation tip. Ranked coach insights follow (top 3 visible, rest + the
   validation track record behind a disclosure). `lib/trends-verdict.ts`
-- **ENGINE group** — Pw:HR efficiency trajectory (outdoor-only, endurance band, ≥45 min) and CTL
-  fitness curve, side by side.
+- **ENGINE group** — Pw:HR efficiency trajectory (outdoor-only, endurance band, ≥45 min), CTL fitness
+  curve, and HRRc (heart-rate recovery after a sustained hard effort — the interval-day counterpart to
+  Pw:HR's easy-day read), side by side. Section renders once any one signal has ≥3 qualifying points.
+  HRRc is rendered as a **neutral, unscored sparkline** — deliberately no green/red trend verdict,
+  since HRR can rise *or* fall normally depending on training-phase intent (rising during a
+  well-tolerated overload block is expected, not a red flag) and the app can't yet disambiguate that
+  without reading Season phase. `hrrcSeries` — `lib/trends.ts`
 - **DELIVERY group** — execution-quality per-session bars and per-type planned-vs-actual merged into
   **one card with a toggle** (previously two separate flat sections).
 - **LOAD & FUEL group** — fueling & weight (complete weeks only; absorbs latest weight, weight
   trend, and last intake — the old "Last 7 days" tile row is gone, its tenants relocated here) ·
-  weekly volume as small context chart.
+  weekly volume chart, sized to use its card's full height (was ~109px of dead air below the caption).
 - **MILESTONES group** — recent baselines row (**w/kg @ threshold** · weekly hours · rides/week ·
   avg load/ride, 90-day rolling, "Load" naming aligned to Intervals.icu) · block history, collapsed.
   `lib/trends.ts`, `components/Trends.tsx`, `components/trends/sections.tsx`
@@ -177,10 +193,15 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
 
 ### Profile (Wave 5, read-first dossier)
 - **The rider read (hero)** — power curve + phenotype line, current performance (FTP · tHR · maxHR,
-  from Plan), synced weight, all-time PR strip — provenance badges kept.
-- **Zones & effort bands** — synced, compact table (moved here from Model).
-- **Goals & weakpoints** — compact read view (goal → target · type); the add/edit/delete form
-  (each goal taggable by `SeasonFocus`) sits behind an inline "▸ edit" disclosure, no modal.
+  from Plan), synced weight, all-time PR strip — provenance badges kept. Rider-profile watts
+  de-duplicated against the Power-PRs card (which already owns the power-duration curve numbers) —
+  each "current numbers" surface now answers a different question instead of repeating watts.
+- **Zones & effort bands** — synced; collapsed into a compact disclosure (reference data, not
+  something read every visit).
+- **Goals & weakpoints** — compact read view, grouped by focus (`groupGoalsByFocus`) instead of a
+  flat list with a per-row chip — reads `goal → target` under focus headings, "general" clustering
+  honestly as "all phases"; the add/edit/delete form (each goal taggable by `SeasonFocus`) sits behind
+  an inline "▸ edit" disclosure, no modal. `lib/profile-goals.ts`
 - **Nutrition formula** — compact read + buffer-adjustment status; the full form is behind a
   disclosure. Season objective/events moved to Plan — no longer edited here.
 

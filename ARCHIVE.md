@@ -12,6 +12,104 @@ exact commits.
 
 ---
 
+## HRRc — heart-rate-recovery Trends signal (2026-07-10, shipped 2026-07-11)
+
+Adds HRRc (heart-rate recovery after a sustained hard effort) as a second HR-derived Engine signal on
+Trends, alongside Pw:HR — Pw:HR only reads on easy Z2 rides, HRRc only reads on hard/interval rides, so
+together they cover both ends of the intensity spectrum from the same HR strap. Plan:
+`docs/superpowers/plans/2026-07-10-06-hrrc-trends-signal.md`.
+
+- **Synced defensively.** `ActivitySummary.hrrc: number | null` — multi-keyed against the Intervals.icu
+  payload the same way `decoupling` already hedges two possible keys, since the exact field name was
+  unconfirmed going in.
+- **`hrrcSeries()`** (`lib/trends.ts`) mirrors `efSeries()`'s shape exactly: outdoor rides only, sorted
+  by date, `{date, value}[]`. Wired into `/api/trends`.
+- **Rendered as a neutral, unscored sparkline** — deliberately no `trendDir` verdict badge (the
+  green/red "improving"/"declining" treatment every other Engine card gets). **Why it stays out of the
+  Today fatigue fusion, on purpose:** functional-overreaching research finds HRR *rises* (not falls)
+  during a deliberate, well-tolerated overload block — the opposite of the "faster recovery = fresher"
+  intuition. A metric whose "good" direction flips depending on training-phase intent can't safely cap
+  a daily readiness score without knowing whether the athlete is intentionally mid-overload, and the
+  app has no such disambiguation today (it would need to read Season phase — real scope, not a tweak).
+  Same "read the trend, not the point" caveat Pw:HR already carries, stated explicitly in the caption.
+- **Engine section gate extended** — the section now renders on `data.hrrc.length >= 3` alone, not just
+  `ef`/`ctl`, so a rider with qualifying interval efforts but no steady Z2 rides still sees Engine.
+
+**Live verification (2026-07-11):** checked against 42 real rides (~45 days) via the live Intervals.icu
+API. The plan's original field-name guess (`numLoose(a.icu_hrr)`, a flat number) would have silently
+read `null` forever — the real payload nests it (`icu_hrr: {start_bpm, end_bpm, hrr, ...}` or `null`),
+so the actual bpm-drop value lives at `icu_hrr.hrr`. `icu_hrrc` doesn't exist in the real payload at all
+(kept as a harmless dead fallback alongside a bare `hrrc` key, in case a future API revision adds it).
+
+**Final-review fixes:** removed a dead unused `FOCUS_LABELS` import in `SeasonRoadmap.tsx` (left over
+from the season-teaching-flow plan below); the new `hrrcSeries` test used untyped `{...} as any`
+fixtures instead of the file's own typed `act()` helper — 4 real `@typescript-eslint/no-explicit-any`
+lint errors, caught and fixed when this batch was finished and pushed after the session that built it
+ran out of credits mid-review.
+
+---
+
+## Layout density — Plan calendar & Trends dead-space (2026-07-10, shipped 2026-07-11)
+
+Two presentational fixes, each grounded in measured DOM geometry (1280×800 viewport,
+`getBoundingClientRect`, re-measured after each change rather than trusted from a screenshot — the
+capture pipeline scales the JPEG). Plan: `docs/superpowers/plans/2026-07-10-05-layout-density.md`.
+
+- **Plan calendar hoisted + resized.** The Active-block card previously stacked header → overview →
+  "This week" → calendar, burying the block's primary artifact and reschedule surface (28px cells)
+  under 393px of text/stats. Calendar now sits directly under the header with a proper drag/tap cell
+  height; the long overview moved to the bottom.
+- **Trends "Weekly volume" card filled.** Force-stretched (`items-stretch`) to match its taller sibling
+  card, its 56px bar chart left ~109px of dead air below the caption. Bars now sized to use the space
+  (chart height ≈130px).
+- Explicitly **not** touched: `RescheduleBanner` position (alerts stay high, per UX-CONSTITUTION §4);
+  the Engine sparkline cards' padding (intentional thin-SVG look); a "Recent baselines stretched"
+  concern that was measured and found to be a non-issue.
+
+---
+
+## Profile page density (2026-07-10, shipped 2026-07-11)
+
+Cut Profile-page redundancy and bulk across two presentational components, no data/API changes. Plan:
+`docs/superpowers/plans/2026-07-10-04-profile-density.md`.
+
+- **Effort Bands collapsed** into a compact disclosure — reference data, not something read every
+  visit.
+- **Rider-profile watts de-duplicated against Power PRs** — Power PRs already owns the power-duration
+  curve numbers; Rider-profile keeps the phenotype label + strong/weak read, drops the redundant watts.
+- **Goals grouped by focus** (`lib/profile-goals.ts groupGoalsByFocus`) instead of a flat list with a
+  chip per row — reads `goal → target` under focus headings; shares the `SeasonFocus | "general"`
+  union and `FOCUS_LABELS` (below) with `lib/season.ts`, so "general" clusters honestly as "all phases"
+  rather than reading as noise.
+- **Scope correction made during planning, not after:** the Profile "Current performance" tiles and the
+  Trends "Recent baselines" tiles mostly show *different* things (the only real overlap is
+  w/kg@threshold) — no broad Current-Performance↔Recent-Baselines de-dup was needed; the actual
+  intra-page duplication was Rider-profile↔Power-PRs, above.
+
+---
+
+## Season ↔ Block teaching flow (2026-07-10, shipped 2026-07-11)
+
+Makes the Season → Block → goal relationship legible through UI structure instead of prose — the
+pieces already existed and were wired in data (`SeasonRoadmap`, `currentPeriod`,
+`filterGoalsByFocus`, `suggestedBlockWeeks`); the gap was purely presentational. No new engine logic.
+Plan: `docs/superpowers/plans/2026-07-10-03-season-block-teaching-flow.md`.
+
+- **Honest focus labels.** `FOCUS_LABELS` (`lib/season.ts`) maps `general` → **"all phases"** instead of
+  a meaningless-looking default — `general` isn't a physiological system, it means "relevant in every
+  phase" (`filterGoalsByFocus` already always includes it; this is display-only, stored values
+  unchanged). Consumed by the Profile goals grouping above too.
+- **No-season teaching stub** — the roadmap slot on `/plan` now teaches "what a season does" in three
+  steps when no season exists yet, instead of sitting empty.
+- **Objective field re-scoped, not replaced** — the existing season `objective` input's intro copy and
+  label now state the relationship explicitly ("one line on what you're chasing... blocks are generated
+  *against* it"), rather than reading as a vague freeform text box.
+- **Generator shows what it's targeting** — a "Targeting `<phase>` · pulling N goals · edit profile →"
+  line now renders above the block generator, sourced from `FOCUS_LABELS` + `filterGoalsByFocus`
+  against the season's current period.
+
+---
+
 ## NP-missing ledger honesty stamp + two UX v2 Wave 5 polish nits (2026-07-11)
 
 Three small, independently-diagnosed items closed together from ROADMAP's UI-refinements and
