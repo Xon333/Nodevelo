@@ -164,12 +164,15 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
     }
   }
 
-  // --- Easy-ride effort judge: HR time above the aerobic ceiling (+1 / 0 / −2) --- prescribed Z2/Recovery.
+  // --- Easy-ride effort judge: HR time above the aerobic ceiling (+1 / 0 / −4) --- prescribed Z2/Recovery.
   // The terrain-immune "was this actually easy?" read (aerobicDisciplineRead over HR-zone time), and the
-  // ONLY penalty axis for easy rides: dialed in = +1, some drift = 0, ran hot = −2 (the overtraining
-  // guardrail — a genuinely too-hard easy day is still flagged). Skipped for off-plan rides (no plan to be
-  // easy against), for durability templates B–E (efforts INSIDE the ride are the point — Track B), and when
-  // HR-zone data is absent (older rides / no HR monitor score exactly as before, on duration + bonuses).
+  // ONLY penalty axis for easy rides: dialed in = +1, some drift = 0, ran hot = −4 (the overtraining
+  // guardrail — a genuinely too-hard easy day is still flagged). −4, not −2/−3: the reward-only bonuses
+  // above it (duration +2, IF-band +1, VI +1) can stack to +4 above baseline, so the penalty must clear
+  // that whole stack to guarantee the guardrail holds on every combination, not just the common case.
+  // Skipped for off-plan rides (no plan to be easy against), for durability templates B–E (efforts INSIDE
+  // the ride are the point — Track B), and when HR-zone data is absent (older rides / no HR monitor score
+  // exactly as before, on duration + bonuses).
   if (
     input.aboveAerobicHrFrac != null &&
     !intrinsic &&
@@ -178,7 +181,7 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
   ) {
     const read = aerobicDisciplineRead(input.aboveAerobicHrFrac);
     if (read === "dialed") score += 1;
-    else if (read === "hot") score -= 2;
+    else if (read === "hot") score -= 4;
     // "drift" → 0 (lenient middle: the odd climb or brief effort is fine).
   }
 
