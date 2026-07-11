@@ -254,7 +254,7 @@ function BlockCalendar({
                           setPinnedDate(null);
                         }
                       }}
-                      className={`flex h-7 w-full items-center justify-center rounded text-[10px] font-medium ${TYPE_STYLES[day.type].cell} ${
+                      className={`flex h-10 w-full items-center justify-center rounded text-[10px] font-medium ${TYPE_STYLES[day.type].cell} ${
                         day.type === "Rest" ? "text-zinc-600" : "text-white"
                       } ${day.date === today ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-[#ff49c8] dark:ring-offset-zinc-800" : ""} ${
                         completed ? "font-bold ring-1 ring-inset ring-white/60 dark:ring-black/30" : ""
@@ -499,7 +499,14 @@ export function CurrentBlockSection({
             )
           )}
         </div>
-        {block.overview && <BlockOverview text={block.overview} />}
+        <BlockCalendar
+          weeks={weeks}
+          characters={characters}
+          scores={scores}
+          compromisedDates={compromisedDates}
+          partialDates={partialDates}
+          blockEndDate={block.endDate}
+        />
         {daysRemaining > 0 && (
           <div className="mt-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">This week</p>
@@ -518,14 +525,7 @@ export function CurrentBlockSection({
             )}
           </div>
         )}
-        <BlockCalendar
-          weeks={weeks}
-          characters={characters}
-          scores={scores}
-          compromisedDates={compromisedDates}
-          partialDates={partialDates}
-          blockEndDate={block.endDate}
-        />
+        {block.overview && <BlockOverview text={block.overview} />}
       </div>
     </section>
   );
