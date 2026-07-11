@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
+import { computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
 
 const base: ExecutionScoreInput = {
   compliancePct: null,
@@ -368,5 +368,24 @@ describe("FTP_ANCHORED_IF_BANDS export (#4)", () => {
       expect(at(band.lo)).toBe(at(band.hi)); // both sweet-spot edges score identically (+2 tier)
       expect(at(band.hi)).toBeGreaterThan(at(band.hi + 0.05)); // just above the top drops out of the tier
     }
+  });
+});
+
+describe("timeAboveAerobicHrFraction", () => {
+  it("returns the fraction of HR-zone time in zones 3+", () => {
+    // [Z1, Z2, Z3, Z4] seconds: 300 aerobic-below-cap in Z1+Z2 is index 0..1; 100 above.
+    expect(timeAboveAerobicHrFraction([1200, 1800, 200, 100])).toBeCloseTo(300 / 3300, 5);
+  });
+  it("treats a mostly-aerobic outdoor ride as low fraction despite brief spikes", () => {
+    // 55 min aerobic (Z1 600s + Z2 2700s), 5 min above (Z3 300s) → 300/3600 ≈ 0.083 ≤ 0.10
+    expect(timeAboveAerobicHrFraction([600, 2700, 300])).toBeCloseTo(0.0833, 3);
+  });
+  it("returns null with fewer than 3 zones or no usable data", () => {
+    expect(timeAboveAerobicHrFraction([100, 200])).toBeNull();
+    expect(timeAboveAerobicHrFraction(null)).toBeNull();
+    expect(timeAboveAerobicHrFraction([0, 0, 0])).toBeNull();
+  });
+  it("ignores non-finite / negative buckets", () => {
+    expect(timeAboveAerobicHrFraction([600, NaN, -5, 200])).toBeCloseTo(200 / 800, 5);
   });
 });

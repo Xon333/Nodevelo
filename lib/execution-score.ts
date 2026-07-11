@@ -261,6 +261,21 @@ export function timeAboveZ2Fraction(powerZoneTimes: number[] | null | undefined)
   return aboveCap / total;
 }
 
+// Fraction (0–1) of measured HR-zone time spent ABOVE the aerobic ceiling — HR zones 3+ (above Z2) —
+// from synced HR-zone seconds. The terrain-immune counterpart to timeAboveZ2Fraction: outdoors you
+// cannot hold Z2 POWER (descents, rollers, restarts, corners spike watts), but the HEART reflects the
+// ride's true physiological cost, so this is what decides whether an "easy" ride was actually easy.
+// Returns null when there's no usable HR-zone data, so scoring falls back to its other signals.
+// Pure + defensive: ignores non-finite/negative buckets; a missing top zone simply isn't counted.
+export function timeAboveAerobicHrFraction(hrZoneTimes: number[] | null | undefined): number | null {
+  if (!Array.isArray(hrZoneTimes) || hrZoneTimes.length < 3) return null;
+  const secs = hrZoneTimes.map((s) => (typeof s === "number" && Number.isFinite(s) && s > 0 ? s : 0));
+  const total = secs.reduce((a, b) => a + b, 0);
+  if (total <= 0) return null;
+  const above = secs.slice(2).reduce((a, b) => a + b, 0); // HR zones 3+ (index 2 onward) = above the aerobic cap
+  return above / total;
+}
+
 export function executionScoreLabel(score: number): string {
   if (score >= 9) return "Excellent";
   if (score >= 7) return "Good";
