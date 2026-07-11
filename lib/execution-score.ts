@@ -170,6 +170,10 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
   // guardrail — a genuinely too-hard easy day is still flagged). −4, not −2/−3: the reward-only bonuses
   // above it (duration +2, IF-band +1, VI +1) can stack to +4 above baseline, so the penalty must clear
   // that whole stack to guarantee the guardrail holds on every combination, not just the common case.
+  // A second path also reaches +4 without the IF-band bonus: IF ≥ the band ceiling (no +1 there) paired
+  // with a big RPE undershoot (gap ≤ −2 at IF ≥0.85, +1 below) — this SUBSTITUTES for the IF-band bonus,
+  // it doesn't stack alongside it (a ride can't be both in-band and out-of-band). Both zero-margin
+  // boundaries are pinned by tests in the "easy-ride execution" describe block below.
   // Skipped for off-plan rides (no plan to be easy against), for durability templates B–E (efforts INSIDE
   // the ride are the point — Track B), and when HR-zone data is absent (older rides / no HR monitor score
   // exactly as before, on duration + bonuses).

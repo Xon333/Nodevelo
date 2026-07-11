@@ -448,4 +448,31 @@ describe("easy-ride execution — HR judges effort, terrain does not", () => {
     const score = computeExecutionScore({ ...baseZ2, aboveAerobicHrFrac: null });
     expect(score as number).toBeGreaterThanOrEqual(7);
   });
+
+  it("guardrail holds at the exact zero-margin boundary: max reward stack + hot HR = 5, not below (path a: duration+IF-band+VI)", () => {
+    // Baseline 5 +2 (compliance ≥95) +1 (IF in-band, ≤0.74) +1 (VI ≤1.06) −4 (hot) = 5 exactly.
+    const score = computeExecutionScore({
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2",
+      variabilityIndex: 1.0,
+      aboveAerobicHrFrac: 0.4,
+    });
+    expect(score).toBe(5);
+  });
+
+  it("guardrail holds at the exact zero-margin boundary: max reward stack + hot HR = 5, not below (path b: duration+VI+RPE substitutes for IF-band)", () => {
+    // IF 0.90 is outside the Z2 in-band (≤0.74), so no IF-band bonus — but the RPE-undershoot bonus
+    // substitutes for it: expected RPE = IF*10 = 9, rpe 7 → gap −2, intensityFactor ≥0.85 → +1.
+    // Baseline 5 +2 (compliance ≥95) +0 (IF band, out of range) +1 (VI ≤1.06) +1 (RPE gap) −4 (hot) = 5.
+    const score = computeExecutionScore({
+      compliancePct: 100,
+      intensityFactor: 0.9,
+      plannedType: "Z2",
+      variabilityIndex: 1.0,
+      aboveAerobicHrFrac: 0.4,
+      rpe: 7,
+    });
+    expect(score).toBe(5);
+  });
 });

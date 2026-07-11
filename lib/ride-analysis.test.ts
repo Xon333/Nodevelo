@@ -156,6 +156,18 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.aerobicDiscipline).toBeNull();
   });
 
+  it("aerobicDiscipline is null for a durability template B–E day even with a 'hot' HR read", () => {
+    // Planned Z2 day built on template C (embeds efforts) + HR data that would read "hot". The scorer's
+    // own HR judge is gated !embedsEfforts for these templates (efforts INSIDE the ride are the point,
+    // not a discipline lapse), so the debrief must not show a read the score never applied.
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "Durability C", type: "Z2", durationMin: 60, durabilityTemplate: "C" },
+      hrZoneTimes: [300, 300, 2400], // 80% above aerobic → would be "hot" if scored
+    });
+    expect(todayAnalysis.aerobicDiscipline).toBeNull();
+  });
+
   it("drops interval adherence from scoring on a structural mismatch", () => {
     const mismatch = buildTodayAnalysis({
       ...base,
