@@ -7,6 +7,7 @@ import { localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, CyberFrame, InfoDot } from "../ui";
 import { weekCharacters } from "@/lib/plan-week-character";
 import MoveDay from "../MoveDay";
+import SwapDay from "../SwapDay";
 
 // Relative label for the "next: <session>, <when>" pointer. Parse with an explicit local midnight so
 // the weekday doesn't drift a day via UTC. `date` is always strictly after `today` at the call site.
@@ -313,8 +314,9 @@ function BlockCalendar({
                           {day.date}
                         </p>
                         {eligible && pinned && (
-                          <div className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-700">
+                          <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-700">
                             <MoveDay date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
+                            <SwapDay date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
                           </div>
                         )}
                       </div>
