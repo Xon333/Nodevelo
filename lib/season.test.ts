@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, FOCUS_LABELS, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod } from "./types";
+
+describe("FOCUS_LABELS", () => {
+  it("gives 'general' an honest, non-noise label", () => {
+    expect(FOCUS_LABELS.general).toBe("all phases");
+  });
+  it("covers every focus value", () => {
+    for (const f of ["general", "aerobic-base", "threshold", "vo2max", "anaerobic", "durability", "sharpen"] as const) {
+      expect(FOCUS_LABELS[f]).toBeTruthy();
+    }
+  });
+});
 
 describe("season constants + helpers", () => {
   it("encodes the KB deload cadence (3:1 default, 2:1 tight)", () => {

@@ -16,6 +16,19 @@ export const SEASON_CONSTANTS = {
   horizonPeriods: 5, // how many future periods to draft (rough & rolling)
 } as const;
 
+// Display labels for a goal's focus. "general" is not a physiological system — it means "relevant in
+// every phase" (filterGoalsByFocus always includes it), so it reads as an intentional "all phases" tag
+// rather than the meaningless default it looked like before. Stored values are unchanged; this is display-only.
+export const FOCUS_LABELS: Record<SeasonFocus | "general", string> = {
+  general: "all phases",
+  "aerobic-base": "aerobic base",
+  threshold: "threshold",
+  vo2max: "VO2max",
+  anaerobic: "anaerobic",
+  durability: "durability",
+  sharpen: "sharpen",
+};
+
 // Build-phase rotation order when no confident limiter is known (KB variety rule).
 export function defaultBuildOrder(): SeasonFocus[] {
   return ["threshold", "vo2max", "durability"];
