@@ -12,7 +12,7 @@ exact commits.
 
 ---
 
-## Weekly energy-balance surfacing — §6 part (a) / closes #1's last slot (2026-07-08)
+## Weekly energy-balance surfacing — §6 part (a) / closes #1's last slot (2026-07-08, shipped 2026-07-11)
 
 Computes the precise weekly intake-vs-need ratio (logged kcal vs. the app's own deterministic daily
 targets + ride kJ out) and surfaces it on Trends and in `CoachSnapshot.fuel` — closing `#1`'s last
