@@ -198,6 +198,15 @@ describe("weekly energy balance in the fuel slot (§6 / #1)", () => {
     expect(snap.fuel.fuelingState).toBe("adequate");
   });
 
+  it("labels the fuel line 'fueling', not 'energy availability', when the weekly ratio overrules a disagreeing EA band", () => {
+    const out = formatCoachSnapshot(
+      buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }))
+    );
+    expect(out).toContain("fueling low");
+    expect(out).not.toContain("energy availability low");
+    expect(out).not.toContain("~30 kcal/kg");
+  });
+
   it("renders the week line in the prompt only when present", () => {
     const withLine = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: wb })));
     expect(withLine).toContain("last week 12,500 kcal vs 14,900 needed (ratio 0.84 — low)");

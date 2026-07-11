@@ -418,9 +418,13 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
     fuelParts.push(`weight trend 7d ${t > 0 ? "+" : ""}${t.toFixed(1)} kg`);
   }
   if (s.fuel.fuelingState != null) {
-    fuelParts.push(
-      `energy availability ${s.fuel.fuelingState}${s.fuel.intakeVsNeed != null ? ` (~${s.fuel.intakeVsNeed} kcal/kg, body-weight proxy)` : ""}`
-    );
+    // fuelingState's source switches (weekly ratio > EA proxy, per the precedence documented on
+    // CoachSignals.weeklyBalance), but intakeVsNeed is always the EA figure specifically — so the
+    // label and the attached number must only pair up when EA actually owns the verdict, or the
+    // line contradicts itself in the disagreement case this precedence rule exists to resolve.
+    const label = s.fuel.weekBalance ? "fueling" : "energy availability";
+    const detail = !s.fuel.weekBalance && s.fuel.intakeVsNeed != null ? ` (~${s.fuel.intakeVsNeed} kcal/kg, body-weight proxy)` : "";
+    fuelParts.push(`${label} ${s.fuel.fuelingState}${detail}`);
   }
   if (s.fuel.weekBalance) {
     const wb = s.fuel.weekBalance;
