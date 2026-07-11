@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adjustBuffer,
+  balanceLevel,
   calculateDailyTarget,
   computeEnergyAvailability,
   eaLevel,
@@ -245,5 +246,15 @@ describe("eaLevel — soft body-weight-basis read (FB-2026-06-30)", () => {
     expect(eaLevel(39)).toBe("adequate");
     expect(eaLevel(40)).toBe("ample"); // boundary is ample
     expect(eaLevel(55)).toBe("ample");
+  });
+});
+
+describe("balanceLevel", () => {
+  it("bands the weekly intake-vs-need ratio", () => {
+    expect(balanceLevel(0.85)).toBe("low");
+    expect(balanceLevel(0.9)).toBe("adequate"); // boundary is inclusive-adequate
+    expect(balanceLevel(1.0)).toBe("adequate");
+    expect(balanceLevel(1.05)).toBe("adequate"); // upper boundary still adequate
+    expect(balanceLevel(1.2)).toBe("ample");
   });
 });

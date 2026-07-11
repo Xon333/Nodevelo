@@ -250,6 +250,19 @@ export function eaLevel(eaKcalPerKg: number): EaLevel {
   return "ample";
 }
 
+// Weekly energy-balance band (§6): intake ÷ the app's OWN prescribed need for the same logged days.
+// Unlike eaLevel (a kcal/kg body-weight proxy), this is a precise ratio against the deterministic
+// daily-target formula — so 1.0 means "ate what the coach's formula advised" (which already embeds the
+// weight-goal buffer), not raw thermodynamic balance. Bands deliberately coarse; the personalised
+// adequate line is Track C calibration.
+export const BALANCE_LOW_BELOW = 0.9;
+export const BALANCE_AMPLE_ABOVE = 1.05;
+export function balanceLevel(ratio: number): EaLevel {
+  if (ratio < BALANCE_LOW_BELOW) return "low";
+  if (ratio > BALANCE_AMPLE_ABOVE) return "ample";
+  return "adequate";
+}
+
 // ---------- Reference table injected into the AI prompt ----------
 
 export interface NutritionReferenceRow {
