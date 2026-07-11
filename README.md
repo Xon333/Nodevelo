@@ -244,8 +244,21 @@ future blocks. The pipeline is fully deterministic except for the final natural-
 Each completed ride that matches a planned day is scored 1–10. On interval days, **power-target
 adherence** (`lib/interval-match.ts`, comparing the prescription against the intervals curated
 in Intervals.icu) is the primary signal; on steady rides, duration compliance is used instead.
-Intensity appropriateness, aerobic decoupling, RPE-vs-intensity, and pacing (variability index)
-adjust the score. No AI is involved.
+Intensity appropriateness, RPE-vs-intensity, and pacing (variability index) adjust the score.
+Whole-ride decoupling no longer contributes here (ACC-2026-06-25) — it's too noisy per-ride to
+grade a single session and lives on as a steady-ride *durability* signal instead
+(`lib/calibration.ts`'s `decouplingGood`). No AI is involved.
+
+**Easy-ride effort is judged on heart rate, not power (2026-07-11 rework).** Outdoors you can't
+hold Zone-2 *power* — descents, rollers, restarts, and corners spike watts even on a genuinely
+easy ride — so power-zone time and pacing (VI) are now **reward-only** for prescribed Z2/Recovery
+days (an in-band IF or a steady VI still earns a bonus, but neither is ever penalized). The sole
+"was this actually easy?" judge is `aerobicDisciplineRead` over `timeAboveAerobicHrFraction`
+(HR-zone time above the aerobic ceiling — terrain-immune): dialed in (+1) / some drift (0) / ran
+hot (−4, the overtraining guardrail, sized so it holds even when every other Z2/Recovery bonus
+stacks to its max). Surfaced in the Today debrief as a ✓/~/✗ "aerobic discipline" line, gated the
+same way the score is (never applied off-plan or to durability templates B–E, where efforts
+embedded in the ride are the point, not a discipline lapse).
 
 The interval matcher is deliberately defensive about detection noise:
 

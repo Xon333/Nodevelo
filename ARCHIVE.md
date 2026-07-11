@@ -45,6 +45,115 @@ block but leaves minimal margin. Your weight held steady and energy availability
 confirmed to exactly match the real `/trends` page numbers for the same week — the LLM phrased the
 pre-computed numbers verbatim; it did not invent them.
 
+**Final-review fix:** `formatCoachSnapshot`'s fuel line unconditionally labeled `fuelingState` "energy
+availability" and attached the EA kcal/kg figure — wrong once the weekly ratio owns the verdict (a
+disagreement case reads self-contradictory, e.g. "energy availability low (~30 kcal/kg)" when the
+app's own EA banding calls 30 kcal/kg adequate). Label now tracks the actual source: "fueling X" with
+no EA figure when the weekly ratio owns it, unchanged "energy availability X (~Y kcal/kg)" otherwise.
+A milder sibling (`formatFormFuelLine`, used by `/api/generate`) has the same label-only mismatch,
+not yet fixed — tracked in ROADMAP.
+
+---
+
+## Today Athlete-State de-noising — ACWR demoted + Pw:HR three-layer caution (2026-07-10, shipped 2026-07-11)
+
+De-noised the two noisiest signals feeding the Today "Athlete State" verdict — one scientifically
+weak, one genuinely flaky — so neither could manufacture a false-fatigue read on its own. Plan:
+`docs/superpowers/plans/2026-07-10-02-today-daily-read-signals.md`. Depended on the execution-scoring
+rework below landing first (the execution EWMA driving this fusion needed to be HR-honest before
+tuning the fusion around it).
+
+- **ACWR demoted, not removed.** `DEFAULT_ATHLETE_STATE_WEIGHTS.acwr` shrank from a dominant hammer
+  (`optimal +4 / danger −20`) to a minor nudge (`optimal +2 / danger −8`) — TSB and the separate
+  load-ramp readiness check already carry the "you ramped load fast" story, and ACWR is redundant
+  with them and unreliable for endurance readiness specifically (Impellizzeri et al.). New defaults
+  sit inside the pre-existing `ATHLETE_STATE_WEIGHT_BOUNDS`, so no bound change was needed and a
+  coach can still re-weight it back up per-athlete.
+- **Aerobic efficiency (Pw:HR-Z2) gets three independent caution layers**, since it's confounded by
+  heat/hydration/caffeine/sleep and was previously read from a single latest ride:
+  1. **Smoothing** — `athleteStateInputsFrom` now means the last ≤3 qualifying rides inside the
+     14-day recency window, not just the latest one.
+  2. **Minimum-sample floor** (`AEROBIC_MIN_RECENT_SAMPLES = 2`) — a lone qualifying ride in the
+     window sits the signal out entirely (`null`) rather than reporting itself disguised as
+     "smoothed."
+  3. **A stricter, separate `livedAt` threshold** (new `AthleteStateWeights.aerobicEff.livedAt`
+     leaf, default 6) — `deadband` (widened 2→3) still gates whether the signal has *any* score
+     effect; `livedAt` is the larger, independent bar a dip must clear to count as a corroborating
+     "lived negative" toward the hard fatigue-override score-cap. A modest dip still nudges the
+     score a little; only a confidently large one can help cap it. `SignalContribution` gained one
+     optional `livedNegative` field, set only by `evalAerobicEff`.
+- **HRV explicitly deferred, not built** — the athlete has no wearable that syncs HRV consistently
+  yet, so wiring an evaluator now would be dead code. The exact add-back (a new weight leaf, an
+  `AthleteStateInputs.hrvSuppressionPct` field, an `evalHrv` mirroring `evalAerobicEff`) is documented
+  as a pointer in the plan, not scaffolded.
+
+**Live verification (2026-07-11):** reloaded `/today` before/after on real synced data and diffed the
+"what moved it" breakdown. ACWR's contribution: `+4` → `+2` (matches the demoted default exactly).
+Aerobic efficiency: `"2% above baseline +3"` → `"near baseline 0"` — the smoothing + widened deadband
+correctly absorbed what had been a single noisy ride's signal. Overall score `59` → `54` (both
+previously-generous signals correctly tempered, not just moved in one direction). Supporting Signals
+panel shows ACWR as a small, non-dominant tile (`0.87 optimal`), not the dominant driver it was before.
+
+**Final-review fix (docs only):** the spec doc (`docs/specs/athlete-state.md`) and one interface
+comment still described `aerobicEffLatest` as "latest ride's Pw:HR" — updated to describe the
+smoothing + minimum-sample-floor behavior actually shipped.
+
+---
+
+## HR-judged easy-ride discipline — execution scoring rework (2026-07-10, shipped 2026-07-11)
+
+Outdoors you cannot hold Zone-2 *power* — descents, rollers, restarts, and corners spike watts even
+on a genuinely easy ride — so the old power-based discipline penalty (`aboveZ2Frac`, see the
+superseded entry below) and the pacing (VI) penalty were marking down physiologically-perfect
+aerobic rides and only ever rewarding indoor ERG. This rework makes the heart, not the power meter,
+the judge of "was this ride actually easy?" Plan:
+`docs/superpowers/plans/2026-07-10-01-execution-scoring-hr-leniency.md`.
+
+- **The measure.** `timeAboveAerobicHrFraction(hrZoneTimes)` (`lib/execution-score.ts`) — the
+  terrain-immune counterpart to the old power-based helper — returns the share of measured HR-zone
+  time spent above the aerobic ceiling (HR zones 3+), from already-synced `hrZoneTimes`. `null` when
+  there's no usable HR data, so scoring falls back to duration + bonuses only (an older ride or one
+  with no HR monitor scores exactly as before).
+- **The read.** `aerobicDisciplineRead` bands the fraction into a lenient three-state read:
+  dialed in (≤10% above aerobic — tolerates terrain-driven HR bumps) / some drift (≤25%) / ran hot
+  (>25% — genuinely not an easy ride). Research-grounded: Friel's LTHR Zone-2 ceiling ≈89% LTHR, the
+  80/20 polarized-training principle backs "a single easy ride should be ~100% aerobic."
+- **Power and VI became reward-only for Z2/Recovery.** An in-band IF or a steady VI (≤1.06) still
+  earns a bonus, but neither is ever penalized anymore for these ride types — outdoor NP/VI inflate
+  on terrain, which isn't a discipline failure. The HR read is now the *sole* penalty axis: dialed
+  +1 / drift 0 / ran hot **−4** (deepened from the plan's original −2 mid-implementation — see below).
+- **The −4 guardrail deviation.** The plan's own guardrail test (a hot-reading ride should score
+  ≤5, the overtraining safeguard) contradicted its own other numbers: with duration (+2) and
+  in-band-IF (+1) now unconditional bonuses, a −2 hot penalty could only ever net a hot ride to 6,
+  never below baseline. Escalated and resolved by deepening the penalty to −4 — sized so the
+  guardrail holds under *every* bonus-stacking combination (duration +2, IF-band +1, VI +1, or the
+  RPE-substitution path that reaches the same +4 max without the IF-band bonus), not just the one
+  case the plan happened to test. Verified by hand for every combination; holds with exactly zero
+  margin, pinned by two boundary tests added in final review.
+- **Debrief UI.** `TodayAnalysis.aerobicDiscipline` (✓ dialed in / ~ some drift / ✗ ran hot) surfaces
+  in the Today debrief drill-down — gated identically to the scorer (`!intrinsic`, `!embedsEfforts`,
+  Z2/Recovery only), so the UI never shows a read the score didn't actually apply. Two gaps caught
+  and fixed during review: an off-plan ride whose inferred type happened to be Z2/Recovery was
+  showing a read the score's own `!intrinsic` gate never used; a durability template B–E day (where
+  embedded efforts are the point, not a lapse) had the same problem for `!embedsEfforts`.
+- **Honesty fix.** The athlete-model insight for "execution trending down" was reworded from a
+  fatigue diagnosis to a hypothesis — plausible causes now include accumulated fatigue, a harder
+  training block, *or* more outdoor riding (since this rework changes what a downtrend can mean).
+
+**Live verification (2026-07-11):** ran the real shipped scoring function against real synced ride
+data (not a mock). A well-ridden outdoor Z2 from 2026-07-01 (100% duration compliance, in-band IF,
+HR only 2.2% above aerobic) went from an old ledger score of **6** to a new score of **9** — meeting
+the plan's own acceptance bar ("a well-ridden outdoor Z2 now reads ≥7, not the old ~5/6"). The
+historical ledger (`data/score-log.json`) was deliberately **not** rebuilt with the new methodology
+as part of this work (that's a separate, one-time-migration-gated operation, too consequential to
+trigger for a smoke check) — past scores stay frozen until a real sync or an explicit rebuild.
+
+**Known gap surfaced by this work, not yet closed:** `CoachSnapshot.today.execution.aboveZ2Pct` (the
+LLM-facing coach-prompt line, `lib/coach-snapshot.ts`) still computes its own "% above Z2 cap" from
+the old power-based `timeAboveZ2Fraction`, entirely independent of this rework — the coach's own
+prompt can still call an outdoor ride "drifted hard above zone" on the same ride the HR-based score
+just correctly rewarded. Tracked in ROADMAP under "Scoring-core gaps."
+
 ---
 
 ## In-app rescheduling + bidirectional calendar mirror — §7 lean slice (2026-07-08, shipped 2026-07-10)
@@ -1034,6 +1143,12 @@ coach-note non-display is a client render bug — SYNC-1 — and that "no power 
 ---
 
 ## Scoring-core — Z2 "dialed-in" discipline signal
+
+**Superseded 2026-07-11** — the *scoring* mechanism below (`aboveZ2Frac`, the power-based ±2 band) was
+replaced by an HR-based, terrain-immune read; see "HR-judged easy-ride discipline" further up this file.
+The `CoachSnapshot.today.execution.aboveZ2Pct` *surfacing* described here is a separate, still-live
+code path that was **not** touched by that rework and still uses the power-based measure — a known,
+tracked gap (ROADMAP, "Scoring-core gaps"). Kept below as the historical record of what originally shipped.
 
 Closed the ROADMAP scoring-core gap: easy aerobic rides were scored on *average* IF + decoupling, so a
 Z2 ride that averaged a textbook 0.68 IF while repeatedly surging into Tempo+ read as disciplined — the
