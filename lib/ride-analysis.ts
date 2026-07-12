@@ -79,8 +79,9 @@ export interface TodayAnalysisInputs {
   // The athlete's power-zone tops as %FTP, as-of the ride's date (Intervals.icu's synced zone defs) — the
   // boundary source of truth for the IF effort-band label. Null when no zones are on file.
   powerZoneTopsPct: number[] | null;
-  // Off-plan aerobic read: this ride's Z2 Pw:HR vs the athlete's baseline (signed %Δ), computed by the
-  // route from the ride history. Only scored when today is off-plan; null → no effect.
+  // Aerobic read: this ride's Z2 Pw:HR vs the athlete's baseline (signed %Δ), computed by the route
+  // from the ride history. Scored when today is off-plan (intrinsic mode) or on a planned Z2/Recovery day
+  // (via the merged aerobic-discipline read). null → no effect.
   aerobicEffPct: number | null;
   // The ride's executed intervals (Track B): used to grade whether a durability long ride delivered its
   // template's prescribed efforts. Empty when none were fetched.
@@ -131,7 +132,7 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
         ? intervalComparison.effectiveAdherencePct
         : null,
     rpe: activity.rpe,
-    // Easy-ride effort judged on HR (terrain-immune), not power-zone time.
+    // Easy-ride effort judged on a merged read: HR-ceiling breach + aerobic-efficiency-vs-baseline (terrain-immune).
     aboveAerobicHrFrac: timeAboveAerobicHrFraction(input.hrZoneTimes),
     // Off-plan (no planned session today) → score the non-circular aerobic read, matching the ledger.
     intrinsic: plannedDay == null,
@@ -157,6 +158,10 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     plannedDay != null && !embedsEfforts && (scoringType === "Z2" || scoringType === "Recovery")
       ? aerobicDisciplineRead(timeAboveAerobicHrFraction(input.hrZoneTimes))
       : null;
+  const aerobicEffPctForToday =
+    plannedDay != null && !embedsEfforts && (scoringType === "Z2" || scoringType === "Recovery")
+      ? input.aerobicEffPct
+      : null;
 
   const todayAnalysis: TodayAnalysis = {
     analysedAt: new Date().toISOString(),
@@ -173,6 +178,7 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     activityRpe: activity.rpe,
     activityDecoupling: activity.decoupling,
     aerobicDiscipline,
+    aerobicEffPct: aerobicEffPctForToday,
     activityDistanceMeters: activity.distanceMeters,
     plannedName: plannedDay?.name ?? null,
     plannedType: plannedDay?.type ?? null,

@@ -169,6 +169,51 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.aerobicDiscipline).toBeNull();
   });
 
+  it("attaches aerobicEffPct for a planned Z2 with non-null input", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "Z2 endurance", type: "Z2", durationMin: 60 },
+      aerobicEffPct: 5.2,
+    });
+    expect(todayAnalysis.aerobicEffPct).toBe(5.2);
+  });
+
+  it("attaches aerobicEffPct for a planned Recovery with non-null input", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "Recovery", type: "Recovery", durationMin: 60 },
+      aerobicEffPct: -8.1,
+    });
+    expect(todayAnalysis.aerobicEffPct).toBe(-8.1);
+  });
+
+  it("aerobicEffPct is null for an interval day", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "VO2max 5x3", type: "VO2max", durationMin: 60 },
+      aerobicEffPct: 5.2,
+    });
+    expect(todayAnalysis.aerobicEffPct).toBeNull();
+  });
+
+  it("aerobicEffPct is null for an off-plan ride even when input is non-null", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: null,
+      aerobicEffPct: 5.2,
+    });
+    expect(todayAnalysis.aerobicEffPct).toBeNull();
+  });
+
+  it("aerobicEffPct is null for a durability template B–E day even when input is non-null", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      plannedDay: { name: "Durability C", type: "Z2", durationMin: 60, durabilityTemplate: "C" },
+      aerobicEffPct: 5.2,
+    });
+    expect(todayAnalysis.aerobicEffPct).toBeNull();
+  });
+
   it("drops interval adherence from scoring on a structural mismatch", () => {
     const mismatch = buildTodayAnalysis({
       ...base,

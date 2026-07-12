@@ -778,6 +778,8 @@ export interface TodayAnalysis {
   // Easy-ride effort read (Z2/Recovery only): "dialed" | "drift" | "hot" from HR-zone time above aerobic,
   // or null for interval/off-plan days. Surfaced in the debrief; mirrors the HR execution signal.
   aerobicDiscipline: import("./execution-score").AerobicDiscipline | null;
+  // Easy-ride aerobic efficiency vs baseline (signed %Δ, Z2/Recovery only), or null for interval/off-plan days.
+  aerobicEffPct: number | null;
   activityDistanceMeters: number | null; // for avg-speed on the Today ride card
   plannedName: string | null;
   plannedType: string | null;
