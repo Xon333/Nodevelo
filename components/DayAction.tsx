@@ -6,18 +6,29 @@ import { api } from "@/lib/client-api";
 import { localToday, addDaysIso } from "@/lib/date";
 import { SYNC_QUERY_KEY } from "./SyncProvider";
 
-// §7 follow-on: swap two occupied sessions directly (both keep real content — neither becomes Rest).
-// Server validates (both days must have a real session, future-only, in-block); this control just
-// collects the target date. Mirrored to Intervals.icu by the route via the existing swap-pair path.
-export default function SwapDay({
+const COPY = {
+  move: { method: "PUT" as const, openLabel: "Move…", actionLabel: "Move", ariaVerb: "Move", ariaPrep: "to", verbed: "Moved" },
+  swap: { method: "PATCH" as const, openLabel: "Swap with…", actionLabel: "Swap", ariaVerb: "Swap", ariaPrep: "with", verbed: "Swapped" },
+};
+
+// §7 manual move / §7 follow-on swap: shift a future planned session onto a rest day (move, PUT), or
+// exchange it directly with another occupied session (swap, PATCH — neither day becomes Rest). Server
+// validates (rest-day target / both-occupied, future-only, in-block); this control just collects the
+// target date. Mirrored to Intervals.icu by the route. `to` must be strictly after today (the route
+// rejects `to <= today`), so the input's min is tomorrow — computed here rather than making every call
+// site redo the same arithmetic.
+export default function DayAction({
+  verb,
   date,
   maxDate,
   onMoved,
 }: {
+  verb: "move" | "swap";
   date: string;
   maxDate: string;
   onMoved?: () => void;
 }) {
+  const c = COPY[verb];
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [to, setTo] = useState("");
@@ -26,26 +37,27 @@ export default function SwapDay({
   const [note, setNote] = useState<string | null>(null);
   const minDate = addDaysIso(localToday(), 1);
 
-  const swap = async () => {
+  const run = async () => {
     setBusy(true);
     setError(null);
     try {
       const res = await api<{ ok: boolean; mirrorFailed: string[] }>("/api/reschedule", {
-        method: "PATCH",
+        method: c.method,
         body: JSON.stringify({ from: date, to, today: localToday() }),
       });
       setNote(
         res.mirrorFailed.length === 0
-          ? "Swapped — Intervals.icu calendar updated."
-          : "Swapped in the app; Intervals.icu update failed (will drift until re-synced)."
+          ? `${c.verbed} — Intervals.icu calendar updated.`
+          : `${c.verbed} in the app; Intervals.icu update failed (will drift until re-synced).`
       );
       setOpen(false);
-      // Same reasoning as MoveDay: doSync()'s response has no currentBlock, so invalidate the sync
-      // query instead of relying on it to refresh the calendar's day layout.
+      // doSync()'s POST response has no `currentBlock` field, so it wouldn't refresh the calendar's
+      // day layout. GET /api/sync (the query this cache key backs) DOES return `currentBlock` — so
+      // invalidate and let the next read re-fetch fresh state instead.
       await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
       onMoved?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Swap failed");
+      setError(e instanceof Error ? e.message : `${c.actionLabel} failed`);
     } finally {
       setBusy(false);
     }
@@ -55,7 +67,7 @@ export default function SwapDay({
     return (
       <span className="inline-flex items-center gap-2">
         <button onClick={() => setOpen(true)} className="text-xs text-zinc-500 underline-offset-2 hover:underline dark:text-zinc-400">
-          Swap with…
+          {c.openLabel}
         </button>
         {note && <span className="text-xs text-zinc-500 dark:text-zinc-400">{note}</span>}
       </span>
@@ -70,10 +82,10 @@ export default function SwapDay({
         max={maxDate}
         onChange={(e) => setTo(e.target.value)}
         className="rounded border border-zinc-300 bg-white px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
-        aria-label={`Swap ${date} with`}
+        aria-label={`${c.ariaVerb} ${date} ${c.ariaPrep}`}
       />
-      <button disabled={busy || !to} onClick={swap} className="rounded border border-[#ff49c8]/60 px-2 py-0.5 text-[#ff49c8] disabled:opacity-50">
-        Swap
+      <button disabled={busy || !to} onClick={run} className="rounded border border-[#ff49c8]/60 px-2 py-0.5 text-[#ff49c8] disabled:opacity-50">
+        {c.actionLabel}
       </button>
       <button disabled={busy} onClick={() => setOpen(false)} className="text-zinc-500 dark:text-zinc-400">
         Cancel

@@ -103,7 +103,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   ([app/api/sync/route.ts:448](app/api/sync/route.ts:448)) both `await` independent per-date
   Intervals.icu calls sequentially instead of running them concurrently — doubles mutation latency on
   any 2-date move (swap, downgrade-with-make-up).
-- ☐ P3 `ux` **HR-12** — `components/MoveDay.tsx` and `components/SwapDay.tsx` are near-total
+- ☑ P3 `ux` **HR-12** — `components/MoveDay.tsx` and `components/SwapDay.tsx` are near-total
   structural duplicates (same state shape, same busy/error/note handling) differing only in HTTP
   verb and labels — extract a shared component/hook.
 - ☑ P3 `bug` **HR-13** — `calendar-mirror.ts`'s `dayToEventPayload`
