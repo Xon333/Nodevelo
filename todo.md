@@ -75,10 +75,15 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   prompt) shipped without the AGENTS.md-required live Anthropic smoke run — the commit message
   self-admits substituting a unit test against fixture shapes instead. Run it once against the real
   API before trusting the prompt output.
-- ☐ P2 `ux` **HR-9** — Rider Profile's systems tiles
+- ☑ P2 `ux` **HR-9** — **Won't-fix (finding's premise was wrong).** Rider Profile's systems tiles
   ([components/AthleteProfileForm.tsx:279](components/AthleteProfileForm.tsx:279)) dropped absolute
-  watts and W/kg, leaving only "% vs expected" — the raw per-system numbers are no longer visible
-  anywhere on the page (Power PRs shows all-time best efforts, not per-system profile estimates).
+  watts and W/kg in `de4ebeb` ("de-duplicate Rider-profile watts — Power PRs owns the numbers").
+  Verified against source: `analyzePowerProfile` only ever populates 3 system tiles (neuromuscular@5s,
+  anaerobic@60s, vo2max@300s — threshold is explicitly excluded), and `POWER_CURVE_LABELS` confirms
+  Power PRs' synced grid already shows exactly those durations ("5s"/"1 min"/"5 min") with the same
+  watts, W/kg on hover. The de-dup commit's premise holds — the numbers ARE recoverable elsewhere on
+  the same page. Minor residual: Power PRs' W/kg is hover-only (`title=`), not always-visible text,
+  which is a smaller discoverability gap than "unreachable" — not worth a fix on its own.
 - ☐ P2 `bug` **HR-10** — `MorningCheckDecisionResult` now returns `decision: "rest"` for both a
   genuine injury stop and a non-quality-day fatigue skip ([lib/morning-check.ts:42](lib/morning-check.ts:42));
   only the separate `flag` field actually distinguishes them. Any future caller that branches on
