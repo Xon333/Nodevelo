@@ -61,7 +61,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
 
 ### P2 — high-value UX / correctness
 
-- ☐ P2 `bug` **HR-6** — `MorningCheckIn`'s post-refresh verdict card
+- ☑ P2 `bug` **HR-6** — `MorningCheckIn`'s post-refresh verdict card
   ([components/MorningCheckIn.tsx:148](components/MorningCheckIn.tsx:148)) previews a reschedule
   suggestion recomputed live by the GET route, not the one frozen when the flag originally fired. If
   the block changes in between (a manual Move, say), the preview and what tapping Apply actually

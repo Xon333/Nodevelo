@@ -65,6 +65,10 @@ export default function MorningCheckIn() {
   const [editing, setEditing] = useState(false); // "Change" on a stored verdict re-opens the prompt
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The pre-apply card previews a suggestion that can go stale (the block may have changed since it
+  // was last fetched — HR-6); after Apply, show the route's own note describing what actually
+  // happened instead of silently trusting the preview and vanishing.
+  const [appliedNote, setAppliedNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +82,9 @@ export default function MorningCheckIn() {
 
   useMountLoad(load);
 
+  // mb-2 lives on the component (not a wrapper in Dashboard) so a hidden override leaves no gap.
+  const shell = "mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900/60";
+
   // Only relevant before today's session has been ridden.
   const rideLogged = state?.todayAnalysis?.activityDate === localToday();
   if (dismissed || rideLogged) return null;
@@ -87,6 +94,19 @@ export default function MorningCheckIn() {
         <LoadFailed what="the morning check-in" retry={() => void load()} />
       </div>
     );
+  // Show what the PUT actually did — may differ from the pre-apply preview if the block changed
+  // since the suggestion was last fetched (HR-6) — instead of silently trusting the stale preview.
+  if (appliedNote) {
+    return (
+      <div className={shell}>
+        <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Downgraded — change applied</p>
+        <p className="mt-1 text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">{appliedNote}</p>
+        <button onClick={() => setDismissed(true)} className="mt-2 text-xs text-zinc-500 hover:underline dark:text-zinc-400">
+          Got it
+        </button>
+      </div>
+    );
+  }
   // Surface on any ride day. A true rest day (no ride planned) has nothing to skip, so stay hidden.
   if (!data || !data.hasRideToday) return null;
 
@@ -109,19 +129,16 @@ export default function MorningCheckIn() {
     setBusy(true);
     setActionError(null);
     try {
-      await api("/api/morning-check", { method: "PUT", body: JSON.stringify({ today: localToday() }) });
+      const r = await api<{ note: string }>("/api/morning-check", { method: "PUT", body: JSON.stringify({ today: localToday() }) });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);
-      setDismissed(true);
+      setAppliedNote(r.note); // what actually happened — may differ from the pre-apply preview
     } catch {
       setActionError("Couldn't apply the change — try again.");
     } finally {
       setBusy(false);
     }
   };
-
-  // mb-2 lives on the component (not a wrapper in Dashboard) so a hidden override leaves no gap.
-  const shell = "mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900/60";
 
   // One view model for the verdict card: a just-submitted result wins; otherwise the stored entry
   // (unless the athlete tapped "Change"). The stored path is what survives a page refresh.
