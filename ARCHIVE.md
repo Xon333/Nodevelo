@@ -12,6 +12,55 @@ exact commits.
 
 ---
 
+## Morning-check live-use fixes + ride-note HR-discipline surface + the one-time ledger rebuild (2026-07-12)
+
+Four fixes from one live-use report (the athlete skipped a 60-min Z2 for extreme fatigue and the app
+fought them at every step), landing the day the block turns over — so the turnover reads honest data.
+
+- **Morning check: verdict survives refresh.** The GET already returned today's stored flag, but the
+  component only rendered the in-memory POST result — a reload silently fell back to the collapsed
+  prompt (the athlete's flag "disappeared" every refresh; the write had in fact persisted). The card
+  now re-derives from the stored entry: `MorningCheckEntry` gains sparse `reasons` (frozen at flag
+  time — recomputing later drifts once an applied downgrade changes today's quality-day status) and
+  `appliedAt` (stamped by PUT, so a refreshed UI shows "applied" instead of re-offering an Apply that
+  would now 400). A "Change" affordance re-opens the prompt; one entry per day, re-submission replaces.
+- **Morning check: ill/extreme-fatigue on easy days.** Previously gated to quality days ("nothing to
+  downgrade"), leaving only "Injured" on a Z2 day — the athlete had to record a false injury to skip.
+  All three flags now surface on any ride day; on an easy day ill/fatigue verdict **rest** (skip the
+  volume day — it costs little; grinding through digs the hole deeper), preserving the quality-day
+  downgrade machinery unchanged.
+- **`formatCoachSnapshot` morning-check line mislabeled.** An injury flag rendered as "extreme fatigue
+  → no change (not a quality day)" — both halves wrong (the label map only knew two flags, the decision
+  map only knew downgrade). All three flags and decisions now render honestly, with rest framed as
+  deliberate recovery, not a lapse.
+- **Ride-note prompt: the third LLM surface with the terrain-confound bug.** `buildRideAnalysisPrompt`
+  still said "Power is the primary lens" and handed the model a raw power-zone distribution with no HR
+  context, so the debrief coach note re-derived the exact "zone creep" narrative the 2026-07-11 scoring
+  rework eliminated (the real 07-10 note called a dialed-in hilly Z2 "significant zone creep", score 3,
+  while the rebuilt ledger scores it 8). `RideAnalysisInput` gains `aerobicDiscipline` (wired from the
+  stored `TodayAnalysis` in `addCoachNote` — first-generation and re-analyse both carry it); when
+  present the prompt instructs judging "was it easy" ONLY on the HR-judged read. **Live smoke run:**
+  force-regenerated the real 07-10 note — now *"discipline was genuinely dialed in: 91% of the ride in
+  Z1–Z2 HR"*, credits the −3.5% Pw:HR drift as durability, and critiques only the honest deviation
+  (92 min ridden vs 60 planned).
+
+**One-time data operations (same session, not commits — `data/` is local):**
+- **The sanctioned ledger rebuild ran** (`POST /api/sync {rebuildLedger: true}`, one-shot marker now
+  written). All 124 entries re-scored from synced activity data under the current HR-judged
+  methodology: Z2/Recovery average **5.6 → 7.4** (07-10: 3→8, 07-01: 6→9, 06-28: 1→6) while genuinely
+  hot rides stayed low (07-04: 1→3, 07-05: 2→3). Athlete-state execution read 5.4 → 7.3; the false
+  "struggling with Z2 (4.9/10)" insight pattern is gone from the block-turnover inputs. What remains
+  ("Z2 trending down", watch severity) is derived from honest scores — driven by the two real hot rides.
+- **The same sync pulled HRRc for the first time** — the cached `last-sync.json` predated the HRRc
+  parser (0/191 activities had the field; the Trends card correctly hid). Now 91/190 carry a reading,
+  52 qualify for the outdoor-only series, and the HRRc sparkline renders in Trends' Engine group.
+- **Corrected the 2026-07-11 morning-check entry** from `injury` (the only button available at the
+  time) to `extreme-fatigue`/rest — what the athlete actually reported.
+- **Aligned the frozen 07-10 debrief** with the rebuilt ledger (score 3→8, compliance un-capped
+  54→100, `aerobicDiscipline: "dialed"` added) before regenerating its note.
+
+---
+
 ## HRRc — heart-rate-recovery Trends signal (2026-07-10, shipped 2026-07-11)
 
 Adds HRRc (heart-rate recovery after a sustained hard effort) as a second HR-derived Engine signal on

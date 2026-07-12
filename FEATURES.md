@@ -85,13 +85,16 @@ AI — and the AI only ever phrases numbers the code already computed.
   energy-availability signals collapsed into a "Supporting signals" drill-down below. One vocabulary
   owns the verdict — the old separate Build/Hold/Recover badge and coach's-read card were retired into
   it (UX-MASTERPLAN S1-1). `components/AthleteStateCard.tsx`, `lib/athlete-state.ts`, `lib/readiness.ts`
-- **Proactive morning check-in (#3)** — a one-tap flag (feeling ill / extreme fatigue / **injured**) on
-  any day a ride is planned. Ill/fatigue only offer on a *quality* day (nothing to protect on an easy
-  one) and deterministically *downgrade* — swap the stimulus onto an upcoming easy day, or an honest
-  deload if none exists. Injury is different: it's musculoskeletal, not metabolic, so it fires on
-  *any* ride day (including easy ones — the motion itself is the risk) and recommends *rest* — no swap,
-  no make-up, just guidance to see a professional if it persists; there's nothing for the reschedule
-  machinery to move. `components/MorningCheckIn.tsx`, `lib/morning-check.ts`, `app/api/morning-check`
+- **Proactive morning check-in (#3)** — all three one-tap flags (feeling ill / extreme fatigue /
+  injured) on any day a ride is planned. On a *quality* day, ill/fatigue deterministically
+  *downgrade* — swap the stimulus onto an upcoming easy day, or an honest deload if none exists. On an
+  *easy* day they verdict *rest* — skip the volume day: missing easy volume costs little, grinding
+  through illness/deep fatigue digs the hole deeper. Injury verdicts *rest* on any ride day (it's
+  musculoskeletal — the motion itself is the risk, no swap helps), with guidance to see a professional
+  if it persists. The verdict card **survives a refresh** — reasons are frozen onto the stored entry at
+  flag time, an applied downgrade is stamped `appliedAt`, and a "Change" affordance re-opens the prompt
+  (one entry per day; re-submission replaces). `components/MorningCheckIn.tsx`, `lib/morning-check.ts`,
+  `app/api/morning-check`
 - **Debrief hero (post-ride)** — execution score leads (not buried): planned vs actual, a curated
   metric strip (IF + effort band + **basis stamp** `· NP`/`· avg` · NP · avg power · RPE), the 1–10
   execution score, prescription-vs-execution rep breakdown, a smoothed power/HR trace with interval
