@@ -889,6 +889,13 @@ export interface MorningCheckEntry {
   flag: MorningCheckFlag;
   decision: MorningCheckDecision;
   setAt: string;
+  // Verdict reasons frozen at flag time, so the UI re-renders the same card after a refresh (the
+  // decision inputs — is today still a quality day? — can change once a downgrade is applied, so
+  // recomputing them later would drift). Sparse: entries written before this field simply lack it.
+  reasons?: string[];
+  // Stamped by the PUT apply — a refreshed UI shows "applied" instead of re-offering an Apply
+  // button that would now 400 (today is no longer a quality day post-swap). Sparse.
+  appliedAt?: string;
 }
 
 export interface MorningCheckLog {

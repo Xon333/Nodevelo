@@ -388,10 +388,16 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
 
   const mc = s.today.morningCheck;
   if (mc) {
-    const flagLabel = mc.flag === "ill" ? "feeling ill" : "extreme fatigue";
-    lines.push(
-      `- Flagged this morning: ${flagLabel} → ${mc.decision === "downgrade" ? "downgraded today's quality session" : "no change (not a quality day)"}.`
-    );
+    // All three flags and all three decisions rendered honestly — an injury/rest used to fall through
+    // to "extreme fatigue → no change (not a quality day)", both halves wrong.
+    const flagLabel = mc.flag === "ill" ? "feeling ill" : mc.flag === "injury" ? "injured" : "extreme fatigue";
+    const decisionLabel =
+      mc.decision === "downgrade"
+        ? "downgraded today's quality session"
+        : mc.decision === "rest"
+          ? "resting today — the planned ride is skipped, treat it as deliberate recovery, not a lapse"
+          : "no change";
+    lines.push(`- Flagged this morning: ${flagLabel} → ${decisionLabel}.`);
   }
 
   const f = s.form;

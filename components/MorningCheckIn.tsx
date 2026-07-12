@@ -15,10 +15,16 @@ interface Suggestion {
   to: string | null;
   skippedRestDay: string | null;
 }
+interface StoredCheck {
+  flag: Flag;
+  decision: Decision;
+  reasons?: string[]; // frozen at flag time; entries written before the field simply lack it
+  appliedAt?: string; // set once the downgrade was applied — don't re-offer the Apply button
+}
 interface CheckState {
-  check: { flag: Flag; decision: Decision } | null;
+  check: StoredCheck | null;
   isQualityDay: boolean;
-  hasRideToday: boolean; // any ride planned today (quality or easy) — injury can be reported on any ride day
+  hasRideToday: boolean; // any ride planned today (quality or easy)
   suggestion: Suggestion | null;
 }
 interface SubmitResult {
@@ -27,22 +33,36 @@ interface SubmitResult {
   suggestion: Suggestion | null;
 }
 
+// What the card renders — one shape whether it came from a just-submitted POST or from the stored
+// entry on a refreshed page (the refresh path is why this exists: the flag used to vanish on reload).
+interface VerdictView {
+  flag: Flag | null; // known when re-derived from the stored entry; null right after a POST
+  decision: Decision;
+  reasons: string[];
+  suggestion: Suggestion | null;
+  applied: boolean;
+  fromStore: boolean; // stored verdicts get a "Change" affordance; a just-submitted one has its own buttons
+}
+
+const FLAG_LABEL: Record<Flag, string> = { ill: "feeling ill", "extreme-fatigue": "extreme fatigue", injury: "injured" };
+
 // Proactive "not feeling it?" override (ROADMAP #3, extended by S2-9). Surfaces before the ride is logged,
-// on any ride day:
-//   • Quality day → the ill / extreme-fatigue flags (metabolic) → a deterministic downgrade → one-tap apply
-//     that moves the quality stimulus (athlete-confirmed, like RescheduleBanner).
-//   • Any ride day (quality OR easy) → the injury flag (musculoskeletal) → a "rest today" verdict with no
-//     swap and no make-up: the pedaling motion aggravates a strain regardless of intensity, so moving the
-//     session onto an easy day doesn't help (see lib/morning-check.ts). This is informational, not a
-//     scheduling action — the athlete just skips today, and sees a professional if it persists.
-// Objective fatigue is handled by the readiness signal; this is the manual override for "I feel worse than
-// the load model can see."
+// on any ride day, with all three flags:
+//   • Quality day + ill/extreme-fatigue (metabolic) → a deterministic downgrade → one-tap apply that moves
+//     the quality stimulus (athlete-confirmed, like RescheduleBanner).
+//   • Easy day + ill/extreme-fatigue → "rest today": skip the volume day — there's nothing to downgrade,
+//     and grinding through illness/deep fatigue costs more than the missed volume (see lib/morning-check.ts).
+//   • Injury (musculoskeletal), any ride day → "rest today" with no swap and no make-up: the pedaling
+//     motion aggravates a strain regardless of intensity.
+// The stored flag is re-read on mount, so the verdict survives a refresh; "Change" re-opens the prompt
+// (one entry per day — a re-submission replaces it, like a disposition).
 export default function MorningCheckIn() {
   const { state, setState } = useSync();
   const [data, setData] = useState<CheckState | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [editing, setEditing] = useState(false); // "Change" on a stored verdict re-opens the prompt
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -67,8 +87,7 @@ export default function MorningCheckIn() {
         <LoadFailed what="the morning check-in" retry={() => void load()} />
       </div>
     );
-  // Surface on any ride day: a quality day gets the full set of flags; a non-quality ride day still gets the
-  // injury flag (S2-9). A true rest day (no ride planned) has nothing to skip, so stay hidden.
+  // Surface on any ride day. A true rest day (no ride planned) has nothing to skip, so stay hidden.
   if (!data || !data.hasRideToday) return null;
 
   const submit = async (flag: Flag) => {
@@ -77,6 +96,8 @@ export default function MorningCheckIn() {
     try {
       const r = await api<SubmitResult>("/api/morning-check", { method: "POST", body: JSON.stringify({ flag, today: localToday() }) });
       setResult(r);
+      setEditing(false);
+      void load(); // keep the stored copy in step so a later "Change"/re-render agrees with the server
     } catch {
       setActionError("Couldn't submit — try again.");
     } finally {
@@ -102,22 +123,46 @@ export default function MorningCheckIn() {
   // mb-2 lives on the component (not a wrapper in Dashboard) so a hidden override leaves no gap.
   const shell = "mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900/60";
 
-  // ---- After flagging: the verdict + (for a downgrade) the proposed move ----
-  if (result) {
-    const downgrade = result.decision === "downgrade";
-    const rest = result.decision === "rest"; // injury → skip today, no scheduling action
-    const s = result.suggestion;
-    // Heading colour: amber for a downgrade (protect the session), red for rest (stop — injury), emerald for
-    // proceed. Heading text is the verdict, not the flag.
+  // One view model for the verdict card: a just-submitted result wins; otherwise the stored entry
+  // (unless the athlete tapped "Change"). The stored path is what survives a page refresh.
+  const view: VerdictView | null = result
+    ? { flag: null, decision: result.decision, reasons: result.reasons, suggestion: result.suggestion, applied: false, fromStore: false }
+    : data.check && !editing
+      ? {
+          flag: data.check.flag,
+          decision: data.check.decision,
+          reasons: data.check.reasons ?? [],
+          suggestion: data.check.decision === "downgrade" && !data.check.appliedAt ? data.suggestion : null,
+          applied: !!data.check.appliedAt,
+          fromStore: true,
+        }
+      : null;
+
+  // ---- Verdict card (post-submit, or re-derived from the stored flag after a refresh) ----
+  if (view) {
+    const downgrade = view.decision === "downgrade";
+    const rest = view.decision === "rest";
+    const s = view.suggestion;
+    // Heading colour: amber for a downgrade (protect the session), red for rest (stop — don't ride today),
+    // emerald for proceed. Heading text is the verdict, not the flag.
     const headingTone = rest ? "text-red-700 dark:text-red-400" : downgrade ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-400";
-    const heading = rest ? "Rest today" : downgrade ? "Downgrade recommended" : "You're good — proceed";
+    const heading = view.applied
+      ? "Downgraded — change applied"
+      : rest
+        ? "Rest today"
+        : downgrade
+          ? "Downgrade recommended"
+          : "You're good — proceed";
     return (
       <div className={shell}>
-        <p className={`text-xs font-semibold ${headingTone}`}>{heading}</p>
-        {result.reasons.length > 0 && (
-          <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{result.reasons.join(" ")}</p>
+        <p className={`text-xs font-semibold ${headingTone}`}>
+          {heading}
+          {view.flag && <span className="ml-1.5 font-normal text-zinc-500 dark:text-zinc-400">(flagged {FLAG_LABEL[view.flag]} this morning)</span>}
+        </p>
+        {view.reasons.length > 0 && !view.applied && (
+          <p className="mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{view.reasons.join(" ")}</p>
         )}
-        {downgrade && s && (
+        {downgrade && !view.applied && s && (
           <p className="mt-1.5 text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
             {s.to ? (
               <>
@@ -134,7 +179,7 @@ export default function MorningCheckIn() {
           </p>
         )}
         <div className="mt-2 flex items-center gap-2">
-          {downgrade && (
+          {downgrade && !view.applied && (
             <button
               onClick={apply}
               disabled={busy}
@@ -143,21 +188,28 @@ export default function MorningCheckIn() {
               {busy ? "Applying…" : s?.to ? "Apply downgrade + move" : "Downgrade today"}
             </button>
           )}
-          {/* Injury: no "apply" — there's nothing to move. The verdict IS the action (don't ride). Just an
-              acknowledge that dismisses the prompt. */}
+          {/* Rest: no "apply" — the verdict IS the action (don't ride). */}
           <button onClick={() => setDismissed(true)} className="text-xs text-zinc-500 hover:underline dark:text-zinc-400">
-            {rest ? "Got it" : downgrade ? "Proceed anyway" : "Dismiss"}
+            {rest ? "Got it" : downgrade && !view.applied ? "Proceed anyway" : "Dismiss"}
           </button>
+          {view.fromStore && !view.applied && (
+            <button
+              onClick={() => {
+                setResult(null);
+                setEditing(true);
+              }}
+              className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+            >
+              Change
+            </button>
+          )}
         </div>
         {actionError && <p className="mt-1.5 text-[11px] text-red-600 dark:text-red-400">{actionError}</p>}
       </div>
     );
   }
 
-  // ---- Collapsed prompt: one-tap flags ----
-  // A quality day gets all three flags with the "not feeling it?" framing. A non-quality ride day gets only
-  // the injury flag (ill/extreme-fatigue don't downgrade an easy day — there's no hard stimulus to protect),
-  // with copy that doesn't claim a "quality session" it isn't (Constitution §7: no lying labels).
+  // ---- Collapsed prompt: one-tap flags (all three, on any ride day) ----
   const quality = data.isQualityDay;
   const btn =
     "shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:border-zinc-500";
@@ -165,26 +217,14 @@ export default function MorningCheckIn() {
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 ${shell}`}>
       <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#00d4ff]" />
       <p className="min-w-0 flex-1 text-xs text-zinc-700 dark:text-zinc-300">
-        {quality ? (
-          <>
-            <span className="font-semibold">Quality session today</span> — not feeling it?
-          </>
-        ) : (
-          <>
-            <span className="font-semibold">Ride planned today</span> — something hurting?
-          </>
-        )}
+        <span className="font-semibold">{quality ? "Quality session today" : "Ride planned today"}</span> — not feeling it?
       </p>
-      {quality && (
-        <>
-          <button onClick={() => submit("ill")} disabled={busy} className={btn}>
-            Feeling ill
-          </button>
-          <button onClick={() => submit("extreme-fatigue")} disabled={busy} className={btn}>
-            Extreme fatigue
-          </button>
-        </>
-      )}
+      <button onClick={() => submit("ill")} disabled={busy} className={btn}>
+        Feeling ill
+      </button>
+      <button onClick={() => submit("extreme-fatigue")} disabled={busy} className={btn}>
+        Extreme fatigue
+      </button>
       <button onClick={() => submit("injury")} disabled={busy} className={btn}>
         Injured
       </button>

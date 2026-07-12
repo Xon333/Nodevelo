@@ -74,6 +74,26 @@ describe("POST /api/morning-check", () => {
     expect(stored.entries[0]).toMatchObject({ date: TODAY, flag: "ill", decision: "downgrade" });
   });
 
+  // The verdict must survive a page refresh: the reasons are stored on the entry (not just returned from
+  // this POST), so the GET can render the same card the athlete saw when they flagged.
+  it("stores the decision reasons on the entry", async () => {
+    await POST(req("POST", { flag: "ill", today: TODAY }));
+    const stored = vi.mocked(store.writeMorningChecks).mock.calls[0][0] as MorningCheckLog;
+    expect(stored.entries[0].reasons?.length).toBeGreaterThan(0);
+  });
+
+  // Easy-day ill/extreme-fatigue now rests the day (skip the easy volume) instead of "proceed" — the
+  // athlete's manual override exists precisely for "I feel worse than the model can see".
+  it("rests an ill/extreme-fatigue flag on a non-quality (Z2) day, with no reschedule suggestion", async () => {
+    const easy: CurrentBlock = { ...block(), days: [{ date: TODAY, name: "Easy", type: "Z2", durationMin: 60 }] };
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(easy);
+    const json = await (await POST(req("POST", { flag: "extreme-fatigue", today: TODAY }))).json();
+    expect(json.decision).toBe("rest");
+    expect(json.suggestion).toBeNull();
+    const stored = vi.mocked(store.writeMorningChecks).mock.calls[0][0] as MorningCheckLog;
+    expect(stored.entries[0]).toMatchObject({ date: TODAY, flag: "extreme-fatigue", decision: "rest" });
+  });
+
   it("rejects a missing/invalid flag (400)", async () => {
     const res = await POST(req("POST", { flag: "meh", today: TODAY }));
     expect(res.status).toBe(400);
@@ -132,6 +152,18 @@ describe("PUT /api/morning-check — the apply guard", () => {
     expect((await res.json()).ok).toBe(true);
     const written = vi.mocked(store.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
     expect(written.days.find((d) => d.date === TODAY)!.type).not.toBe("VO2max"); // today downgraded
+  });
+
+  // The UI re-derives its card from the stored entry after a refresh — a successful apply must stamp
+  // appliedAt so the card shows "applied" instead of re-offering an Apply button that would now 400.
+  it("stamps appliedAt on today's entry after a successful apply", async () => {
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
+    const res = await PUT(req("PUT", { today: TODAY }));
+    expect((await res.json()).ok).toBe(true);
+    const stored = vi.mocked(store.writeMorningChecks).mock.calls[0][0] as MorningCheckLog;
+    const entry = stored.entries.find((e) => e.date === TODAY);
+    expect(entry?.appliedAt).toBeTruthy();
+    expect(entry).toMatchObject({ flag: "extreme-fatigue", decision: "downgrade" }); // rest of the entry untouched
   });
 
   it("deloads with a note naming the rest day it deliberately skipped (RR-1 UI)", async () => {

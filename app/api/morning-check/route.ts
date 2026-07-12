@@ -58,7 +58,9 @@ export async function POST(req: Request) {
   const block = await readCurrentBlock();
   const { decision, reasons } = decideMorningCheck(flag, { isQualityDay: isQualityToday(block, date) });
 
-  const entry: MorningCheckEntry = { date, flag, decision, setAt: new Date().toISOString() };
+  // Reasons are frozen onto the entry so a page refresh re-renders the same verdict card — recomputing
+  // them later can drift (an applied downgrade changes today's quality-day status, see MorningCheckEntry).
+  const entry: MorningCheckEntry = { date, flag, decision, setAt: new Date().toISOString(), ...(reasons.length > 0 ? { reasons } : {}) };
   const log = await readMorningChecks();
   await writeMorningChecks({ entries: mergeMorningCheck(log.entries, entry), updatedAt: new Date().toISOString() });
 
@@ -89,7 +91,7 @@ export async function PUT(req: Request) {
 
   const check = checks.entries.find((e) => e.date === date) ?? null;
   const blocked = proactiveApplyBlock(check, todayAnalysis?.activityDate === date);
-  if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+  if (blocked || !check) return NextResponse.json({ error: blocked ?? "Flag how you're feeling first." }, { status: 400 });
 
   const applied = applyProactiveReschedule(block, date);
   if (!applied) return NextResponse.json({ error: "Today isn't a quality day to downgrade." }, { status: 400 });
@@ -105,6 +107,13 @@ export async function PUT(req: Request) {
   // drops eventId from BOTH swapped days. The original pre-move `block` (still in scope, untouched)
   // still carries them, which is what the description-carry lookup inside persistMirroredMove needs.
   const { mirrored, failed } = await persistMirroredMove(updated, updated.days, moves, date, block.days);
+
+  // Stamp the apply onto today's entry so a refreshed UI shows "applied" instead of re-offering an
+  // Apply button (which would now 400 — today is no longer a quality day post-swap).
+  await writeMorningChecks({
+    entries: mergeMorningCheck(checks.entries, { ...check, appliedAt: new Date().toISOString() }),
+    updatedAt: new Date().toISOString(),
+  });
 
   return NextResponse.json({
     ok: true,

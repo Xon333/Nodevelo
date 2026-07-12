@@ -168,6 +168,23 @@ describe("buildCoachSnapshot", () => {
     expect(s.today.morningCheck).toMatchObject({ flag: "ill", decision: "downgrade" });
   });
 
+  // The prompt line must name all three flags and all three decisions honestly — an injury/rest was
+  // previously rendered as "extreme fatigue → no change (not a quality day)", both halves wrong.
+  it("renders an injury → rest morning check honestly in the prompt", () => {
+    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "injury", decision: "rest", setAt: "" };
+    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ morningCheck })));
+    expect(out).toContain("injured");
+    expect(out).toMatch(/resting today/i);
+    expect(out).not.toContain("extreme fatigue");
+  });
+
+  it("renders an extreme-fatigue → rest (easy-day skip) morning check honestly in the prompt", () => {
+    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "extreme-fatigue", decision: "rest", setAt: "" };
+    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ morningCheck })));
+    expect(out).toContain("extreme fatigue");
+    expect(out).toMatch(/resting today/i);
+  });
+
   it("treats a stale today-analysis (different date) as no ride logged", () => {
     const s = buildCoachSnapshot(baseInput({ todayAnalysis: { ...todayAnalysis, activityDate: "2026-06-19" } as TodayAnalysis }));
     expect(s.today.rideLogged).toBe(false);

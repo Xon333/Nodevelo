@@ -13,9 +13,17 @@ describe("decideMorningCheck", () => {
     expect(decideMorningCheck("extreme-fatigue", { isQualityDay: true }).reasons.join(" ")).toMatch(/fatigue/i);
   });
 
-  it("proceeds on a non-quality day (nothing to downgrade), even with a flag", () => {
-    expect(decideMorningCheck("ill", { isQualityDay: false }).decision).toBe("proceed");
-    expect(decideMorningCheck("extreme-fatigue", { isQualityDay: false }).decision).toBe("proceed");
+  // An easy day has no hard stimulus to protect, but the athlete flagging ill/extreme fatigue is saying
+  // "I feel worse than the load model can see" — the honest verdict is to skip the easy volume (it costs
+  // little; grinding through illness/deep fatigue digs the hole deeper), not "proceed, nothing to downgrade".
+  it("rests ill/extreme-fatigue on a non-quality day — skip the easy ride, don't grind through it", () => {
+    expect(decideMorningCheck("ill", { isQualityDay: false }).decision).toBe("rest");
+    expect(decideMorningCheck("extreme-fatigue", { isQualityDay: false }).decision).toBe("rest");
+  });
+
+  it("easy-day rest reasons say skip and name the flag", () => {
+    expect(decideMorningCheck("ill", { isQualityDay: false }).reasons.join(" ")).toMatch(/skip today/i);
+    expect(decideMorningCheck("extreme-fatigue", { isQualityDay: false }).reasons.join(" ")).toMatch(/fatigue/i);
   });
 
   // S2-9: injury is musculoskeletal — the pedaling motion is the hazard, not the intensity. So it rests

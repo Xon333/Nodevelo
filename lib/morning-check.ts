@@ -15,10 +15,11 @@ export interface MorningCheckDecisionResult {
 }
 
 // Why injury is not just a third "downgrade" flag (S2-9):
-//   ill / extreme-fatigue are *metabolic/cardiovascular* — the hazard is intensity. On an easy/rest day
-//   there's no hard stimulus to protect, so an easy spin is fine and we "proceed". When it IS a quality
+//   ill / extreme-fatigue are *metabolic/cardiovascular* — the hazard is intensity. When it's a quality
 //   day, the honest move is the load-neutral swap/deload the reschedule engine already does (still on the
-//   bike, just easier) — that genuinely protects a tired-but-otherwise-fine cardiovascular system.
+//   bike, just easier) — that genuinely protects a tired-but-otherwise-fine cardiovascular system. On an
+//   easy day there's nothing to downgrade, so the verdict is a plain "rest" — skip the volume day (see
+//   the non-quality branch below for why that beats the old "proceed").
 //
 //   injury is *musculoskeletal* — the hazard is the MOTION and LOAD, not the intensity. Repetitive
 //   pedaling, a fixed joint angle, and drivetrain load aggravate a strained knee / Achilles / lower back
@@ -41,8 +42,19 @@ export function decideMorningCheck(flag: MorningCheckFlag, o: MorningCheckObject
       ],
     };
   }
+  // An easy day has no hard stimulus to protect — but the athlete flagging ill/extreme fatigue is
+  // saying "I feel worse than the load model can see", and the honest answer to that on a volume day
+  // is to skip it: the missed aerobic volume costs little, grinding through illness or deep fatigue
+  // digs the hole deeper. (The old verdict here was "proceed — nothing to downgrade", which left the
+  // athlete with no way to record skipping an easy ride they were too flat to start.)
   if (!o.isQualityDay) {
-    return { decision: "proceed", reasons: ["Today isn't a quality day — nothing to downgrade."] };
+    const cause = flag === "ill" ? "feeling ill" : "extreme fatigue";
+    return {
+      decision: "rest",
+      reasons: [
+        `Reported ${cause} — skip today's easy ride. It's aerobic volume, not a key stimulus: missing it costs little, and riding through it sets recovery back further than the volume is worth.`,
+      ],
+    };
   }
   if (flag === "ill") return { decision: "downgrade", reasons: ["Reported feeling ill — downgrading today's quality session."] };
   if (flag === "extreme-fatigue") return { decision: "downgrade", reasons: ["Reported extreme fatigue — downgrading today's quality session."] };
