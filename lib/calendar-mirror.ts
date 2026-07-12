@@ -134,14 +134,14 @@ export function reconcileInboundMoves(
     // re-stamped from the just-matched `evt.id`, not carried forward from `d.eventId` — when this
     // match came from the byExternalId fallback (not byId), `d.eventId` is stale/wrong and carrying
     // it forward would silently break the id-keyed lookups downstream (description-carry, restamp).
-    days = days.map((x) => {
-      if (x.date === evt.date) {
-        const { date: _old, eventId: _staleId, ...content } = d;
-        return { date: evt.date, ...content, ...(typeof evt.id === "number" ? { eventId: evt.id } : {}) };
-      }
-      if (x.date === d.date) return { date: d.date, name: `Rest (moved to ${evt.date})`, type: "Rest" as CurrentBlockDay["type"], durationMin: 0 };
-      return x;
-    });
+    const { date: _old, eventId: _staleId, ...content } = d;
+    const movedDay: CurrentBlockDay = { date: evt.date, ...content, ...(typeof evt.id === "number" ? { eventId: evt.id } : {}) };
+    const vacatedDay: CurrentBlockDay = { date: d.date, name: `Rest (moved to ${evt.date})`, type: "Rest", durationMin: 0 };
+    days = days.map((x) => (x.date === evt.date ? movedDay : x.date === d.date ? vacatedDay : x));
+    // Keep dayAt in step with `days` — otherwise a second move within this same pass re-reads the
+    // stale pre-loop snapshot and can pass the "target is Rest" check onto an already-just-filled date.
+    dayAt.set(evt.date, movedDay);
+    dayAt.set(d.date, vacatedDay);
     applied.push({ from: d.date, to: evt.date });
   }
 

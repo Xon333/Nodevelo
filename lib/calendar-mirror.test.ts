@@ -169,6 +169,27 @@ describe("reconcileInboundMoves", () => {
     const moved = res.days.find((d) => d.date === "2026-07-15")!;
     expect(moved.eventId).toBe(999); // the matched event's real id, NOT the stale d.eventId (41)
   });
+
+  // Regression (HR-3): the conflict-detection map used to be a one-time snapshot of the pre-loop
+  // block, so a second source landing on a date the first source *just filled this same pass* would
+  // still see it as vacant and silently overwrite the first source's move.
+  it("flags a conflict instead of silently overwriting when two sources land on the same vacated day in one pass", () => {
+    const twoSources = mkBlock([
+      day({ date: "2026-07-14", name: "Threshold 2x20", type: "Threshold", durationMin: 75, eventId: 41 }),
+      day({ date: "2026-07-15", name: "Rest", type: "Rest", durationMin: 0 }),
+      day({ date: "2026-07-16", name: "VO2 5x3", type: "VO2max", durationMin: 60, eventId: 43 }),
+    ]);
+    const res = reconcileInboundMoves(
+      twoSources,
+      [ev({ date: "2026-07-15", id: 41 }), ev({ date: "2026-07-15", id: 43 })],
+      "2026-07-13"
+    )!;
+    expect(res.applied).toEqual([{ from: "2026-07-14", to: "2026-07-15" }]);
+    expect(res.warnings.length).toBe(1);
+    expect(res.warnings[0]).toContain("2026-07-16");
+    const target = res.days.find((d) => d.date === "2026-07-15")!;
+    expect(target).toMatchObject({ name: "Threshold 2x20", eventId: 41 });
+  });
 });
 
 // The shared persist-then-best-effort-mirror orchestrator used by both /api/reschedule and

@@ -39,7 +39,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   block near local midnight gets a different "today" (and thus a different weekly-energy window and
   season phase) than Ask-Coach/Trends show for the same moment. 7 of 10 review angles independently
   flagged this.
-- ☐ P1 `bug` **HR-3** — `reconcileInboundMoves`' conflict map (`dayAt`,
+- ☑ P1 `bug` **HR-3** — `reconcileInboundMoves`' conflict map (`dayAt`,
   [lib/calendar-mirror.ts:110](lib/calendar-mirror.ts:110)) is built once from the block's original
   days and never updated as the loop applies moves. Two events dragged onto the same
   originally-vacant date in one sync both pass the "target is Rest" check — the second silently
