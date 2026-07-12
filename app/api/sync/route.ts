@@ -47,12 +47,13 @@ import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
-import { buildRideScores, calStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
+import { buildRideScores, calStampFor, easyStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, trustedCalibration } from "@/lib/calibration";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
+import { timeAboveAerobicHrFraction } from "@/lib/execution-score";
 import { resolveToday, utcToday } from "@/lib/date";
 import { deriveFuelPrompt } from "@/lib/fuel-prompt";
 import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
@@ -612,6 +613,14 @@ export async function POST(req: Request) {
             prevSync?.powerCurveAllTime ?? []
           );
 
+          // Task 3: hoisted once — reused by buildTodayAnalysis's aerobicEffPct input AND the easy-ride
+          // ledger stamp in the today-patch below, so today's frozen `easy` stamp is built from the exact
+          // same re-bucketed hrZoneTimes / aerobicEffPct that produced this entry's executionScore (the
+          // drift class the 2026-07-11 "Coach-prompt aerobic-discipline gap closed" fix cleaned up for a
+          // different surface). Avoids a duplicate aerobicEffPct(...) call with identical arguments.
+          const todayAerobicEffPct = aerobicEffPct(todayActivity, z2PwHrBaselineBefore(lastSync.activities, todayActivity.date));
+          const todayAboveAerobicHrFrac = timeAboveAerobicHrFraction(hrZoneTimes);
+
           // --- Pure: assemble the deterministic analysis (metrics, execution score, capped
           // compliance, advised intake, coach-note preservation) — extracted + unit-tested (CR-G).
           const { todayAnalysis: built, executionScore, resolvedCompliancePct } = buildTodayAnalysis({
@@ -627,7 +636,7 @@ export async function POST(req: Request) {
             // reflects their own Intervals.icu zones and tracks any FTP/zone change (effective-dated).
             powerZoneTopsPct: physiologyAsOf(physStore, todayActivity.date)?.powerZonePct ?? null,
             // Off-plan aerobic read: today's Z2 Pw:HR vs the athlete's baseline from prior qualifying rides.
-            aerobicEffPct: aerobicEffPct(todayActivity, z2PwHrBaselineBefore(lastSync.activities, todayActivity.date)),
+            aerobicEffPct: todayAerobicEffPct,
             executed, // Track B: the ride's intervals, to grade a durability long ride's effort delivery
             intervalComparison,
             trace,
@@ -695,6 +704,12 @@ export async function POST(req: Request) {
                         ...(plannedDay?.durabilityTemplate && durabilityDelivery != null
                           ? { durabilityDelivery: { signal: durabilityDelivery.signal } }
                           : {}),
+                        // Task 3: re-stamp the easy-ride merged-read provenance from THIS richer, re-bucketed
+                        // HR data — without this, today's frozen `easy` stamp would stay whatever
+                        // buildRideScores computed from the raw (non-re-bucketed) hrZoneTimes, drifting from
+                        // the executionScore this same patch just replaced. Gated internally by easyStampFor
+                        // itself (Z2/Recovery, non-embeds-efforts template) — `{}` when it doesn't apply.
+                        ...easyStampFor(todayActivity, plannedDay?.type ?? "", plannedDay?.durabilityTemplate, todayAboveAerobicHrFrac, todayAerobicEffPct),
                       }
                     : e
                 )

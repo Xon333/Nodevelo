@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import type { ActivitySummary, CurrentBlock, IntervalsCalendarEvent, RideScoreEntry, SyncData } from "@/lib/types";
+import type { ActivitySummary, CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, RideScoreEntry, SyncData } from "@/lib/types";
 
 // Route tests for /api/sync (SUB-3): the 500-line orchestrator guarding the immutable ledger.
 // Network (intervals-api) + fs (data-store, physiology) are mocked at the module boundary; the
@@ -70,6 +70,7 @@ import * as anthropic from "@/lib/anthropic-api";
 import * as phys from "@/lib/physiology";
 import * as store from "@/lib/data-store";
 import { DELETE, GET, POST, resolveCarbsOptimumForPrompt } from "@/app/api/sync/route";
+import { buildRideScores } from "@/lib/score-log";
 import type { CalibratedParameter } from "@/lib/types";
 
 const TODAY = "2026-06-22";
@@ -678,6 +679,86 @@ describe("POST /api/sync — today-ride analysis path", () => {
     // Task 3: the today-patch stamps durabilityDelivery (Track C loading-loop provenance) — gated on
     // durabilityTemplate + a non-null delivery signal, independent of the `intervals` exclusion above.
     expect(scoreEntries.find((e) => e.date === TODAY)?.durabilityDelivery).toEqual({ signal: 2 });
+  });
+
+  describe("today-patch `easy` stamp consistency (Task 3)", () => {
+    // A trailing baseline of qualifying outdoor Z2 Pw:HR rides before TODAY, so aerobicEffPct resolves
+    // to a real (non-null) number rather than trivially being absent from every assertion below.
+    const baselineRides = [
+      mkActivity({ id: "b1", date: "2026-06-10", type: "Ride", powerHrZ2: 1.5, powerHrZ2Mins: 30 }),
+      mkActivity({ id: "b2", date: "2026-06-12", type: "Ride", powerHrZ2: 1.6, powerHrZ2Mins: 30 }),
+      mkActivity({ id: "b3", date: "2026-06-14", type: "Ride", powerHrZ2: 1.4, powerHrZ2Mins: 30 }),
+    ];
+    const hrZones = [
+      { name: "Z1", lo: 0, hi: 120 },
+      { name: "Z2", lo: 120, hi: 150 },
+      { name: "Z3", lo: 150, hi: 165 },
+      { name: "Z4", lo: 165, hi: 180 },
+      { name: "Z5", lo: 180, hi: null },
+    ];
+    // Raw Intervals.icu HR-zone times: almost entirely zones 1-2 → reads "dialed" if used as-is.
+    const rawHrZoneTimes = [900, 3500, 100, 0, 0];
+    // A raw HR stream that re-buckets almost entirely into zone 4 (well above the aerobic ceiling) —
+    // deliberately the OPPOSITE read from rawHrZoneTimes above, so an assertion of "hot" can only pass
+    // if the patch used the re-bucketed stream, not the raw synced field.
+    const hotHrStream = [...Array(3000).fill(170), ...Array(500).fill(100)];
+    const rebucketedHrZoneTimes = [500, 0, 0, 3000, 0]; // what hotHrStream re-buckets to under hrZones
+
+    const seedEasyRideToday = (plannedDayOver: Partial<CurrentBlockDay> = {}) => {
+      vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+      const plannedDay: CurrentBlockDay = { date: TODAY, name: "Recovery spin", type: "Z2", durationMin: 60, ...plannedDayOver };
+      vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ days: [plannedDay] }));
+      const todayActivity = mkActivity({
+        type: "Ride",
+        avgHr: 140,
+        powerHrZ2: 1.8,
+        powerHrZ2Mins: 40,
+        hrZoneTimes: rawHrZoneTimes,
+      });
+      vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [...baselineRides, todayActivity] }));
+      vi.mocked(phys.readHrZones).mockResolvedValue(hrZones);
+      vi.mocked(api.fetchHrStream).mockResolvedValue(hotHrStream);
+      return { plannedDay, todayActivity };
+    };
+
+    it("stamps `easy` on today's patch from the re-bucketed HR-zone times, not the raw synced ones", async () => {
+      seedEasyRideToday();
+      await postSync();
+      const entry = scoreEntries.find((e) => e.date === TODAY);
+      expect(entry?.easy).toBeDefined();
+      expect(entry?.easy?.indoor).toBe(false);
+      expect(entry?.easy?.hrRead).toBe("hot"); // re-bucketed read; raw hrZoneTimes alone would read "dialed"
+      expect(entry?.easy?.aerobicEffPct).toBe(20); // (1.8 - 1.5) / 1.5 * 100, rounded
+    });
+
+    it("today's `easy` stamp matches what a full ledger rebuild (buildRideScores) would produce for the same re-bucketed data", async () => {
+      const { plannedDay, todayActivity } = seedEasyRideToday();
+      await postSync();
+      const patched = scoreEntries.find((e) => e.date === TODAY);
+      // A "full rebuild" fed the SAME re-bucketed HR data (what buildRideScores would see if the ledger
+      // were rebuilt from correctly-bucketed streams) must land on the exact same `easy` stamp — proving
+      // the live today-patch and a from-scratch rebuild can never disagree on this ride's provenance.
+      const rebuilt = buildRideScores(
+        mkBlock({ days: [plannedDay] }),
+        [...baselineRides, { ...todayActivity, hrZoneTimes: rebucketedHrZoneTimes }],
+        () => 200,
+        TODAY,
+        "2026-06-01"
+      );
+      expect(patched?.easy).toEqual(rebuilt.find((e) => e.date === TODAY)?.easy);
+    });
+
+    it("does NOT stamp `easy` on a non-Z2/Recovery planned day (Threshold)", async () => {
+      seedEasyRideToday({ type: "Threshold", workoutText: undefined });
+      await postSync();
+      expect(scoreEntries.find((e) => e.date === TODAY)?.easy).toBeUndefined();
+    });
+
+    it("does NOT stamp `easy` on a Z2 day whose durability template embeds efforts (template C)", async () => {
+      seedEasyRideToday({ durabilityTemplate: "C" });
+      await postSync();
+      expect(scoreEntries.find((e) => e.date === TODAY)?.easy).toBeUndefined();
+    });
   });
 
   it("surfaces an analysis failure as a warning while the sync itself succeeds", async () => {
