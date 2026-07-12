@@ -70,6 +70,9 @@ export async function addCoachNote(
     // judge "was it easy" on this, not re-derive a power-based zone-creep verdict. `?? null` because
     // an analysis written before the field existed parses back with the key absent.
     input.aerobicDiscipline = analysis.aerobicDiscipline ?? null;
+    // The aerobic-efficiency-vs-baseline figure behind the discipline read above — same `?? null`
+    // normalization: an analysis written before this field existed parses back with the key absent.
+    input.aerobicEffPct = analysis.aerobicEffPct ?? null;
     // Truthy-checked (never `=== null`): a today-analysis.json written before fuelPrompt existed
     // parses back with the key absent, not null.
     input.fuelPromptContext = analysis.fuelPrompt ? formatFuelPromptContext(analysis.fuelPrompt) : null;

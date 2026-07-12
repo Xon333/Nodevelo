@@ -137,6 +137,37 @@ describe("buildCoachSnapshot", () => {
     expect(buildCoachSnapshot(baseInput()).today.execution?.aerobicDiscipline).toBeNull();
   });
 
+  // Task 5: the aerobic-efficiency figure behind the discipline read, surfaced in the SITUATION line
+  // so a "some drift" read isn't left without detail.
+  it("surfaces the aerobic-efficiency figure alongside discipline, rounded to 1dp, when notably below baseline", () => {
+    // Raw computed %Δ is an unrounded float (lib/aerobic.ts) — the snapshot preserves it raw, the
+    // narration line rounds for readability.
+    const z2Ride = {
+      ...todayAnalysis,
+      plannedType: "Z2",
+      intervalComparison: null,
+      aerobicDiscipline: "drift",
+      aerobicEffPct: -4.6789,
+    } as unknown as TodayAnalysis;
+    const s = buildCoachSnapshot(baseInput({ todayAnalysis: z2Ride, todaySessionType: "Z2" }));
+    expect(s.today.execution?.aerobicEffPct).toBe(-4.6789);
+    expect(formatCoachSnapshot(s)).toContain("aerobic discipline: some drift (efficiency -4.7% below baseline)");
+  });
+
+  it("omits the efficiency detail when within the deadband", () => {
+    const z2Ride = {
+      ...todayAnalysis,
+      plannedType: "Z2",
+      intervalComparison: null,
+      aerobicDiscipline: "dialed",
+      aerobicEffPct: -1.2,
+    } as unknown as TodayAnalysis;
+    const s = buildCoachSnapshot(baseInput({ todayAnalysis: z2Ride, todaySessionType: "Z2" }));
+    const line = formatCoachSnapshot(s);
+    expect(line).toContain("aerobic discipline: dialed in");
+    expect(line).not.toContain("efficiency");
+  });
+
   it("resolves form (TSB modifier, ACWR, readiness, load ramp) and block week", () => {
     const s = buildCoachSnapshot(baseInput());
     expect(s.form).toMatchObject({ tsb: -15, acwr: "optimal", readiness: "Hold", loadRamp: "caution" });

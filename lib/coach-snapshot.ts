@@ -33,6 +33,7 @@ import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveAthleteStateWeight
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import { synthesizeCoachingDirectives } from "./synthesis";
 import { summariseValidation } from "./intervention";
+import { round1 } from "./stats";
 
 export interface CoachSnapshot {
   date: string;
@@ -54,6 +55,9 @@ export interface CoachSnapshot {
       // TodayAnalysis.aerobicDiscipline — already gated Z2/Recovery-only, on-plan, !embedsEfforts by
       // ride-analysis.ts. null when not an easy day, off-plan, a durability template B–E, or no HR-zone data.
       aerobicDiscipline: AerobicDiscipline | null;
+      // The aerobic-efficiency-vs-baseline figure behind aerobicDiscipline above, lifted straight
+      // from TodayAnalysis.aerobicEffPct — same gate, same source.
+      aerobicEffPct: number | null;
     } | null;
     // The athlete's manual morning override (ROADMAP #3), null until they flag today.
     morningCheck: {
@@ -252,6 +256,7 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
               durationPct: ic?.avgDurationPct ?? null,
               structuralMismatch: ic?.structuralMismatch ?? false,
               aerobicDiscipline: ride?.aerobicDiscipline ?? null,
+              aerobicEffPct: ride?.aerobicEffPct ?? null,
             }
           : null,
       morningCheck: input.morningCheck
@@ -379,7 +384,13 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
     if (ex.aerobicDiscipline != null) {
       const label =
         ex.aerobicDiscipline === "dialed" ? "dialed in" : ex.aerobicDiscipline === "drift" ? "some drift" : "ran hot";
-      parts.push(`aerobic discipline: ${label}`);
+      // Same −3 threshold as the ride-note prompt (AEROBIC_DEADBAND_PCT) — only surface the figure
+      // when it's a notable read, not per-ride noise.
+      const eff =
+        ex.aerobicEffPct != null && ex.aerobicEffPct <= -3
+          ? ` (efficiency ${round1(ex.aerobicEffPct)}% below baseline)`
+          : "";
+      parts.push(`aerobic discipline: ${label}${eff}`);
     }
     if (parts.length > 0) {
       lines.push(`- Execution (today): ${parts.join(" · ")}${ex.structuralMismatch ? " · ⚠ plan/detection mismatch — duration is unreliable, judge on power" : ""}.`);

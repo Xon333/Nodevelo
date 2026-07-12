@@ -68,14 +68,36 @@ describe("buildRideAnalysisPrompt", () => {
     expect(p).toMatch(/descents|rollers|terrain/i);
   });
 
-  it("renders the ran-hot read honestly", () => {
+  it("renders the ran-hot read honestly, with the fatigue-cost clause", () => {
     const p = buildRideAnalysisPrompt(rideInput({ plannedType: "Recovery", aerobicDiscipline: "hot" }));
     expect(p).toContain("ran hot");
+    expect(p).toMatch(/real training load.*fatigue model/i);
   });
 
   it("omits the discipline line on interval days and when the read is absent", () => {
     expect(buildRideAnalysisPrompt(rideInput())).not.toContain("Easy-ride discipline");
     expect(buildRideAnalysisPrompt(rideInput({ plannedType: "Z2", aerobicDiscipline: null }))).not.toContain("Easy-ride discipline");
+  });
+
+  // Task 4 added TodayAnalysis.aerobicEffPct — the figure behind the HR-judged discipline read.
+  // Appended to the discipline line only when it clears the AEROBIC_DEADBAND_PCT weak-band threshold.
+  it("appends the aerobic-efficiency clause, rounded to 1dp, when notably below baseline (<= -3%)", () => {
+    // Raw computed %Δ is an unrounded float (lib/aerobic.ts) — the narration rounds for readability.
+    const p = buildRideAnalysisPrompt(
+      rideInput({ plannedType: "Z2", aerobicDiscipline: "drift", aerobicEffPct: -5.234567 })
+    );
+    expect(p).toContain("Easy-ride discipline (HR-judged): some drift");
+    expect(p).toContain("aerobic efficiency -5.2% below your 90-day baseline");
+  });
+
+  it("omits the aerobic-efficiency clause when within the deadband or absent", () => {
+    const withinDeadband = buildRideAnalysisPrompt(
+      rideInput({ plannedType: "Z2", aerobicDiscipline: "dialed", aerobicEffPct: -1.5 })
+    );
+    expect(withinDeadband).not.toContain("below your 90-day baseline");
+
+    const absent = buildRideAnalysisPrompt(rideInput({ plannedType: "Z2", aerobicDiscipline: "dialed", aerobicEffPct: null }));
+    expect(absent).not.toContain("below your 90-day baseline");
   });
 
   it("flags the plan/detection mismatch note when set", () => {

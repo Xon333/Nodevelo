@@ -18,6 +18,7 @@ import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { isSteadyEnduranceRide } from "./trends";
 import type { AerobicDiscipline } from "./execution-score";
+import { round1 } from "./stats";
 
 // ---------- date helpers ----------
 
@@ -343,6 +344,10 @@ export interface RideAnalysisInput {
   // easy ride, so a power-based "zone creep" narrative is the same terrain-confound the scoring rework
   // (2026-07-11) removed. Absent/null on interval days, off-plan rides, and durability templates B–E.
   aerobicDiscipline?: AerobicDiscipline | null;
+  // The aerobic-efficiency-vs-baseline figure behind the discipline read above (signed %Δ vs the
+  // athlete's own trailing Z2 Pw:HR baseline; negative = below baseline). Same gate as
+  // aerobicDiscipline, same source: TodayAnalysis.aerobicEffPct (lib/aerobic.ts).
+  aerobicEffPct?: number | null;
 }
 
 function fmtIntervals(c: IntervalComparison | null): string | null {
@@ -441,9 +446,17 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
   const disciplineLabel: Record<AerobicDiscipline, string> = {
     dialed: "dialed in — HR stayed aerobic (within the easy ceiling)",
     drift: "some drift — a few efforts crept above the aerobic ceiling",
-    hot: "ran hot — HR sat above the aerobic ceiling for a large share of the ride; it genuinely wasn't an easy ride",
+    hot: "ran hot — HR sat above the aerobic ceiling for a large share of the ride; it genuinely wasn't an easy ride, and its real training load (not the plan's easy-day load) is what the fatigue model reads, so that extra cost is already counted against freshness",
   };
-  const disciplineLine = input.aerobicDiscipline ? `Easy-ride discipline (HR-judged): ${disciplineLabel[input.aerobicDiscipline]}` : null;
+  // Append the efficiency figure only when it's a notable read (matches AEROBIC_DEADBAND_PCT, the
+  // same weak-band threshold the off-plan scoring axis uses) — a small, noisy delta adds no signal.
+  const disciplineLine = input.aerobicDiscipline
+    ? `Easy-ride discipline (HR-judged): ${disciplineLabel[input.aerobicDiscipline]}${
+        input.aerobicEffPct != null && input.aerobicEffPct <= -3
+          ? ` · aerobic efficiency ${round1(input.aerobicEffPct)}% below your 90-day baseline`
+          : ""
+      }`
+    : null;
   const disciplineInstruction = disciplineLine
     ? " This was a prescribed easy day: judge \"was it actually easy\" ONLY by the HR-judged discipline line — do not judge easy-ride discipline from the power-zone distribution or call power spread \"zone creep\": outdoor watts spike on descents, rollers, restarts and corners even on a perfectly ridden easy ride, and the execution score already accounts for this."
     : "";
