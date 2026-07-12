@@ -84,10 +84,14 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   watts, W/kg on hover. The de-dup commit's premise holds — the numbers ARE recoverable elsewhere on
   the same page. Minor residual: Power PRs' W/kg is hover-only (`title=`), not always-visible text,
   which is a smaller discoverability gap than "unreachable" — not worth a fix on its own.
-- ☐ P2 `bug` **HR-10** — `MorningCheckDecisionResult` now returns `decision: "rest"` for both a
-  genuine injury stop and a non-quality-day fatigue skip ([lib/morning-check.ts:42](lib/morning-check.ts:42));
-  only the separate `flag` field actually distinguishes them. Any future caller that branches on
-  `decision` alone (as the type name invites) will describe both identically.
+- ☑ P2 `bug` **HR-10** — **No fix needed (verified no current defect).** `MorningCheckDecisionResult`
+  returns `decision: "rest"` for both a genuine injury stop and a non-quality-day fatigue skip
+  ([lib/morning-check.ts:42](lib/morning-check.ts:42)); only `flag` distinguishes them. Traced every
+  current caller (`proactiveApplyBlock`, the route, `MorningCheckIn.tsx`) — all already carry `flag`/
+  `reasons` alongside `decision` and none destructure `decision` alone; the UI's shared "Rest today"
+  heading is itself a deliberate simplification (both cases mean "don't ride"), with the reasons text
+  correctly differentiated underneath. Hypothetical-future-caller risk, not a live bug — no speculative
+  type-splitting for a caller that doesn't exist.
 
 ### P3 — polish / cleanup
 
