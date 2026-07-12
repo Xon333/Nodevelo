@@ -31,7 +31,11 @@ function halvesDir(values: number[]): AxisDir | null {
   const b = values.slice(mid).reduce((s, v) => s + v, 0) / (values.length - mid);
   const eps = Math.max(0.02, Math.abs(a) * 0.02);
   if (Math.abs(b - a) < eps) return "steady";
-  return b - a > 0 ? "up" : "down";
+  // Recency guard (a3321c7): a trend only counts as ongoing if it still holds in the last two
+  // values — otherwise mid-window outliers outvote a genuine recent turnaround.
+  const tail = values.slice(-2);
+  if (b - a > 0) return tail.every((v) => v <= a + eps) ? "steady" : "up";
+  return tail.every((v) => v >= a - eps) ? "steady" : "down";
 }
 
 const ARROW: Record<AxisDir, string> = { up: "↑", steady: "→", down: "↓" };

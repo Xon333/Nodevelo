@@ -61,7 +61,12 @@ export default function MultiSparkline({ series, chartHeight = 104 }: { series: 
     const a = v.slice(0, mid).reduce((x, y) => x + y, 0) / mid;
     const b = v.slice(mid).reduce((x, y) => x + y, 0) / (v.length - mid);
     const eps = Math.max(Math.abs(a) * 0.02, 1e-6);
-    return b - a > eps ? "↑" : b - a < -eps ? "↓" : "→";
+    // Recency guard (a3321c7): a mid-window move that's already reversed in the last two points
+    // reads as flat, not a live trend.
+    const tail = v.slice(-2);
+    if (b - a > eps) return tail.every((x) => x <= a + eps) ? "→" : "↑";
+    if (b - a < -eps) return tail.every((x) => x >= a - eps) ? "→" : "↓";
+    return "→";
   };
 
   const hoverDate = hi !== null ? dates[hi] : null;

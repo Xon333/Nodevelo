@@ -21,7 +21,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
 
 ### P1 — correctness / data-integrity
 
-- ☐ P1 `bug` **HR-1** — Today's trend-detector fix (`a3321c7`) only patched `trendOf()` in
+- ☑ P1 `bug` **HR-1** — Today's trend-detector fix (`a3321c7`) only patched `trendOf()` in
   `lib/athlete-model.ts`. Three other files reimplement the identical split-half-mean trend
   algorithm and still lack the tail-turnaround guard: `halvesDir()` in
   [lib/trends-verdict.ts:27](lib/trends-verdict.ts:27), `trendDir()` in

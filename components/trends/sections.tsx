@@ -17,6 +17,11 @@ export function trendDir(points: Point[], higherIsBetter = true): { label: strin
   const delta = b - a;
   const eps = Math.max(0.02, Math.abs(a) * 0.02);
   if (Math.abs(delta) < eps) return { label: "→ stable", cls: "text-zinc-500 dark:text-zinc-400" };
+  // Recency guard (a3321c7): a mid-window move that's already reversed in the last two points
+  // reads as stable, not a live trend — otherwise outliers outvote a genuine recent turnaround.
+  const tail = points.slice(-2).map((p) => p.value);
+  const held = delta > 0 ? tail.some((v) => v > a + eps) : tail.some((v) => v < a - eps);
+  if (!held) return { label: "→ stable", cls: "text-zinc-500 dark:text-zinc-400" };
   const improving = higherIsBetter ? delta > 0 : delta < 0;
   return improving
     ? { label: delta > 0 ? "↑ improving" : "↓ improving", cls: "text-green-600 dark:text-emerald-400" }
