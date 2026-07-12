@@ -71,10 +71,13 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   legitimately-logged 0-kcal day (e.g. a tracked fast) silently drops out of the week's intake total
   and logged-day count — a regression vs. the codebase's own convention of treating 0 as a real
   value for this field.
-- ☐ P2 `audit` **HR-8** — The fuel-line prompt change (`9ec687b`, feeding `/api/generate`'s LLM
-  prompt) shipped without the AGENTS.md-required live Anthropic smoke run — the commit message
-  self-admits substituting a unit test against fixture shapes instead. Run it once against the real
-  API before trusting the prompt output.
+- ☑ P2 `audit` **HR-8** — **Done (live smoke run, 2026-07-12).** The fuel-line prompt change
+  (`9ec687b`, feeding `/api/generate`'s LLM prompt) shipped without the AGENTS.md-required live
+  Anthropic smoke run. Ran it against the athlete's real (read-only) current data: the assembled
+  line reads `"CURRENT FORM & FUEL (resolved — do not invent): TSB +5.7 (fresh) · ACWR low ·
+  readiness Build · weight trend 7d 0.0 kg · fueling adequate."` — a live Claude Haiku call
+  correctly interpreted it ("You're fresh and ready to push hard today..."). No formatting or
+  comprehension issues found.
 - ☑ P2 `ux` **HR-9** — **Won't-fix (finding's premise was wrong).** Rider Profile's systems tiles
   ([components/AthleteProfileForm.tsx:279](components/AthleteProfileForm.tsx:279)) dropped absolute
   watts and W/kg in `de4ebeb` ("de-duplicate Rider-profile watts — Power PRs owns the numbers").
