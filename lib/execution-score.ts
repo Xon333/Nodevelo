@@ -44,10 +44,11 @@ export interface ExecutionScoreInput {
   // type would be circular. When set, the intensity-vs-type branch is skipped and the score
   // rests on the intent-independent signals (pacing, RPE, and the aerobic read below).
   intrinsic?: boolean;
-  // Off-plan aerobic signal (the gap decoupling left): signed %Δ of the ride's Z2-isolated Pw:HR vs the
-  // athlete's own baseline (lib/aerobic.ts). Intent-INDEPENDENT — it doesn't infer intensity from the
-  // inferred type. Only applied for intrinsic rides; null/absent → no effect. Positive = above baseline =
-  // better aerobic efficiency = a good off-plan endurance day.
+  // Aerobic efficiency signal: signed %Δ of the ride's Z2-isolated Pw:HR vs the athlete's own baseline
+  // (lib/aerobic.ts). Applied in two contexts: (1) off-plan (intrinsic) rides, where it's the sole aerobic
+  // signal replacing decoupling; (2) planned Z2/Recovery rides, where it merges with the HR read via
+  // mergedEasyRead to corroborate or refute the on-plan easy-discipline score. Positive = above baseline =
+  // better aerobic efficiency. Null/absent → no effect. Intent-independent (doesn't infer type).
   aerobicEffPct?: number | null;
   // Track B — durability long ride: the block's template (A–E) this Z2 ride was built around. Makes the
   // "above Z2" rule template-aware (A expects unbroken Z2; B–E embed efforts, so above-Z2 time is the
@@ -60,6 +61,57 @@ export interface ExecutionScoreInput {
   // Per-athlete calibration (ROADMAP #2): shifts the IF-vs-type bands to the athlete's own zone edges.
   // Absent → population behaviour (unchanged scoring).
   calibration?: ScoringCalibration | null;
+}
+
+// Merge two aerobic-discipline signals for planned Z2/Recovery rides: the HR read (aerobicDisciplineRead,
+// a three-state observation of the ride's actual aerobic behaviour) and the efficiency signal (aerobicEffPct,
+// signed %Δ vs the athlete's 90-day baseline). Both can be null; at least one should be present or this
+// branch is inert. Implements the merged-read table: dialed+above-deadband = +1, drift+below-deadband = −2,
+// hot = −4 (stacks with nothing), no-HR = penalty-only on eff. AEROBIC_DEADBAND_PCT is the signal threshold.
+export function mergedEasyRead(
+  aboveAerobicHrFrac: number | null | undefined,
+  aerobicEffPct: number | null | undefined
+): number {
+  const hrRead = aerobicDisciplineRead(aboveAerobicHrFrac);
+
+  // Hot always returns -4, regardless of aerobicEffPct (no stacking).
+  if (hrRead === "hot") {
+    return -4;
+  }
+
+  // Dialed: +1 unless efficiency is below the −2×deadband threshold, then 0.
+  if (hrRead === "dialed") {
+    if (aerobicEffPct == null) {
+      return 1;
+    }
+    if (aerobicEffPct <= -2 * AEROBIC_DEADBAND_PCT) {
+      return 0;
+    }
+    return 1;
+  }
+
+  // Drift: 0 unless efficiency is below the −2×deadband threshold, then −2.
+  if (hrRead === "drift") {
+    if (aerobicEffPct == null) {
+      return 0;
+    }
+    if (aerobicEffPct <= -2 * AEROBIC_DEADBAND_PCT) {
+      return -2;
+    }
+    return 0;
+  }
+
+  // No HR data (hrRead === null): penalty-only on aerobicEffPct. Positive eff has no bonus here.
+  if (aerobicEffPct == null) {
+    return 0;
+  }
+  if (aerobicEffPct <= -2 * AEROBIC_DEADBAND_PCT) {
+    return -2;
+  }
+  if (aerobicEffPct <= -AEROBIC_DEADBAND_PCT) {
+    return -1;
+  }
+  return 0;
 }
 
 export function computeExecutionScore(input: ExecutionScoreInput): number | null {
@@ -164,29 +216,27 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
     }
   }
 
-  // --- Easy-ride effort judge: HR time above the aerobic ceiling (+1 / 0 / −4) --- prescribed Z2/Recovery.
-  // The terrain-immune "was this actually easy?" read (aerobicDisciplineRead over HR-zone time), and the
-  // ONLY penalty axis for easy rides: dialed in = +1, some drift = 0, ran hot = −4 (the overtraining
-  // guardrail — a genuinely too-hard easy day is still flagged). −4, not −2/−3: the reward-only bonuses
-  // above it (duration +2, IF-band +1, VI +1) can stack to +4 above baseline, so the penalty must clear
-  // that whole stack to guarantee the guardrail holds on every combination, not just the common case.
-  // A second path also reaches +4 without the IF-band bonus: IF ≥ the band ceiling (no +1 there) paired
-  // with a big RPE undershoot (gap ≤ −2 at IF ≥0.85, +1 below) — this SUBSTITUTES for the IF-band bonus,
-  // it doesn't stack alongside it (a ride can't be both in-band and out-of-band). Both zero-margin
-  // boundaries are pinned by tests in the "easy-ride execution" describe block below.
-  // Skipped for off-plan rides (no plan to be easy against), for durability templates B–E (efforts INSIDE
-  // the ride are the point — Track B), and when HR-zone data is absent (older rides / no HR monitor score
-  // exactly as before, on duration + bonuses).
+  // --- Easy-ride effort judge: merged HR + efficiency read (±1, 0, −2, −4) --- prescribed Z2/Recovery.
+  // Merges two signals via mergedEasyRead: the terrain-immune HR-zone read (aerobicDisciplineRead on
+  // aboveAerobicHrFrac) and the aerobic efficiency delta vs baseline (aerobicEffPct). Either or both can be
+  // present; neither is required. The ONLY penalty axis for easy rides: hot HR = −4 (the overtraining
+  // guardrail); dialed HR with poor efficiency = 0; drift with poor efficiency = −2 (corroborated effort
+  // failure). The −4 guardrail holds: reward-only bonuses above it (duration +2, IF-band +1, VI +1) stack
+  // to +4, so −4 clears that full stack. A second path reaches +4 via RPE substitution (IF ≥ band ceiling
+  // paired with gap ≤ −2 at IF ≥0.85) — this SUBSTITUTES for IF-band, not stacking alongside it. New
+  // corroborated-drift ceiling: max positive stack (duration ≥95%, in-band IF, VI ≤1.06) + drift +
+  // efficiency ≤ −2×deadband = 5 + 4 − 2 = 7 exactly ("Good" at best, never "Excellent"). No-stacking rule:
+  // hot + any eff value scores identically to hot + eff null (−4 in both cases).
+  // Skipped for off-plan rides (intrinsic, no plan to be easy against), for durability templates B–E
+  // (efforts INSIDE the ride are the point — Track B), and when both signals are absent. When HR-zone data
+  // is absent but efficiency is present, the null-HR penalty-only path applies (−2/−1/0 per table).
   if (
-    input.aboveAerobicHrFrac != null &&
+    (input.aboveAerobicHrFrac != null || input.aerobicEffPct != null) &&
     !intrinsic &&
     !embedsEfforts &&
     (plannedType === "Z2" || plannedType === "Recovery")
   ) {
-    const read = aerobicDisciplineRead(input.aboveAerobicHrFrac);
-    if (read === "dialed") score += 1;
-    else if (read === "hot") score -= 4;
-    // "drift" → 0 (lenient middle: the odd climb or brief effort is fine).
+    score += mergedEasyRead(input.aboveAerobicHrFrac, input.aerobicEffPct);
   }
 
   // --- Track B: durability effort delivery (±2) --- did the template's prescribed efforts actually

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aerobicDisciplineRead, AEROBIC_HR_DIALED_MAX, AEROBIC_HR_DRIFT_MAX, computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
+import { aerobicDisciplineRead, AEROBIC_HR_DIALED_MAX, AEROBIC_HR_DRIFT_MAX, computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, mergedEasyRead, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
 
 const base: ExecutionScoreInput = {
   compliancePct: null,
@@ -27,10 +27,12 @@ describe("computeExecutionScore", () => {
     expect(offPlan(0)).toBe(neutral); // within the deadband = no signal
   });
 
-  it("ignores the aerobic read on a planned (non-intrinsic) ride", () => {
+  it("ignores the aerobic read on a planned (non-intrinsic) ride of non-easy type", () => {
+    // Planned easy types (Z2/Recovery) now use aerobicEffPct via mergedEasyRead. This test checks that
+    // planned NON-easy types (e.g., Threshold) remain inert to it.
     const planned = (aerobicEffPct: number | null) =>
-      computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.7, plannedType: "Z2", variabilityIndex: 1.1, aerobicEffPct })!;
-    expect(planned(8)).toBe(planned(null)); // not intrinsic → no aerobic contribution
+      computeExecutionScore({ ...base, compliancePct: 100, intensityFactor: 0.85, plannedType: "Threshold", variabilityIndex: 1.1, aerobicEffPct })!;
+    expect(planned(8)).toBe(planned(null)); // Threshold planned (not easy) → no aerobic contribution
   });
 
   it("doesn't penalise above-Z2 time on a durability template that embeds efforts; template A still does (Track B)", () => {
@@ -474,5 +476,182 @@ describe("easy-ride execution — HR judges effort, terrain does not", () => {
       rpe: 7,
     });
     expect(score).toBe(5);
+  });
+
+  it("no-stacking regression: hot + eff = −10 scores identically to hot + eff = null", () => {
+    // Hot always returns −4, regardless of aerobicEffPct. The two should be identical.
+    const withNullEff = computeExecutionScore({
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2",
+      variabilityIndex: 1.0,
+      aboveAerobicHrFrac: 0.4, // hot
+      aerobicEffPct: null,
+    });
+    const withNegativeEff = computeExecutionScore({
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2",
+      variabilityIndex: 1.0,
+      aboveAerobicHrFrac: 0.4, // hot
+      aerobicEffPct: -10,
+    });
+    expect(withNegativeEff).toBe(withNullEff);
+  });
+
+  it("zero-margin boundaries: drift/dialed + eff threshold at −2×deadband (−6)", () => {
+    const baselineZ2 = {
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2" as const,
+      variabilityIndex: 1.0,
+    };
+    // Drift + eff = −6.0 (at boundary) → −2
+    const driftAtBoundary = computeExecutionScore({
+      ...baselineZ2,
+      aboveAerobicHrFrac: 0.15, // drift
+      aerobicEffPct: -6.0,
+    });
+    // Drift + eff = −5.9 (just above boundary) → 0
+    const driftAboveBoundary = computeExecutionScore({
+      ...baselineZ2,
+      aboveAerobicHrFrac: 0.15, // drift
+      aerobicEffPct: -5.9,
+    });
+    // Dialed + eff = −6.0 (at boundary) → 0 (not −1)
+    const dialedAtBoundary = computeExecutionScore({
+      ...baselineZ2,
+      aboveAerobicHrFrac: 0.05, // dialed
+      aerobicEffPct: -6.0,
+    });
+    // Dialed + eff = −5.9 (just above boundary) → +1
+    const dialedAboveBoundary = computeExecutionScore({
+      ...baselineZ2,
+      aboveAerobicHrFrac: 0.05, // dialed
+      aerobicEffPct: -5.9,
+    });
+
+    // Base 5 + 2 (duration) +1 (if in-band) +1 (vi) +0 (drift) −2 (eff) = 7
+    expect(driftAtBoundary).toBe(7);
+    // Base 5 + 2 (duration) +1 (if in-band) +1 (vi) +0 (drift) +0 (eff) = 9
+    expect(driftAboveBoundary).toBe(9);
+    // Base 5 + 2 (duration) +1 (if in-band) +1 (vi) +0 (dialed) +0 (eff) = 9
+    expect(dialedAtBoundary).toBe(9);
+    // Base 5 + 2 (duration) +1 (if in-band) +1 (vi) +1 (dialed) +1 (eff) = 11 → clamped to 10
+    expect(dialedAboveBoundary).toBe(10);
+  });
+
+  it("corroborated-drift ceiling: max stack + drift + poor eff = 7 exactly", () => {
+    // Max positive stack: duration ≥95%, in-band IF for Z2 (≤0.74), VI ≤1.06
+    // Base 5 + 2 (compliance ≥95) + 1 (IF in-band) + 1 (VI ≤1.06) = 9
+    // Then + drift + eff ≤ −6: mergedEasyRead returns −2
+    // Total: 9 + 0 (drift) − 2 (eff) = 7
+    const score = computeExecutionScore({
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2",
+      variabilityIndex: 1.05,
+      aboveAerobicHrFrac: 0.15, // drift
+      aerobicEffPct: -6.0,
+    });
+    expect(score).toBe(7);
+  });
+
+  it("null-HR fallback: eff thresholds −2×deadband (−6), −deadband (−3), else 0 (penalty-only)", () => {
+    const baselineZ2 = {
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2" as const,
+      variabilityIndex: 1.0,
+      aboveAerobicHrFrac: null, // no HR data
+    };
+    // eff = −6.0 → −2
+    const effAtBoundary2x = computeExecutionScore({
+      ...baselineZ2,
+      aerobicEffPct: -6.0,
+    });
+    // eff = −3.0 → −1
+    const effAtBoundary1x = computeExecutionScore({
+      ...baselineZ2,
+      aerobicEffPct: -3.0,
+    });
+    // eff = −2.9 → 0 (no penalty)
+    const effAboveThreshold = computeExecutionScore({
+      ...baselineZ2,
+      aerobicEffPct: -2.9,
+    });
+    // eff = +10 → 0 (no bonus, penalty-only path)
+    const effPositive = computeExecutionScore({
+      ...baselineZ2,
+      aerobicEffPct: 10,
+    });
+
+    // Base 5 + 2 (duration) + 1 (if in-band, even without HR) + 1 (vi) = 9
+    // Then mergedEasyRead returns −2, −1, 0, 0
+    expect(effAtBoundary2x).toBe(7); // 9 − 2
+    expect(effAtBoundary1x).toBe(8); // 9 − 1
+    expect(effAboveThreshold).toBe(9); // 9 + 0
+    expect(effPositive).toBe(9); // 9 + 0 (no bonus)
+  });
+
+  it("inert on planned non-easy types: Threshold + eff has no effect", () => {
+    const baseThreshold = {
+      compliancePct: 100,
+      intensityFactor: 0.87,
+      plannedType: "Threshold" as const,
+      variabilityIndex: 1.05,
+    };
+    const withoutEff = computeExecutionScore(baseThreshold);
+    const withEff = computeExecutionScore({
+      ...baseThreshold,
+      aerobicEffPct: -10, // even strong negative eff
+    });
+    expect(withEff).toBe(withoutEff);
+  });
+
+  it("inert on intrinsic (off-plan) rides — they use their own ±2 aerobic axis via the off-plan block", () => {
+    // Off-plan rides score on their own off-plan aerobic path, not the merged easy-read.
+    // Verify that the merged easy-read does not interfere.
+    const baseOffPlan = {
+      intensityFactor: 0.68,
+      plannedType: "Z2" as const,
+      intrinsic: true,
+      variabilityIndex: 1.05,
+    };
+    const z2Ride = (hrFrac: number | null, eff: number | null) =>
+      computeExecutionScore({ ...baseOffPlan, aboveAerobicHrFrac: hrFrac, aerobicEffPct: eff })!;
+
+    // Off-plan: ignore HR read, use only the off-plan ±2 axis for eff.
+    // Base 5, variabilityIndex no bonus for Z2 off-plan → base 5
+    // eff +10 → +2 (off-plan axis), eff −10 → −2 (off-plan axis)
+    const withGoodEffNoHR = z2Ride(null, 10);
+    const withBadEffNoHR = z2Ride(null, -10);
+    // The merged easy-read (if applied) would penalize hot HR, but intrinsic skips it entirely.
+    const withHotHR = z2Ride(0.4, null); // hot HR, no eff
+    // Off-plan should ignore the HR entirely.
+    expect(withHotHR).toBe(z2Ride(null, null)); // intrinsic → no HR penalty
+    expect(withGoodEffNoHR).toBeGreaterThan(withBadEffNoHR); // off-plan eff axis still works
+  });
+
+  it("inert on durability templates B–E (embedsEfforts): the merged easy-read is skipped", () => {
+    const baselineTemplateB = {
+      compliancePct: 100,
+      intensityFactor: 0.68,
+      plannedType: "Z2" as const,
+      variabilityIndex: 1.05,
+      durabilityTemplate: "B" as const,
+      aboveAerobicHrFrac: 0.4, // hot
+      aerobicEffPct: -10,
+    };
+    const templateA = {
+      ...baselineTemplateB,
+      durabilityTemplate: "A" as const, // does NOT embed efforts
+    };
+    // Template A (no embedded efforts) applies the merged easy-read and gets penalized by hot HR
+    const scoreA = computeExecutionScore(templateA);
+    // Template B (embedded efforts) skips the merged easy-read entirely
+    const scoreB = computeExecutionScore(baselineTemplateB);
+    // Template B should be higher than Template A (no easy-read penalty applied)
+    expect(scoreB).toBeGreaterThan(scoreA!);
   });
 });
