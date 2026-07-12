@@ -5,8 +5,8 @@
 import type { AthleteModel, AthleteTypeStat, Insight, RideScoreEntry, WorkoutType } from "./types";
 import { summariseBehaviour } from "./score-log";
 import { autoEwmaAlpha } from "./calibration";
+import { round1, round2 } from "./stats";
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0);
 
 const RECENT_BEHAVIOUR_DAYS = 56; // ~8 weeks — "current habits" window for the drift signal
@@ -35,6 +35,47 @@ function trendOf(values: number[]): "up" | "down" | "flat" {
   if (b - a < -eps) return tail.every((v) => v >= a - eps) ? "flat" : "down";
   if (b - a > eps) return tail.every((v) => v <= a + eps) ? "flat" : "up";
   return "flat";
+}
+
+// Indoor/outdoor diagnostic breakdown for a Z2/Recovery type's planned, non-compromised entry
+// population (Task 6 — ROADMAP #2 easy-ride diagnostics). Reads each entry's `easy` ledger stamp
+// (Task 2); entries without one (pre-rebuild ledger, non-Z2/Recovery-shaped rides) are ignored.
+// Returns undefined when nothing in the population carries a stamp — nothing to diagnose, and the
+// sparse-field convention means the caller leaves `easy` unset rather than an empty object.
+function easyDiagnostics(entries: RideScoreEntry[]): AthleteTypeStat["easy"] {
+  const withStamp = entries.filter(
+    (e): e is RideScoreEntry & { easy: NonNullable<RideScoreEntry["easy"]> } => e.easy != null
+  );
+  if (withStamp.length === 0) return undefined;
+
+  const indoor = withStamp.filter((e) => e.easy.indoor === true);
+  const outdoor = withStamp.filter((e) => e.easy.indoor === false);
+  const outdoorHot = outdoor.filter((e) => e.easy.hrRead === "hot");
+  const outdoorControlled = outdoor.filter((e) => e.easy.hrRead !== "hot");
+  const hot = withStamp.filter((e) => e.easy.hrRead === "hot");
+  const controlled = withStamp.filter((e) => e.easy.hrRead !== "hot");
+
+  const execAvg = (group: RideScoreEntry[]): number | null =>
+    group.length >= 2 ? round1(mean(group.map((e) => e.executionScore))) : null;
+
+  const tssPerMin = (group: RideScoreEntry[]): number | null => {
+    const qualifying = group.filter((e) => e.tss != null && e.durationMin > 0);
+    return qualifying.length >= 2
+      ? round2(mean(qualifying.map((e) => (e.tss as number) / e.durationMin)))
+      : null;
+  };
+
+  return {
+    reads: withStamp.length,
+    indoorN: indoor.length,
+    outdoorN: outdoor.length,
+    indoorExecAvg: execAvg(indoor),
+    outdoorExecAvg: execAvg(outdoor),
+    outdoorControlledExecAvg: execAvg(outdoorControlled),
+    outdoorHotN: outdoorHot.length,
+    hotTssPerMin: tssPerMin(hot),
+    controlledTssPerMin: tssPerMin(controlled),
+  };
 }
 
 export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
@@ -66,6 +107,7 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
       execEwma: round1(ewma(execs, alpha)),
       complianceEwma: comps.length ? Math.round(ewma(comps, alpha)) : 0,
       trend: trendOf(execs),
+      easy: type === "Z2" || type === "Recovery" ? easyDiagnostics(entries) : undefined,
     });
   }
   byType.sort((a, b) => b.n - a.n);
@@ -104,7 +146,37 @@ export function deriveInsights(model: AthleteModel): Insight[] {
   const out: Insight[] = [];
   for (const t of model.byType) {
     if (t.n < MIN_OBSERVATIONS) continue;
-    if (t.execEwma < 5.5) {
+    const easy = t.easy;
+    // "Healthy side" — is there a clean population (indoor, or outdoor rides that didn't run hot)
+    // proving the athlete CAN execute this type well? Checked against outdoorControlledExecAvg
+    // (hrRead !== "hot" only), not outdoorExecAvg — the latter mixes in the very hot rides this
+    // branch is trying to isolate from, so using it here would let a majority-hot outdoor group
+    // mask itself as "healthy" via its own low average, or unfairly fail a genuinely fine outdoor
+    // population because a couple of hot rides drag the mixed average down.
+    const healthySide =
+      (easy?.indoorExecAvg != null && easy.indoorExecAvg >= 7) ||
+      (easy?.outdoorControlledExecAvg != null && easy.outdoorControlledExecAvg >= 7);
+    if (
+      easy &&
+      easy.outdoorHotN >= 2 &&
+      easy.outdoorN >= 3 &&
+      easy.reads >= MIN_OBSERVATIONS &&
+      healthySide
+    ) {
+      const premiumPct =
+        easy.hotTssPerMin != null && easy.controlledTssPerMin != null && easy.controlledTssPerMin > 0
+          ? Math.round(((easy.hotTssPerMin - easy.controlledTssPerMin) / easy.controlledTssPerMin) * 100)
+          : null;
+      const indoorClause =
+        easy.indoorN >= 2 && easy.indoorExecAvg != null ? `indoor ${easy.indoorExecAvg}/10 (${easy.indoorN} rides), ` : "";
+      out.push({
+        dimension: t.type,
+        severity: t.execEwma < 5.5 ? "alert" : "watch",
+        title: `${t.type} splits indoor vs outdoor`,
+        evidence: `Execution averaging ${t.execEwma}/10 across ${t.n} sessions — but split: ${indoorClause}${easy.outdoorHotN} of ${easy.outdoorN} outdoor rides ran hot (HR above the aerobic ceiling for over 25% of the ride).`,
+        suggestion: `Not a case for easing the ${t.type} target — the hot outdoor days are the problem: flatter routes or capped effort on climbs.${premiumPct != null ? ` Those rides already cost extra (~${premiumPct}% more training load per minute), which your fatigue tracking absorbs automatically.` : ""}`,
+      });
+    } else if (t.execEwma < 5.5) {
       out.push({
         dimension: t.type,
         severity: "alert",

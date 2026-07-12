@@ -558,6 +558,29 @@ export interface AthleteTypeStat {
   execEwma: number; // EWMA of execution score (1-10)
   complianceEwma: number; // EWMA of duration compliance %
   trend: "up" | "down" | "flat";
+  // Indoor/outdoor diagnostic breakdown (Z2/Recovery only), built from each entry's `easy` ledger
+  // stamp (RideScoreEntry.easy, ROADMAP Task 2). Computed over the same planned/non-compromised
+  // entries execEwma uses, restricted further to the subset that actually carries a stamp
+  // (pre-rebuild-ledger entries won't). Absent when the type isn't Z2/Recovery, or when `reads`
+  // would be 0 (nothing to diagnose) — follows the sparse-field convention, never an empty object.
+  easy?: {
+    reads: number; // entries in this type's population that carry an `easy` stamp
+    indoorN: number;
+    outdoorN: number;
+    indoorExecAvg: number | null; // round1 mean executionScore, indoor subset; null under 2 samples
+    outdoorExecAvg: number | null; // round1 mean executionScore, ALL outdoor (hot+controlled mixed); null under 2 samples
+    // Mean executionScore over outdoor entries whose hrRead !== "hot" only (dialed/drift/no-read) —
+    // isolates "how good are the outdoor rides that DIDN'T blow up HR" from outdoorExecAvg, which hot
+    // rides would otherwise drag down. round1; null under 2 samples. Not in the task brief's literal
+    // shape — added so deriveInsights' "healthy side" gate isn't polluted by the very hot rides the
+    // bimodal-pattern insight is trying to isolate from (see athlete-model.ts deriveInsights).
+    outdoorControlledExecAvg: number | null;
+    outdoorHotN: number; // outdoor entries where hrRead === "hot"
+    // Training-load premium of hot vs controlled easy rides: mean(tss/durationMin) per group, using
+    // each entry's real intervals.icu tss + durationMin. round2; null under 2 qualifying samples.
+    hotTssPerMin: number | null; // hrRead === "hot" (any indoor/outdoor)
+    controlledTssPerMin: number | null; // hrRead !== "hot" (indoor + dialed/drift outdoor)
+  };
 }
 // Complete-riding-behaviour signal — derived from ALL logged rides (planned + off-plan),
 // so the model sees how the athlete actually trains, not just plan adherence.
