@@ -30,7 +30,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   strip can still show "declining" on an engine/delivery/energy axis whose last two sessions have
   already recovered — the exact bug just fixed one call site over. **Fix once** in a shared helper
   all four call.
-- ☐ P1 `bug` **HR-2** — `/api/generate` resolves "today" via raw
+- ☑ P1 `bug` **HR-2** — `/api/generate` resolves "today" via raw
   `new Date().toISOString().slice(0, 10)` (UTC) at 4 separate call sites
   ([app/api/generate/route.ts:174,178,179,189](app/api/generate/route.ts:174)) instead of
   `resolveToday()`/`localToday()`. This is the AGENTS.md-documented recurring bug class, reintroduced

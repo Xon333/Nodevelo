@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveToday } from "@/lib/date";
 import { logError, logWarn } from "@/lib/log";
 import {
   blockDates,
@@ -92,6 +93,7 @@ export async function POST(req: Request) {
   if (typeof blockParams === "string") {
     return NextResponse.json({ error: blockParams }, { status: 400 });
   }
+  const today = resolveToday((body as Record<string, unknown>)?.today);
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
@@ -171,12 +173,12 @@ export async function POST(req: Request) {
       baselines,
       blockSettings.acwrBands,
       blockSettings.athleteStateWeights,
-      new Date().toISOString().slice(0, 10),
+      today,
       scoreLog.entries,
       profile.performance.ftp,
       latestWeeklyBalance(
-        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], new Date().toISOString().slice(0, 10), profile.nutrition),
-        new Date().toISOString().slice(0, 10)
+        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, profile.nutrition),
+        today
       )
     );
     const stateContext = signals.athleteState
@@ -188,7 +190,7 @@ export async function POST(req: Request) {
     // already injected above; this adds only the compact resolved form/fuel line (today's single-ride
     // execution is intentionally omitted — generation plans forward).
     const snapshot = buildCoachSnapshot({
-      date: new Date().toISOString().slice(0, 10),
+      date: today,
       ftp: profile.performance.ftp,
       block: null,
       todaySessionType: null,
@@ -233,7 +235,6 @@ export async function POST(req: Request) {
       const limiter = powerProfile?.easyWin
         ? { system: mapSystemToFocus(powerProfile.easyWin.system), confidence: powerProfile.confident ? "high" as const : "low" as const }
         : { system: null, confidence: "low" as const };
-      const today = new Date().toISOString().slice(0, 10);
       // Preserve the athlete's owned objective/events (Task 8 PUT); the engine only re-drafts `periods`.
       const replanned = replanSeasonArc(
         existingSeason,

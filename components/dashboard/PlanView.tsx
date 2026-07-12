@@ -164,6 +164,7 @@ export default function PlanView() {
             .split("\n")
             .map((w) => w.trim())
             .filter(Boolean),
+          today: localToday(),
         }),
       });
       setPlan(plan);
