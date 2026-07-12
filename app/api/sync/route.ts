@@ -447,26 +447,37 @@ export async function POST(req: Request) {
               // primitives already proven to work live): create a fresh event at `to` with the current
               // `nodevelo-<to>` external_id, carrying the OLD (drifted) event's description, then delete
               // the old numeric id. A failure here never fails the sync — the local move already stands.
+              // Each move's re-stamp (create + delete) is independent of every other move's, so run
+              // them concurrently instead of one at a time — sequential per-date network round-trips
+              // here meant N moves paid N times the latency for no reason.
               const byCalendarId = new Map(calendarEvents.filter((e) => e.id !== null).map((e) => [e.id as number, e]));
-              let restamped = false;
-              for (const { to } of rec.applied) {
-                try {
-                  const toDay = block.days.find((d) => d.date === to);
-                  if (!toDay || typeof toDay.eventId !== "number") continue;
+              const snapshot = block;
+              const restampResults = await Promise.allSettled(
+                rec.applied.map(async ({ to }) => {
+                  const toDay = snapshot.days.find((d) => d.date === to);
+                  if (!toDay || typeof toDay.eventId !== "number") return null;
                   const oldId = toDay.eventId;
                   const matched = byCalendarId.get(oldId);
                   const newId = await createEvent(dayToEventPayload(toDay, matched?.description ?? ""));
-                  if (newId !== null) {
-                    await deleteEvents([oldId]);
-                    block = { ...block, days: block.days.map((d) => (d.date === to ? { ...d, eventId: newId } : d)) };
-                    restamped = true;
-                  }
-                } catch (e) {
-                  logWarn("/api/sync", "calendar-restamp", e instanceof Error ? e.message : String(e));
+                  if (newId === null) return null;
+                  await deleteEvents([oldId]);
+                  return { to, newId };
+                })
+              );
+              const restampedByDate = new Map<string, number>();
+              restampResults.forEach((r, i) => {
+                if (r.status === "fulfilled" && r.value) {
+                  restampedByDate.set(r.value.to, r.value.newId);
+                } else if (r.status === "rejected") {
+                  const { to } = rec.applied[i];
+                  logWarn("/api/sync", "calendar-restamp", r.reason instanceof Error ? r.reason.message : String(r.reason));
                   warnings.push(`Calendar external_id re-stamp failed for ${to} — a later outbound move to/from this date may create a duplicate event.`);
                 }
+              });
+              if (restampedByDate.size > 0) {
+                block = { ...block, days: block.days.map((d) => (restampedByDate.has(d.date) ? { ...d, eventId: restampedByDate.get(d.date)! } : d)) };
+                await mergeCurrentBlockDays(block, block.days.filter((d) => touchedDates.has(d.date)));
               }
-              if (restamped) await mergeCurrentBlockDays(block, block.days.filter((d) => touchedDates.has(d.date)));
             }
             warnings.push(...rec.warnings);
           }

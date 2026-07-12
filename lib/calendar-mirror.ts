@@ -167,18 +167,22 @@ export async function applyCalendarMirror(
     // No description source — destination payloads fall back to workoutText/empty rather than failing the mirror.
   }
   const payloads = buildMovePayloads(block.days, moves, eventById, sourceEventIdByDate, today);
+  // Each date's upsert is independent (no shared state between them), so run them concurrently instead
+  // of one at a time — a swap/downgrade touching 2 dates was paying 2x the latency for no reason.
+  const results = await Promise.allSettled(payloads.map(({ payload }) => createEvent(payload))); // upserts on external_id
   const mirrored: string[] = [];
   const failed: string[] = [];
-  let days = block.days;
-  for (const { date, payload } of payloads) {
-    try {
-      const id = await createEvent(payload); // upserts on external_id
+  const idByDate = new Map<string, number>();
+  results.forEach((r, i) => {
+    const { date } = payloads[i];
+    if (r.status === "fulfilled") {
       mirrored.push(date);
-      if (id !== null) days = days.map((d) => (d.date === date ? { ...d, eventId: id } : d));
-    } catch {
+      if (r.value !== null) idByDate.set(date, r.value);
+    } else {
       failed.push(date);
     }
-  }
+  });
+  const days = idByDate.size === 0 ? block.days : block.days.map((d) => (idByDate.has(d.date) ? { ...d, eventId: idByDate.get(d.date)! } : d));
   return { updatedBlock: days === block.days ? block : { ...block, days }, mirrored, failed };
 }
 

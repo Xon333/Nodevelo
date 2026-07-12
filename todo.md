@@ -98,7 +98,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
 
 ### P3 — polish / cleanup
 
-- ☐ P3 `bug` **HR-11** — `applyCalendarMirror`
+- ☑ P3 `bug` **HR-11** — `applyCalendarMirror`
   ([lib/calendar-mirror.ts:179](lib/calendar-mirror.ts:179)) and `/api/sync`'s inbound-reconcile loop
   ([app/api/sync/route.ts:448](app/api/sync/route.ts:448)) both `await` independent per-date
   Intervals.icu calls sequentially instead of running them concurrently — doubles mutation latency on
