@@ -4,8 +4,16 @@
 // on intrinsic quality (decoupling, pacing) against an inferred type. Each entry records the
 // FTP it used so the immutable ledger never re-shifts when FTP later changes.
 
-import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, type ScoringCalibration } from "./execution-score";
+import {
+  aerobicDisciplineRead,
+  computeExecutionScore,
+  resolveCompliance,
+  timeAboveAerobicHrFraction,
+  type AerobicDiscipline,
+  type ScoringCalibration,
+} from "./execution-score";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "./aerobic";
+import { EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
 import { inferWorkoutType } from "./ride-classify";
 import { round1, round2 } from "./stats";
 import type { ActivitySummary, BehaviourSummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, RideEntryContext, RideScoreEntry } from "./types";
@@ -54,6 +62,34 @@ export function fuelStampFor(act: ActivitySummary): { fuel: { carbsGPerH: number
 // (nothing was scored off avg power in that case, so nothing to flag as unverified).
 export function npStampFor(act: ActivitySummary): { npUnverified: true } | Record<string, never> {
   return act.normalizedPower === null && act.avgWatts !== null ? { npUnverified: true } : {};
+}
+
+// Easy-ride merged-read provenance stamp (planned Z2/Recovery only): freezes the two inputs behind
+// mergedEasyRead (the HR-zone read + aerobicEffPct) onto the entry — stamped on the ledger rather than
+// joined at read time because the ledger (~400 entries, ~6 months) and the sync window
+// (SYNC_WINDOW_DAYS = 182) don't fully overlap, so a read-time join would silently lose the oldest
+// slice. Also guards against re-deriving the HR read + gates a second, independent time — exactly the
+// drift class the 2026-07-11 "Coach-prompt aerobic-discipline gap closed" fix (ARCHIVE.md) had to clean
+// up after. Matches the `fuel`/`intervals`/`calStampFor` provenance pattern. Gated identically to
+// computeExecutionScore's merged-read branch (prescribed Z2/Recovery, non-embeds-efforts durability
+// template), so stamp presence implies the merged read actually applied. Spread-ready `{}` off-plan,
+// other types, and templates B–E.
+export function easyStampFor(
+  act: ActivitySummary,
+  plannedType: string,
+  durabilityTemplate: string | null | undefined,
+  aboveAerobicHrFrac: number | null | undefined,
+  aerobicEffPctValue: number | null | undefined
+): { easy: { indoor: boolean; hrRead?: AerobicDiscipline; aerobicEffPct?: number } } | Record<string, never> {
+  const isEasyType = plannedType === "Z2" || plannedType === "Recovery";
+  if (!isEasyType || EXPECTS_EMBEDDED_EFFORTS.has(durabilityTemplate ?? "")) return {};
+  const hrRead = aerobicDisciplineRead(aboveAerobicHrFrac);
+  const stamp: { indoor: boolean; hrRead?: AerobicDiscipline; aerobicEffPct?: number } = {
+    indoor: act.type === "VirtualRide",
+  };
+  if (hrRead != null) stamp.hrRead = hrRead;
+  if (aerobicEffPctValue != null) stamp.aerobicEffPct = round1(aerobicEffPctValue);
+  return { easy: stamp };
 }
 
 // Interval-adherence stamp (ROADMAP scoring-core gap): maps the prescription-vs-execution comparison
@@ -143,6 +179,12 @@ export function buildRideScores(
         : null;
     // Easy-ride discipline signal (Z2/Recovery only, applied in computeExecutionScore).
     const aboveAerobicHrFrac = timeAboveAerobicHrFraction(act.hrZoneTimes);
+    // The non-circular aerobic read: this ride's Z2 Pw:HR vs the athlete's baseline from qualifying
+    // rides BEFORE it (no self-reference). Null (too little Z2 / no baseline) → no effect. Hoisted above
+    // the planned/off-plan split — both branches consume it (Task 2: planned Z2/Recovery merges it via
+    // mergedEasyRead, off-plan uses it as the sole aerobic read) — so it's computed once, not twice.
+    // ponytail: O(rides) per call → O(n²) across a full ledger rebuild; pre-accepted (lib/aerobic.ts).
+    const easyAerobicEffPct = aerobicEffPct(act, z2PwHrBaselineBefore(activities, act.date));
     // Context-stamp (ROADMAP #2): the objective form the athlete carried into this date.
     // Spread-ready so an entry stays context-free when no wellness covers the date.
     const ctx = contextForDate?.(act.date) ?? null;
@@ -168,6 +210,9 @@ export function buildRideScores(
         plannedType: planned.type,
         variabilityIndex,
         aboveAerobicHrFrac,
+        // Task 2: corroborates/refutes the HR-ceiling read on planned Z2/Recovery via mergedEasyRead
+        // (inert elsewhere — computeExecutionScore only consumes it for prescribed Z2/Recovery).
+        aerobicEffPct: easyAerobicEffPct,
         // Interval-target adherence (scoring-core gap): a structural plan/detection mismatch means the
         // duration comparison was untrustworthy, not that the session failed — treat it as no signal
         // (same as no lookup) rather than let a bogus adherence number drive the score.
@@ -205,6 +250,7 @@ export function buildRideScores(
           ...contextStamp,
           ...fuelStampFor(act),
           ...npStampFor(act),
+          ...easyStampFor(act, planned.type, planned.durabilityTemplate, aboveAerobicHrFrac, easyAerobicEffPct),
           // Frozen even when structuralMismatch suppressed it from scoring THIS time — the comparison is
           // still real provenance for a later rebuild/correlation (structuralMismatch means duration was
           // untrustworthy, not that the whole comparison is worthless).
@@ -223,9 +269,7 @@ export function buildRideScores(
         variabilityIndex,
         aboveAerobicHrFrac, // gated to prescribed Z2/Recovery in computeExecutionScore — inert here (intrinsic)
         intrinsic: true,
-        // The non-circular aerobic read for off-plan rides: this ride's Z2 Pw:HR vs the athlete's baseline
-        // from qualifying rides BEFORE it (no self-reference). Null (too little Z2 / no baseline) → no effect.
-        aerobicEffPct: aerobicEffPct(act, z2PwHrBaselineBefore(activities, act.date)),
+        aerobicEffPct: easyAerobicEffPct,
         calibration,
       });
       if (executionScore !== null) {

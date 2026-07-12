@@ -1,6 +1,7 @@
 // Shared types used across server modules and client components.
 
 import type { FuelPrompt } from "./fuel-prompt";
+import type { AerobicDiscipline } from "./execution-score";
 
 export type WorkoutType =
   | "Z2"
@@ -527,6 +528,11 @@ export interface RideScoreEntry {
   durabilityTemplate?: string;
   durabilityDelivery?: { signal: number };
   preLoad?: { loaded: boolean; targetG: number };
+  // Easy-ride merged-read provenance (planned Z2/Recovery, non-embeds-efforts only): the inputs
+  // behind the merged aerobic execution read, frozen so the score is re-derivable and the athlete
+  // model can diagnose indoor/outdoor + ran-hot patterns without re-joining activities. Absent on
+  // other types, off-plan rides, durability templates B–E, and pre-feature entries.
+  easy?: { indoor: boolean; hrRead?: AerobicDiscipline; aerobicEffPct?: number };
 }
 
 // Form (fitness/fatigue/balance) as of a ride's date — the slow-moving load state from the synced

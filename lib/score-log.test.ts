@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRideScores, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, npStampFor, summariseBehaviour, truncateBlockDays } from "./score-log";
+import { buildRideScores, easyStampFor, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, npStampFor, summariseBehaviour, truncateBlockDays } from "./score-log";
 import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, IntervalComparison, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
@@ -396,6 +396,44 @@ describe("npStampFor", () => {
   });
 });
 
+describe("easyStampFor", () => {
+  const base = activity({ date: "2026-01-10" });
+
+  it("stamps indoor/hrRead/aerobicEffPct for a planned Z2 ride, rounding aerobicEffPct to 1dp", () => {
+    // hrZoneTimes unused here (aboveAerobicHrFrac supplied directly) — 0 → dialed.
+    expect(easyStampFor(base, "Z2", null, 0, 8.16)).toEqual({
+      easy: { indoor: false, hrRead: "dialed", aerobicEffPct: 8.2 },
+    });
+  });
+
+  it("stamps for Recovery too (both easy types), and omits keys that are null", () => {
+    expect(easyStampFor(base, "Recovery", null, null, null)).toEqual({ easy: { indoor: false } });
+  });
+
+  it("stamps nothing for a non-easy planned type (Threshold)", () => {
+    expect(easyStampFor(base, "Threshold", null, 0, 10)).toEqual({});
+  });
+
+  it("stamps nothing for a durability template that embeds efforts (B–E), even on a Z2 day", () => {
+    expect(easyStampFor(base, "Z2", "B", 0, 10)).toEqual({});
+    expect(easyStampFor(base, "Z2", "E", 0, 10)).toEqual({});
+  });
+
+  it("still stamps a template-A (or no-template) Z2 day — A is unbroken Z2, not embeds-efforts", () => {
+    expect(easyStampFor(base, "Z2", "A", 0, 10)).toEqual({ easy: { indoor: false, hrRead: "dialed", aerobicEffPct: 10 } });
+  });
+
+  it("reads indoor from the activity's own type, independent of the other signals", () => {
+    const virtual = { ...base, type: "VirtualRide" as const };
+    expect(easyStampFor(virtual, "Z2", null, null, null)).toEqual({ easy: { indoor: true } });
+  });
+
+  it("maps a hot HR read through, and a drift read through", () => {
+    expect(easyStampFor(base, "Z2", null, 0.5, null)).toEqual({ easy: { indoor: false, hrRead: "hot" } });
+    expect(easyStampFor(base, "Z2", null, 0.15, null)).toEqual({ easy: { indoor: false, hrRead: "drift" } });
+  });
+});
+
 describe("buildRideScores — NP-unverified provenance", () => {
   const ftpFor = () => 200;
 
@@ -416,6 +454,91 @@ describe("buildRideScores — NP-unverified provenance", () => {
     const acts = [activity({ date: "2026-01-01", normalizedPower: 138, avgWatts: 135 })];
     const [entry] = buildRideScores(null, acts, ftpFor, "2026-01-02");
     expect(entry.npUnverified).toBeUndefined();
+  });
+});
+
+describe("buildRideScores — easy-ride merged-read provenance (Task 2)", () => {
+  const ftpFor = () => 200;
+  // Three qualifying outdoor baseline rides (Z2 Pw:HR 1.5) strictly before the target ride, clearing
+  // AEROBIC_MIN_BASELINE (3) so z2PwHrBaselineBefore resolves a real baseline for the target date.
+  const baselineRides = [
+    activity({ date: "2026-01-01", type: "Ride", powerHrZ2: 1.5, powerHrZ2Mins: 20 }),
+    activity({ date: "2026-01-02", type: "Ride", powerHrZ2: 1.5, powerHrZ2Mins: 20 }),
+    activity({ date: "2026-01-03", type: "Ride", powerHrZ2: 1.5, powerHrZ2Mins: 20 }),
+  ];
+  // Target ride: Z2 Pw:HR 1.65, 10% above the 1.5 baseline → aerobicEffPct 10. hrZoneTimes all-Z1/Z2
+  // (0s above the aerobic ceiling) → aboveAerobicHrFrac 0 → "dialed".
+  const targetRide = activity({
+    date: "2026-01-10",
+    type: "Ride",
+    powerHrZ2: 1.65,
+    powerHrZ2Mins: 20,
+    hrZoneTimes: [1800, 1800, 0, 0],
+  });
+
+  it("stamps `easy` on a planned Z2 ride with outdoor baseline history — hrRead + aerobicEffPct both present", () => {
+    const z2Block = block([{ date: "2026-01-10", type: "Z2", durationMin: 60 }]);
+    const acts = [...baselineRides, targetRide];
+    const entry = buildRideScores(z2Block, acts, ftpFor, "2026-01-15").find((e) => e.date === "2026-01-10");
+    expect(entry?.easy).toEqual({ indoor: false, hrRead: "dialed", aerobicEffPct: 10 });
+  });
+
+  it("stamps nothing for a planned Threshold ride (not an easy type)", () => {
+    const thresholdBlock = block([{ date: "2026-01-10", type: "Threshold", durationMin: 60 }]);
+    const acts = [...baselineRides, targetRide];
+    const entry = buildRideScores(thresholdBlock, acts, ftpFor, "2026-01-15").find((e) => e.date === "2026-01-10");
+    expect(entry?.easy).toBeUndefined();
+  });
+
+  it("stamps nothing for an off-plan ride, even one that would otherwise qualify", () => {
+    const acts = [...baselineRides, targetRide]; // no block at all → 01-10 is off-plan
+    const entry = buildRideScores(null, acts, ftpFor, "2026-01-15", "2026-01-01").find((e) => e.date === "2026-01-10");
+    expect(entry?.planned).toBe(false);
+    expect(entry?.easy).toBeUndefined();
+  });
+
+  it("stamps nothing for a durability-template B–E Z2 day", () => {
+    const durabilityBlock: CurrentBlock = {
+      ...block([{ date: "2026-01-10", type: "Z2", durationMin: 180 }]),
+      days: [{ date: "2026-01-10", name: "Durability day", type: "Z2", durationMin: 180, durabilityTemplate: "C" }],
+    };
+    const acts = [...baselineRides, { ...targetRide, movingTimeSec: 3 * 3600 }];
+    const entry = buildRideScores(durabilityBlock, acts, ftpFor, "2026-01-15").find((e) => e.date === "2026-01-10");
+    expect(entry?.easy).toBeUndefined();
+  });
+
+  it("VirtualRide: indoor true, but aerobicEffPct key absent (fails qualifyingPwHr's outdoor-only gate)", () => {
+    const z2Block = block([{ date: "2026-01-10", type: "Z2", durationMin: 60 }]);
+    const virtualTarget = { ...targetRide, type: "VirtualRide" as const };
+    const acts = [...baselineRides, virtualTarget];
+    const entry = buildRideScores(z2Block, acts, ftpFor, "2026-01-15").find((e) => e.date === "2026-01-10");
+    expect(entry?.easy?.indoor).toBe(true);
+    expect(entry?.easy && "aerobicEffPct" in entry.easy).toBe(false);
+    expect(entry?.easy?.hrRead).toBe("dialed"); // HR read is unaffected by the indoor/outdoor gate
+  });
+
+  it("carries the stamp through a rebuild (fresh re-derivation, not carry-forward — LEDGER-2 doesn't touch `easy`)", () => {
+    const z2Block = block([{ date: "2026-01-10", type: "Z2", durationMin: 60 }]);
+    const acts = [...baselineRides, targetRide];
+    const original = buildRideScores(z2Block, acts, ftpFor, "2026-01-15").find((e) => e.date === "2026-01-10");
+    expect(original?.easy).toEqual({ indoor: false, hrRead: "dialed", aerobicEffPct: 10 });
+
+    // A rebuild re-derives fresh entries from the same activity/plan data and merges via
+    // mergeScoreLogRebuild — the easy stamp isn't in LEDGER-2's carry-forward list because it doesn't
+    // need to be: unlike formState (a narrower wellness window) it's fully re-derivable every time.
+    const fresh = buildRideScores(z2Block, acts, ftpFor, "2026-01-15");
+    const rebuilt = mergeScoreLogRebuild(fresh, [original!]).find((e) => e.date === "2026-01-10");
+    expect(rebuilt?.easy).toEqual({ indoor: false, hrRead: "dialed", aerobicEffPct: 10 });
+  });
+
+  it("hoisting doesn't change off-plan scoring: an off-plan ride still reads aerobicEffPct from the shared baseline computation", () => {
+    const acts = [...baselineRides, targetRide]; // targetRide is 10% above baseline, off-plan (no block)
+    const withBaseline = buildRideScores(null, acts, ftpFor, "2026-01-15", "2026-01-01").find((e) => e.date === "2026-01-10");
+    const withoutBaseline = buildRideScores(null, [targetRide], ftpFor, "2026-01-15", "2026-01-01").find(
+      (e) => e.date === "2026-01-10"
+    );
+    // Same ride, but no qualifying baseline history → aerobicEffPct is null → different (typically lower) score.
+    expect(withBaseline?.executionScore).not.toBe(withoutBaseline?.executionScore);
   });
 });
 
