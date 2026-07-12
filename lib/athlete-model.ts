@@ -28,7 +28,13 @@ function trendOf(values: number[]): "up" | "down" | "flat" {
   const a = mean(values.slice(0, mid));
   const b = mean(values.slice(mid));
   const eps = Math.max(Math.abs(a) * 0.05, 0.3);
-  return b - a > eps ? "up" : b - a < -eps ? "down" : "flat";
+  // Recency guard: a trend only counts as ONGOING if it still holds in the last two sessions
+  // (two consecutive, so one fluky ride can't flip it) — otherwise a couple of mid-window
+  // outliers outvote a genuine recent turnaround and trigger stale "declining" coaching.
+  const tail = values.slice(-2);
+  if (b - a < -eps) return tail.every((v) => v >= a - eps) ? "flat" : "down";
+  if (b - a > eps) return tail.every((v) => v <= a + eps) ? "flat" : "up";
+  return "flat";
 }
 
 export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {

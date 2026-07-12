@@ -46,6 +46,34 @@ describe("buildAthleteModel", () => {
     expect(m.behaviourAllTime.totalRides).toBe(6);
   });
 
+  it("does not read a mid-window dip as 'down' when the most recent sessions have recovered", () => {
+    // Real athlete data: two hot rides (the 3s at positions 11-12) sit mid-window, but the
+    // two most recent sessions recovered to 10 and 8 — there is no ONGOING decline.
+    day = 0;
+    const scores = [8, 10, 3, 9, 10, 9, 6, 6, 9, 10, 3, 3, 10, 8].map((s) => entry("Z2", s));
+    const m = buildAthleteModel(scores);
+    expect(m.byType.find((t) => t.type === "Z2")!.trend).toBe("flat");
+    expect(m.overallTrend).toBe("flat");
+    const insights = deriveInsights(m);
+    expect(insights.find((i) => i.title === "Z2 trending down")).toBeUndefined();
+    expect(insights.find((i) => i.title === "Execution trending down")).toBeUndefined();
+  });
+
+  it("still classifies a genuine ongoing decline (no recovery at the tail) as 'down'", () => {
+    day = 0;
+    const scores = [8, 7, 6, 5, 4, 3].map((s) => entry("Z2", s));
+    const m = buildAthleteModel(scores);
+    expect(m.byType.find((t) => t.type === "Z2")!.trend).toBe("down");
+    expect(m.overallTrend).toBe("down");
+  });
+
+  it("does not read a faded improvement as 'up' when the most recent sessions fell back", () => {
+    day = 0;
+    const scores = [5, 5, 5, 5, 9, 9, 5, 5].map((s) => entry("Z2", s));
+    const m = buildAthleteModel(scores);
+    expect(m.byType.find((t) => t.type === "Z2")!.trend).toBe("flat");
+  });
+
   it("excludes legacy (pre-first-block) rides from behaviour", () => {
     const legacyRide = (date: string): RideScoreEntry => ({ ...entry("Z2", 6), date, planned: false, plannedType: null, legacy: true });
     const live = (date: string): RideScoreEntry => ({ ...entry("Z2", 8), date, planned: true });
