@@ -113,7 +113,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
 - ☑ P3 `bug` **HR-14** — `lib/trends.ts`'s `latestWeeklyBalance`
   ([lib/trends.ts:161](lib/trends.ts:161)) hand-rolls a 7-day date offset instead of calling
   `lib/date.ts`'s existing `isoDaysAgo`/`addDaysIso`.
-- ☐ P3 `bug` **HR-15** — `/api/reschedule`'s PUT and PATCH handlers
+- ☑ P3 `bug` **HR-15** — `/api/reschedule`'s PUT and PATCH handlers
   ([app/api/reschedule/route.ts:246](app/api/reschedule/route.ts:246)) duplicate the same
   request-parsing/existence/future-only-date validation prologue almost line for line — factor into
   one shared helper so a future validation fix doesn't have to be applied twice.
