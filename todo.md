@@ -50,12 +50,14 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   `dispositions.json` use for exactly this reason. This diff adds several new concurrent writers of
   `current-block.json` (reschedule PUT/PATCH, morning-check PUT, sync's inbound-reconcile writes);
   two near-simultaneous requests can silently clobber each other's move with no error.
-- ☐ P1 `bug` **HR-5** — The IF-based over-intensity penalty for Z2/Recovery days was deleted
-  ([lib/execution-score.ts:118](lib/execution-score.ts:118)) and replaced with an HR-based judge
-  that's a no-op when HR data is missing (no strap, sync gap). Athletes without HR data now get zero
-  penalty for turning a prescribed easy day into a threshold ride — the safety net the old IF check
-  provided is gone, not just narrowed to the terrain-confound case the fix targeted. This corrupts
-  the execution-score corpus the whole calibration/learning loop (ROADMAP #2, SUB-5) depends on.
+- ☑ P1 `bug` **HR-5** — **Won't-fix (athlete decision, 2026-07-12).** The IF-based over-intensity
+  penalty for Z2/Recovery days was deleted ([lib/execution-score.ts:118](lib/execution-score.ts:118))
+  and replaced with an HR-based judge that's a no-op when HR data is missing (no strap, sync gap).
+  Re-reading the code comments at [lib/execution-score.ts:177-179](lib/execution-score.ts:177) showed
+  this was a deliberate, documented tradeoff (not an oversight) when the HR-based judge replaced the
+  old terrain-confounded power penalty — outdoor Z2 rides were getting falsely flagged "too hard" from
+  hill/wind power spikes. Athlete confirmed: keep "no HR data → no penalty" as accepted behavior rather
+  than reintroducing the terrain false-positives an IF-based fallback would bring back.
 
 ### P2 — high-value UX / correctness
 
