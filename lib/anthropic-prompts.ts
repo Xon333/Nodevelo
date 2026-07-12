@@ -19,6 +19,7 @@ import { prDurationLabel } from "./pr";
 import { isSteadyEnduranceRide } from "./trends";
 import type { AerobicDiscipline } from "./execution-score";
 import { round1 } from "./stats";
+import { AEROBIC_DEADBAND_PCT } from "./aerobic";
 
 // ---------- date helpers ----------
 
@@ -452,7 +453,7 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
   // same weak-band threshold the off-plan scoring axis uses) — a small, noisy delta adds no signal.
   const disciplineLine = input.aerobicDiscipline
     ? `Easy-ride discipline (HR-judged): ${disciplineLabel[input.aerobicDiscipline]}${
-        input.aerobicEffPct != null && input.aerobicEffPct <= -3
+        input.aerobicEffPct != null && input.aerobicEffPct <= -AEROBIC_DEADBAND_PCT
           ? ` · aerobic efficiency ${round1(input.aerobicEffPct)}% below your 90-day baseline`
           : ""
       }`

@@ -34,6 +34,7 @@ import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import { synthesizeCoachingDirectives } from "./synthesis";
 import { summariseValidation } from "./intervention";
 import { round1 } from "./stats";
+import { AEROBIC_DEADBAND_PCT } from "./aerobic";
 
 export interface CoachSnapshot {
   date: string;
@@ -384,10 +385,10 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
     if (ex.aerobicDiscipline != null) {
       const label =
         ex.aerobicDiscipline === "dialed" ? "dialed in" : ex.aerobicDiscipline === "drift" ? "some drift" : "ran hot";
-      // Same −3 threshold as the ride-note prompt (AEROBIC_DEADBAND_PCT) — only surface the figure
+      // Same threshold as the ride-note prompt (AEROBIC_DEADBAND_PCT) — only surface the figure
       // when it's a notable read, not per-ride noise.
       const eff =
-        ex.aerobicEffPct != null && ex.aerobicEffPct <= -3
+        ex.aerobicEffPct != null && ex.aerobicEffPct <= -AEROBIC_DEADBAND_PCT
           ? ` (efficiency ${round1(ex.aerobicEffPct)}% below baseline)`
           : "";
       parts.push(`aerobic discipline: ${label}${eff}`);
