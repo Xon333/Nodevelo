@@ -163,6 +163,7 @@ function BlockCalendar({
   scores,
   compromisedDates,
   partialDates,
+  completedDates,
   blockEndDate,
 }: {
   weeks: CurrentBlock["days"][];
@@ -170,6 +171,7 @@ function BlockCalendar({
   scores: RideScoreEntry[];
   compromisedDates: string[];
   partialDates: string[];
+  completedDates: string[];
   blockEndDate: string;
 }) {
   // S2-1: each day cell's detail was hover-only (the calendar's whole story was mouse-only). One id
@@ -177,6 +179,10 @@ function BlockCalendar({
   const idBase = useId();
   const compromisedSet = new Set(compromisedDates);
   const partialSet = new Set(partialDates);
+  // Dates the athlete marked "completed" with no matching ledger score — a true rest day taken,
+  // or a session attributed before/without a synced ride. Without this, such a day falls through
+  // to blank (or falsely "Missed" for a non-Rest day) despite the athlete's own attribution.
+  const dispositionCompletedSet = new Set(completedDates);
   const today = todayIso();
   // §7 manual move: click/tap a cell to pin its tooltip open as an interactive popover (hosting
   // MoveDay for eligible days) instead of the pure hover/focus preview.
@@ -223,13 +229,17 @@ function BlockCalendar({
                 const alignClass =
                   dayIdx <= 1 ? "left-0" : dayIdx >= week.length - 2 ? "right-0" : "left-1/2 -translate-x-1/2";
                 const score = scoreByDate.get(day.date);
-                const completed = score !== undefined;
+                const hasScore = score !== undefined;
                 // A compromised session was ridden (then attributed) — it's excluded from
                 // `scores`, so guard it here or it would read as falsely "Missed".
-                const compromised = !completed && compromisedSet.has(day.date);
+                const compromised = !hasScore && compromisedSet.has(day.date);
                 // A partial session is scored (so it's "completed" in the ledger sense) but the
                 // athlete attributed it as cut short — label it accordingly, not plain "Completed".
-                const partial = completed && partialSet.has(day.date);
+                const partial = hasScore && partialSet.has(day.date);
+                // Completed with no score to show (a true rest day taken, or attributed before/
+                // without a synced ride) — still "completed" for display, just no execution number.
+                const dispositionCompleted = !hasScore && dispositionCompletedSet.has(day.date);
+                const completed = hasScore || dispositionCompleted;
                 const missed = !completed && !compromised && day.date < today && day.type !== "Rest";
                 const cellId = `${idBase}-${day.date}`;
                 // §7 manual move: only a real, not-yet-happened session can be moved. Ineligible/rest/
@@ -262,7 +272,7 @@ function BlockCalendar({
                       {completed ? (
                         <span className="flex items-center gap-0.5 rounded-sm bg-black/45 px-1 leading-none text-white">
                           <span className="text-[10px] font-bold leading-none">✓</span>
-                          <span className="text-[10px]">{score}</span>
+                          {hasScore && <span className="text-[10px]">{score}</span>}
                         </span>
                       ) : compromised ? (
                         <span className="rounded-sm bg-black/35 px-1 text-[10px] font-bold leading-none text-white" title="Compromised">~</span>
@@ -300,9 +310,10 @@ function BlockCalendar({
                         {completed ? (
                           <p className="mt-0.5 text-[10px] font-medium">
                             <span className={partial ? "text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"}>
-                              {partial ? "Partial · " : "Completed · "}
+                              {partial ? "Partial" : "Completed"}
+                              {hasScore ? " · " : ""}
                             </span>
-                            <span className={scoreColor(score)}>execution {score}/10</span>
+                            {hasScore && <span className={scoreColor(score)}>execution {score}/10</span>}
                           </p>
                         ) : compromised ? (
                           <p className="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">Compromised — ridden, excluded from scoring</p>
@@ -346,6 +357,7 @@ export function CurrentBlockSection({
   scores,
   compromisedDates,
   partialDates,
+  completedDates,
   sync,
 }: {
   block: CurrentBlock | null;
@@ -353,6 +365,7 @@ export function CurrentBlockSection({
   scores: RideScoreEntry[];
   compromisedDates: string[];
   partialDates: string[];
+  completedDates: string[];
   sync?: SyncData | null;
 }) {
   // S2-7: an in-product two-step confirm (state what's kept) replaces window.confirm's generic prompt.
@@ -378,9 +391,9 @@ export function CurrentBlockSection({
   );
   // Real sessions still to come — exclude rest days (durationMin 0) and any day already ridden
   // (so today drops off once it's logged, instead of lingering as "to go").
-  const completedDates = new Set(scores.map((s) => s.date));
+  const scoredDates = new Set(scores.map((s) => s.date));
   const sessionsToGo = block.days.filter(
-    (d) => d.date >= today && d.durationMin > 0 && !completedDates.has(d.date)
+    (d) => d.date >= today && d.durationMin > 0 && !scoredDates.has(d.date)
   ).length;
   // Chunking lifted here (was inside BlockCalendar) so the header + week strip and the calendar all read
   // from one source. weeklyMinutes drives both the volume-derived week character and the strip's target.
@@ -504,6 +517,7 @@ export function CurrentBlockSection({
           scores={scores}
           compromisedDates={compromisedDates}
           partialDates={partialDates}
+          completedDates={completedDates}
           blockEndDate={block.endDate}
         />
         {daysRemaining > 0 && (

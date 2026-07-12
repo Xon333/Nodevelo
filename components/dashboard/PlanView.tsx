@@ -241,7 +241,7 @@ export default function PlanView() {
         onGenerate={generateRetro}
       />
 
-      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} sync={state.lastSync ?? null} />}
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} completedDates={state.completedDates} sync={state.lastSync ?? null} />}
 
       {/* Degraded prefill notices — the generator still works, but the athlete should know the
           fields aren't reflecting their profile/season right now. */}

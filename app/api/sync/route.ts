@@ -144,6 +144,9 @@ export async function GET(req: Request) {
     // Partial dates let the calendar label a cut-short session "Partial" instead of "Completed"
     // (it still has a score — the athlete attributed it as cut short).
     partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date),
+    // Completed dates with no ledger score (true rest days taken, or a session the athlete attributed
+    // before/without a synced ride) — lets the calendar show them as taken instead of blank/Missed.
+    completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date),
     autoSyncOnOpen: settings.autoSyncOnOpen,
     // How often acting on the coach's matured directives proved right (validation loop). Null until
     // the 28-day horizon yields a decisive outcome; `pending` shows how many are still accruing.
@@ -762,7 +765,7 @@ export async function POST(req: Request) {
       warnings.push(`Off-machine backup failed: ${backup.reason}`);
     }
 
-    return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), athleteState, coachSnapshot, calibration });
+    return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date), athleteState, coachSnapshot, calibration });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

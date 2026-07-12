@@ -33,6 +33,7 @@ export interface AppState {
   scores: RideScoreEntry[];
   compromisedDates: string[];
   partialDates: string[];
+  completedDates: string[];
   autoSyncOnOpen: boolean;
   // Validation-loop self-assessment: how often acting on the coach's matured directives proved
   // right. hitRatePct is null until the 28-day horizon produces a decisive outcome.
@@ -143,6 +144,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         scores: RideScoreEntry[];
         compromisedDates: string[];
         partialDates: string[];
+        completedDates: string[];
         athleteState: AthleteState | null;
         coachSnapshot: CoachSnapshot | null;
         calibration: CalibrationStore | null;
@@ -163,6 +165,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               scores: result.scores,
               compromisedDates: result.compromisedDates,
               partialDates: result.partialDates,
+              completedDates: result.completedDates,
               athleteState: result.athleteState,
               coachSnapshot: result.coachSnapshot,
               calibration: result.calibration,
