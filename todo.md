@@ -106,7 +106,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
 - ☐ P3 `ux` **HR-12** — `components/MoveDay.tsx` and `components/SwapDay.tsx` are near-total
   structural duplicates (same state shape, same busy/error/note handling) differing only in HTTP
   verb and labels — extract a shared component/hook.
-- ☐ P3 `bug` **HR-13** — `calendar-mirror.ts`'s `dayToEventPayload`
+- ☑ P3 `bug` **HR-13** — `calendar-mirror.ts`'s `dayToEventPayload`
   ([lib/calendar-mirror.ts:16](lib/calendar-mirror.ts:16)) re-implements the event-payload shape
   `lib/plan-parser.ts`'s `planDayToEvent` already builds (the new code's own comment admits mirroring
   it) — the two can drift independently.

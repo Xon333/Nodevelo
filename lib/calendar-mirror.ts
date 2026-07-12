@@ -7,32 +7,26 @@
 
 import { createEvent, fetchEvents, isIntervalsConfigured } from "./intervals-api";
 import { mergeCurrentBlockDays } from "./data-store";
+import { eventPayloadShape } from "./plan-parser";
 import type { CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, IntervalsEventPayload } from "./types";
 
 export type PlannedMove = { from: string; to: string | null };
 
-// CurrentBlockDay → event payload; mirrors planDayToEvent's shape (plan-parser.ts) but takes the
-// description explicitly, because a block day carries none of its own.
+// CurrentBlockDay → event payload, via the shared shape planDayToEvent also builds on
+// (plan-parser.ts) — takes the description explicitly, because a block day carries none of its own.
 export function dayToEventPayload(day: CurrentBlockDay, description: string): IntervalsEventPayload {
-  const start_date_local = `${day.date}T00:00:00`;
-  const external_id = `nodevelo-${day.date}`;
-  if (day.type === "Rest" || day.durationMin <= 0) {
-    return { category: "NOTE", start_date_local, name: day.name || "Rest day", description, external_id };
-  }
-  const isStrength = day.type === "Strength";
-  return {
-    category: "WORKOUT",
-    start_date_local,
+  // Passed verbatim — the caller always supplies the full intended description (the source event's
+  // description carried wholesale on a move, or an already-composed description on first write).
+  // CurrentBlockDay.workoutText is not re-appended here: appending it would duplicate the step text
+  // already embedded in a carried-over event description.
+  return eventPayloadShape({
+    date: day.date,
+    isRest: day.type === "Rest" || day.durationMin <= 0,
     name: day.name,
-    type: isStrength ? "WeightTraining" : "Ride",
-    // Passed verbatim — the caller always supplies the full intended description (the source event's
-    // description carried wholesale on a move, or an already-composed description on first write).
-    // CurrentBlockDay.workoutText is not re-appended here: appending it would duplicate the step text
-    // already embedded in a carried-over event description.
+    type: day.type,
+    durationMin: day.durationMin,
     description,
-    external_id,
-    ...(isStrength && day.durationMin > 0 ? { moving_time: day.durationMin * 60 } : {}),
-  };
+  });
 }
 
 // The upserts a set of moves requires. Content flows from→to: each destination's payload is built
