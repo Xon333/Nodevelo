@@ -613,6 +613,7 @@ describe("easy-ride execution — HR judges effort, terrain does not", () => {
     // Off-plan rides score on their own off-plan aerobic path, not the merged easy-read.
     // Verify that the merged easy-read does not interfere.
     const baseOffPlan = {
+      compliancePct: null,
       intensityFactor: 0.68,
       plannedType: "Z2" as const,
       intrinsic: true,
