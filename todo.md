@@ -110,7 +110,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   ([lib/calendar-mirror.ts:16](lib/calendar-mirror.ts:16)) re-implements the event-payload shape
   `lib/plan-parser.ts`'s `planDayToEvent` already builds (the new code's own comment admits mirroring
   it) — the two can drift independently.
-- ☐ P3 `bug` **HR-14** — `lib/trends.ts`'s `latestWeeklyBalance`
+- ☑ P3 `bug` **HR-14** — `lib/trends.ts`'s `latestWeeklyBalance`
   ([lib/trends.ts:161](lib/trends.ts:161)) hand-rolls a 7-day date offset instead of calling
   `lib/date.ts`'s existing `isoDaysAgo`/`addDaysIso`.
 - ☐ P3 `bug` **HR-15** — `/api/reschedule`'s PUT and PATCH handlers

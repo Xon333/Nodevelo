@@ -2,6 +2,7 @@
 // data-quality rules (which rides count, which weeks show) are deterministic + unit-testable.
 
 import type { ActivitySummary, NutritionSettings, WellnessEntry } from "./types";
+import { addDaysIso } from "./date";
 
 // Monday (UTC) of the ISO week containing `dateStr`, as YYYY-MM-DD.
 export function mondayOf(dateStr: string): string {
@@ -158,7 +159,7 @@ export function weeklyEnergy(
 // The snapshot's slot wants exactly ONE honest number: the week that just closed. An older week is
 // stale coaching context, so a missing/under-logged prior week withholds (null) rather than substitutes.
 export function latestWeeklyBalance(points: WeeklyEnergyPoint[], today: string): WeeklyEnergyBalance | null {
-  const priorMonday = new Date(Date.parse(mondayOf(today)) - 7 * 86_400_000).toISOString().slice(0, 10); // pure day math
+  const priorMonday = addDaysIso(mondayOf(today), -7);
   const p = points.find((x) => x.date === priorMonday);
   return p && p.ratio !== null && p.needKcal !== null && p.intakeKcal !== null
     ? { weekOf: p.date, intakeKcal: p.intakeKcal, needKcal: p.needKcal, ratio: p.ratio, loggedDays: p.loggedDays }
