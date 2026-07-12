@@ -30,7 +30,8 @@ import {
   writeInterventionLog,
   writeQuirks,
   writeTodayAnalysis,
-  writeCurrentBlock,
+  updateCurrentBlock,
+  mergeCurrentBlockDays,
   writeLastSync,
   writeRollingBaselines,
   readTodayAnalysis,
@@ -431,7 +432,10 @@ export async function POST(req: Request) {
           if (rec) {
             if (rec.applied.length > 0) {
               block = { ...block, days: rec.days };
-              await writeCurrentBlock(block);
+              // HR-4: only the dates this reconcile actually touched go to disk, merged onto a fresh
+              // read — a concurrent reschedule/morning-check write to some other day can't be clobbered.
+              const touchedDates = new Set(rec.applied.flatMap((m) => [m.from, m.to]));
+              await mergeCurrentBlockDays(block, block.days.filter((d) => touchedDates.has(d.date)));
               warnings.push(...rec.applied.map((m) => `Calendar move applied: ${m.from} → ${m.to} (from Intervals.icu).`));
 
               // Fix B (final review): reconcileInboundMoves relocates the block day but — by that
@@ -462,7 +466,7 @@ export async function POST(req: Request) {
                   warnings.push(`Calendar external_id re-stamp failed for ${to} — a later outbound move to/from this date may create a duplicate event.`);
                 }
               }
-              if (restamped) await writeCurrentBlock(block);
+              if (restamped) await mergeCurrentBlockDays(block, block.days.filter((d) => touchedDates.has(d.date)));
             }
             warnings.push(...rec.warnings);
           }
@@ -793,6 +797,6 @@ export async function DELETE() {
       });
     }
   }
-  await writeCurrentBlock(null);
+  await updateCurrentBlock(() => null);
   return NextResponse.json({ ok: true, eventsRemoved, eventsFailed });
 }

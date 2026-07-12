@@ -6,7 +6,7 @@
 // move carries the source event's description wholesale instead of rebuilding-and-losing it.
 
 import { createEvent, fetchEvents, isIntervalsConfigured } from "./intervals-api";
-import { writeCurrentBlock } from "./data-store";
+import { mergeCurrentBlockDays } from "./data-store";
 import type { CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, IntervalsEventPayload } from "./types";
 
 export type PlannedMove = { from: string; to: string | null };
@@ -216,6 +216,11 @@ export async function persistMirroredMove(
       failed = moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from]));
     }
   }
-  await writeCurrentBlock(updated);
+  // Merge onto a fresh lock-held read (HR-4): `block` may already be stale here — a network round-trip
+  // to Intervals.icu just happened above — so only write the dates THIS move actually touches, instead
+  // of blindly overwriting the whole array and losing a concurrent writer's change to some other day.
+  const touchedDates = new Set(moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])));
+  const persisted = await mergeCurrentBlockDays(updated, updated.days.filter((d) => touchedDates.has(d.date)));
+  updated = persisted ?? updated;
   return { updatedBlock: updated, mirrored, failed };
 }

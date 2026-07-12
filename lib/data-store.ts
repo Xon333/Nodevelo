@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, DispositionLog, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
@@ -89,6 +89,30 @@ export async function readCurrentBlock(): Promise<CurrentBlock | null> {
 
 export async function writeCurrentBlock(block: CurrentBlock | null): Promise<void> {
   await writeJson("current-block.json", block);
+}
+
+// Transactional read-modify-write on the current block (HR-4) — the read happens inside the per-file
+// lock, so a mutate that only touches specific days (a reschedule move, a sync reconcile) can't lose a
+// concurrent writer's change to some other day the way a stale-read-then-plain-write can.
+export async function updateCurrentBlock(
+  mutate: (cur: CurrentBlock | null) => CurrentBlock | null
+): Promise<CurrentBlock | null> {
+  return updateJson<CurrentBlock | null>("current-block.json", null, mutate);
+}
+
+// Merges only `touchedDays` (by date) onto the fresh on-disk block, falling back to `fallback`
+// (the caller's own snapshot) if the block was concurrently cleared. Any other writer's change to a
+// date NOT in `touchedDays` survives — used by every partial-block writer (persistMirroredMove,
+// the sync inbound-reconcile) instead of each hand-rolling stale-read-then-blind-overwrite.
+export async function mergeCurrentBlockDays(
+  fallback: CurrentBlock,
+  touchedDays: CurrentBlockDay[]
+): Promise<CurrentBlock | null> {
+  const touchedContent = new Map(touchedDays.map((d) => [d.date, d]));
+  return updateCurrentBlock((cur) => {
+    const base = cur ?? fallback;
+    return { ...base, days: base.days.map((d) => touchedContent.get(d.date) ?? d) };
+  });
 }
 
 export async function readBlockSettings(): Promise<BlockSettings> {

@@ -45,7 +45,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   originally-vacant date in one sync both pass the "target is Rest" check — the second silently
   overwrites the first instead of surfacing an occupied-day warning, permanently dropping one
   athlete-confirmed move.
-- ☐ P1 `bug` **HR-4** — `writeCurrentBlock` ([lib/data-store.ts:90](lib/data-store.ts:90)) is a
+- ☑ P1 `bug` **HR-4** — `writeCurrentBlock` ([lib/data-store.ts:90](lib/data-store.ts:90)) is a
   plain `writeJsonFile`, not the lock-protected `updateJsonFile` pattern `score-log.json`/
   `dispositions.json` use for exactly this reason. This diff adds several new concurrent writers of
   `current-block.json` (reschedule PUT/PATCH, morning-check PUT, sync's inbound-reconcile writes);

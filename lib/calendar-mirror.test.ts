@@ -7,7 +7,7 @@ vi.mock("./intervals-api", () => ({
   createEvent: vi.fn(),
 }));
 vi.mock("./data-store", () => ({
-  writeCurrentBlock: vi.fn(),
+  mergeCurrentBlockDays: vi.fn(),
 }));
 
 import { buildMovePayloads, dayToEventPayload, persistMirroredMove, reconcileInboundMoves } from "./calendar-mirror";
@@ -202,9 +202,17 @@ describe("persistMirroredMove", () => {
     day({ date: "2026-07-16", name: "Rest", type: "Rest", durationMin: 0 }),
   ]);
 
+  // Simulates the real mergeCurrentBlockDays against a given on-disk base — exercises persistMirroredMove's
+  // actual touched-dates computation while only the disk I/O itself stays mocked.
+  const mockMergeOnto = (onDisk: CurrentBlock) =>
+    vi.mocked(dataStore.mergeCurrentBlockDays).mockImplementation(async (_fallback, touchedDays) => {
+      const touchedContent = new Map(touchedDays.map((d) => [d.date, d]));
+      return { ...onDisk, days: onDisk.days.map((d) => touchedContent.get(d.date) ?? d) };
+    });
+
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(dataStore.writeCurrentBlock).mockResolvedValue(undefined);
+    mockMergeOnto(blk); // on-disk state equals `blk` at merge time (HR-4's read-inside-the-lock)
   });
 
   it("not configured → writes the local move straight through, no mirror calls", async () => {
@@ -216,7 +224,7 @@ describe("persistMirroredMove", () => {
     expect(intervalsApi.fetchEvents).not.toHaveBeenCalled();
     expect(intervalsApi.createEvent).not.toHaveBeenCalled();
     expect(res).toEqual({ updatedBlock: { ...blk, days }, mirrored: [], failed: [] });
-    expect(dataStore.writeCurrentBlock).toHaveBeenCalledWith({ ...blk, days });
+    expect(dataStore.mergeCurrentBlockDays).toHaveBeenCalled();
   });
 
   it("configured + mirror succeeds → stamps the fresh eventId and persists it", async () => {
@@ -229,8 +237,7 @@ describe("persistMirroredMove", () => {
     expect(res.mirrored).toEqual(["2026-07-14"]);
     expect(res.failed).toEqual([]);
     expect(res.updatedBlock.days.find((d) => d.date === "2026-07-14")!.eventId).toBe(777);
-    const written = vi.mocked(dataStore.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
-    expect(written.days.find((d) => d.date === "2026-07-14")!.eventId).toBe(777);
+    expect(dataStore.mergeCurrentBlockDays).toHaveBeenCalled();
   });
 
   it("configured + createEvent rejects for a date → reports it failed, still persists the local move", async () => {
@@ -242,7 +249,7 @@ describe("persistMirroredMove", () => {
 
     expect(res.mirrored).toEqual([]);
     expect(res.failed).toEqual(["2026-07-14"]);
-    expect(dataStore.writeCurrentBlock).toHaveBeenCalled(); // local move still stands despite the mirror failure
+    expect(dataStore.mergeCurrentBlockDays).toHaveBeenCalled(); // local move still stands despite the mirror failure
   });
 
   // Fix A end-to-end: proves the 5th `preMoveDays` argument — not `block` and not `days` — is what
@@ -250,6 +257,24 @@ describe("persistMirroredMove", () => {
   // `block.days` (blk, untouched fixture) nor the post-move `days` carries the source's eventId; only
   // the explicit preMoveDays override does. Without threading it through, this would regress to Bug 1's
   // empty-description destination.
+  it("merges onto the fresh on-disk state instead of clobbering a concurrent writer's unrelated day (HR-4)", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(false);
+    const threeDayBlock = mkBlock([
+      day({ date: "2026-07-14", name: "VO2 5x3", type: "VO2max", durationMin: 60 }),
+      day({ date: "2026-07-16", name: "Rest", type: "Rest", durationMin: 0 }),
+      day({ date: "2026-07-18", name: "Z2", type: "Z2", durationMin: 90 }),
+    ]);
+    // A concurrent writer already changed 2026-07-18 on disk since this caller's own (now-stale) read.
+    const onDisk = { ...threeDayBlock, days: threeDayBlock.days.map((d) => (d.date === "2026-07-18" ? { ...d, name: "Concurrent edit" } : d)) };
+    mockMergeOnto(onDisk);
+
+    const days = threeDayBlock.days.map((d) => (d.date === "2026-07-14" ? { ...d, name: "Recovery" } : d));
+    const res = await persistMirroredMove(threeDayBlock, days, [{ from: "2026-07-14", to: null }], "2026-07-13");
+
+    expect(res.updatedBlock.days.find((d) => d.date === "2026-07-14")!.name).toBe("Recovery"); // this move applied
+    expect(res.updatedBlock.days.find((d) => d.date === "2026-07-18")!.name).toBe("Concurrent edit"); // survives, not clobbered
+  });
+
   it("uses the explicit preMoveDays override (not block.days, not post-move days) to find the source's eventId", async () => {
     vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
     vi.mocked(intervalsApi.fetchEvents).mockResolvedValue([

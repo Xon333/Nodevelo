@@ -54,8 +54,9 @@ vi.mock("@/lib/data-store", () => ({
   readScoreLog: vi.fn(),
   readTodayAnalysis: vi.fn(),
   updateScoreLog: vi.fn(),
+  updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
+  mergeCurrentBlockDays: vi.fn(),
   writeCalibration: vi.fn(),
-  writeCurrentBlock: vi.fn(),
   writeInterventionLog: vi.fn(),
   writeLastSync: vi.fn(),
   writeLedgerRebuild: vi.fn(),
@@ -465,7 +466,7 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     const json = await res.json();
 
     // (a) block persisted with the day relocated
-    const written = vi.mocked(store.writeCurrentBlock).mock.calls.at(-1)![0] as CurrentBlock;
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls.at(-1)![0] as CurrentBlock;
     expect(written.days.find((d) => d.date === TODAY)).toMatchObject({
       name: "Threshold 3x12",
       type: "Threshold",
@@ -491,7 +492,7 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.warnings.some((w: string) => /calendar check skipped/i.test(w))).toBe(true);
-    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+    expect(store.mergeCurrentBlockDays).not.toHaveBeenCalled();
   });
 
   it("does not touch the block when the calendar agrees with the plan (no moves, no warnings)", async () => {
@@ -500,7 +501,7 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     const res = await postSync();
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+    expect(store.mergeCurrentBlockDays).not.toHaveBeenCalled();
     expect(json.warnings.some((w: string) => /Calendar move applied/.test(w))).toBe(false);
   });
 
@@ -528,7 +529,7 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     expect(api.deleteEvents).toHaveBeenCalledWith([41]);
 
     // The block day's eventId is re-stamped to the newly-created event's id — the old id is gone.
-    const written = vi.mocked(store.writeCurrentBlock).mock.calls.at(-1)![0] as CurrentBlock;
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls.at(-1)![0] as CurrentBlock;
     expect(written.days.find((d) => d.date === TODAY)?.eventId).toBe(777);
   });
 
@@ -545,7 +546,7 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     expect(api.deleteEvents).not.toHaveBeenCalled(); // create never succeeded → never reached delete
 
     // The local move (from the reconcile itself) still stands, with the OLD eventId intact.
-    const written = vi.mocked(store.writeCurrentBlock).mock.calls[0][0] as CurrentBlock;
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[0][0] as CurrentBlock;
     expect(written.days.find((d) => d.date === TODAY)).toMatchObject({ eventId: 41 });
   });
 });
@@ -946,7 +947,8 @@ describe("DELETE /api/sync — discard block", () => {
     expect(store.appendBlockHistory).toHaveBeenCalledOnce();
     const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
     expect(archived.days?.map((d) => d.date)).toEqual(["2026-06-20", "2026-06-21"]); // future 06-25 dropped
-    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+    expect(store.updateCurrentBlock).toHaveBeenCalled();
+    expect((vi.mocked(store.updateCurrentBlock).mock.calls.at(-1)![0])(null)).toBe(null);
     expect(json).toMatchObject({ ok: true, eventsRemoved: 3, eventsFailed: [] });
   });
 
@@ -959,7 +961,8 @@ describe("DELETE /api/sync — discard block", () => {
     );
     const json = await (await DELETE()).json();
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
-    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+    expect(store.updateCurrentBlock).toHaveBeenCalled();
+    expect((vi.mocked(store.updateCurrentBlock).mock.calls.at(-1)![0])(null)).toBe(null);
     expect(json.ok).toBe(true);
   });
 

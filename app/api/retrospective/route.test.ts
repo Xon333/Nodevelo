@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
   readInterventionLog: vi.fn(),
   readAthleteProfile: vi.fn(),
   appendBlockHistory: vi.fn(async () => {}),
-  writeCurrentBlock: vi.fn(async () => {}),
+  updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
   readBlockHistory: vi.fn(async () => []),
 }));
 
@@ -39,7 +39,7 @@ vi.mock("@/lib/data-store", () => ({
   readInterventionLog: h.readInterventionLog,
   readAthleteProfile: h.readAthleteProfile,
   appendBlockHistory: h.appendBlockHistory,
-  writeCurrentBlock: h.writeCurrentBlock,
+  updateCurrentBlock: h.updateCurrentBlock,
   readBlockHistory: h.readBlockHistory,
 }));
 
@@ -154,7 +154,7 @@ beforeEach(() => {
   h.readInterventionLog.mockResolvedValue(emptyInterventionLog);
   h.readAthleteProfile.mockResolvedValue(athleteProfile);
   h.appendBlockHistory.mockResolvedValue(undefined);
-  h.writeCurrentBlock.mockResolvedValue(undefined);
+  h.updateCurrentBlock.mockImplementation(async (mutate: (cur: null) => unknown) => mutate(null));
 });
 
 describe("/api/retrospective POST", () => {
@@ -188,20 +188,22 @@ describe("/api/retrospective POST", () => {
   it("appends history before clearing the current block, and never clears if the append fails", async () => {
     h.appendBlockHistory.mockRejectedValueOnce(new Error("disk full"));
     await expect(post()).rejects.toThrow("disk full");
-    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+    expect(store.updateCurrentBlock).not.toHaveBeenCalled();
   });
 
-  it("calls appendBlockHistory before writeCurrentBlock on the success path", async () => {
+  it("calls appendBlockHistory before updateCurrentBlock on the success path", async () => {
     const order: string[] = [];
     (store.appendBlockHistory as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
       order.push("append");
     });
-    (store.writeCurrentBlock as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+    (store.updateCurrentBlock as ReturnType<typeof vi.fn>).mockImplementationOnce(async (mutate: (cur: null) => unknown) => {
       order.push("clear");
+      return mutate(null);
     });
     await post();
     expect(order).toEqual(["append", "clear"]);
-    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+    const mutateFn = (store.updateCurrentBlock as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(mutateFn(null)).toBe(null);
   });
 
   it("tolerates a failing structured-reflections call, still succeeding with structuredReflections: []", async () => {
@@ -287,6 +289,8 @@ describe("/api/retrospective POST", () => {
     const json = await res.json();
     expect(json.fileId).toBe("2026-06-15_build-ftp");
     expect(store.appendBlockHistory).toHaveBeenCalledTimes(1);
-    expect(store.writeCurrentBlock).toHaveBeenCalledWith(null);
+    expect(store.updateCurrentBlock).toHaveBeenCalled();
+    const mutateFn = (store.updateCurrentBlock as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(mutateFn(null)).toBe(null);
   });
 });

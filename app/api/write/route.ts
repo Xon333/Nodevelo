@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
-import { appendBlockHistory, readAthleteProfile, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, writeCurrentBlock, writeInterventionLog } from "@/lib/data-store";
+import { appendBlockHistory, readAthleteProfile, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, writeInterventionLog } from "@/lib/data-store";
 import { currentPeriod } from "@/lib/season";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { buildInterventions, mergeInterventions } from "@/lib/intervention";
@@ -154,7 +154,7 @@ export async function POST(req: Request) {
       });
     })(),
   };
-  await writeCurrentBlock(currentBlock);
+  await updateCurrentBlock(() => currentBlock);
 
   // Clean the replaced block's now-orphaned events (RV-9): future planned days the new block doesn't
   // re-cover. A shared date is upserted in place (same external_id) so it's left alone; past days keep

@@ -7,7 +7,7 @@ import {
   readCurrentBlock,
   readInterventionLog,
   readLastSync,
-  writeCurrentBlock,
+  updateCurrentBlock,
 } from "@/lib/data-store";
 import { analyzePowerProfile, formatPowerProfileForPrompt, powerProfileSeed } from "@/lib/power-profile";
 import { writeRetrospective } from "@/lib/kb-loader";
@@ -262,7 +262,7 @@ export async function POST() {
     days: truncateBlockDays(block.days, utcToday()),
   };
   await appendBlockHistory(historyEntry);
-  await writeCurrentBlock(null);
+  await updateCurrentBlock(() => null);
 
   return NextResponse.json({ retrospective, seeds, structuredReflections, fileId, complianceByType: complianceMap });
 }

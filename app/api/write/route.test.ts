@@ -24,7 +24,7 @@ vi.mock("@/lib/data-store", () => ({
   readLastSync: vi.fn(async () => null),
   readScoreLog: vi.fn(async () => ({ entries: [] })),
   readSeasonPlan: vi.fn(async () => ({ objective: "", events: [], periods: [], updatedAt: "" })),
-  writeCurrentBlock: vi.fn(async () => {}),
+  updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
   writeInterventionLog: vi.fn(async () => {}),
 }));
 
@@ -67,7 +67,7 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
     expect(json.blockSaved).toBe(false);
     expect(json.results.map((r: { ok: boolean }) => r.ok)).toEqual([true, false]);
     // The critical invariant: no half-applied local state on a partial calendar write.
-    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+    expect(store.updateCurrentBlock).not.toHaveBeenCalled();
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
   });
 
@@ -75,7 +75,7 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
     h.createEvent.mockResolvedValue(200);
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
-    expect(store.writeCurrentBlock).toHaveBeenCalledTimes(1);
+    expect(store.updateCurrentBlock).toHaveBeenCalledTimes(1);
     const externalIds = h.createEvent.mock.calls.map((c) => (c[0] as { external_id?: string }).external_id);
     expect(externalIds).toEqual(["nodevelo-2026-06-15", "nodevelo-2026-06-16"]);
   });
