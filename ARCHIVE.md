@@ -12,6 +12,38 @@ exact commits.
 
 ---
 
+## Trend detector was blind to a recovered tail (2026-07-12)
+
+`trendOf` (`lib/athlete-model.ts`) classified a workout type as "trending down" off a blunt
+first-half-vs-second-half mean split — so two hot rides sitting mid-window could outvote a real
+recent recovery. Live case, post-rebuild (see the entry above): real Z2 history
+`[8,10,3,9,10,9,6,6,9,10,3,3,10,8]` read "declining over 14 sessions, consider a recovery week"
+despite the athlete's two most recent sessions scoring 10 and 8 — already recovered, contradicting
+the insight's own suggestion.
+
+- **Why re-weighting alone doesn't fix it.** `execEwma` (the level stat shown beside trend) is
+  already recency-weighted; trend was the one stat in the model that wasn't. But hand-verified: EWMA
+  and OLS slope both *still* classify this exact sequence "down" — any global weighting lets a
+  two-ride dip buried mid-window outvote a genuine tail recovery. The fix has to explicitly ask "has
+  the trajectory already turned?", not just weight recency harder.
+- **The fix: a tail-turnaround guard**, symmetric for both directions (a stale "up" is equally
+  dishonest — `athlete-state.ts` consumes both). A "down"/"up" verdict only stands if it still holds
+  across the **last two** sessions (two, not one, so a single fluky ride can't flip the read either
+  way) — reuses the existing `eps` tolerance, no new magic numbers.
+- **Genuine declines still read as declines** — the existing monotonic-decline test case
+  (`[8,7,6,5,4,3]`) is untouched by the guard (tail stays meaningfully below baseline).
+- Designed and implemented by a Fable 5 subagent per the architecture/design-tradeoff escalation
+  trigger — this changes trend semantics for every workout type plus the overall-execution insight,
+  not a Z2-specific patch.
+
+**Live verification:** `/api/trends` and the rendered `/trends` page no longer show "Z2 trending
+down" against the real ledger. The "Execution trending down" (Overall, 22-ride window) insight still
+fires — checked by hand: a genuine borderline case, its tail sits 0.08 below the recovery bar, not a
+regression, and already carries the hedged "could be accumulated fatigue, a harder block, or more
+outdoor riding" wording from the 2026-07-11 honesty fix.
+
+---
+
 ## Morning-check live-use fixes + ride-note HR-discipline surface + the one-time ledger rebuild (2026-07-12)
 
 Four fixes from one live-use report (the athlete skipped a 60-min Z2 for extreme fatigue and the app
