@@ -66,6 +66,10 @@ export async function addCoachNote(
     input.hrZoneTimes = analysis.hrZoneTimes;
     input.intervalComparison = analysis.intervalComparison;
     input.powerPRs = analysis.powerPRs;
+    // The HR-judged easy-ride read the scorer applied (Z2/Recovery, on-plan only) — the note must
+    // judge "was it easy" on this, not re-derive a power-based zone-creep verdict. `?? null` because
+    // an analysis written before the field existed parses back with the key absent.
+    input.aerobicDiscipline = analysis.aerobicDiscipline ?? null;
     // Truthy-checked (never `=== null`): a today-analysis.json written before fuelPrompt existed
     // parses back with the key absent, not null.
     input.fuelPromptContext = analysis.fuelPrompt ? formatFuelPromptContext(analysis.fuelPrompt) : null;

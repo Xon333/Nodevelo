@@ -56,6 +56,28 @@ describe("buildRideAnalysisPrompt", () => {
     expect(p).toContain("330W (was 320W)");
   });
 
+  // The HR-judged easy-ride rework's LLM surface: on a prescribed Z2/Recovery day the note must judge
+  // "was it easy" by the HR read, not power-zone spread — otherwise the model re-derives the exact
+  // terrain-confounded "zone creep" narrative the scoring rework eliminated.
+  it("renders the HR-judged discipline read + power-caveat instruction on an easy day", () => {
+    const p = buildRideAnalysisPrompt(
+      rideInput({ plannedType: "Z2", plannedName: "Easy Z2", aerobicDiscipline: "dialed", powerZoneTimes: [781, 2005, 1274, 528, 340] })
+    );
+    expect(p).toContain("Easy-ride discipline (HR-judged): dialed in");
+    expect(p).toMatch(/do not.*power-zone/i);
+    expect(p).toMatch(/descents|rollers|terrain/i);
+  });
+
+  it("renders the ran-hot read honestly", () => {
+    const p = buildRideAnalysisPrompt(rideInput({ plannedType: "Recovery", aerobicDiscipline: "hot" }));
+    expect(p).toContain("ran hot");
+  });
+
+  it("omits the discipline line on interval days and when the read is absent", () => {
+    expect(buildRideAnalysisPrompt(rideInput())).not.toContain("Easy-ride discipline");
+    expect(buildRideAnalysisPrompt(rideInput({ plannedType: "Z2", aerobicDiscipline: null }))).not.toContain("Easy-ride discipline");
+  });
+
   it("flags the plan/detection mismatch note when set", () => {
     const comparison: IntervalComparison = {
       prescribedLabels: ["3x12m @ 95%"],

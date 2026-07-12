@@ -17,6 +17,7 @@ import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { isSteadyEnduranceRide } from "./trends";
+import type { AerobicDiscipline } from "./execution-score";
 
 // ---------- date helpers ----------
 
@@ -336,6 +337,12 @@ export interface RideAnalysisInput {
   // numbers are already computed; the model may mention this in one sentence but must never
   // invent or recompute the figures. Absent (null) when no fuel prompt fired today.
   fuelPromptContext?: string | null;
+  // The HR-judged easy-ride discipline read (TodayAnalysis.aerobicDiscipline) — set only on prescribed
+  // Z2/Recovery days where the scorer applied it. When present, the prompt instructs the model to judge
+  // "was this easy?" on THIS, not power-zone spread: outdoor watts spike on terrain even on a perfectly
+  // easy ride, so a power-based "zone creep" narrative is the same terrain-confound the scoring rework
+  // (2026-07-11) removed. Absent/null on interval days, off-plan rides, and durability templates B–E.
+  aerobicDiscipline?: AerobicDiscipline | null;
 }
 
 function fmtIntervals(c: IntervalComparison | null): string | null {
@@ -428,8 +435,21 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
   // read the model may mention, never recompute. Pre-formatted by the caller; passed through verbatim.
   const fuelPromptLine = input.fuelPromptContext?.trim() ? input.fuelPromptContext.trim() : null;
 
+  // HR-judged easy-ride discipline (2026-07-11 scoring rework, LLM surface). Only present on prescribed
+  // Z2/Recovery days where the scorer applied the read — there, the HEART is the judge of "was it easy",
+  // and the model must not re-derive a power-based "zone creep" verdict the scoring just rejected.
+  const disciplineLabel: Record<AerobicDiscipline, string> = {
+    dialed: "dialed in — HR stayed aerobic (within the easy ceiling)",
+    drift: "some drift — a few efforts crept above the aerobic ceiling",
+    hot: "ran hot — HR sat above the aerobic ceiling for a large share of the ride; it genuinely wasn't an easy ride",
+  };
+  const disciplineLine = input.aerobicDiscipline ? `Easy-ride discipline (HR-judged): ${disciplineLabel[input.aerobicDiscipline]}` : null;
+  const disciplineInstruction = disciplineLine
+    ? " This was a prescribed easy day: judge \"was it actually easy\" ONLY by the HR-judged discipline line — do not judge easy-ride discipline from the power-zone distribution or call power spread \"zone creep\": outdoor watts spike on descents, rollers, restarts and corners even on a perfectly ridden easy ride, and the execution score already accounts for this."
+    : "";
+
   return [
-    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
+    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days." + disciplineInstruction + " Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
     "",
     planned,
     header,
@@ -440,6 +460,7 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
     effortLine,
     powerZoneLine,
     hrZoneLine,
+    disciplineLine,
     athleteNote,
     fuelPromptLine,
   ].filter(Boolean).join("\n");
