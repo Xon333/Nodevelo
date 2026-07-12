@@ -144,6 +144,14 @@ describe("weeklyEnergy (TRENDS-2)", () => {
       loggedDays: 0,
     });
   });
+
+  // Regression (HR-7): a genuinely-logged 0-kcal day (e.g. a tracked fast) must count as logged, not
+  // be silently treated the same as an unlogged (null) day.
+  it("counts a legitimately-logged 0-kcal day toward intake, not as unlogged", () => {
+    const out = weeklyEnergy([], [well({ date: "2026-06-01", kcalConsumed: 0 })], today);
+    expect(out).toHaveLength(1);
+    expect(out[0].intakeKcal).toBe(0); // a real logged 0, not null (null would mean "nothing logged")
+  });
 });
 
 describe("weeklyEnergy balance columns", () => {

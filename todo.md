@@ -66,7 +66,7 @@ through today's morning-check/trend-detector fixes).** 15 findings from an xhigh
   suggestion recomputed live by the GET route, not the one frozen when the flag originally fired. If
   the block changes in between (a manual Move, say), the preview and what tapping Apply actually
   executes can silently diverge.
-- ☐ P2 `bug` **HR-7** — `lib/trends.ts`'s new weekly-intake aggregation guards on
+- ☑ P2 `bug` **HR-7** — `lib/trends.ts`'s new weekly-intake aggregation guards on
   `kcalConsumed > 0` ([lib/trends.ts:127](lib/trends.ts:127)) instead of `!== null`, so a
   legitimately-logged 0-kcal day (e.g. a tracked fast) silently drops out of the week's intake total
   and logged-day count — a regression vs. the codebase's own convention of treating 0 as a real

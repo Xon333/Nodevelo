@@ -124,7 +124,7 @@ export function weeklyEnergy(
   }
   for (const w of wellness) {
     const e = getW(mondayOf(w.date));
-    if (w.kcalConsumed !== null && w.kcalConsumed > 0) {
+    if (w.kcalConsumed !== null) {
       e.intake += w.kcalConsumed;
       e.intakeN += 1;
       // Day-matched need: the app's own daily-target formula for THIS day. Flat config buffer — the
