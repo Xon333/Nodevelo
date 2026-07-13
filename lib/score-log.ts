@@ -70,10 +70,13 @@ export function npStampFor(act: ActivitySummary): { npUnverified: true } | Recor
 // (SYNC_WINDOW_DAYS = 182) don't fully overlap, so a read-time join would silently lose the oldest
 // slice. Also guards against re-deriving the HR read + gates a second, independent time — exactly the
 // drift class the 2026-07-11 "Coach-prompt aerobic-discipline gap closed" fix (ARCHIVE.md) had to clean
-// up after. Matches the `fuel`/`intervals`/`calStampFor` provenance pattern. Gated identically to
-// computeExecutionScore's merged-read branch (prescribed Z2/Recovery, non-embeds-efforts durability
-// template), so stamp presence implies the merged read actually applied. Spread-ready `{}` off-plan,
-// other types, and templates B–E.
+// up after. Matches the `fuel`/`intervals`/`calStampFor` provenance pattern. Gated on the same
+// ride-shape condition as computeExecutionScore's merged-read branch (prescribed Z2/Recovery,
+// non-embeds-efforts durability template) — so stamp presence means the ride was ELIGIBLE for the
+// merged read, not that the read necessarily produced a non-zero adjustment: when both
+// aboveAerobicHrFrac and aerobicEffPct are null, this still stamps `{ easy: { indoor } }` even
+// though computeExecutionScore's own gate (at least one of the two signals present) never entered
+// the merged-read branch for that ride. Spread-ready `{}` off-plan, other types, and templates B–E.
 export function easyStampFor(
   act: ActivitySummary,
   plannedType: string,
@@ -181,7 +184,7 @@ export function buildRideScores(
     const aboveAerobicHrFrac = timeAboveAerobicHrFraction(act.hrZoneTimes);
     // The non-circular aerobic read: this ride's Z2 Pw:HR vs the athlete's baseline from qualifying
     // rides BEFORE it (no self-reference). Null (too little Z2 / no baseline) → no effect. Hoisted above
-    // the planned/off-plan split — both branches consume it (Task 2: planned Z2/Recovery merges it via
+    // the planned/off-plan split — both branches consume it (planned Z2/Recovery merges it via
     // mergedEasyRead, off-plan uses it as the sole aerobic read) — so it's computed once, not twice.
     // ponytail: O(rides) per call → O(n²) across a full ledger rebuild; pre-accepted (lib/aerobic.ts).
     const easyAerobicEffPct = aerobicEffPct(act, z2PwHrBaselineBefore(activities, act.date));
@@ -210,7 +213,7 @@ export function buildRideScores(
         plannedType: planned.type,
         variabilityIndex,
         aboveAerobicHrFrac,
-        // Task 2: corroborates/refutes the HR-ceiling read on planned Z2/Recovery via mergedEasyRead
+        // Corroborates/refutes the HR-ceiling read on planned Z2/Recovery via mergedEasyRead
         // (inert elsewhere — computeExecutionScore only consumes it for prescribed Z2/Recovery).
         aerobicEffPct: easyAerobicEffPct,
         // Interval-target adherence (scoring-core gap): a structural plan/detection mismatch means the

@@ -559,10 +559,11 @@ export interface AthleteTypeStat {
   complianceEwma: number; // EWMA of duration compliance %
   trend: "up" | "down" | "flat";
   // Indoor/outdoor diagnostic breakdown (Z2/Recovery only), built from each entry's `easy` ledger
-  // stamp (RideScoreEntry.easy, ROADMAP Task 2). Computed over the same planned/non-compromised
-  // entries execEwma uses, restricted further to the subset that actually carries a stamp
-  // (pre-rebuild-ledger entries won't). Absent when the type isn't Z2/Recovery, or when `reads`
-  // would be 0 (nothing to diagnose) — follows the sparse-field convention, never an empty object.
+  // stamp (RideScoreEntry.easy — the merged aerobic-discipline read's provenance). Computed over
+  // the same planned/non-compromised entries execEwma uses, restricted further to the subset that
+  // actually carries a stamp (pre-rebuild-ledger entries won't). Absent when the type isn't
+  // Z2/Recovery, or when `reads` would be 0 (nothing to diagnose) — follows the sparse-field
+  // convention, never an empty object.
   easy?: {
     reads: number; // entries in this type's population that carry an `easy` stamp
     indoorN: number;

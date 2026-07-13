@@ -613,7 +613,7 @@ export async function POST(req: Request) {
             prevSync?.powerCurveAllTime ?? []
           );
 
-          // Task 3: hoisted once — reused by buildTodayAnalysis's aerobicEffPct input AND the easy-ride
+          // Hoisted once — reused by buildTodayAnalysis's aerobicEffPct input AND the easy-ride
           // ledger stamp in the today-patch below, so today's frozen `easy` stamp is built from the exact
           // same re-bucketed hrZoneTimes / aerobicEffPct that produced this entry's executionScore (the
           // drift class the 2026-07-11 "Coach-prompt aerobic-discipline gap closed" fix cleaned up for a
@@ -704,7 +704,7 @@ export async function POST(req: Request) {
                         ...(plannedDay?.durabilityTemplate && durabilityDelivery != null
                           ? { durabilityDelivery: { signal: durabilityDelivery.signal } }
                           : {}),
-                        // Task 3: re-stamp the easy-ride merged-read provenance from THIS richer, re-bucketed
+                        // Re-stamp the easy-ride merged-read provenance from THIS richer, re-bucketed
                         // HR data — without this, today's frozen `easy` stamp would stay whatever
                         // buildRideScores computed from the raw (non-re-bucketed) hrZoneTimes, drifting from
                         // the executionScore this same patch just replaced. Gated internally by easyStampFor

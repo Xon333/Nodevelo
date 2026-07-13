@@ -6,6 +6,7 @@ import type { AthleteModel, AthleteTypeStat, Insight, RideScoreEntry, WorkoutTyp
 import { summariseBehaviour } from "./score-log";
 import { autoEwmaAlpha } from "./calibration";
 import { round1, round2 } from "./stats";
+import { AEROBIC_HR_DRIFT_MAX } from "./execution-score";
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 0);
 
@@ -38,8 +39,9 @@ function trendOf(values: number[]): "up" | "down" | "flat" {
 }
 
 // Indoor/outdoor diagnostic breakdown for a Z2/Recovery type's planned, non-compromised entry
-// population (Task 6 — ROADMAP #2 easy-ride diagnostics). Reads each entry's `easy` ledger stamp
-// (Task 2); entries without one (pre-rebuild ledger, non-Z2/Recovery-shaped rides) are ignored.
+// population — surfaces whether outdoor terrain (not the prescription) is behind a weak easy-ride
+// read. Reads each entry's `easy` merged-read ledger stamp; entries without one (pre-rebuild
+// ledger, non-Z2/Recovery-shaped rides) are ignored.
 // Returns undefined when nothing in the population carries a stamp — nothing to diagnose, and the
 // sparse-field convention means the caller leaves `easy` unset rather than an empty object.
 function easyDiagnostics(entries: RideScoreEntry[]): AthleteTypeStat["easy"] {
@@ -163,17 +165,21 @@ export function deriveInsights(model: AthleteModel): Insight[] {
       easy.reads >= MIN_OBSERVATIONS &&
       healthySide
     ) {
-      const premiumPct =
+      const rawPremiumPct =
         easy.hotTssPerMin != null && easy.controlledTssPerMin != null && easy.controlledTssPerMin > 0
           ? Math.round(((easy.hotTssPerMin - easy.controlledTssPerMin) / easy.controlledTssPerMin) * 100)
           : null;
+      // Only a genuine cost is worth narrating — pathological data (a hot ride cheaper per minute
+      // than the controlled ones) would otherwise render nonsensical text like "cost extra (~-12%
+      // more training load per minute)". Non-positive → omit the clause, same as an unavailable figure.
+      const premiumPct = rawPremiumPct != null && rawPremiumPct > 0 ? rawPremiumPct : null;
       const indoorClause =
         easy.indoorN >= 2 && easy.indoorExecAvg != null ? `indoor ${easy.indoorExecAvg}/10 (${easy.indoorN} rides), ` : "";
       out.push({
         dimension: t.type,
         severity: t.execEwma < 5.5 ? "alert" : "watch",
         title: `${t.type} splits indoor vs outdoor`,
-        evidence: `Execution averaging ${t.execEwma}/10 across ${t.n} sessions — but split: ${indoorClause}${easy.outdoorHotN} of ${easy.outdoorN} outdoor rides ran hot (HR above the aerobic ceiling for over 25% of the ride).`,
+        evidence: `Execution averaging ${t.execEwma}/10 across ${t.n} sessions — but split: ${indoorClause}${easy.outdoorHotN} of ${easy.outdoorN} outdoor rides ran hot (HR above the aerobic ceiling for over ${Math.round(AEROBIC_HR_DRIFT_MAX * 100)}% of the ride).`,
         suggestion: `Not a case for easing the ${t.type} target — the hot outdoor days are the problem: flatter routes or capped effort on climbs.${premiumPct != null ? ` Those rides already cost extra (~${premiumPct}% more training load per minute), which your fatigue tracking absorbs automatically.` : ""}`,
       });
     } else if (t.execEwma < 5.5) {

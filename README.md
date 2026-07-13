@@ -249,16 +249,21 @@ Whole-ride decoupling no longer contributes here (ACC-2026-06-25) — it's too n
 grade a single session and lives on as a steady-ride *durability* signal instead
 (`lib/calibration.ts`'s `decouplingGood`). No AI is involved.
 
-**Easy-ride effort is judged on heart rate, not power (2026-07-11 rework).** Outdoors you can't
-hold Zone-2 *power* — descents, rollers, restarts, and corners spike watts even on a genuinely
-easy ride — so power-zone time and pacing (VI) are now **reward-only** for prescribed Z2/Recovery
-days (an in-band IF or a steady VI still earns a bonus, but neither is ever penalized). The sole
-"was this actually easy?" judge is `aerobicDisciplineRead` over `timeAboveAerobicHrFraction`
-(HR-zone time above the aerobic ceiling — terrain-immune): dialed in (+1) / some drift (0) / ran
-hot (−4, the overtraining guardrail, sized so it holds even when every other Z2/Recovery bonus
-stacks to its max). Surfaced in the Today debrief as a ✓/~/✗ "aerobic discipline" line, gated the
-same way the score is (never applied off-plan or to durability templates B–E, where efforts
-embedded in the ride are the point, not a discipline lapse).
+**Easy-ride effort is judged on heart rate, not power (2026-07-11 rework, merged with an
+efficiency corroboration on 2026-07-12).** Outdoors you can't hold Zone-2 *power* — descents,
+rollers, restarts, and corners spike watts even on a genuinely easy ride — so power-zone time and
+pacing (VI) are now **reward-only** for prescribed Z2/Recovery days (an in-band IF or a steady VI
+still earns a bonus, but neither is ever penalized). The "was this actually easy?" judge is
+`mergedEasyRead` (`lib/execution-score.ts`), which merges the HR-zone read (`aerobicDisciplineRead`
+over `timeAboveAerobicHrFraction` — HR-zone time above the aerobic ceiling, terrain-immune) with
+the ride's Pw:HR efficiency vs the athlete's own 90-day baseline (`aerobicEffPct`). A dialed HR
+read earns +1 — unless the efficiency reading is notably below baseline too, in which case the
+bonus is withheld ("hollow dialed", 0). Drift stays neutral (0) unless the efficiency reading
+corroborates it, which drops it to a "corroborated drift" (−2). Running hot is always −4 (the
+overtraining guardrail, sized so it holds even when every other Z2/Recovery bonus stacks to its
+max), regardless of the efficiency reading. Surfaced in the Today debrief as a ✓/~/✗ "aerobic
+discipline" line, gated the same way the score is (never applied off-plan or to durability
+templates B–E, where efforts embedded in the ride are the point, not a discipline lapse).
 
 The interval matcher is deliberately defensive about detection noise:
 
