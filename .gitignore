@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Brainstorming visual-companion scratch
 .superpowers/
+
+# Local Git worktrees
+.worktrees/
