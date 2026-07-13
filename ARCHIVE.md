@@ -12,6 +12,76 @@ exact commits.
 
 ---
 
+## On-plan Z2/Recovery aerobic-baseline merge + diagnostic insight (2026-07-12)
+
+Athlete-flagged discrepancy: the block retrospective's `complianceByType.Z2 = 107%` (pure duration
+ratio) contradicted the coaching insight "Z2 is a weak point, 5.4/10" (the HR-ceiling execution-score
+axis from the 2026-07-10/11 rework, above). Investigation confirmed both numbers were honest —
+they measure different things — but also surfaced a real gap: planned Z2/Recovery rides were graded
+against the single-ride HR-ceiling breach (`aerobicDisciplineRead`) only; they never got compared to
+the athlete's own 90-day aerobic-efficiency baseline (`aerobicEffPct`, `lib/aerobic.ts`), which
+already existed but was wired for off-plan rides and the Today athlete-state driver only. Plan:
+`docs/superpowers/plans/2026-07-12-01-z2-aerobic-baseline-merge.md`, executed via
+subagent-driven-development (6 code tasks, each independently reviewed).
+
+- **Real-data diagnosis before any code changed.** Pulled the athlete's actual June block ledger:
+  all 4 indoor (VirtualRide) Z2 sessions scored 9–10 at 0–1.5% HR time above the aerobic ceiling;
+  outdoor rides split bimodally — controlled ones (1.3–8.7% above ceiling) scored 8–10, "ran hot"
+  ones (17.7–34.1%) scored 1–6. Confirmed separately that fatigue-cost tracking (CTL/ATL/TSB/ACWR)
+  was already correct — it reads Intervals.icu's real per-ride `trainingLoad`, not a planned figure —
+  measured controlled Z2 rides at ~0.73–0.84 TSS/min vs. ~1.03–1.15 TSS/min for ran-hot ones, a real
+  25–55% load premium already flowing into the fatigue model with no code change needed.
+- **The merge (`lib/execution-score.ts`, `mergedEasyRead`).** The HR-ceiling read and the aerobic-
+  efficiency-vs-baseline read share one physiological cause (HR up relative to power) observed at two
+  granularities — resolved to one merged read, not two stacked penalties. HR-ceiling "hot" stays the
+  primary judge (−4, unchanged, eff ignored — already the full guardrail). A new "corroborated drift"
+  path (drift + `aerobicEffPct ≤ −6%`) adds **−2**, capping that ride at 7/10 — an intermediate step
+  between plain drift (0) and hot (−4). A "hollow dialed" ride (HR-ceiling clean, but a bad baseline
+  reading) withholds the +1 bonus rather than penalizing — Pw:HR is flaky (heat/hydration/caffeine),
+  so it should never cost points when the HR-ceiling discipline itself held. No new bonus is ever
+  granted from `aerobicEffPct` on-plan, preserving the existing zero-margin guardrail invariant.
+- **Ledger provenance stamp.** `RideScoreEntry.easy?: { indoor, hrRead?, aerobicEffPct? }`
+  (`lib/score-log.ts`, `easyStampFor`) freezes the inputs behind the merged read, planned Z2/Recovery
+  + non-embeds-efforts only — mirrors the `fuel`/`intervals` provenance pattern so the athlete model
+  can diagnose indoor/outdoor + ran-hot patterns without re-joining activities. The sync route's
+  today-patch re-stamps from the same re-bucketed HR data the day's `executionScore` uses (not the
+  raw synced zones), closing the exact drift-class gap the 2026-07-11 rework's own follow-up fix
+  ("Coach-prompt aerobic-discipline gap closed") had already warned about for a different surface.
+- **Diagnostic insight (`lib/athlete-model.ts`).** `deriveInsights` now recognises the bimodal
+  indoor/outdoor pattern (≥2 hot outdoor rides among ≥3, with a genuinely healthy indoor/controlled-
+  outdoor side) and replaces the generic "ease the prescription" suggestion with one naming the real
+  pattern and its measured TSS/min premium, falling through unchanged to the old generic branches
+  when the pattern isn't present (verified byte-identical against a no-stamp fixture). One deliberate
+  judgment call: the "healthy side" check uses a new `outdoorControlledExecAvg` field (outdoor rides
+  excluding the hot ones) rather than the mixed outdoor average, because the mixed figure would let
+  hot rides pollute the very check meant to isolate from them — hand-verified with a worked example
+  during review.
+- **Narration.** The ride-note LLM prompt (`lib/anthropic-prompts.ts`) and the Ask-Coach SITUATION
+  line (`lib/coach-snapshot.ts`) both surface the efficiency figure when it's notably below baseline
+  (`AEROBIC_DEADBAND_PCT`, shared constant — not a re-typed literal), and the "ran hot" label now
+  states explicitly that the ride's real training load (not the plan's) is what the fatigue model
+  reads, so the extra cost is already counted against freshness.
+
+**Live verification (2026-07-12).** `/api/analyze` re-run on the athlete's actual "ran hot" ride from
+today: the real coach note said *"that cost is already sitting in your fatigue model"* — the new
+narration confirmed against the live Anthropic API, not a mock. A live block-generation smoke run (to
+confirm the new insight reaches `lib/synthesis.ts`'s directive block) was intentionally skipped this
+session — the athlete was mid-generating their own next block in the UI at the time, and triggering
+`/api/generate` myself would have crossed that boundary even though the endpoint alone is preview-only.
+`lib/synthesis.ts` is a plain title/evidence/suggestion string passthrough (independently confirmed
+during task review), so the risk of it silently breaking only in the live prompt is low; worth a real
+check next time a block is actually generated.
+
+**Ledger rebuild (2026-07-12, `rebuildLedger: true, force: true`).** Re-scored all 15 of the athlete's
+real planned Z2 rides under the new logic. Every score matched hand-derived expectations exactly: hot/
+dialed/indoor rides stayed byte-identical (the −4 guardrail predates this work); the two rides sitting
+in the 10–25% "drift" band did **not** trip the new corroborated-drift penalty, because their real
+`aerobicEffPct` was positive or unavailable, not corroborating — a legitimate real-data outcome, not a
+bug (this athlete's drift-band rides and bad-baseline rides simply never coincided in this block). One
+durability-template ride correctly received no `easy` stamp (the embeds-efforts gate held on real data).
+
+---
+
 ## Trend detector was blind to a recovered tail (2026-07-12)
 
 `trendOf` (`lib/athlete-model.ts`) classified a workout type as "trending down" off a blunt
