@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockDates,
   buildRideAnalysisPrompt,
   buildRetrospectivePrompt,
   buildStructuredRetrospectivePrompt,
+  buildSystemPrompt,
+  buildUserMessage,
   type ReflectionInterventionInput,
   type RetrospectiveInput,
   type RideAnalysisInput,
 } from "./anthropic-prompts";
-import type { IntervalComparison } from "./types";
+import type { BlockParams, IntervalComparison } from "./types";
 
 // These prompt builders were inlined in the SDK call functions before the RV-8 split, so they couldn't
 // be tested without mocking the network. Now pure, they're asserted directly.
@@ -129,6 +132,51 @@ describe("buildRideAnalysisPrompt", () => {
     // (`FUEL PROMPT: ...`) rather than the bare substring, which would false-fail against that sentence.
     expect(buildRideAnalysisPrompt(rideInput())).not.toMatch(/FUEL PROMPT: /);
     expect(buildRideAnalysisPrompt(rideInput({ fuelPromptContext: null }))).not.toMatch(/FUEL PROMPT: /);
+  });
+});
+
+const blockParams: BlockParams = {
+  lengthWeeks: 4,
+  goal: "Hilly KOM build",
+  weakpoints: ["VO2max"],
+  startDate: "2026-07-20",
+};
+
+describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
+  // The Intervals.icu "press lap" convention: the phrase makes a step open-ended (lap-button end)
+  // on Garmin/Suunto via Garmin Connect. The guide must teach it WITH its guardrails — positioning/
+  // readiness steps only, never the prescribed work interval, never indoor/ERG.
+  it("teaches the press-lap open-ended step syntax with its misuse guardrails", () => {
+    const { cached } = buildSystemPrompt("KB", "", "ATHLETE CURRENT DATA", blockParams);
+    expect(cached).toContain('the phrase "Press lap"');
+    expect(cached).toContain("- Press lap when ready 20m 50%"); // the concrete example step
+    expect(cached).toMatch(/Garmin\/Suunto/); // device-scoped, not universal
+    expect(cached).toMatch(/NEVER on a prescribed work interval/);
+    expect(cached).toMatch(/NEVER\s+in indoor\/ERG sessions/);
+    expect(cached).toContain("realistic duration"); // duration still required for time/load estimates
+  });
+
+  const userMessage = () =>
+    buildUserMessage(blockParams, blockDates("2026-07-20", 4), "| table |");
+
+  // A live block came in with 2 of 4 loading weeks BELOW the stated 10h floor: the old wording
+  // ("must reach at least 10h") read as a floor to clear, and easy sessions landed compact. The
+  // rewrite targets the top of the range and names easy-Z2 duration as the volume lever.
+  it("targets the top of the weekly-hours range and names easy-Z2 duration as the lever", () => {
+    const p = userMessage();
+    expect(p).toContain("must total 10–12 hours"); // DEFAULT_BLOCK_SETTINGS interpolated
+    expect(p).toContain("plan toward the TOP of that range (~12h)");
+    expect(p).toContain("Landing at exactly 10h is a shortfall, not a pass");
+    expect(p).toMatch(/LENGTHEN the easy Z2 sessions/);
+    expect(p).not.toContain("must reach at least"); // the old floor-clearing wording is gone
+  });
+
+  it("sizes easy Z2 sessions to the volume target instead of capping them at 60–90 min", () => {
+    const p = userMessage();
+    expect(p).not.toContain("(60–90 min each)"); // the old fixed cap that produced compact weeks
+    expect(p).toContain("size them UP, typically 90–120 min, until the week's total hits the WEEKLY VOLUME target");
+    // The rest-day clause still renders correctly after the structure-line rewrite.
+    expect(p).toContain("+ 1 rest day per week");
   });
 });
 

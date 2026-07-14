@@ -53,6 +53,15 @@ const WORKOUT_SYNTAX_GUIDE = `INTERVALS.ICU WORKOUT SYNTAX (use exactly this for
   Leave one empty line BEFORE and AFTER every repeat block. Nested repeats are not supported.
 - Plain-text lines without a leading "- " (e.g. "Warmup", "Cooldown") are section labels and are allowed.
 - Free text before the duration inside a step becomes an on-screen cue: - Settle in 10m 60%
+- Open-ended steps: the phrase "Press lap" anywhere in a step's text makes the step end only when
+  the athlete presses the device's lap button instead of on the timer (works on Garmin/Suunto head
+  units synced via Garmin Connect — everywhere else the stated duration governs as normal). Still
+  give a realistic duration; it is used for estimated time and load either way.
+  Example: - Press lap when ready 20m 50%
+  Use ONLY for outdoor positioning or readiness steps (e.g. "ride to the base of the climb, then
+  press lap", or a "warm up until legs feel ready" segment). NEVER on a prescribed work interval —
+  SIT/VO2max/Threshold protocol validation depends on the stated duration being real — and NEVER
+  in indoor/ERG sessions (device-dependent; does not apply indoors).
 Full example:
 
 Warmup
@@ -298,9 +307,9 @@ Hard rules:
   Keep every cue as concise *inline* coaching (a clause the athlete acts on mid-ride) — **never**
   tell them to watch a video, read an article, or include any external link/URL.
 - Workout step durations must sum approximately to DURATION.
-- **WEEKLY VOLUME (loading weeks):** Target ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours total per week. Each loading week must reach at least ${settings.weeklyHoursMin}h.
+- **WEEKLY VOLUME (loading weeks):** Every loading week must total ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours — plan toward the TOP of that range (~${settings.weeklyHoursMax}h). Landing at exactly ${settings.weeklyHoursMin}h is a shortfall, not a pass; below ${settings.weeklyHoursMin}h is a broken week. Before finalising each week, add up every session's DURATION; if the total is short, LENGTHEN the easy Z2 sessions — their duration (not their count, and not the long ride or quality sessions, which follow their own rules) is the lever that fills the week.
 - **WEEKLY VOLUME (recovery week):** Reduce to ${settings.recoveryWeekHoursMin}–${settings.recoveryWeekHoursMax} hours total.
-- **WEEKLY STRUCTURE (loading weeks):** ${settings.qualitySessionsPerLoadingWeek} quality sessions (threshold/VO2max/SIT) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60–90 min each) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week (avoid back-to-back hard days).${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
+- **WEEKLY STRUCTURE (loading weeks):** ${settings.qualitySessionsPerLoadingWeek} quality sessions (threshold/VO2max/SIT) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60 min minimum each — size them UP, typically 90–120 min, until the week's total hits the WEEKLY VOLUME target) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week (avoid back-to-back hard days).${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
 - **Rest days:** TYPE: Rest, DURATION: 0, WORKOUT: Rest, description with Intent and Daily target only. Limit to ${settings.restDaysPerWeek} per week.
 - Do not output anything before BLOCK OVERVIEW or after the final day.`;
 }
