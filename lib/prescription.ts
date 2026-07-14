@@ -2,11 +2,20 @@
 // intervals the coach prescribed — the "second brain" intent that execution is judged
 // against. Only deliberate efforts (≥ sweet-spot) are kept; warmups, recovery valves
 // and endurance steps are ignored, so an endurance ride yields an empty prescription.
+// Exclusion is two-layered: steps lexically under a Warmup/Cooldown label are dropped
+// outright (a priming ramp to 80–85% is prep, not a rep), and everything else is
+// filtered by the %FTP work floor.
 
 import { DEFAULT_DURABILITY_INSERT_ENVELOPE } from "./calibration";
 import type { PrescribedInterval } from "./types";
 
 const WORK_THRESHOLD_PCT = 80;
+
+// Section labels whose steps are never work, whatever their %FTP: a warmup's priming/build step
+// at 80–85% used to clear WORK_THRESHOLD_PCT and get validated as a (malformed) main-set rep.
+// Any other label ("Main Set 3x", a custom name) — and an unlabeled group after a blank line,
+// which is how generated Z2/durability rides carry their main work — counts normally.
+const EXCLUDED_SECTION_RX = /\b(?:warm[\s-]?up|cool[\s-]?down)\b/i;
 
 // Seconds from the duration token(s) preceding the power %: 12m, 30s, 1h, 1h30m, 5', 30".
 function durationToSec(head: string): number {
@@ -87,18 +96,22 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
     blockReps = 1;
   };
 
+  let inExcludedSection = false;
   for (const raw of workoutText.split("\n")) {
     const line = raw.trim();
     if (line === "") {
-      flush(); // blank line ends a repeat block
+      flush(); // blank line ends a repeat block…
+      inExcludedSection = false; // …and the section — an unlabeled group that follows counts again
       continue;
     }
     if (!line.startsWith("-")) {
       flush(); // a new section label ends the previous block before reading its repeat count
+      inExcludedSection = EXCLUDED_SECTION_RX.test(line);
       const rx = line.match(/(\d+)\s*x/i);
       blockReps = rx ? Math.max(1, Number(rx[1])) : 1;
       continue;
     }
+    if (inExcludedSection) continue; // warmup/cooldown steps are never work, whatever their %FTP
     const step = parseStep(line);
     if (!step || step.pct < WORK_THRESHOLD_PCT) continue; // warmups/recovery valves/endurance dropped
     block.push({

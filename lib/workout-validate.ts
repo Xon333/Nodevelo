@@ -50,8 +50,9 @@ export function validateWorkoutProtocol(
   envelope: DurabilityInsertEnvelope = DEFAULT_DURABILITY_INSERT_ENVELOPE
 ): string[] {
   if (!day.workoutText) return [];
-  // parsePrescription returns only the deliberate work efforts (≥80% FTP); warmups, recovery
-  // valves and endurance steps are already excluded, so we never flag those.
+  // parsePrescription returns only the deliberate work efforts: steps under a Warmup/Cooldown
+  // label are dropped outright (a priming ramp at 80–85% is prep, not a rep), and the rest is
+  // filtered by the ≥80% FTP work floor — so we never flag warmups, valves or endurance steps.
   let steps = parsePrescription(day.workoutText, ftp);
   let rule = PROTOCOL[day.type];
   if (!rule && ENDURANCE_TYPES.has(day.type)) {

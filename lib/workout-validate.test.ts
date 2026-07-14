@@ -104,6 +104,27 @@ describe("validateWorkoutProtocol — Threshold", () => {
   });
 });
 
+describe("validateWorkoutProtocol — warmup/cooldown steps are never validated as work (section fix)", () => {
+  it("does not flag a SIT day whose warmup ramps to the work floor (the reported false positive)", () => {
+    // Pre-fix: the 80% ramp and 85% primer were misread as SIT reps → "below the 130% floor" /
+    // "longer than protocol" warnings for a perfectly normal warmup.
+    const wo = "Warmup\n- 15m ramp 50-80%\n- 3m 85%\n\nMain Set 5x\n- 30s 150%\n- 4m 40%\n\nCooldown\n- 10m 50%";
+    expect(validateWorkoutProtocol(day("SIT", wo), FTP)).toEqual([]);
+  });
+
+  it("does not flag a VO2max day's short cooldown surge", () => {
+    const wo = "Main Set 4x\n- 4m 110%\n- 4m 50%\n\nCooldown\n- 30s 150%\n- 5m 50%";
+    expect(validateWorkoutProtocol(day("VO2max", wo), FTP)).toEqual([]);
+  });
+
+  it("still flags a genuine main-set violation when a warmup is present", () => {
+    const wo = "Warmup\n- 15m ramp 50-80%\n\nMain Set 5x\n- 30s 110%\n- 4m 40%";
+    const w = validateWorkoutProtocol(day("SIT", wo), FTP);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/below the 130% floor/);
+  });
+});
+
 describe("validateWorkoutProtocol — untyped / empty", () => {
   it("ignores Z2, Recovery, Strength, Rest (no fixed protocol)", () => {
     expect(validateWorkoutProtocol(day("Z2", "- 2h 65%"), FTP)).toEqual([]);

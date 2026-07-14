@@ -40,6 +40,11 @@ describe("carriesEmbeddedIntensity", () => {
     // …but not a raised 95% floor, so it no longer counts as embedded intensity.
     expect(carriesEmbeddedIntensity("- 10m 90%", FTP, 95)).toBe(false);
   });
+  it("does not count a hard warmup priming step as embedded intensity (section fix)", () => {
+    // Same 10m 90% dose that trips the floor above — but under a Warmup label it's prep, not
+    // an embedded insert, so the ride stays "easy" for spacing/protocol purposes.
+    expect(carriesEmbeddedIntensity("Warmup\n- 10m 90%\n\n- 60m 65%", FTP)).toBe(false);
+  });
 });
 
 describe("parsePrescription", () => {
@@ -108,5 +113,59 @@ describe("parsePrescription", () => {
     expect(parsePrescription("Main Set 5x\n- 30s 150%", FTP)[0].label).toBe("5×30s @ 432W");
     expect(parsePrescription("Main Set 4x\n- 4m 110%", FTP)[0].label).toBe("4×4m @ 317W");
     expect(parsePrescription("Main Set 3x\n- 90s 120%", FTP)[0].label).toBe("3×1m30s @ 346W");
+  });
+});
+
+describe("parsePrescription — warmup/cooldown sections never count as work (section fix)", () => {
+  it("excludes a warmup priming step at/above the 80% work floor, regardless of duration", () => {
+    // The confirmed false-positive vector: a SIT day's warmup ramping to 80% + a short 85% primer
+    // used to be flattened into the work stream and validated as malformed sprint reps.
+    const wo = "Warmup\n- 15m ramp 50-80%\n- 5m 85%\n\nMain Set 5x\n- 30s 150%\n- 4m 50%\n\nCooldown\n- 10m 50%";
+    const p = parsePrescription(wo, FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 5, durationSec: 30, targetPctFtp: 150 });
+  });
+
+  it("keeps a Main Set step at the same intensity a warmup would drop", () => {
+    const p = parsePrescription("Main Set 2x\n- 10m 85%\n- 5m 50%", FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 2, durationSec: 600, targetPctFtp: 85 });
+  });
+
+  it("excludes a high-intensity cooldown fast-finish", () => {
+    const wo = "Main Set 2x\n- 20m 95%\n- 5m 55%\n\nCooldown\n- 2m 110%\n- 8m 50%";
+    const p = parsePrescription(wo, FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 2, durationSec: 1200, targetPctFtp: 95 });
+  });
+
+  it("a workout with no section labels at all is unchanged", () => {
+    const p = parsePrescription("- 20m 95%", FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 1, durationSec: 1200, targetPctFtp: 95 });
+  });
+
+  it("an unlabeled group after a blank line leaves the warmup (real Z2/durability format)", () => {
+    // Generated Z2/durability rides carry their main work as an UNLABELED group between blank
+    // lines ("Warmup\n- ramp\n\n- 70m 62%\n\nCooldown"), so a blank line must end the excluded
+    // section — only steps lexically contiguous under the Warmup/Cooldown label are dropped.
+    const wo = "Warmup\n- 10m ramp 50-60%\n\n- 12m 95%\n\nCooldown\n- 10m 50%";
+    const p = parsePrescription(wo, FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 1, durationSec: 720, targetPctFtp: 95 });
+  });
+
+  it("recognises spelling variants: Warm-up / Warm up / COOL DOWN", () => {
+    expect(parsePrescription("Warm-up\n- 10m 85%", FTP)).toEqual([]);
+    expect(parsePrescription("Warm up\n- 10m 85%", FTP)).toEqual([]);
+    const p = parsePrescription("Main Set 2x\n- 20m 95%\n- 5m 55%\n\nCOOL DOWN\n- 5m 110%", FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0].targetPctFtp).toBe(95);
+  });
+
+  it("a custom section label still counts as work — only warmup/cooldown are excluded", () => {
+    const p = parsePrescription("Openers 3x\n- 1m 100%\n- 2m 50%", FTP);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toMatchObject({ reps: 3, durationSec: 60, targetPctFtp: 100 });
   });
 });
