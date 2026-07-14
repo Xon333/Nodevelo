@@ -9,8 +9,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    // Concurrent sessions leave test files under .claude/worktrees/* — without this, a root
-    // `npm test` globs them too and reports false failures for another session's WIP.
-    exclude: [...configDefaults.exclude, "**/.claude/**"],
+    // Concurrent sessions and other agent tools (Codex, etc.) leave test files under
+    // .claude/worktrees/* and the gitignored top-level .worktrees/* — without this, a root
+    // `npm test` globs them too and reports false failures (or fires real API calls) for another
+    // session's/tool's WIP checkout.
+    exclude: [...configDefaults.exclude, "**/.claude/**", "**/.worktrees/**"],
   },
 });

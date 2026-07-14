@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Concurrent sessions and other agent tools (Codex, etc.) leave WIP checkouts under
+    // .claude/worktrees/* and the gitignored top-level .worktrees/* — lint shouldn't warn on
+    // another session's/tool's in-flight code (see vitest.config.ts for the matching test exclude).
+    ".claude/**",
+    ".worktrees/**",
   ]),
 ]);
 
