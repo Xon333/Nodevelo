@@ -12,6 +12,54 @@ exact commits.
 
 ---
 
+## 6-week block review: season multi-period, protocol false-positives, hours, press-lap (2026-07-14)
+
+Reviewed a live 6-week block generated after the token-budget fix above and traced its four validator
+warnings plus a volume complaint to root cause, then fixed all of them (three parallel subagents, one
+each — file-disjoint by design so they could run concurrently with no merge risk — plus a fourth
+research-only agent for the press-lap syntax question).
+
+- **Season multi-period awareness** (`lib/season.ts`, `app/api/generate/route.ts`). The season context
+  injected into the prompt, and `validateSeasonFit`'s check, were both a single static snapshot of
+  whichever period was active at generation time — fine for a 2-4 week block, broken for 6-8 weeks,
+  which routinely spans 2-3 periods. A live block spanning aerobic-base → anaerobic → threshold had its
+  own overview call the whole thing "aerobic-base," and the fit-check blamed build-week quality work on
+  the base period's 90/10 expectation. New `periodForDate`/`periodsInRange` + a multi-segment
+  `formatSeasonContext` (byte-identical single-period output preserved, pinned by test) + per-day-scoped
+  `validateSeasonFit` fix it. Also switched hard-share from session-count to duration-weighted, which
+  independently fixes a structural false positive: `qualitySessionsPerLoadingWeek=2` on a 6-day week is
+  already ~33% by count, guaranteeing the old 20%-ceiling warning fired on every base-period block
+  regardless of what was generated.
+- **Warmup/cooldown steps mis-validated as work** (`lib/prescription.ts`, `lib/workout-validate.ts`).
+  `parsePrescription`'s own doc comment said warmups are ignored, but the implementation was blind to
+  sections entirely — a warmup priming step at 80-85% FTP cleared the flat 80% work-threshold and got
+  validated against the day's *main-set* protocol, producing warnings like "effort at 80% FTP is below
+  the 130% floor" for what was actually a normal warmup, not a malformed SIT set. Steps under a
+  Warmup/Cooldown label are now dropped outright; TDD confirmed 7 of 10 new tests were red for exactly
+  the reported shape before the fix.
+- **Weekly hours under-following their own stated floor** (`lib/anthropic-prompts.ts`). A live block's
+  loading weeks landed at 8.5-10.8h against a stated "10-12h, at least 10h" instruction — two of four
+  weeks below the floor, not a target-setting mismatch. The long ride was correctly sized every week;
+  the shortfall was in easy Z2 sessions landing compact (60-90min, an explicit prompt cap) rather than
+  filling the range. Rewrote the instruction to make hitting only the minimum count as a shortfall and
+  named easy-session duration as the lever, removing the `(60-90 min each)` cap that was itself part of
+  the problem.
+- **Intervals.icu "press lap" step syntax** — researched (forum + official docs, not just the athlete's
+  paraphrase) and added to `WORKOUT_SYNTAX_GUIDE` plus `knowledge-base/training_knowledge.md` §7. Verified
+  mechanism: the literal phrase "press lap" in a step ends it on the device's lap button instead of a
+  timer — Garmin/Suunto via Garmin Connect only, inert elsewhere — adoptable through the exact same
+  plain-text calendar-description path this app already uses, no new integration. Scoped to
+  positioning/readiness steps only; never the actual prescribed work interval.
+
+**Live-verified together** (not just unit tests): a fresh 6-week generation, after all three fixes
+landed, produced an overview that correctly narrates the phase shift ("Weeks 1-2 are a base deload...
+Weeks 3-5 shift into an anaerobic build... Week 6 pivots to threshold"), a season-fit warning precisely
+date-scoped to the base-period portion at a plausible 25% (vs. a blanket 33-71% before), no SIT/VO2max
+false positives, and loading weeks in the 10.2-10.8h band for the weeks not affected by a season deload
+flag.
+
+---
+
 ## Goals/weakpoints: profile ↔ block-generator round-trip (2026-07-14)
 
 Follow-up from the block-generation work below, prompted by the athlete asking for concrete goal/
