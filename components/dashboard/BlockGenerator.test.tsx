@@ -25,6 +25,8 @@ test("keeps the generator fields at two columns until the xl breakpoint", () => 
       seasonReadout={null}
       focusLabel={null}
       goalCount={0}
+      onSaveToProfile={() => {}}
+      profileSaveState={{ state: "idle" }}
     />,
   );
 

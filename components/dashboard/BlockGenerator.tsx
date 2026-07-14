@@ -27,6 +27,8 @@ export interface BlockGeneratorProps {
   seasonReadout: string | null;
   focusLabel: string | null; // current season phase this block targets (display label), or null (no season)
   goalCount: number; // how many profile goals are being pulled into this focus
+  onSaveToProfile: () => void; // opt-in: push the two fields' current text back to the durable profile
+  profileSaveState: { state: "idle" | "saving" | "saved" } | { state: "error"; message: string };
 }
 
 export default function BlockGenerator({
@@ -50,6 +52,8 @@ export default function BlockGenerator({
   seasonReadout,
   focusLabel,
   goalCount,
+  onSaveToProfile,
+  profileSaveState,
 }: BlockGeneratorProps) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
@@ -181,6 +185,20 @@ export default function BlockGenerator({
                 className="mt-1.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:placeholder-zinc-500 dark:focus:border-zinc-400"
               />
             </div>
+          </div>
+          {/* Opt-in only: editing the two fields above never touches the durable profile by itself —
+              this is the explicit "also make it permanent" action, so a one-off block-time wording
+              tweak can stay one-off. */}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={onSaveToProfile}
+              disabled={profileSaveState.state === "saving"}
+              className="text-[11px] font-medium text-cyan-700 hover:underline disabled:cursor-not-allowed disabled:text-zinc-400 dark:text-[#00d4ff] dark:disabled:text-zinc-600"
+            >
+              {profileSaveState.state === "saving" ? "Saving…" : "↳ Save these goals & weakpoints to your profile"}
+            </button>
+            {profileSaveState.state === "saved" && <span className="text-[11px] text-green-700 dark:text-green-400">✓ Saved</span>}
+            {profileSaveState.state === "error" && <span className="text-[11px] text-red-600">{profileSaveState.message}</span>}
           </div>
         </>
       )}

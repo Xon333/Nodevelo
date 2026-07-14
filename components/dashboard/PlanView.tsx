@@ -5,6 +5,7 @@ import { api, nextMonday } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
 import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks, FOCUS_LABELS } from "@/lib/season";
+import { mergeGoalsFromBlockText, parseWeakpointLines } from "@/lib/profile-goals";
 import type { BlockHistoryEntry, CurrentBlock, GeneratedPlan, SeasonPlan, WriteResult } from "@/lib/types";
 import { useSync } from "../SyncProvider";
 import PlanPreview from "../PlanPreview";
@@ -28,7 +29,14 @@ export default function PlanView() {
   const [lengthWeeks, setLengthWeeks] = useState<2 | 4 | 6 | 8>(4);
   const [goal, setGoal] = useState("");
   const [rawGoals, setRawGoals] = useState<Array<{ goal: string; target: string; focus: string }>>([]);
+  // The exact subset of rawGoals the goal textarea was last pre-filled from (narrowed by season
+  // focus, see loadSeasonCtx) — saveGoalsAndWeakpointsToProfile needs this to scope its merge so it
+  // never deletes a goal belonging to a focus this box never showed.
+  const [shownGoals, setShownGoals] = useState<Array<{ goal: string; target: string; focus: string }>>([]);
   const [weakpointsText, setWeakpointsText] = useState("");
+  const [profileSaveState, setProfileSaveState] = useState<
+    { state: "idle" | "saving" | "saved" } | { state: "error"; message: string }
+  >({ state: "idle" });
   const [startDate, setStartDate] = useState(nextMonday());
   const [seasonReadout, setSeasonReadout] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState<string | null>(null);
@@ -86,7 +94,9 @@ export default function PlanView() {
       }>("/api/profile");
       setRawGoals(response.goals);
       if (response.weakpoints.length > 0) {
-        setWeakpointsText(response.weakpoints.map((w) => w.weakpoint).join("\n"));
+        setWeakpointsText(
+          response.weakpoints.map((w) => w.weakpoint + (w.detail ? `: ${w.detail}` : "")).join("\n")
+        );
       }
       setPrefillFailed(false);
     } catch {
@@ -115,12 +125,14 @@ export default function PlanView() {
           const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, period.focus);
           setGoalCount(filtered.length);
           setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+          setShownGoals(filtered);
         }
       } else {
         // No current period — nothing to target, so the generator's context line stays hidden.
         setFocusLabel(null);
         if (rawGoals.length > 0) {
           setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+          setShownGoals(rawGoals);
         }
       }
       setSeasonCtxFailed(false);
@@ -172,6 +184,28 @@ export default function PlanView() {
       setGenerateError(err instanceof Error ? err.message : "Generation failed");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Opt-in only — never runs as a side effect of generate(). A one-off block-time wording tweak
+  // should stay one-off; this is the explicit "also make it permanent" action.
+  const saveGoalsAndWeakpointsToProfile = async () => {
+    setProfileSaveState({ state: "saving" });
+    try {
+      const mergedGoals = mergeGoalsFromBlockText(
+        rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>,
+        shownGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>,
+        goal
+      );
+      const mergedWeakpoints = parseWeakpointLines(weakpointsText);
+      await api("/api/profile", {
+        method: "PUT",
+        body: JSON.stringify({ goals: mergedGoals, weakpoints: mergedWeakpoints }),
+      });
+      setProfileSaveState({ state: "saved" });
+      void loadPrefill(); // re-fetch from the server (mirrors AthleteProfileForm's save) rather than trusting the client-side merge as final
+    } catch (err) {
+      setProfileSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
     }
   };
 
@@ -271,6 +305,8 @@ export default function PlanView() {
         seasonReadout={seasonReadout}
         focusLabel={focusLabel}
         goalCount={goalCount}
+        onSaveToProfile={() => void saveGoalsAndWeakpointsToProfile()}
+        profileSaveState={profileSaveState}
       />
 
       {plan && (
