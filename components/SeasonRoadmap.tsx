@@ -54,6 +54,9 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
   const today = localToday();
   const view = roadmapView(plan, today);
   const nextEvent = plan.events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  // Distinguishes an auto-drafted roadmap from one the athlete fully hand-edited — periods can be
+  // "derived" (engine-drafted), "override" (athlete-edited), or frozen past periods either way.
+  const hasDerived = plan.periods.some((p) => p.source === "derived");
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
@@ -81,6 +84,11 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
           </div>
         )}
       </div>
+      {hasDerived && (
+        <p className="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+          Auto-drafted from your objective, events, fitness/load, and current limiter. It refreshes when you generate a block.
+        </p>
+      )}
     </section>
   );
 }

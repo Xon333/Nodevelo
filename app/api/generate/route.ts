@@ -284,9 +284,9 @@ export async function POST(req: Request) {
     // later falls outside the window and re-calls, so temperature-0.3 variation is preserved.
     const { result: genResult } = await dedupeGeneration(
       generationKey(cached, dynamic, userMessage),
-      () => generateTrainingBlock(cached, dynamic, userMessage)
+      () => generateTrainingBlock(cached, dynamic, userMessage, blockParams.lengthWeeks)
     );
-    const { toolInput, raw, truncated } = genResult;
+    const { toolInput, raw, truncated, stopReason } = genResult;
 
     // Structured-output path (P2): the generator runs on tool-use, so the plan must arrive as a
     // tool payload validated by the shared zod schema. The legacy regex text-parser fallback was
@@ -294,6 +294,14 @@ export async function POST(req: Request) {
     // now surfaces as a retryable error instead of silently degrading to text parsing.
     const parsedTool = toolInput != null ? PlanToolSchema.safeParse(toolInput) : null;
     if (!parsedTool?.success) {
+      // A token-limit cutoff mid tool-call produces no usable toolInput at all — distinguish that
+      // from a structurally-malformed-but-complete response so the athlete knows retrying (which
+      // requests a length-scaled budget) is the fix, not a prompt/model problem.
+      if (stopReason === "max_tokens") {
+        throw new Error(
+          `The generated ${blockParams.lengthWeeks}-week plan exceeded the response limit. Please retry; the app will request a larger response.`
+        );
+      }
       throw new Error(
         toolInput != null
           ? "The generated plan failed structured validation. Please retry."

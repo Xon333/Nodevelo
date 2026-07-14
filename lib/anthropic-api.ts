@@ -39,8 +39,23 @@ export const PROMPT_VERSION = 4;
 // Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
 // session + the question, never deep history, so a small model is the right cost/latency call.
 export const QUICK_MODEL = "claude-haiku-4-5";
-const MAX_TOKENS = 8000;
 const TEMPERATURE = 0.3;
+
+// A fixed 8,000-token ceiling was tuned for 4-week blocks (28 structured days) and silently
+// truncated 6/8-week requests (42/56 days) before the model finished the tool call — the plan
+// then failed schema validation with no indication why. Scale the allowance with the day count
+// instead of guessing one number for every length.
+export function generationMaxTokens(lengthWeeks: 2 | 4 | 6 | 8): number {
+  switch (lengthWeeks) {
+    case 2:
+    case 4:
+      return 8000;
+    case 6:
+      return 12000;
+    case 8:
+      return 16000;
+  }
+}
 
 // One client, lazily constructed. Lazy so importing this module never requires the API key
 // (every call site guards with isAnthropicConfigured() first); reused so calls share one
@@ -71,6 +86,7 @@ export interface GenerationResult {
   toolInput: unknown | null; // the structured tool-use payload (validate with PlanToolSchema); null if Claude didn't call the tool
   raw: string; // any text content — the regex-parser fallback path
   truncated: boolean;
+  stopReason: Anthropic.Message["stop_reason"]; // the provider's raw stop reason, so the route can tell a token-limit cutoff apart from other malformed output
 }
 
 // ---------- Today's ride analysis ----------
@@ -139,7 +155,8 @@ export async function generateStructuredRetrospective(
 export async function generateTrainingBlock(
   systemCached: string,
   systemDynamic: string,
-  userMessage: string
+  userMessage: string,
+  lengthWeeks: 2 | 4 | 6 | 8
 ): Promise<GenerationResult> {
   if (!isAnthropicConfigured()) {
     throw new Error("Anthropic API is not configured. Set ANTHROPIC_API_KEY in .env.local.");
@@ -147,7 +164,7 @@ export async function generateTrainingBlock(
   const client = getClient();
   const response = await client.messages.create({
     model: GENERATION_MODEL,
-    max_tokens: MAX_TOKENS,
+    max_tokens: generationMaxTokens(lengthWeeks),
     temperature: TEMPERATURE,
     // Cache breakpoint after the stable prefix (persona + syntax + reference KB): a repeat
     // generation within the cache TTL reads it at ~0.1× instead of re-paying full input. The
@@ -171,7 +188,12 @@ export async function generateTrainingBlock(
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("\n");
-  return { toolInput: toolUse?.input ?? null, raw, truncated: response.stop_reason === "max_tokens" };
+  return {
+    toolInput: toolUse?.input ?? null,
+    raw,
+    truncated: response.stop_reason === "max_tokens",
+    stopReason: response.stop_reason,
+  };
 }
 
 // ---------- Low-token "ask coach" spot-checks ----------

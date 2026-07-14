@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { _resetGenerationCache, dedupeGeneration, generationKey } from "./generate-cache";
 import type { GenerationResult } from "./anthropic-api";
 
-const result = (raw: string): GenerationResult => ({ toolInput: null, raw, truncated: false });
+const result = (raw: string): GenerationResult => ({ toolInput: null, raw, truncated: false, stopReason: null });
 
 afterEach(() => {
   _resetGenerationCache();

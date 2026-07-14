@@ -124,15 +124,15 @@ export default function BlockGenerator({
               <a href="/profile" className="text-cyan-700 hover:underline dark:text-[#00d4ff]">edit profile →</a>
             </p>
           )}
-          <div className="mt-4 grid gap-4 border-t border-zinc-100 pt-4 sm:grid-cols-2 lg:grid-cols-4 dark:border-zinc-700">
+          <div className="mt-4 grid gap-4 border-t border-zinc-100 pt-4 sm:grid-cols-2 xl:grid-cols-4 dark:border-zinc-700">
             <div>
               <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Block length</label>
-              <div className="mt-1.5 flex gap-2">
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
                 {([2, 4, 6, 8] as const).map((w) => (
                   <button
                     key={w}
                     onClick={() => setLengthWeeks(w)}
-                    className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
+                    className={`rounded-md border px-3 py-2 text-sm transition-colors ${
                       lengthWeeks === w
                         ? "border-zinc-900 bg-zinc-900 text-white dark:border-[#ff49c8]/60 dark:bg-[#ff49c8]/10 dark:text-[#ff49c8]"
                         : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-500"

@@ -28,7 +28,7 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
   return {
     ...actual,
     isAnthropicConfigured: vi.fn(() => true),
-    generateTrainingBlock: vi.fn(async () => ({ toolInput: h.toolInput, raw: "", truncated: false })),
+    generateTrainingBlock: vi.fn(async () => ({ toolInput: h.toolInput, raw: "", truncated: false, stopReason: null })),
   };
 });
 vi.mock("@/lib/generate-cache", () => ({
@@ -128,14 +128,21 @@ describe("POST /api/generate — request validation", () => {
 
 describe("POST /api/generate — generation outcomes", () => {
   it("502 when the model returns no structured payload", async () => {
-    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: null, raw: "prose", truncated: false } as never);
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: null, raw: "prose", truncated: false, stopReason: null } as never);
     const res = await gen("Build FTP");
     expect(res.status).toBe(502);
     expect((await res.json()).error).toMatch(/did not return a structured plan/);
   });
 
+  it("reports a precise retryable error when a 6-week response hits the token limit", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: null, raw: "", truncated: true, stopReason: "max_tokens" } as never);
+    const res = await POST(new Request("http://t/api/generate", { method: "POST", body: JSON.stringify({ lengthWeeks: 6, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [] }) }));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe("The generated 6-week plan exceeded the response limit. Please retry; the app will request a larger response.");
+  });
+
   it("502 when the payload fails schema validation", async () => {
-    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: { bogus: true }, raw: "", truncated: false } as never);
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: { bogus: true }, raw: "", truncated: false, stopReason: null } as never);
     const res = await gen("Build FTP");
     expect(res.status).toBe(502);
     expect((await res.json()).error).toMatch(/failed structured validation/);
@@ -149,7 +156,7 @@ describe("POST /api/generate — generation outcomes", () => {
   });
 
   it("surfaces truncation as the FIRST warning and flags the day-count shortfall", async () => {
-    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: h.toolInput, raw: "", truncated: true } as never);
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: h.toolInput, raw: "", truncated: true, stopReason: "max_tokens" } as never);
     const json = await (await gen("Build FTP")).json();
     expect(json.plan.warnings[0]).toMatch(/token limit/);
     expect(json.plan.warnings).toContain("Expected 14 days, got 2.");
