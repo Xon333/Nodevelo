@@ -12,6 +12,80 @@ exact commits.
 
 ---
 
+## Goals/weakpoints: profile ↔ block-generator round-trip (2026-07-14)
+
+Follow-up from the block-generation work below, prompted by the athlete asking for concrete goal/
+weakpoint suggestions based on the just-finished block's retrospective and actual power-curve data
+(FTP 288W, 1-min 507W, 5s 749W vs. reference ratios — confirmed neuromuscular/5s is the real
+depressed system, not 5-min/VO2max as the stale weakpoint text implied). That surfaced a structural
+gap: the block-generator's free-text goal/weakpoints boxes and the Profile page's structured editor
+were two fully disconnected surfaces — edits in one never reached the other.
+
+- **Weakpoints textarea silently dropped `detail`.** `PlanView.tsx`'s prefill joined only
+  `w.weakpoint`, discarding every weakpoint's explanation on every page load. Now pre-fills as
+  `"label: detail"`.
+- **Opt-in "Save to profile" action** (`components/dashboard/BlockGenerator.tsx`,
+  `lib/profile-goals.ts`) parses the edited free text back into the profile's structured shape and
+  PUTs it — deliberately not automatic, so a one-off per-block wording tweak doesn't force a
+  permanent profile change. Goals need a **scoped merge**, not a blind replace: the goal box is
+  pre-filled from `filterGoalsByFocus` (only the current season period's goals + `general`), so a
+  goal outside that shown subset is always preserved untouched; a shown goal still present in the
+  text keeps its `focus` and takes the edited target; a shown goal removed from the text is treated
+  as a deliberate deletion; a genuinely new label defaults to `focus: "general"` (the text has no way
+  to express a focus). Weakpoints have no subset problem (the box always shows the full list), so
+  parsing the text is the new array directly.
+- **Verified live** against the real API and `data/athlete.json`: added a throwaway goal/weakpoint
+  through the UI, confirmed the merge preserved all 8 existing goals' targets and all 9 weakpoints'
+  `detail` text while adding the new entries, then removed them and re-saved to confirm deletion
+  semantics and restore the original profile exactly.
+
+_Deferred:_ focus-tag selection in the block-generator box itself. On inspection, `focus` only
+controls whether a goal auto-populates into the box for the *current* season period — it's not a
+scheduling constraint, doesn't change what the model generates, and (since a goal tagged to a
+non-current focus can silently vanish from the box on the next profile refresh) risks being mistaken
+for something it isn't. The athlete's goals are all `general` today (always shown) and no
+phase-scoped goals were wanted, so this wasn't built.
+
+---
+
+## Reliable long-block generation + generator/season UI fixes (2026-07-14)
+
+Debugged three athlete-reported issues that traced back to one unfinished plan
+(`docs/superpowers/plans/2026-07-13-reliable-long-blocks-and-season-clarity.md`) an external agent
+(Codex, branch `codex/reliable-long-blocks`) had started but only partially shipped — it committed
+the (insufficient) grid-breakpoint change and left failing test scaffolding for the other two tasks.
+
+- **6/8-week generation failures.** `generateTrainingBlock` (`lib/anthropic-api.ts`) used a fixed
+  8,000-token ceiling regardless of block length; a 6-week block's 42 structured days routinely hit
+  it mid tool-call, producing a generic "did not return a structured plan" error with no hint why.
+  Added `generationMaxTokens(lengthWeeks)` (8k/8k/12k/16k for 2/4/6/8 weeks) and threaded the
+  provider's `stop_reason` through `GenerationResult` so `/api/generate` can surface a precise,
+  retryable "exceeded the response limit" error instead. **Live-tested against the real Anthropic
+  API**: a 6-week block generated cleanly, 42/42 days, no truncation.
+- **BlockGenerator field overlap.** Codex's committed fix (`lg:grid-cols-4` → `xl:grid-cols-4`)
+  didn't actually resolve it — measured real ~44–60px overlap between the "8 weeks" button and the
+  Start Date field at both 1280px and 1440px (MacBook-realistic widths) via live DOM measurement.
+  Root cause was the length-buttons' fixed min-content width exceeding any single grid column at
+  realistic widths, not the breakpoint. Fix: the four buttons render as a 2×2 grid
+  (`components/dashboard/BlockGenerator.tsx`) instead of a shrinking single row, so they can't
+  overflow their cell regardless of viewport width.
+- **Unexplained season roadmap.** `SeasonRoadmap` showed the auto-derived roadmap with no
+  explanation of where it came from. Traced construction: `replanSeasonArc` (`lib/season.ts`) runs
+  inside every `/api/generate` call, freezing past periods, preserving the in-progress period and any
+  athlete-edited overrides, and re-drafting future ("derived") periods from the saved objective/
+  events/CTL/FTP/recent load/limiter. Added one line under the roadmap explaining this when any
+  period has `source: "derived"`.
+- **Side effect caught mid-verification**: `npm test`/`npm run lint` weren't excluding the gitignored
+  top-level `.worktrees/` (only `.claude/worktrees/*` was covered) — a stray worktree's own copy of a
+  test fired a real, bogus-key network call to Anthropic during the verification run. Fixed both
+  `vitest.config.ts` and `eslint.config.mjs`.
+
+**Cleanup**: removed the superseded `codex/reliable-long-blocks` branch + its `.worktrees/` checkout,
+and two other stale branches (`ui-fixes`, `worktree-ui-research`) that had zero commits beyond what
+`main` already contained.
+
+---
+
 ## On-plan Z2/Recovery aerobic-baseline merge + diagnostic insight (2026-07-12)
 
 Athlete-flagged discrepancy: the block retrospective's `complianceByType.Z2 = 107%` (pure duration
