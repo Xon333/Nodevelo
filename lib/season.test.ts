@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, FOCUS_LABELS, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, FOCUS_LABELS, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -199,6 +199,31 @@ describe("replanSeasonArc", () => {
   });
 });
 
+// Two contiguous periods used across the multi-period lookup/context/fit tests: base 2026-07-12 → 08-02
+// (exclusive), then anaerobic build 08-02 → 08-23 — the real shape that broke 6-week generation.
+const basePeriod = { focus: "aerobic-base" as const, phase: "base" as const, startDate: "2026-07-12", plannedWeeks: 3, intensitySplit: "90/10", targetWeeklyTss: 420, deloadWeek: false, rationale: "Base first.", source: "derived" as const, confidence: "medium" as const };
+const buildPeriod = { focus: "anaerobic" as const, phase: "build" as const, startDate: "2026-08-02", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 450, deloadWeek: false, rationale: "Then build.", source: "derived" as const, confidence: "medium" as const };
+
+describe("periodForDate / periodsInRange", () => {
+  const plan = planWith([basePeriod, buildPeriod]);
+  it("returns the period covering an arbitrary date (start inclusive, end exclusive)", () => {
+    expect(periodForDate(plan, "2026-07-12")?.focus).toBe("aerobic-base");
+    expect(periodForDate(plan, "2026-08-01")?.focus).toBe("aerobic-base"); // last base day
+    expect(periodForDate(plan, "2026-08-02")?.focus).toBe("anaerobic"); // boundary day belongs to the NEXT period
+    expect(periodForDate(plan, "2026-07-01")).toBeNull(); // before the plan
+    expect(periodForDate(plan, "2026-09-01")).toBeNull(); // after the plan
+  });
+  it("matches currentPeriod's straddling definition exactly", () => {
+    expect(periodForDate(plan, "2026-07-20")).toBe(currentPeriod(plan, "2026-07-20"));
+  });
+  it("lists every period an inclusive date range overlaps, in chronological order", () => {
+    expect(periodsInRange(plan, "2026-07-20", "2026-08-30").map((p) => p.focus)).toEqual(["aerobic-base", "anaerobic"]);
+    expect(periodsInRange(plan, "2026-07-13", "2026-07-20").map((p) => p.focus)).toEqual(["aerobic-base"]); // confined
+    expect(periodsInRange(plan, "2026-08-01", "2026-08-02").map((p) => p.focus)).toEqual(["aerobic-base", "anaerobic"]); // touches the boundary from both sides
+    expect(periodsInRange(plan, "2026-09-01", "2026-09-10")).toEqual([]); // outside every period
+  });
+});
+
 describe("season context + fit validation", () => {
   const cur = { focus: "vo2max" as const, phase: "build" as const, startDate: "2026-06-29", plannedWeeks: 4, intensitySplit: "80/20", targetWeeklyTss: 450, deloadWeek: false, rationale: "", source: "derived" as const, confidence: "high" as const };
   it("formats a one-line season context for the prompt", () => {
@@ -220,13 +245,80 @@ describe("season context + fit validation", () => {
   it("returns null when the plan has no current period", () => {
     expect(formatSeasonContext(planWith([]), "2026-07-01")).toBeNull();
   });
-  it("warns when a base period's block is too hard", () => {
-    const base = { ...cur, focus: "aerobic-base" as const, phase: "base" as const, intensitySplit: "90/10" };
-    const days: PlannedDay[] = [
-      { date: "2026-07-01", weekNumber: 1, weekTheme: "", name: "VO2", type: "VO2max", durationMin: 60, workoutText: "", description: "" },
-      { date: "2026-07-02", weekNumber: 1, weekTheme: "", name: "Z2", type: "Z2", durationMin: 60, workoutText: "", description: "" },
+  it("COMPAT: a block range confined to one period produces byte-identical output to the rangeless call", () => {
+    const plan = planWith([cur]); // cur covers 2026-06-29 → 07-27 (exclusive)
+    const withRange = formatSeasonContext(plan, "2026-07-01", { startDate: "2026-07-01", endDate: "2026-07-14" });
+    expect(withRange).toBe(formatSeasonContext(plan, "2026-07-01"));
+    // and pin the exact legacy wording so a rewrite can't silently drift it
+    expect(withRange).toBe("SEASON CONTEXT: get faster — phase build · focus vo2max · wk 1 of 4 · target ~450 TSS/wk. ");
+  });
+  it("describes the ordered sequence of periods a multi-period block spans, mapped to block weeks", () => {
+    const threshold = { ...buildPeriod, focus: "threshold" as const, startDate: "2026-08-23", plannedWeeks: 4, rationale: "Then threshold." };
+    const plan = planWith([basePeriod, buildPeriod, threshold]);
+    // 6-week block 2026-07-20 → 2026-08-30 — the live case that spanned all three periods.
+    const line = formatSeasonContext(plan, "2026-07-14", { startDate: "2026-07-20", endDate: "2026-08-30" })!;
+    expect(line.startsWith("SEASON CONTEXT: get faster — this block spans 3 season periods")).toBe(true);
+    // segments appear in chronological order
+    expect(line.indexOf("aerobic-base")).toBeLessThan(line.indexOf("anaerobic"));
+    expect(line.indexOf("anaerobic")).toBeLessThan(line.indexOf("threshold"));
+    // each segment carries its own split + block-week span (base covers block wk 1–2, ends 2026-08-01)
+    expect(line).toContain("wk 1–2 (2026-07-20 → 2026-08-01): phase base · focus aerobic-base · 90/10 split");
+    expect(line).toContain("phase build · focus anaerobic · 80/20 split");
+    // the last segment is clipped to the block end, not the period end
+    expect(line).toContain("2026-08-30");
+    expect(line).not.toContain("2026-09");
+  });
+});
+
+describe("validateSeasonFit — per-period, duration-weighted", () => {
+  const plan = planWith([basePeriod, buildPeriod]);
+  const day = (date: string, type: PlannedDay["type"], durationMin: number): PlannedDay =>
+    ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText: "", description: "" });
+
+  it("warns when a base-period block is hard by TIME share", () => {
+    const days = [day("2026-07-13", "VO2max", 60), day("2026-07-14", "Z2", 60)]; // 50% of riding time hard
+    const w = validateSeasonFit(days, plan, 280);
+    expect(w.length).toBe(1);
+    expect(w[0]).toMatch(/base\/aerobic period \(90\/10\)/);
+    expect(w[0]).toContain("50%");
+  });
+  it("does NOT fire on short quality touches a session COUNT would flag", () => {
+    // 2 hard of 6 rides = 33% by count (the old check fired), but only 90/570 ≈ 16% of riding time.
+    const days = [
+      day("2026-07-13", "SIT", 45), day("2026-07-14", "Z2", 120), day("2026-07-15", "Z2", 120),
+      day("2026-07-16", "Threshold", 45), day("2026-07-17", "Z2", 120), day("2026-07-18", "Z2", 120),
     ];
-    expect(validateSeasonFit(days, base, 280).length).toBeGreaterThan(0);
+    expect(validateSeasonFit(days, plan, 280)).toEqual([]);
+  });
+  it("DOES fire when one long hard day dominates the time at a low session count", () => {
+    // 1 hard of 5 rides = 20% by count (the old > 0.2 check stayed silent), but 300/420 ≈ 71% of time.
+    const days = [
+      day("2026-07-13", "RaceSim", 300), day("2026-07-14", "Z2", 30), day("2026-07-15", "Z2", 30),
+      day("2026-07-16", "Z2", 30), day("2026-07-17", "Z2", 30),
+    ];
+    expect(validateSeasonFit(days, plan, 280).length).toBe(1);
+  });
+  it("checks each day against ITS OWN period — build-week quality is not blamed on the base period", () => {
+    const days = [
+      day("2026-07-27", "Z2", 120), day("2026-07-29", "Z2", 120), day("2026-08-01", "Z2", 90), // base portion: all easy
+      day("2026-08-03", "VO2max", 60), day("2026-08-05", "Threshold", 75), day("2026-08-07", "Z2", 90), // build portion: quality is legitimate
+    ];
+    expect(validateSeasonFit(days, plan, 280)).toEqual([]);
+  });
+  it("scopes a warning to the date range of the period it belongs to", () => {
+    const days = [
+      day("2026-07-27", "Threshold", 75), day("2026-07-29", "VO2max", 60), day("2026-08-01", "Z2", 60), // base portion: 71% hard
+      day("2026-08-03", "VO2max", 60), day("2026-08-05", "Z2", 90), // build portion
+    ];
+    const w = validateSeasonFit(days, plan, 280);
+    expect(w.length).toBe(1);
+    expect(w[0]).toContain("2026-07-27");
+    expect(w[0]).toContain("2026-08-01");
+    expect(w[0]).not.toContain("2026-08-03"); // the build days are not implicated
+  });
+  it("ignores rest/strength days and days not covered by any period", () => {
+    const days = [day("2026-06-01", "VO2max", 60), day("2026-07-13", "Rest", 0), day("2026-07-14", "Strength", 45)];
+    expect(validateSeasonFit(days, plan, 280)).toEqual([]);
   });
 });
 

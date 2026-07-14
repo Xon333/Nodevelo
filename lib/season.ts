@@ -247,10 +247,24 @@ export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean): Focu
   });
 }
 
-// The period straddling `today` (started, not yet ended) — same definition replanSeasonArc uses for
-// its "current" bucket. Null when the plan has no period covering today (e.g. an empty/stale plan).
+// The period covering an arbitrary ISO date — start inclusive, end exclusive, the same straddling
+// definition replanSeasonArc's "current" bucket uses. Null when no period covers the date.
+export function periodForDate(plan: SeasonPlan, date: string): FocusPeriod | null {
+  return plan.periods.find((p) => p.startDate <= date && periodEnd(p) > date) ?? null;
+}
+
+// The period straddling `today` (started, not yet ended) — periodForDate specialised to "now".
+// Null when the plan has no period covering today (e.g. an empty/stale plan).
 export function currentPeriod(plan: SeasonPlan, today: string): FocusPeriod | null {
-  return plan.periods.find((p) => p.startDate <= today && periodEnd(p) > today) ?? null;
+  return periodForDate(plan, today);
+}
+
+// Every period an inclusive date range [startDate, endDate] overlaps, in chronological order. A block
+// can span several focus periods — a 6–8-week block routinely outlives a 3-week mesocycle.
+export function periodsInRange(plan: SeasonPlan, startDate: string, endDate: string): FocusPeriod[] {
+  return plan.periods
+    .filter((p) => p.startDate <= endDate && periodEnd(p) > startDate)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
 }
 
 const ALLOWED_BLOCK_WEEKS = [2, 4, 6, 8] as const;
@@ -279,29 +293,74 @@ export function filterGoalsByFocus<T extends { focus: SeasonFocus | "general" }>
   return goals.filter((g) => g.focus === seasonFocus || g.focus === "general");
 }
 
-// One-line, prompt-injectable summary of where the athlete sits in the season arc right now. Null
-// when there's no current period (nothing to inject). Task 9 folds this into the generate prompt.
-export function formatSeasonContext(plan: SeasonPlan, today: string): string | null {
-  const p = currentPeriod(plan, today);
+// Prompt-injectable summary of where the athlete sits in the season arc. Without a blockRange — or when
+// the range fits inside one period — this is the original one-liner (byte-identical output is a
+// compatibility contract: PlanView and single-period blocks depend on the exact wording). When the range
+// spans several periods it instead lists each period's segment in chronological order, mapped to block
+// weeks, so the generator plans each week against ITS OWN period instead of stamping one static phase on
+// the whole block. Null when there's nothing to describe (no covering period at all).
+export function formatSeasonContext(
+  plan: SeasonPlan,
+  today: string,
+  blockRange?: { startDate: string; endDate: string }
+): string | null {
+  const objective = plan.objective.trim() ? `${plan.objective.trim()} — ` : "";
+  const spanned = blockRange ? periodsInRange(plan, blockRange.startDate, blockRange.endDate) : [];
+  if (blockRange && spanned.length > 1) {
+    const dayBefore = (iso: string) => new Date(Date.parse(iso) - 86_400_000).toISOString().slice(0, 10);
+    const wkOf = (iso: string) => Math.floor((Date.parse(iso) - Date.parse(blockRange.startDate)) / (7 * 86_400_000)) + 1;
+    const segments = spanned.map((p) => {
+      const from = p.startDate > blockRange.startDate ? p.startDate : blockRange.startDate;
+      const periodLast = dayBefore(periodEnd(p));
+      const to = periodLast < blockRange.endDate ? periodLast : blockRange.endDate; // clip to the block
+      const wkFrom = wkOf(from);
+      const wkTo = wkOf(to);
+      const wks = wkFrom === wkTo ? `wk ${wkFrom}` : `wk ${wkFrom}–${wkTo}`;
+      const load = p.targetWeeklyTss != null ? ` · target ~${p.targetWeeklyTss} TSS/wk` : "";
+      const deload = p.deloadWeek ? " · deload week" : "";
+      return `- ${wks} (${from} → ${to}): phase ${p.phase} · focus ${p.focus} · ${p.intensitySplit} split${load}${deload}. ${p.rationale}`;
+    });
+    return `SEASON CONTEXT: ${objective}this block spans ${spanned.length} season periods — plan each week to match its own period, shifting phase/intensity at the boundaries:\n${segments.join("\n")}`;
+  }
+  const p = spanned[0] ?? currentPeriod(plan, today);
   if (!p) return null;
   const wk = Math.max(1, weeksBetween(p.startDate, today) + 1);
   const load = p.targetWeeklyTss != null ? ` · target ~${p.targetWeeklyTss} TSS/wk` : "";
   const deload = p.deloadWeek ? " · deload week" : "";
-  const objective = plan.objective.trim() ? `${plan.objective.trim()} — ` : "";
   return `SEASON CONTEXT: ${objective}phase ${p.phase} · focus ${p.focus} · wk ${wk} of ${p.plannedWeeks}${load}${deload}. ${p.rationale}`;
 }
 
-// Non-blocking warnings, mirroring validateSchedule/validateNutrition. A base period should skew easy;
-// flag a block whose hard-session share contradicts the period's intensity intent.
-export function validateSeasonFit(days: PlannedDay[], period: FocusPeriod, ftp: number): string[] {
+// Non-blocking warnings, mirroring validateSchedule/validateNutrition. A base period should skew easy.
+// Each day is checked against the period covering ITS OWN date (a long block can span base → build, and
+// build-week quality must not be blamed on an earlier base period), and the hard share is
+// duration-weighted — what a "90/10 by time" split actually means — so two short quality touches in a
+// six-ride week no longer trip a count-based tripwire, while one monster hard day can't hide behind a
+// low session count either. Days outside every period are skipped.
+export function validateSeasonFit(days: PlannedDay[], plan: SeasonPlan, ftp: number): string[] {
   void ftp;
   const warnings: string[] = [];
-  const rides = days.filter((d) => d.type !== "Rest" && d.type !== "Strength");
-  if (rides.length === 0) return warnings;
   const HARD = new Set(["Threshold", "VO2max", "SIT", "RaceSim"]);
-  const hardShare = rides.filter((d) => HARD.has(d.type)).length / rides.length;
-  if (period.phase === "base" && hardShare > 0.2) {
-    warnings.push(`Season fit: this is a base/aerobic period (${period.intensitySplit}), but ${Math.round(hardShare * 100)}% of sessions are hard — expected mostly Z2.`);
+  // Bucket riding days by the period active on their own date (insertion order keeps warnings chronological).
+  const buckets = new Map<FocusPeriod, PlannedDay[]>();
+  for (const d of days) {
+    if (d.type === "Rest" || d.type === "Strength") continue;
+    const p = periodForDate(plan, d.date);
+    if (!p) continue;
+    const rides = buckets.get(p);
+    if (rides) rides.push(d);
+    else buckets.set(p, [d]);
+  }
+  for (const [p, rides] of buckets) {
+    const totalMin = rides.reduce((sum, d) => sum + d.durationMin, 0);
+    if (totalMin <= 0) continue;
+    const hardMin = rides.filter((d) => HARD.has(d.type)).reduce((sum, d) => sum + d.durationMin, 0);
+    const hardShare = hardMin / totalMin;
+    if (p.phase === "base" && hardShare > 0.2) {
+      const dates = rides.map((d) => d.date).sort();
+      warnings.push(
+        `Season fit: ${dates[0]} → ${dates[dates.length - 1]} sits in a base/aerobic period (${p.intensitySplit}), but ${Math.round(hardShare * 100)}% of riding time is hard — expected mostly Z2.`
+      );
+    }
   }
   return warnings;
 }

@@ -36,7 +36,7 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { currentPeriod, formatSeasonContext, replanSeasonArc, validateSeasonFit } from "@/lib/season";
+import { formatSeasonContext, replanSeasonArc, validateSeasonFit } from "@/lib/season";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
@@ -228,9 +228,11 @@ export async function POST(req: Request) {
       : "";
 
     // Macro periodization (MACRO-3): re-plan the arc from current fitness, then hand the generator the
-    // current focus period as context. Best-effort — a failure here must never block generation.
+    // focus-period sequence the block's actual date range spans (a 6–8-week block routinely crosses
+    // period boundaries — describing it as one static phase was the bug). Best-effort — a failure here
+    // must never block generation.
     let seasonContext = "";
-    let currentSeasonPeriod: import("@/lib/types").FocusPeriod | null = null;
+    let replannedSeason: import("@/lib/types").SeasonPlan | null = null;
     try {
       const limiter = powerProfile?.easyWin
         ? { system: mapSystemToFocus(powerProfile.easyWin.system), confidence: powerProfile.confident ? "high" as const : "low" as const }
@@ -244,8 +246,10 @@ export async function POST(req: Request) {
         today
       );
       await writeSeasonPlan(replanned);
-      currentSeasonPeriod = currentPeriod(replanned, today);
-      const line = formatSeasonContext(replanned, today);
+      replannedSeason = replanned;
+      // The block's real date range (first → last calendar day) drives the period sequence in the prompt.
+      const blockEnd = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
+      const line = formatSeasonContext(replanned, today, { startDate: blockParams.startDate, endDate: blockEnd });
       if (line) seasonContext = `\n${line}`;
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
@@ -327,9 +331,10 @@ export async function POST(req: Request) {
     warnings.push(...validateNutrition(days, nutritionConfig, profile.performance.ftp, weightTrend));
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
-    // MACRO-3: flag a block whose intensity mix contradicts the current season focus period (e.g. hard
-    // sessions stacked into a base/aerobic period). Only when a current period was resolved above.
-    if (currentSeasonPeriod) warnings.push(...validateSeasonFit(days, currentSeasonPeriod, profile.performance.ftp));
+    // MACRO-3: flag intensity that contradicts the season arc — each day is checked against the period
+    // active on ITS OWN date (a long block can legitimately shift base → build mid-way), with the hard
+    // share duration-weighted. Only when the season re-plan above succeeded.
+    if (replannedSeason) warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
     if (truncated) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }

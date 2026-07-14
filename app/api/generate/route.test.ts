@@ -102,6 +102,43 @@ describe("POST /api/generate — Track B wiring", () => {
   });
 });
 
+describe("POST /api/generate — season wiring (multi-period blocks)", () => {
+  // Base 2026-06-08 → 06-22 (straddles today → preserved verbatim by replanSeasonArc), then an
+  // athlete-owned build override 06-22 → 07-13 (preserved verbatim too). A 2-week block starting
+  // 06-15 crosses the base→build boundary on 06-22.
+  const seasonPlan = {
+    objective: "",
+    events: [],
+    periods: [
+      { focus: "aerobic-base", phase: "base", startDate: "2026-06-08", plannedWeeks: 2, intensitySplit: "90/10", targetWeeklyTss: null, deloadWeek: false, rationale: "Base.", source: "derived", confidence: "medium" },
+      { focus: "threshold", phase: "build", startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "Build.", source: "override", confidence: "medium" },
+    ],
+    updatedAt: "",
+  };
+  const genWithSeason = () =>
+    POST(new Request("http://t/api/generate", { method: "POST", body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }) }));
+
+  it("injects the multi-period season context when the block spans two periods", async () => {
+    vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
+    await genWithSeason();
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(dynamic).toContain("spans 2 season periods");
+    expect(dynamic).toContain("focus aerobic-base");
+    expect(dynamic).toContain("focus threshold");
+  });
+
+  it("validates each generated day against its own period, duration-weighted", async () => {
+    vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
+    const json = await (await genWithSeason()).json();
+    // Both mocked days (06-15 Threshold 75m + 06-16 Z2 90m) land in the base portion: 75/165 ≈ 45%
+    // of riding time is hard → exactly one warning, scoped to those dates, phrased by time not count.
+    const fit = json.plan.warnings.filter((w: string) => /^Season fit/.test(w));
+    expect(fit.length).toBe(1);
+    expect(fit[0]).toContain("2026-06-15");
+    expect(fit[0]).toContain("riding time");
+  });
+});
+
 describe("POST /api/generate — request validation", () => {
   it("400 when Anthropic is not configured, without calling the model", async () => {
     vi.mocked(anthropic.isAnthropicConfigured).mockReturnValueOnce(false);
