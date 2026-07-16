@@ -36,7 +36,7 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { formatSeasonContext, replanSeasonArc, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatSeasonContext, replanSeasonArc, validateFocusMatch, validateSeasonFit } from "@/lib/season";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
@@ -241,8 +241,26 @@ export async function POST(req: Request) {
       const replanned = replanSeasonArc(
         existingSeason,
         { objective: existingSeason.objective, events: existingSeason.events, ctl: sync?.fitness.ctl ?? null, ftp: profile.performance.ftp, recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null, limiter, recentFocuses: [], // ignored — replanSeasonArc derives this itself from the plan's frozen+current periods
-          heavyFatigue: !!(signals.loadRamp?.triggered) },
-        () => null,
+          heavyFatigue: !!(signals.loadRamp?.triggered),
+          // Coverage selector signals: what the athlete SAYS they want (goal text), what was REALLY
+          // generated (session exposure from the current block + archived block days — not the plan's
+          // own period labels), and how execution has actually been going per system.
+          focusSignals: {
+            goalText: [
+              existingSeason.objective,
+              blockParams.goal,
+              ...blockParams.weakpoints,
+              ...profile.goals.map((g) => `${g.goal} ${g.target}`),
+              ...profile.weakpoints.map((w) => `${w.weakpoint} ${w.detail}`),
+            ].join(" \n "),
+            exposure: exposureFromSessions(
+              [...(currentBlock?.days ?? []), ...blockHistory.flatMap((h) => h.days ?? [])].filter((d) => d.date <= today),
+              profile.performance.ftp,
+              today
+            ),
+            execQuality: execQualityByFocus(athleteModel),
+          } },
+        (p) => achievedTssForPeriod(scoreLog.entries, p),
         today
       );
       await writeSeasonPlan(replanned);
@@ -335,6 +353,9 @@ export async function POST(req: Request) {
     // active on ITS OWN date (a long block can legitimately shift base → build mid-way), with the hard
     // share duration-weighted. Only when the season re-plan above succeeded.
     if (replannedSeason) warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
+    // Coverage plan: flag a period whose focus LABEL and generated session types disagree (a "vo2max"
+    // period with zero VO2max sessions) — intensity-share alone can pass while the label lies.
+    if (replannedSeason) warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
     if (truncated) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }
