@@ -20,6 +20,7 @@ export const SEASON_CONSTANTS = {
   arcWeeks: { min: 8, max: 12 }, // bounded emphasis arc: consecutive loading weeks between aerobic-base touches
   transitionEveryLoadingWeeks: 20, // a genuine season break after ~2 full arcs of continuous loading
   transitionWeeks: 2, // the break itself: a light fortnight — volume AND intensity down
+  retestEveryWeeks: 8, // FTP/power-curve retest cadence: 6–8 wk (aggressive) ∩ 8–12 wk (conservative) = one arc
 } as const;
 
 // Display labels for a goal's focus. "general" is not a physiological system — it means "relevant in
@@ -644,6 +645,21 @@ export function formatSeasonContext(
   const load = p.targetWeeklyTss != null ? ` · target ~${p.targetWeeklyTss} TSS/wk` : "";
   const deload = p.deloadWeek ? " · deload week" : "";
   return `SEASON CONTEXT: ${objective}phase ${p.phase} · focus ${p.focus} · wk ${wk} of ${p.plannedWeeks}${load}${deload}. ${p.rationale}`;
+}
+
+// A short prompt-injectable nudge when the athlete's tested FTP has gone stale (ftpStaleDays is the
+// figure /api/profile already computes off physiology.json's effectiveFrom). Due every
+// retestEveryWeeks — one arc — and pointed at the next lighter slot (sharpen / deload / transition)
+// where fresh legs make the test valid. Null when fresh or unknown. A nudge, never a hard gate.
+export function formatRetestNote(ftpStaleDays: number | null, plan: SeasonPlan, today: string): string | null {
+  if (ftpStaleDays === null || ftpStaleDays < SEASON_CONSTANTS.retestEveryWeeks * 7) return null;
+  const slot = plan.periods
+    .filter((p) => periodEnd(p) > today && (p.focus === "sharpen" || p.deloadWeek || p.phase === "transition"))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
+  const where = slot
+    ? ` Best slot: the lighter ${slot.phase === "transition" ? "transition" : slot.focus === "sharpen" ? "sharpen" : "deload"} period starting ${slot.startDate}.`
+    : "";
+  return `RETEST DUE: FTP last validated ${ftpStaleDays} days ago (cadence ~${SEASON_CONSTANTS.retestEveryWeeks} wk). Schedule an FTP/power-curve retest to re-anchor zones and load targets.${where}`;
 }
 
 // Non-blocking warnings, mirroring validateSchedule/validateNutrition. A base period should skew easy.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -863,5 +863,31 @@ describe("transition-period load & cadence handling", () => {
     const w = validateSeasonFit([day("2026-07-13", "VO2max", 60), day("2026-07-14", "Z2", 60)], plan, 280);
     expect(w.length).toBe(1);
     expect(w[0]).toContain("transition");
+  });
+});
+
+describe("formatRetestNote — FTP retest cadence", () => {
+  const sharpen: FocusPeriod = {
+    focus: "sharpen", phase: "build", startDate: "2026-08-10", plannedWeeks: 1, intensitySplit: "75/25",
+    targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
+  };
+  it("encodes the ~8-week cadence (intersection of the 6–8 and 8–12 wk coaching ranges — one arc)", () => {
+    expect(SEASON_CONSTANTS.retestEveryWeeks).toBe(8);
+  });
+  it("stays silent when the tested FTP is fresh or staleness is unknown", () => {
+    expect(formatRetestNote(30, planWith([sharpen]), "2026-07-15")).toBeNull();
+    expect(formatRetestNote(55, planWith([sharpen]), "2026-07-15")).toBeNull(); // one day under the line
+    expect(formatRetestNote(null, planWith([sharpen]), "2026-07-15")).toBeNull();
+  });
+  it("fires at 8 weeks and points at the next lighter slot (sharpen / deload / transition)", () => {
+    const note = formatRetestNote(56, planWith([sharpen]), "2026-07-15")!;
+    expect(note).toContain("RETEST DUE");
+    expect(note).toContain("56 days");
+    expect(note).toContain("2026-08-10");
+  });
+  it("still nudges when there is no lighter slot to point at", () => {
+    const note = formatRetestNote(70, planWith([]), "2026-07-15")!;
+    expect(note).toContain("RETEST DUE");
+    expect(note).not.toContain("Best slot");
   });
 });
