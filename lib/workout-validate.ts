@@ -14,7 +14,7 @@ import type { PlannedDay, WorkoutType } from "./types";
 import { parsePrescription } from "./prescription";
 import { DEFAULT_DURABILITY_INSERT_ENVELOPE, type DurabilityInsertEnvelope } from "./calibration";
 
-interface ProtocolRule {
+export interface ProtocolRule {
   maxEffortSec?: number; // longest a single work effort should run
   minEffortSec?: number; // shortest
   minIntensityPct?: number; // floor for a work step's %FTP
@@ -23,8 +23,9 @@ interface ProtocolRule {
 }
 
 // Only the structured "quality" types carry a protocol worth validating; Z2/Recovery/Strength/
-// Rest have no fixed interval shape. Bands include tolerance past the KB edges.
-const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
+// Rest have no fixed interval shape. Bands include tolerance past the KB edges. Exported as the
+// single source of truth for lib/session-level.ts's within-type band normalisation.
+export const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
   SIT: { maxEffortSec: 45, minIntensityPct: 130, cite: "KB training §4: SIT is 4–6×30s all-out at 130–200% FTP" },
   VO2max: { minEffortSec: 90, maxEffortSec: 600, minIntensityPct: 100, maxIntensityPct: 130, cite: "KB database Z5: VO2max is 3–8 min at 106–120% FTP" },
   Threshold: { minIntensityPct: 80, maxIntensityPct: 115, cite: "KB database Z4: threshold/sweet-spot is 88–105% FTP" },

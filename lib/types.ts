@@ -233,6 +233,16 @@ export interface PrescribedInterval {
   label: string; // "2×20m @ 288W"
 }
 
+// Measurability: a stable, comparable difficulty stamp for a generated session, derived at write time
+// from the parsed prescription (lib/session-level.ts) and frozen onto the block day — so block N's
+// Threshold session can be compared to block N+2's even though the LLM wrote them independently.
+export interface SessionLevel {
+  score: number; // work minutes × (avg %FTP / 100) — the intensity-weighted work dose
+  workMin: number; // total prescribed work-effort minutes (warmup/cooldown/recovery excluded)
+  avgPctFtp: number; // duration-weighted mean %FTP across the work efforts
+  bandPosition: number | null; // 0–1 position inside the type's KB protocol intensity band; null when the type has no band
+}
+
 // One executed effort from Intervals.icu (where the athlete curates interval detection).
 export interface ExecutedInterval {
   type: string; // "WORK" | "RECOVERY" | ...

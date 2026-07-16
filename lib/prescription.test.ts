@@ -114,6 +114,14 @@ describe("parsePrescription", () => {
     expect(parsePrescription("Main Set 4x\n- 4m 110%", FTP)[0].label).toBe("4×4m @ 317W");
     expect(parsePrescription("Main Set 3x\n- 90s 120%", FTP)[0].label).toBe("3×1m30s @ 346W");
   });
+
+  it("parses a repeat-block and its explicit enumeration to the same structure (session-level stability)", () => {
+    // The sessionLevel stamp (lib/session-level.ts) relies on structurally-equal prescriptions for
+    // equivalent workouts, however the LLM happened to phrase the repeat.
+    const collapsed = parsePrescription("Main Set 5x\n- 5m 110%\n- 5m 55%", FTP);
+    const explicit = parsePrescription("- 5m 110%\n- 5m 110%\n- 5m 110%\n- 5m 110%\n- 5m 110%", FTP);
+    expect(explicit).toEqual(collapsed);
+  });
 });
 
 describe("parsePrescription — warmup/cooldown sections never count as work (section fix)", () => {
