@@ -53,3 +53,27 @@ describe("formatDurabilityForPrompt", () => {
     expect(out).toContain("INSIDE the duration target");
   });
 });
+
+describe("selectDurabilityTemplate — goal text as a fallback signal (2026-07-16)", () => {
+  it("still lets a detected weakness insight win outright, even when goal text points elsewhere", () => {
+    const insights: Insight[] = [{ dimension: "SIT", severity: "alert" } as Insight];
+    const t = selectDurabilityTemplate(insights, null, "I want to raise my FTP and TTE");
+    expect(t.id).toBe("D"); // the measured limiter (SIT/neuromuscular) still wins, not goal text
+  });
+  it("falls back to goal-text matching when no insight fires", () => {
+    const t = selectDurabilityTemplate([], null, "Raise FTP to 300w and move up TTE (time to exhaustion)");
+    expect(t.id).toBe("B"); // threshold/TTE language -> Fatigue-then-threshold
+  });
+  it("matches VO2max-flavoured goal text to template C", () => {
+    const t = selectDurabilityTemplate([], null, "Raise my VO2max and high-end repeatability");
+    expect(t.id).toBe("C");
+  });
+  it("falls through to the existing rotation when goal text names nothing recognisable", () => {
+    const t = selectDurabilityTemplate([], "A", "Have fun and stay consistent");
+    expect(t.id).toBe("B"); // nextAfter("A") — unchanged rotation behaviour
+  });
+  it("falls through to the existing rotation when goalText is omitted entirely (pre-existing call sites)", () => {
+    const t = selectDurabilityTemplate([], "A");
+    expect(t.id).toBe("B");
+  });
+});

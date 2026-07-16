@@ -211,7 +211,11 @@ export async function POST(req: Request) {
     const requirements = deriveSessionRequirements(blockParams.goal, blockParams.weakpoints);
     const sessionReqLine = formatSessionRequirements(requirements);
     const sessionReqContext = sessionReqLine ? `\n${sessionReqLine}` : "";
-    const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null);
+    const durability = selectDurabilityTemplate(
+      insights,
+      currentBlock?.durabilityTemplate ?? null,
+      [existingSeason.objective, blockParams.goal].filter(Boolean).join(" \n ")
+    );
     const durabilityContext = `\n${formatDurabilityForPrompt(durability)}`;
     // Carry-forward (CR-6): quality dropped mid-block with no make-up slot — re-prioritise it here.
     const deferredContext = currentBlock?.deferredQuality?.length

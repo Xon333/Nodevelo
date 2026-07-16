@@ -65,14 +65,32 @@ function nextAfter(lastId: string | null): DurabilityTemplate {
   return DURABILITY_TEMPLATES[(i + 1) % DURABILITY_TEMPLATES.length]; // i === -1 (unknown id) → wraps to A
 }
 
+// Goal-text fallback (2026-07-16 live feedback): the insight-driven LIMITER_TEMPLATE map above only
+// fires on a formally DETECTED weakness. A stated goal (e.g. "move up TTE") should still bias
+// selection toward the matching template when no insight already decided it -- otherwise a goal the
+// athlete explicitly named can go completely unaddressed by the long ride for as many blocks as it
+// takes a weakness to get formally flagged. Same three dimensions LIMITER_TEMPLATE already covers.
+const GOAL_TEMPLATE_PATTERNS: Array<{ re: RegExp; id: DurabilityTemplateId }> = [
+  { re: /\b(threshold|ftp|tte|time.?to.?exhaustion|sustained|steady.?state)\b/i, id: "B" },
+  { re: /\b(vo2.?max|vo2|high.?end|aerobic (power|ceiling))\b/i, id: "C" },
+  { re: /\b(sprint|neuromuscular|explosive|1.?min(ute)? power|5.?sec(ond)? power)\b/i, id: "D" },
+];
+
 // Pick this block's durability template: address the strongest flagged limiter (alert beats watch;
 // a systemic Overall alert deliberately wins → A, the safest, rather than stacking hard late efforts
-// on a fatigued athlete), else rotate from the last block's template to keep adaptation broad.
-export function selectDurabilityTemplate(insights: Insight[], lastId: string | null): DurabilityTemplate {
+// on a fatigued athlete); else — new, 2026-07-16 — check the athlete's stated goal text for the same
+// three dimensions; else rotate from the last block's template to keep adaptation broad. `goalText`
+// is optional so every pre-existing call site/test compiles and behaves unchanged without it.
+export function selectDurabilityTemplate(insights: Insight[], lastId: string | null, goalText?: string): DurabilityTemplate {
   const weak = insights.filter((i) => i.severity === "alert" || i.severity === "watch");
   for (const sev of ["alert", "watch"] as const) {
     for (const { dimension, id } of LIMITER_TEMPLATE) {
       if (weak.some((i) => i.severity === sev && i.dimension === dimension)) return BY_ID.get(id)!;
+    }
+  }
+  if (goalText) {
+    for (const { re, id } of GOAL_TEMPLATE_PATTERNS) {
+      if (re.test(goalText)) return BY_ID.get(id)!;
     }
   }
   return nextAfter(lastId);
