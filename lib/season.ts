@@ -647,7 +647,17 @@ export function formatSeasonContext(
       const wkTo = wkOf(to);
       const wks = wkFrom === wkTo ? `wk ${wkFrom}` : `wk ${wkFrom}–${wkTo}`;
       const load = p.targetWeeklyTss != null ? ` · target ~${p.targetWeeklyTss} TSS/wk` : "";
-      const deload = p.deloadWeek ? " · deload week" : "";
+      // deloadWeek means ONLY the period's own trailing week is lighter — never the whole segment.
+      // A multi-week segment must name which single week that is (and only if this block actually
+      // reaches it — periodLast <= blockRange.endDate means the clip above didn't cut the period's
+      // true tail off early), or a 2+ week span reads as fully deload and the model treats every
+      // week in it as light (found live, 2026-07-16 — a 2-week aerobic-base segment both flagged
+      // deload, producing two consecutive light weeks instead of one).
+      const deload = p.deloadWeek && periodLast <= blockRange.endDate
+        ? wkFrom === wkTo
+          ? " · deload week"
+          : ` · deload in wk ${wkTo} ONLY — wk ${wkFrom}${wkTo - 1 > wkFrom ? `–${wkTo - 1}` : ""} still loads normally`
+        : "";
       return `- ${wks} (${from} → ${to}): phase ${p.phase} · focus ${p.focus} · ${p.intensitySplit} split${load}${deload}. ${p.rationale}`;
     });
     return `SEASON CONTEXT: ${objective}this block spans ${spanned.length} season periods — plan each week to match its own period, shifting phase/intensity at the boundaries:\n${segments.join("\n")}`;
@@ -656,7 +666,15 @@ export function formatSeasonContext(
   if (!p) return null;
   const wk = Math.max(1, weeksBetween(p.startDate, today) + 1);
   const load = p.targetWeeklyTss != null ? ` · target ~${p.targetWeeklyTss} TSS/wk` : "";
-  const deload = p.deloadWeek ? " · deload week" : "";
+  // Same fix as the multi-segment branch above: deloadWeek means only the period's OWN final week
+  // is lighter. "wk 2 of 3 ... deload week" previously read as ambiguous — name explicitly whether
+  // we're actually in that final week yet, so an early week in a deload-flagged period isn't
+  // mistaken for the deload itself.
+  const deload = p.deloadWeek
+    ? wk === p.plannedWeeks
+      ? " · deload week"
+      : ` · deload arrives wk ${p.plannedWeeks} (not yet — load normally now)`
+    : "";
   return `SEASON CONTEXT: ${objective}phase ${p.phase} · focus ${p.focus} · wk ${wk} of ${p.plannedWeeks}${load}${deload}. ${p.rationale}`;
 }
 

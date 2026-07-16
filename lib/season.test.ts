@@ -354,6 +354,43 @@ describe("season context + fit validation", () => {
     expect(line).toContain("2026-08-30");
     expect(line).not.toContain("2026-09");
   });
+  it("REGRESSION (found live, 2026-07-16): a deload-flagged segment spanning 2+ block weeks names ONLY its own trailing week as light, not the whole span", () => {
+    // The exact live scenario: a 2-week aerobic-base segment (wk 1-2) flagged deloadWeek produced
+    // TWO consecutive deload weeks in a real generation, because the old wording ("· deload week")
+    // was attached to the whole "wk 1-2" range with no way to tell the model only wk 2 is light.
+    const deloadBase = { ...basePeriod, deloadWeek: true };
+    const plan = planWith([deloadBase, buildPeriod]);
+    const line = formatSeasonContext(plan, "2026-07-14", { startDate: "2026-07-20", endDate: "2026-08-30" })!;
+    expect(line).toContain("wk 1–2 (2026-07-20 → 2026-08-01): phase base · focus aerobic-base · 90/10 split · target ~420 TSS/wk · deload in wk 2 ONLY — wk 1 still loads normally.");
+    expect(line).not.toMatch(/wk 1–2[^.]*· deload week/); // the old, ambiguous whole-range wording must not reappear
+  });
+  it("names the single deload week plainly when the deload-flagged segment IS only one block-week wide", () => {
+    const shortDeload = { ...basePeriod, plannedWeeks: 1, deloadWeek: true }; // 2026-07-12 -> 2026-07-19
+    const anaerobicShifted = { ...buildPeriod, startDate: "2026-07-19" };
+    const plan = planWith([shortDeload, anaerobicShifted]);
+    const line = formatSeasonContext(plan, "2026-07-14", { startDate: "2026-07-13", endDate: "2026-08-16" })!;
+    expect(line).toContain("wk 1 (2026-07-13 → 2026-07-18): phase base · focus aerobic-base · 90/10 split · target ~420 TSS/wk · deload week.");
+  });
+  it("does not call the LAST spanned segment deload at all when the block ends before reaching that period's own true final week", () => {
+    const deloadBuild = { ...buildPeriod, deloadWeek: true }; // 2026-08-02 -> 2026-08-23 (3wk), real trailing wk starts 08-16
+    const plan = planWith([basePeriod, deloadBuild]);
+    // Block ends 2026-08-10 — well before deloadBuild's own periodEnd (2026-08-23), so its real
+    // trailing week is never reached by this block; the clipped segment must not claim "deload".
+    const line = formatSeasonContext(plan, "2026-07-14", { startDate: "2026-07-20", endDate: "2026-08-10" })!;
+    expect(line).toContain("focus anaerobic");
+    expect(line).not.toContain("deload");
+  });
+  it("single-period path: only calls it 'deload week' once we're actually IN the period's final week", () => {
+    const deloadPeriod = { ...buildPeriod, deloadWeek: true, startDate: "2026-06-01" }; // 3wk: 06-01 -> 06-22
+    const plan = planWith([deloadPeriod]);
+    const early = formatSeasonContext(plan, "2026-06-05")!; // wk 1 of 3 — not the final week yet
+    expect(early).toContain("wk 1 of 3");
+    expect(early).toContain("deload arrives wk 3 (not yet — load normally now)");
+    expect(early).not.toContain("· deload week");
+    const final = formatSeasonContext(plan, "2026-06-18")!; // wk 3 of 3 — the real trailing week
+    expect(final).toContain("wk 3 of 3");
+    expect(final).toContain("· deload week");
+  });
 });
 
 describe("validateSeasonFit — per-period, duration-weighted", () => {
