@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, FOCUS_LABELS, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -449,5 +449,41 @@ describe("goalRelevanceForFocus — goal text gates focus relevance", () => {
     expect(goalRelevanceForFocus("no FTP targets this year, just consistency", "threshold")).toBe(0.5);
     // negation in an EARLIER clause does not reach across — the FTP tag stands
     expect(goalRelevanceForFocus("no racing, but raise my FTP", "threshold")).toBe(1);
+  });
+});
+
+describe("decay-urgency signals — label fallback + real-session exposure", () => {
+  it("labelExposureWeeks: weeks since the focus last ended, KB default weeks per label", () => {
+    expect(labelExposureWeeks(["aerobic-base", "threshold"], "threshold")).toBe(0); // it IS the last label
+    expect(labelExposureWeeks(["threshold", "vo2max"], "threshold")).toBe(4); // one vo2max period (4 wk) since
+    expect(labelExposureWeeks(["anaerobic", "threshold", "vo2max"], "anaerobic")).toBe(8); // 4 + 4
+    expect(labelExposureWeeks(["threshold", "vo2max"], "durability")).toBeNull(); // never appeared
+    expect(labelExposureWeeks([], "threshold")).toBeNull();
+  });
+  it("exposureFromSessions: weeks since the latest qualifying REAL session per focus", () => {
+    const days = [
+      { date: "2026-06-17", type: "Threshold" as const, durationMin: 75 }, // 2 whole weeks before asOf
+      { date: "2026-06-10", type: "SIT" as const, durationMin: 45 }, // 3 weeks
+      { date: "2026-05-20", type: "Threshold" as const, durationMin: 75 }, // older — latest wins
+    ];
+    const exp = exposureFromSessions(days, 280, "2026-07-01");
+    expect(exp.threshold).toBe(2);
+    expect(exp.anaerobic).toBe(3); // SIT is the anaerobic session type
+    expect(exp.vo2max).toBeUndefined(); // no real VO2max session → absent → caller falls back to labels
+  });
+  it("durability exposure requires embedded intensity or a template stamp — a plain Z2 spin does not count", () => {
+    const plain = { date: "2026-06-24", type: "Z2" as const, durationMin: 120, workoutText: "- 2h 65%" };
+    const loaded = { date: "2026-06-17", type: "Z2" as const, durationMin: 180, workoutText: "Main Set 3x\n- 8m 92%" };
+    const stamped = { date: "2026-06-10", type: "Z2" as const, durationMin: 180, durabilityTemplate: "C" };
+    expect(exposureFromSessions([plain], 280, "2026-07-01").durability).toBeUndefined();
+    expect(exposureFromSessions([plain, loaded], 280, "2026-07-01").durability).toBe(2);
+    expect(exposureFromSessions([plain, stamped], 280, "2026-07-01").durability).toBe(3);
+  });
+  it("ignores zero-duration days and days after asOf", () => {
+    const days = [
+      { date: "2026-07-05", type: "VO2max" as const, durationMin: 60 }, // future vs asOf
+      { date: "2026-06-17", type: "VO2max" as const, durationMin: 0 }, // rest-shaped placeholder
+    ];
+    expect(exposureFromSessions(days, 280, "2026-07-01").vo2max).toBeUndefined();
   });
 });

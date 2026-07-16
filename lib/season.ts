@@ -1,8 +1,9 @@
 // Macro periodization engine (MACRO-1..3). Pure + deterministic: drafts a rough, rolling season arc of
 // limiter-focus periods, grounded in the knowledge base. The LLM only phrases FocusPeriod.rationale.
-import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan } from "./types";
+import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType } from "./types";
 import { DEFAULT_ACWR_BANDS } from "./calibration";
 import { tagPresent } from "./session-requirements";
+import { carriesEmbeddedIntensity } from "./prescription";
 
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus
 // periods are mesocycle-sized (a "base touch" is 2–4 wk, not the 10–16 wk annual base phase).
@@ -58,6 +59,58 @@ export function goalRelevanceForFocus(goalText: string | undefined, focus: Seaso
   const fired = GOAL_PATTERNS.filter((p) => tagPresent(haystack, p.re));
   if (fired.length === 0) return 0.5;
   return Math.max(...fired.map((p) => p.weights[focus] ?? 0));
+}
+
+// ---------- Coverage selector, factor 3 inputs: decay urgency ----------
+// Estimated weeks since `focus` last ENDED in a label history (most recent last) — the fallback
+// signal when no real session data covers a focus. The history carries no per-period week counts,
+// so KB default weeks per label are the estimate. null = never appeared (maximally dark).
+export function labelExposureWeeks(recentFocuses: SeasonFocus[], focus: SeasonFocus): number | null {
+  const idx = recentFocuses.lastIndexOf(focus);
+  if (idx === -1) return null;
+  return recentFocuses.slice(idx + 1).reduce((sum, f) => sum + SEASON_CONSTANTS.weeks[f], 0);
+}
+
+// A generated session day, structurally satisfied by CurrentBlockDay and PlannedDay — the REAL
+// exposure record, closing the "engine reasons about its own past labels, not reality" gap.
+export interface SessionSample {
+  date: string; // YYYY-MM-DD
+  type: WorkoutType;
+  durationMin: number;
+  workoutText?: string;
+  durabilityTemplate?: string;
+}
+
+// Whole weeks since the latest MEANINGFUL session per build focus, from actual generated days
+// (block history + current block). Mapping: threshold←Threshold, vo2max←VO2max, anaerobic←SIT
+// (mirrors mapSystemToFocus's vocabulary in app/api/generate/route.ts), durability←a Z2/Recovery
+// ride that actually carries embedded threshold+ work (carriesEmbeddedIntensity) or a durability-
+// template stamp — a plain easy spin is not durability training. A focus with no qualifying session
+// is ABSENT from the result: the selector falls back to label-derived exposure for it, so real data
+// wins where it exists and labels only fill the gaps.
+export function exposureFromSessions(
+  days: SessionSample[],
+  ftp: number,
+  asOf: string
+): Partial<Record<SeasonFocus, number>> {
+  const latest: Partial<Record<SeasonFocus, string>> = {};
+  const note = (focus: SeasonFocus, date: string) => {
+    if (!latest[focus] || date > latest[focus]!) latest[focus] = date;
+  };
+  for (const d of days) {
+    if (d.date > asOf || d.durationMin <= 0) continue;
+    if (d.type === "Threshold") note("threshold", d.date);
+    else if (d.type === "VO2max") note("vo2max", d.date);
+    else if (d.type === "SIT") note("anaerobic", d.date);
+    else if ((d.type === "Z2" || d.type === "Recovery") && (d.durabilityTemplate || carriesEmbeddedIntensity(d.workoutText, ftp))) {
+      note("durability", d.date);
+    }
+  }
+  const out: Partial<Record<SeasonFocus, number>> = {};
+  for (const [focus, date] of Object.entries(latest) as Array<[SeasonFocus, string]>) {
+    out[focus] = Math.max(0, Math.floor((Date.parse(asOf) - Date.parse(date)) / (7 * 86_400_000)));
+  }
+  return out;
 }
 
 // Add whole weeks to an ISO date (UTC-safe).
