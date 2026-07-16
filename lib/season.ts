@@ -542,9 +542,6 @@ export function achievedTssForPeriod(
 }
 
 // Mark the period that crosses each deload boundary (30–50% volume cut lands in its trailing week).
-// Boundary fires when cumulative loading weeks reach (every - 1), i.e. after 3 loading weeks for 3:1,
-// after 2 loading weeks for 2:1 (tight).
-// Mark the period that crosses each deload boundary (30–50% volume cut lands in its trailing week).
 // Boundary fires when cumulative loading weeks reach `every` (a genuine rolling count ACROSS period
 // boundaries, not per-period): a period shorter than `every` on its own must not self-trip just
 // because it happens to be a whole mesocycle — it combines with the next period(s) until the full
