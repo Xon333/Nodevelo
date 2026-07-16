@@ -203,6 +203,12 @@ export interface GeneratedPlan {
   // Track B: the durability template (A–E) the long ride was built around — drives rotation across
   // blocks and lets the future per-template scoring loop attribute outcomes.
   durabilityTemplate?: string;
+  // Protocol violations on quality sessions (Threshold/VO2max/SIT/RaceSim) — a distinct,
+  // higher-severity category than `warnings`: the session contradicts its own KB protocol, so
+  // writing it means the plan and the lived session describe different things. Kept out of
+  // `warnings` so the UI renders it as its own red category. Optional: plans generated before this
+  // field parse back as undefined — truthy-check on read.
+  protocolViolations?: string[];
 }
 
 // ---------- Active block (data/current-block.json) ----------

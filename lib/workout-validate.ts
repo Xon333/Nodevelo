@@ -82,12 +82,30 @@ export function validateWorkoutProtocol(
   return warnings;
 }
 
-// Validate a whole generated block. Flattened so the generate route can fold these straight
-// into the plan's warnings array.
-export function validatePlanProtocol(
+// The structured quality types whose protocol findings are VIOLATIONS — a malformed session would
+// be lived (and measured) against the wrong identity — vs endurance days, whose durability-insert
+// findings stay advisory (the lighter touch those days already get above). RaceSim is listed for
+// completeness: it has no PROTOCOL entry today, so it cannot currently produce findings.
+const QUALITY_TYPES = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
+
+export interface ProtocolFindings {
+  violations: string[]; // quality-session protocol breaches — a distinct, higher-severity category
+  advisories: string[]; // endurance-day insert findings — ordinary warnings
+}
+
+// Validate a whole generated block, split by severity. The generate route folds `advisories` into
+// the plan's generic warnings and carries `violations` separately (GeneratedPlan.protocolViolations)
+// so the UI can render them as their own category. Replaces the old flat validatePlanProtocol.
+export function splitPlanProtocol(
   days: PlannedDay[],
   ftp: number,
   envelope: DurabilityInsertEnvelope = DEFAULT_DURABILITY_INSERT_ENVELOPE
-): string[] {
-  return days.flatMap((d) => validateWorkoutProtocol(d, ftp, envelope));
+): ProtocolFindings {
+  const out: ProtocolFindings = { violations: [], advisories: [] };
+  for (const d of days) {
+    const findings = validateWorkoutProtocol(d, ftp, envelope);
+    if (findings.length === 0) continue;
+    (QUALITY_TYPES.has(d.type) ? out.violations : out.advisories).push(...findings);
+  }
+  return out;
 }

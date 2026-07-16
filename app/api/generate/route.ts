@@ -30,7 +30,7 @@ import {
   type AthleteNutritionConfig,
 } from "@/lib/nutrition";
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
-import { validatePlanProtocol } from "@/lib/workout-validate";
+import { splitPlanProtocol } from "@/lib/workout-validate";
 import { validateNutrition } from "@/lib/nutrition-validate";
 import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
@@ -346,10 +346,12 @@ export async function POST(req: Request) {
       warnings.push(`Expected ${expected.length} days, got ${days.length}.`);
     }
 
-    // KB-grounded protocol check: flag any generated workout that contradicts the knowledge
-    // base (e.g. SIT prescribed as 1-min efforts, threshold pushed into VO2max territory) so
-    // the plan and the live session can't describe different things.
-    warnings.push(...validatePlanProtocol(days, profile.performance.ftp, resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope)));
+    // KB-grounded protocol check: flag any generated workout that contradicts the knowledge base
+    // (e.g. SIT prescribed as 1-min efforts). Quality-session breaches are carried as a distinct,
+    // higher-severity category (plan.protocolViolations); endurance-day durability-insert findings
+    // stay ordinary warnings.
+    const protocol = splitPlanProtocol(days, profile.performance.ftp, resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope));
+    warnings.push(...protocol.advisories);
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
     warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp));
@@ -375,6 +377,7 @@ export async function POST(req: Request) {
       overview,
       days,
       warnings,
+      ...(protocol.violations.length > 0 ? { protocolViolations: protocol.violations } : {}),
       raw: rawForAudit,
       blockParams,
       model: GENERATION_MODEL,

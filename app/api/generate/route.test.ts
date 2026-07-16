@@ -214,3 +214,26 @@ describe("POST /api/generate — generation outcomes", () => {
     expect((await res.json()).plan).toBeDefined();
   });
 });
+
+describe("POST /api/generate — protocol-violation severity (measurability)", () => {
+  it("carries quality-session protocol breaches as plan.protocolViolations, not generic warnings", async () => {
+    const badSit = {
+      overview: "o",
+      weeks: [{
+        weekNumber: 1,
+        theme: "t",
+        days: [{ date: "2026-06-15", name: "SIT 5x1min", type: "SIT", durationMin: 45, workout: "Main Set 5x\n- 1m 150%\n- 4m 40%", description: "x" }],
+      }],
+    };
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: badSit, raw: "", truncated: false, stopReason: null } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.protocolViolations).toHaveLength(1);
+    expect(json.plan.protocolViolations[0]).toMatch(/longer than protocol/);
+    expect(json.plan.warnings.some((w: string) => /longer than protocol/.test(w))).toBe(false); // not double-reported
+  });
+
+  it("omits protocolViolations entirely on a clean plan (sparse-field convention)", async () => {
+    const json = await (await gen("Build FTP")).json(); // default mocked toolInput is protocol-clean
+    expect(json.plan.protocolViolations).toBeUndefined();
+  });
+});

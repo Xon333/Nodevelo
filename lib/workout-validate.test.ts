@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateWorkoutProtocol, validatePlanProtocol } from "./workout-validate";
+import { validateWorkoutProtocol, splitPlanProtocol } from "./workout-validate";
 import type { PlannedDay, WorkoutType } from "./types";
 
 const FTP = 288;
@@ -137,14 +137,30 @@ describe("validateWorkoutProtocol — untyped / empty", () => {
   });
 });
 
-describe("validatePlanProtocol", () => {
-  it("aggregates warnings across days", () => {
+describe("splitPlanProtocol", () => {
+  it("routes quality-session breaches to violations and leaves clean days silent", () => {
     const days = [
-      day("SIT", "Main Set 5x\n- 1m 150%\n- 4m 40%"),
-      day("Threshold", "Main Set 2x\n- 20m 95%\n- 10m 50%"),
+      day("SIT", "Main Set 5x\n- 1m 150%\n- 4m 40%"), // 1-min SIT reps — protocol breach
+      day("Threshold", "Main Set 2x\n- 20m 95%\n- 10m 50%"), // clean
     ];
-    const w = validatePlanProtocol(days, FTP);
-    expect(w).toHaveLength(1);
-    expect(w[0]).toMatch(/SIT/);
+    const f = splitPlanProtocol(days, FTP);
+    expect(f.violations).toHaveLength(1);
+    expect(f.violations[0]).toMatch(/SIT/);
+    expect(f.violations[0]).toMatch(/longer than protocol/);
+    expect(f.advisories).toEqual([]);
+  });
+
+  it("keeps endurance-day durability-insert findings advisory (the existing lighter touch)", () => {
+    const f = splitPlanProtocol([day("Z2", "- 5m 140%")], FTP);
+    expect(f.violations).toEqual([]);
+    expect(f.advisories).toHaveLength(1);
+    expect(f.advisories[0]).toMatch(/exceeds the 122% ceiling/);
+  });
+
+  it("returns empty findings for a clean plan", () => {
+    expect(splitPlanProtocol([day("VO2max", "Main Set 4x\n- 4m 110%\n- 4m 50%")], FTP)).toEqual({
+      violations: [],
+      advisories: [],
+    });
   });
 });
