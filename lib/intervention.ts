@@ -28,8 +28,10 @@ const isWorkoutDimension = (d: string): boolean => (WORKOUT_TYPES as string[]).i
 
 // ---------- metric snapshots ----------
 
-// Per-dimension execution quality (EWMA), the same number the model already tracks.
-function execFor(model: AthleteModel, dimension: string): number | null {
+// Per-dimension execution quality (EWMA), the same number the model already tracks. Exported for the
+// season coverage selector (lib/season.ts execQualityByFocus): focus selection reads the SAME accessor
+// the validation loop scores against, so the two can't drift.
+export function execFor(model: AthleteModel, dimension: string): number | null {
   if (dimension === "Overall") return model.overallExecEwma || null;
   const t = model.byType.find((x) => x.type === dimension);
   return t ? t.execEwma : null;

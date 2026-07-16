@@ -1,9 +1,10 @@
 // Macro periodization engine (MACRO-1..3). Pure + deterministic: drafts a rough, rolling season arc of
 // limiter-focus periods, grounded in the knowledge base. The LLM only phrases FocusPeriod.rationale.
-import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType } from "./types";
+import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType, AthleteModel } from "./types";
 import { DEFAULT_ACWR_BANDS } from "./calibration";
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
+import { execFor } from "./intervention";
 
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus
 // periods are mesocycle-sized (a "base touch" is 2–4 wk, not the 10–16 wk annual base phase).
@@ -134,6 +135,106 @@ const BUILD_FOCI: SeasonFocus[] = ["threshold", "vo2max", "anaerobic", "durabili
 // KB: "base is non-negotiable." Lead with a base touch when the recent window carries none.
 export function needsBaseGate(recentFocuses: SeasonFocus[]): boolean {
   return !recentFocuses.slice(-4).includes("aerobic-base");
+}
+
+// ---------- Coverage selector (2026-07-15-season-coverage-selector) ----------
+// Scored build-focus selection: goal-relevance × decay-urgency × trainability × execution quality,
+// with the confident limiter demoted from "always wins" to a bonus. Research grounding (athlete-
+// approved): "train the weakest system" and "train the system that unlocks the goal" diverge — this
+// athlete's weakest system (sprint/anaerobic) is durable and slow-to-respond, while his FTP constraint
+// is the aerobic ceiling (FTP/5-min ≈ 85% fractional utilization), so a deficit-greedy selector
+// systematically mis-selects. Physiology floor (Hickson et al. 1985; Odden et al. 2024): what must
+// persist is INTENSITY EXPOSURE — ≥ WEEKLY_INTENSITY_FLOOR quality session(s)/week at a high fraction
+// of FTP/VO2max, satisfiable by threshold, VO2max, anaerobic OR sharpen work — NOT any particular
+// label, so there is deliberately no "literal vo2max every N weeks" rule here (it would fight
+// goal-relevance while adding nothing physiological; the weekly floor itself is enforced downstream
+// by BlockSettings.qualitySessionsPerLoadingWeek).
+export const WEEKLY_INTENSITY_FLOOR = 1;
+
+// Fixed responsiveness-per-week constant per focus (deliberately not modeled further): threshold/
+// vo2max respond within a mesocycle; durability is slower; sprint/anaerobic gains are multi-season
+// and strength-anchored.
+export const FOCUS_TRAINABILITY: Record<"threshold" | "vo2max" | "anaerobic" | "durability", number> = {
+  threshold: 1.0,
+  vo2max: 0.9,
+  durability: 0.6,
+  anaerobic: 0.3,
+};
+
+const SELECTOR_WEIGHTS = { goal: 0.35, urgency: 0.3, trainability: 0.2, execution: 0.15, limiterBonus: 0.2 } as const;
+const URGENCY_SATURATION_WEEKS = 12; // exposure this old (or older) is maximally urgent…
+const NEVER_SEEN_URGENCY = 1.3; // …except NEVER seen, which outranks even saturated staleness.
+
+// Optional reality signals for the selector. All absent → the selector degrades to label-only
+// urgency with neutral goal/execution — the exact call shape the macro-structure sibling's
+// pickBuildFocus delegation uses.
+export interface FocusSignals {
+  goalText?: string; // objective + block goal + goals/weakpoints, joined
+  exposure?: Partial<Record<SeasonFocus, number>>; // weeks since real exposure (exposureFromSessions)
+  execQuality?: Partial<Record<SeasonFocus, number>>; // execution EWMA 1–10 (execQualityByFocus)
+}
+
+export interface FocusScore {
+  focus: SeasonFocus;
+  score: number;
+  parts: { goal: number; urgency: number; trainability: number; execution: number; limiter: number }; // weighted; sums to score
+}
+
+// Score all four build foci, best first. Each part is its WEIGHTED contribution so a caller (or a
+// debug log) can read exactly why a focus won. Deterministic: ties break by BUILD_FOCI order.
+export function scoreFocusCandidates(
+  limiter: SeasonDraftInput["limiter"],
+  recentFocuses: SeasonFocus[],
+  signals?: FocusSignals
+): FocusScore[] {
+  const confBonus = limiter.confidence === "high" ? 1 : limiter.confidence === "medium" ? 0.6 : 0;
+  return BUILD_FOCI.map((focus, i) => {
+    // Urgency: real session exposure wins where it exists; the plan's own labels only fill the gaps.
+    const weeks = signals?.exposure?.[focus] ?? labelExposureWeeks(recentFocuses, focus);
+    const urgency = weeks === null || weeks === undefined ? NEVER_SEEN_URGENCY : Math.min(weeks / URGENCY_SATURATION_WEEKS, 1);
+    const execEwma = signals?.execQuality?.[focus];
+    const execution = execEwma === undefined ? 0.5 : Math.min(Math.max((execEwma - 1) / 9, 0), 1);
+    const parts = {
+      goal: SELECTOR_WEIGHTS.goal * goalRelevanceForFocus(signals?.goalText, focus),
+      urgency: SELECTOR_WEIGHTS.urgency * urgency,
+      trainability: SELECTOR_WEIGHTS.trainability * FOCUS_TRAINABILITY[focus as keyof typeof FOCUS_TRAINABILITY],
+      execution: SELECTOR_WEIGHTS.execution * execution,
+      limiter: focus === limiter.system ? SELECTOR_WEIGHTS.limiterBonus * confBonus : 0,
+    };
+    return { focus, i, score: parts.goal + parts.urgency + parts.trainability + parts.execution + parts.limiter, parts };
+  })
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map(({ focus, score, parts }) => ({ focus, score, parts }));
+}
+
+// The selector: top-scored candidate that isn't the most recent focus (KB variety — never repeat
+// back-to-back, preserved from every prior selector version). `signals` optional by design: this is
+// the drop-in seam the macro-structure sibling's pickBuildFocus delegates to.
+export function selectBuildFocus(
+  limiter: SeasonDraftInput["limiter"],
+  recentFocuses: SeasonFocus[],
+  signals?: FocusSignals
+): SeasonFocus {
+  const last = recentFocuses[recentFocuses.length - 1] ?? null;
+  return scoreFocusCandidates(limiter, recentFocuses, signals).filter((s) => s.focus !== last)[0].focus;
+}
+
+// Execution EWMA per build focus, via the intervention loop's own accessor (execFor) so focus
+// selection and intervention validation read the SAME number. Durability's execution dimension is
+// Z2 — durability rides are typed Z2 and scored there. Only foci with data appear.
+export function execQualityByFocus(model: AthleteModel): Partial<Record<SeasonFocus, number>> {
+  const dims: Array<[SeasonFocus, string]> = [
+    ["threshold", "Threshold"],
+    ["vo2max", "VO2max"],
+    ["anaerobic", "SIT"],
+    ["durability", "Z2"],
+  ];
+  const out: Partial<Record<SeasonFocus, number>> = {};
+  for (const [focus, dim] of dims) {
+    const e = execFor(model, dim);
+    if (e !== null) out[focus] = e;
+  }
+  return out;
 }
 
 // Weakest system first when confident; else a least-recently-used rotation over BUILD_FOCI (KB variety).

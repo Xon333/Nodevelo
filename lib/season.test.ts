@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, type SeasonDraftInput } from "./season";
-import type { SeasonPlan, PlannedDay, FocusPeriod } from "./types";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput, type FocusSignals } from "./season";
+import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
   it("gives 'general' an honest, non-noise label", () => {
@@ -485,5 +485,90 @@ describe("decay-urgency signals — label fallback + real-session exposure", () 
       { date: "2026-06-17", type: "VO2max" as const, durationMin: 0 }, // rest-shaped placeholder
     ];
     expect(exposureFromSessions(days, 280, "2026-07-01").vo2max).toBeUndefined();
+  });
+});
+
+describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × urgency × execution", () => {
+  const noLimiter = { system: null, confidence: "low" as const };
+  const anHigh = { system: "anaerobic" as const, confidence: "high" as const };
+
+  it("encodes the trainability constants and the intensity floor (Hickson 1985 / Odden 2024)", () => {
+    expect(FOCUS_TRAINABILITY).toEqual({ threshold: 1.0, vo2max: 0.9, durability: 0.6, anaerobic: 0.3 });
+    expect(WEEKLY_INTENSITY_FLOOR).toBe(1); // ≥1 quality session/wk at high %FTP — satisfiable by ANY quality label
+  });
+
+  it("returns all four build foci with labeled parts summing to the score", () => {
+    const scored = scoreFocusCandidates(noLimiter, []);
+    expect(scored.map((s) => s.focus).sort()).toEqual(["anaerobic", "durability", "threshold", "vo2max"]);
+    for (const s of scored) {
+      const { goal, urgency, trainability, execution, limiter } = s.parts;
+      expect(goal + urgency + trainability + execution + limiter).toBeCloseTo(s.score, 6);
+    }
+    // empty history, no signals: neutral goal/exec, never-seen urgency for all → trainability decides
+    expect(scored[0].focus).toBe("threshold");
+    expect(scored[0].score).toBeCloseTo(0.35 * 0.5 + 0.3 * 1.3 + 0.2 * 1.0 + 0.15 * 0.5, 6); // 0.84
+  });
+
+  it("(a) an FTP goal ranks threshold and vo2max above a confident anaerobic limiter — goal-driven, not deficit-greedy", () => {
+    const scored = scoreFocusCandidates(anHigh, ["aerobic-base"], { goalText: "Raise my FTP from 280 to 300 W" });
+    expect(scored.map((s) => s.focus)).toEqual(["threshold", "vo2max", "anaerobic", "durability"]);
+    expect(scored[0].score).toBeCloseTo(1.015, 6); // 0.35·1 + 0.3·1.3 + 0.2·1 + 0.15·0.5
+    expect(scored[2].parts.limiter).toBeCloseTo(0.2, 6); // the limiter bonus is visible — just outweighed
+  });
+
+  it("(b) decay-urgency surfaces whichever focus has been dark longest", () => {
+    const scored = scoreFocusCandidates(noLimiter, [], { exposure: { threshold: 1, vo2max: 2, anaerobic: 1, durability: 26 } });
+    expect(scored[0].focus).toBe("durability"); // 26 weeks dark beats every trainability advantage
+  });
+
+  it("(c) breaks the two-state oscillation: confident anaerobic limiter, growing history — vo2max AND durability surface", () => {
+    // Same reproduction scenario as the critical-fixes sibling: the old selector alternated
+    // anaerobic → threshold forever; vo2max and durability were structurally unreachable.
+    const recent: import("./types").SeasonFocus[] = ["aerobic-base"];
+    const picks: import("./types").SeasonFocus[] = [];
+    for (let i = 0; i < 6; i++) {
+      const f = selectBuildFocus(anHigh, recent);
+      picks.push(f);
+      recent.push(f);
+    }
+    expect(picks).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold", "anaerobic", "threshold"]);
+    expect(picks).toContain("vo2max");
+    expect(picks).toContain("durability");
+    expect(picks).toEqual(["anaerobic", "threshold", "vo2max", "durability", "anaerobic", "threshold"]); // hand-traced
+  });
+
+  it("(d) trainability keeps a slow-responding limiter from dominating every slot", () => {
+    const recent: import("./types").SeasonFocus[] = ["aerobic-base"];
+    const picks: import("./types").SeasonFocus[] = [];
+    for (let i = 0; i < 6; i++) {
+      const f = selectBuildFocus(anHigh, recent);
+      picks.push(f);
+      recent.push(f);
+    }
+    // Old behavior: anaerobic in every other slot (3 of 6). Scored: emphasis, not monopoly.
+    expect(picks.filter((f) => f === "anaerobic").length).toBeLessThanOrEqual(2);
+  });
+
+  it("never returns the most recent focus — even the limiter", () => {
+    expect(selectBuildFocus(anHigh, ["anaerobic"])).not.toBe("anaerobic");
+  });
+
+  it("poor execution on a focus hands a marginal FTP-goal slot to the alternative (explicit fourth factor)", () => {
+    const goal = { goalText: "Raise my FTP from 280 to 300 W" };
+    expect(selectBuildFocus(noLimiter, ["aerobic-base"], goal)).toBe("threshold");
+    const flipped = selectBuildFocus(noLimiter, ["aerobic-base"], { ...goal, execQuality: { threshold: 2, vo2max: 9 } });
+    expect(flipped).toBe("vo2max"); // threshold's recent execution is poor → weaker candidate for MORE emphasis
+  });
+
+  it("execQualityByFocus maps workout-type execution EWMAs onto build foci", () => {
+    const stat = (type: import("./types").WorkoutType, execEwma: number) =>
+      ({ type, n: 5, execEwma, complianceEwma: 90, trend: "flat" as const });
+    const model: AthleteModel = {
+      byType: [stat("Threshold", 3.2), stat("Z2", 7.1)],
+      overallExecEwma: 6, overallTrend: "flat", sampleSize: 10,
+      behaviour: { totalRides: 10, plannedRides: 8, unplannedRides: 2, offPlanPct: 20, unplannedAvgQuality: null, weeklyHours: 7 },
+      behaviourAllTime: { totalRides: 40, plannedRides: 30, unplannedRides: 10, offPlanPct: 25, unplannedAvgQuality: null, weeklyHours: 7 },
+    };
+    expect(execQualityByFocus(model)).toEqual({ threshold: 3.2, durability: 7.1 });
   });
 });
