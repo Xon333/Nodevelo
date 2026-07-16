@@ -110,12 +110,38 @@ Energy-availability evaluator `← Track C`; *derive* the per-athlete fusion wei
 thresholds + headline against real use; possible score-over-time trend.
 
 ### Season engine — known debt (accept-as-tracked)
-The macro-periodization arc is fully shipped → [ARCHIVE.md](ARCHIVE.md); specs/plans under
-`docs/superpowers/`. Tracked debt, none currently worth fixing:
+The macro-periodization arc + scored coverage selector + macro-structure layer (bounded arcs, genuine
+season breaks, FTP retest nudge) are fully shipped → [ARCHIVE.md](ARCHIVE.md); specs/plans under
+`docs/superpowers/`. The old "anaerobic unreachable via the default fallback" debt item is resolved
+(the scored selector replaced that fallback entirely) and removed. Tracked debt surfaced by the
+2026-07-16 final whole-branch review, none currently worth a dedicated pass:
+- **Event-anchored path bypasses the whole macro layer, not just deload cadence.** A future A-event
+  routes `draftSeasonArc` to `backwardScheduleFromEvent`, which gets the scored selector
+  (`pickBuildFocus`) but none of the rest: no arc caps, no base re-touches (the fill loop only ever
+  emits `phase: "build"`), no transitions, no deload flags (already documented as deliberate), and no
+  load targets (`targetWeeklyTss` stays null throughout). For a long runway (the athlete's real Alpe
+  KOM case is ~21 weeks) that's 15+ consecutive loading weeks with zero base touches — exactly the
+  Foster load×monotony pattern the arc cap exists to prevent, structurally unreachable on this path.
+  Cheap fix if it's ever worth doing: insert an aerobic-base touch into the backward fill every
+  `~arcWeeks` of runway, or event-anchor only the final peak+taper+one-arc window and let the rolling
+  path (caps and all) fill the earlier weeks.
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label; only the
   phase caption distinguishes them. Cosmetic; visible only once event mode activates.
-- `anaerobic` is a valid build focus but unreachable via the default rotation fallback (only via a
-  confident limiter) — intentional per KB, but `BUILD_FOCI` vs `defaultBuildOrder()` silently diverge.
+- `nextBuildFocus`/`pickBuildFocus` are now byte-identical one-line delegations to `selectBuildFocus`;
+  `nextBuildFocus` has zero production callers left (tests only), same for `defaultBuildOrder()`.
+  Could collapse to one wrapper (or none) and retarget the tests — pure cleanup, no behavior change.
+- `formatRetestNote`'s "best slot" label is misleading on two paths: the rolling path's cadence math
+  flags nearly every 3–4wk period `deloadWeek: true`, so "the lighter deload period" is almost always
+  just "the next period," not a genuinely lighter one; the event path's earliest `sharpen` period is
+  the **peak**, which the engine elsewhere insists must hold near-race load, yet the note would call
+  it lighter. Prompt-only impact.
+- `GeneratedPlan.protocolViolations` (measurability slice) lives only on the preview plan —
+  `/api/write` doesn't persist it onto `CurrentBlockDay` next to the new `sessionLevel` stamp, so
+  there's no way to later correlate "written despite a known protocol violation" with outcomes.
+  Natural follow-up stamp, not in this slice's stated scope.
+- `exposureFromSessions` measures generated (prescribed) sessions, not ridden ones — a planned-but-
+  skipped VO2max day still counts as real exposure. `execQualityByFocus` only partially compensates.
+  Worth a join against the score log if this ever mis-steers the selector in practice.
 - No re-plan trigger from the Season form itself (the next `POST /api/generate` re-plans and
   activates event mode the moment a future A-event exists); no UI warning about multiple A-events
   or the array-order tie-break.

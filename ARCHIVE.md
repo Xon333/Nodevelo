@@ -12,6 +12,74 @@ exact commits.
 
 ---
 
+## Training-engine redesign: coverage selector, macro-structure, measurability slice (2026-07-16)
+
+First-principles research review (`research.md`) of the season/block engine, followed by four
+sequential implementation plans executed via subagent-driven-development
+(`docs/superpowers/plans/2026-07-15-*.md`), each with per-task review and a final whole-branch
+review. 24 commits, `lib/season.ts` the primary surface across three of the four plans.
+
+- **Two critical bugs fixed** (`season-critical-fixes`). `assignLoadTargets`/`applyDeloadCadence` had
+  a semantic collision — every 3–4wk period tripped the deload cadence and got dampened to 0.6x with
+  the ramp frozen, flattening whole seasons to a plateau and making the one unflagged period spike
+  ~76% above everything. `nextBuildFocus`'s fallback (`defaultBuildOrder().find(f => f !== last)`)
+  made `vo2max`/`durability` structurally unreachable whenever the confident limiter was `anaerobic`,
+  producing a permanent two-focus oscillation — the ROADMAP debt item calling this out is now resolved
+  and removed.
+- **Scored coverage selector** (`season-coverage-selector`). Replaced the fallback with
+  `scoreFocusCandidates`/`selectBuildFocus` — a weighted sum over goal-relevance, decay-urgency (real
+  generated-session exposure where it exists, KB-label estimate elsewhere), trainability, and
+  execution quality, with the confident limiter demoted from an unconditional winner to a bounded
+  bonus (max 0.20 of the total). Physiology grounding: Hickson et al. 1985 (intensity, not
+  volume/frequency, is what must persist) and Odden et al. 2024 (threshold and VO2max work both raise
+  VO2max comparably — a goal-driven athlete should be steered to the aerobic ceiling, not a
+  deficit-greedy "weakest system" pick). Wired into `/api/generate` via `focusSignals` (goal text +
+  `exposureFromSessions` + `execQualityByFocus`) and a new `validateFocusMatch` warning (a period's
+  focus label vs. what was actually generated). A live-verification pass during this plan's own
+  integration task caught a subtler bug of its own: real-exposure signals were computed once as of
+  "today" and never grew as the draft loop hypothetically advanced through future periods (unlike the
+  label-derived fallback, which correctly regrows) — fixed by extrapolating a not-yet-drafted focus's
+  staleness forward by elapsed draft-weeks.
+- **Macro-structure layer** (`season-macro-structure`). The event-anchored path
+  (`backwardScheduleFromEvent`) now shares the scored selector via `pickBuildFocus`, instead of a
+  fixed 3-focus index cycle that could never reach `anaerobic` or place a confident limiter
+  race-specifically. Added bounded 8–12wk emphasis arcs (`weeksSinceBase`, an arc cap that re-touches
+  aerobic base before consecutive loading crosses the ceiling — Foster 1998, illness risk tracks load
+  × monotony) and a genuine 2wk reduced-load `phase: "transition"` period every ~20 loading weeks
+  (~2 arcs), distinct from the existing per-period `deloadWeek` flag: 50% load cut vs. 60%, exempt
+  from deload flagging, and its own season-fit warning. An 8-week FTP retest nudge
+  (`formatRetestNote`) points at the next lighter slot. `/plan`'s season roadmap now explains the
+  peak/taper countdown when an A-priority event is driving the plan.
+- **Block-generation measurability** (`block-generation-measurability`, code-complete, live smoke
+  run outstanding — see below). `computeSessionLevel` derives a comparable difficulty stamp
+  (`{score, workMin, avgPctFtp, bandPosition}`) from a session's parsed prescription, frozen onto
+  `CurrentBlockDay` at write time so block N's Threshold session can be compared to block N+2's even
+  though the LLM wrote them independently. `splitPlanProtocol` replaces the flat
+  `validatePlanProtocol`: quality-session (Threshold/VO2max/SIT/RaceSim) protocol breaches now land in
+  a distinct `GeneratedPlan.protocolViolations` field, rendered as a red box above the ordinary amber
+  warnings in `PlanPreview` — deliberately scoped short of single-day auto-regeneration (the generator
+  is whole-block-only; a targeted retry would need a new day-level tool schema, prompt builder, and
+  merge plumbing disproportionate to this slice).
+- **A confirmed defect found by the final whole-branch review**, not any individual task review: the
+  real-exposure extrapolation filter (above) checked membership against `recent` — an array seeded
+  from the incoming period-label history and only ever growing — instead of tracking which foci this
+  specific draft call had actually drafted. In practice this silently discarded real generated-session
+  exposure data for any focus whose label already appeared in the last-4 kept periods (the common
+  case on a mature season), defeating the real-data preference for exactly the foci most likely to
+  have it. Fixed with a dedicated `draftedThisCall` set.
+
+**Live-verified**: the rolling (non-event) path end-to-end via the real `/api/generate` pipeline —
+correct rotation reaching every build focus, arc-cap resets, and goal-driven steering all confirmed
+against real athlete data. The event-anchored path's pre-LLM redraft (backward scheduling, build
+rotation reaching `anaerobic`, peak/taper landing exactly on the event date) and the new countdown UI
+copy were both confirmed live via a temporary placeholder event (added and cleanly reverted
+afterward). **Outstanding**: the full end-to-end live smoke run for both the event-driven path's
+actual generated content and the measurability slice (Task 5) is blocked on an Anthropic account
+billing issue ("credit balance too low"), not a code defect — required before either can be called
+fully done per this repo's AGENTS.md rule. Full detail in `.git/sdd/progress.md`.
+
+---
+
 ## 6-week block review: season multi-period, protocol false-positives, hours, press-lap (2026-07-14)
 
 Reviewed a live 6-week block generated after the token-budget fix above and traced its four validator
