@@ -36,7 +36,7 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatSeasonContext, replanSeasonArc, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatRetestNote, formatSeasonContext, replanSeasonArc, validateFocusMatch, validateSeasonFit } from "@/lib/season";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
@@ -271,6 +271,15 @@ export async function POST(req: Request) {
       if (line) seasonContext = `\n${line}`;
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
+    }
+
+    // Retest cadence (macro-structure): a stale tested FTP quietly rots zones and TSS math — nudge
+    // the generator to place a retest in the next lighter week. Additive to seasonContext; if the
+    // replan above failed there is no season line to extend, and the nudge is skipped with it.
+    if (physStore && replannedSeason) {
+      const ftpStaleDays = Math.floor((Date.parse(today) - Date.parse(physStore.current.effectiveFrom)) / 86_400_000);
+      const retestNote = formatRetestNote(Number.isFinite(ftpStaleDays) ? ftpStaleDays : null, replannedSeason, today);
+      if (retestNote) seasonContext += `\n${retestNote}`;
     }
 
     // Live training zones from the physiology store, rendered for the prompt (these used to
