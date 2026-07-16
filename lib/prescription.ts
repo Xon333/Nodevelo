@@ -129,8 +129,6 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
   // "cut short" reps on a perfectly-ridden session. So: expand the block in order first, into one
   // entry per rep; collapse only CONSECUTIVE-identical reps afterwards for a compact label (matching is
   // unaffected — identical reps flatten to the same sequence whether stored as N×reps:1 or 1×reps:N).
-  type Work = { durationSec: number; pct: number; targetWatts: number };
-
   const expanded = walkWorkoutSteps(
     workoutText,
     (step, inExcludedSection) => !inExcludedSection && step.pct >= WORK_THRESHOLD_PCT

@@ -130,7 +130,7 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
   it("validates each generated day against its own period, duration-weighted", async () => {
     vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
     const json = await (await genWithSeason()).json();
-    // Both mocked days (06-15 Threshold 75m + 06-16 Z2 90m) land in the base portion: 75/165 ≈ 45%
+    // Both mocked days (06-15 Threshold 36m + 06-16 Z2 90m) land in the base portion: 36/126 ≈ 28.6%
     // of riding time is hard → exactly one warning, scoped to those dates, phrased by time not count.
     const fit = json.plan.warnings.filter((w: string) => /^Season fit/.test(w));
     expect(fit.length).toBe(1);
