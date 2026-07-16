@@ -74,6 +74,8 @@ export default function PlanPreview({
   const weeks = [...new Set(plan.days.map((d) => d.weekNumber))].sort((a, b) => a - b);
   const written = results !== null && results.every((r) => r.ok);
   const resultFor = (day: PlannedDay) => results?.find((r) => r.date === day.date);
+  // Truthy-check, never `=== null`: plans generated before this field parse back as undefined.
+  const violations = plan.protocolViolations ?? [];
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900/50">
@@ -101,6 +103,17 @@ export default function PlanPreview({
           </button>
         </div>
       </div>
+
+      {violations.length > 0 && (
+        <div className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 dark:border-red-700 dark:bg-red-950">
+          <p className="text-xs font-semibold text-red-800 dark:text-red-300">
+            Protocol violations — these quality sessions contradict the KB protocol. Regenerate, or write anyway if deliberate:
+          </p>
+          <ul className="mt-0.5 list-inside list-disc text-xs text-red-700 dark:text-red-300">
+            {violations.map((w) => <li key={w}>{w}</li>)}
+          </ul>
+        </div>
+      )}
 
       {plan.warnings.length > 0 && (
         <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950">
