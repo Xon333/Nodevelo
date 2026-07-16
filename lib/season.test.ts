@@ -56,6 +56,18 @@ describe("draftSeasonArc — Mode-C", () => {
     expect(arc.some((p) => p.focus === "sharpen")).toBe(true); // realize week present
     expect(arc.every((p) => p.source === "derived")).toBe(true);
   });
+  it("drafted arcs carry a monotonically ramping load envelope — no 0.6x plateau, no taper-week spike", () => {
+    // baseInput's recentFocuses includes aerobic-base → no base gate → exactly horizonPeriods (5) periods.
+    const arc = draftSeasonArc(baseInput({ recentWeeklyTss: 806 }), "2026-07-01");
+    expect(arc).toHaveLength(5);
+    // Every 3-4-week period trips the 3:1 cadence; only the 1-week sharpen doesn't — the real pathology shape.
+    expect(arc.map((x) => x.deloadWeek)).toEqual([true, true, true, true, false]);
+    const targets = arc.map((x) => x.targetWeeklyTss!);
+    expect(targets).toEqual([854, 905, 959, 1017, 1048]);
+    for (let i = 1; i < targets.length; i++) {
+      expect(targets[i]).toBeGreaterThanOrEqual(targets[i - 1]); // never a spike after a plateau
+    }
+  });
 });
 
 function addWeeksExpected(p: { startDate: string; plannedWeeks: number }): string {
@@ -77,20 +89,30 @@ describe("load envelope", () => {
   it("withholds targets when there is no seed (no FTP/CTL)", () => {
     expect(assignLoadTargets([p()], null, 1.3)[0].targetWeeklyTss).toBeNull();
   });
-  it("does not advance the ramp base past a deload — resumes the ramp from the pre-deload target", () => {
+  it("ignores deloadWeek entirely — every period ramps and the base always advances (the lighter week lives inside the block, not in this envelope)", () => {
     const periods = [
       { ...p(), deloadWeek: false },
       { ...p(), deloadWeek: false },
-      { ...p(), deloadWeek: true }, // deload — must not become the new ramp base
+      { ...p(), deloadWeek: true }, // flagged: the TRAILING week is lighter — but the loading-week target still ramps
       { ...p(), deloadWeek: false },
       { ...p(), deloadWeek: false },
     ];
     const out = assignLoadTargets(periods, 400, 1.3);
-    expect(out[0].targetWeeklyTss).toBe(424); // 400 * 1.06
-    expect(out[1].targetWeeklyTss).toBe(449); // 424 * 1.06, rounded
-    expect(out[2].targetWeeklyTss).toBe(269); // deload: 449 * 0.6, rounded — prev stays 449
-    expect(out[3].targetWeeklyTss).toBe(476); // resumes from 449 (pre-deload), NOT 269: 449 * 1.06, rounded
-    expect(out[4].targetWeeklyTss).toBe(505); // 476 * 1.06, rounded
+    expect(out.map((x) => x.targetWeeklyTss)).toEqual([424, 449, 476, 505, 520]); // +6% each, last capped at 400 * 1.3
+    expect(out[2].deloadWeek).toBe(true); // the flag itself is untouched — display/prompt consumers still see it
+  });
+  it("real cadence shape (every multi-week period flagged) ramps off the seed instead of freezing at 0.6x", () => {
+    // Real generated-season shape: every 3-4-week period trips the 3:1 boundary and carries
+    // deloadWeek: true; only the single-week sharpen doesn't. Seed = this athlete's real
+    // 90-day baseline x 7 ~= 806. The old bug produced [484, 484, 484, 484, 854] — a 0.6x
+    // plateau with the nominal taper week spiking +76% above it.
+    const flagged = (weeks: number, deload: boolean) => ({ ...p(), plannedWeeks: weeks, deloadWeek: deload });
+    const out = assignLoadTargets(
+      [flagged(4, true), flagged(3, true), flagged(4, true), flagged(3, true), flagged(1, false)],
+      806,
+      1.3
+    );
+    expect(out.map((x) => x.targetWeeklyTss)).toEqual([854, 905, 959, 1017, 1048]); // +6% ramp, capped at round(806 * 1.3)
   });
 });
 

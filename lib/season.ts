@@ -120,7 +120,12 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
 }
 
 // Ramps each period's targetWeeklyTss ~+loadRampPct% off the prior period (first period off seedWeeklyTss).
-// A deload period gets ~60% of the running load and does NOT advance the ramp base.
+// targetWeeklyTss is the period's LOADING-week target: every period advances the ramp — deloadWeek does
+// NOT dampen it. The flag means "this period's TRAILING week is lighter", and that lighter week is sized
+// downstream (BlockSettings.recoveryWeekHoursMin/Max in the block generator + formatSeasonContext's
+// "deload week" prompt phrase), never by this envelope. (The old 0.6x/frozen-base branch here collided
+// with applyDeloadCadence flagging every 3-4-week period, flattening whole seasons to ~0.6x seed and
+// making the unflagged sharpen week the heaviest of the season.)
 // Capped so a target never exceeds seedWeeklyTss * acwrCeiling.
 // Null seed → all targets remain null.
 export function assignLoadTargets(periods: FocusPeriod[], seedWeeklyTss: number | null, acwrCeiling: number): FocusPeriod[] {
@@ -131,8 +136,8 @@ export function assignLoadTargets(periods: FocusPeriod[], seedWeeklyTss: number 
   const ceiling = seedWeeklyTss * acwrCeiling;
   let prev = seedWeeklyTss;
   return periods.map((p) => {
-    const target = p.deloadWeek ? Math.round(prev * 0.6) : Math.min(Math.round(prev * ramp), Math.round(ceiling));
-    if (!p.deloadWeek) prev = target;
+    const target = Math.min(Math.round(prev * ramp), Math.round(ceiling));
+    prev = target;
     return { ...p, targetWeeklyTss: target };
   });
 }
