@@ -134,6 +134,9 @@ export interface SeasonDraftInput {
   // Optional reality signals for the scored coverage selector (goal text, real session exposure,
   // execution EWMAs). Absent → labels-only selection (every pre-existing caller/fixture unchanged).
   focusSignals?: FocusSignals;
+  // Calendar weeks since the last genuine reduced-load break (phase "transition") ended — from
+  // weeksSinceSeasonBreak(). Absent/null = unknown → never draft a break (conservative).
+  weeksSinceSeasonBreak?: number | null;
 }
 
 const BUILD_FOCI: SeasonFocus[] = ["threshold", "vo2max", "anaerobic", "durability"];
@@ -297,12 +300,34 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
   const recent = [...input.recentFocuses];
   let cursor = today;
   const conf = input.limiter.confidence;
+  let sinceBreak = input.weeksSinceSeasonBreak ?? null;
 
-  if (needsBaseGate(recent)) {
-    periods.push(period("aerobic-base", "base", cursor, conf, "Aerobic base — the ceiling for every later phase (KB)."));
+  // A "reset" is either a plain 3-wk aerobic-base touch (arc boundary / base gate) or — once
+  // ~two arcs of continuous loading have accrued since the last one — a genuine 2-wk
+  // phase-"transition" break: volume AND intensity down, a real seasonal breather the weekly
+  // 3:1 deloadWeek cadence never provides. Either way it counts as the arc's base touch.
+  const pushReset = () => {
+    if (sinceBreak !== null && sinceBreak >= SEASON_CONSTANTS.transitionEveryLoadingWeeks) {
+      periods.push({
+        focus: "aerobic-base", phase: "transition", startDate: cursor,
+        plannedWeeks: SEASON_CONSTANTS.transitionWeeks, intensitySplit: "95/5",
+        targetWeeklyTss: null, deloadWeek: false,
+        rationale: "Season break — ~two arcs of continuous loading absorbed; a genuinely light fortnight (volume AND intensity down) before the next arc.",
+        source: "derived", confidence: conf,
+      });
+      sinceBreak = 0;
+    } else {
+      periods.push(period("aerobic-base", "base", cursor, conf,
+        periods.length === 0 && needsBaseGate(input.recentFocuses)
+          ? "Aerobic base — the ceiling for every later phase (KB)."
+          : "Arc boundary — re-touch aerobic base so the build doesn't run monotone (Foster 1998: illness tracks load × monotony)."));
+      if (sinceBreak !== null) sinceBreak += periods[periods.length - 1].plannedWeeks;
+    }
     recent.push("aerobic-base");
     cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
-  }
+  };
+
+  if (needsBaseGate(recent)) pushReset();
 
   // Arc cap (Foster 1998: illness risk tracks load × monotony): consecutive loading weeks since the
   // last base touch may never exceed arcWeeks.max — the touch also resets the rotation's recency
@@ -334,10 +359,8 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
     const focus = selectBuildFocus(input.limiter, recent, adjustedSignals);
     const focusWeeks = SEASON_CONSTANTS.weeks[focus];
     if (sinceBase >= SEASON_CONSTANTS.arcWeeks.min && sinceBase + focusWeeks > SEASON_CONSTANTS.arcWeeks.max) {
-      periods.push(period("aerobic-base", "base", cursor, conf, "Arc boundary — re-touch aerobic base so the build doesn't run monotone (Foster 1998: illness tracks load × monotony)."));
-      recent.push("aerobic-base");
+      pushReset();
       sinceBase = 0;
-      cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
       continue;
     }
     const why =
@@ -347,6 +370,7 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
     periods.push(period(focus, "build", cursor, conf, why));
     recent.push(focus);
     sinceBase += focusWeeks;
+    if (sinceBreak !== null) sinceBreak += focusWeeks;
     cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
   }
 
@@ -474,7 +498,12 @@ export function replanSeasonArc(
   const draftStart = anchors.length
     ? anchors.map((p) => periodEnd(p)).sort().reverse()[0]
     : today;
-  const derived = draftSeasonArc({ ...input, recentFocuses }, draftStart);
+  // Break clock from the KEPT periods only ([frozen, current, overrides]) — the old derived tail
+  // being replaced must not count: a discarded drafted transition never actually happened.
+  const derived = draftSeasonArc(
+    { ...input, recentFocuses, weeksSinceSeasonBreak: weeksSinceSeasonBreak([...frozen, ...current, ...overrides], draftStart) },
+    draftStart
+  );
   const periods = [...frozen, ...current, ...overrides, ...derived].sort((a, b) => a.startDate.localeCompare(b.startDate));
   return { ...plan, periods, updatedAt: plan.updatedAt };
 }

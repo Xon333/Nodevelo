@@ -801,3 +801,37 @@ describe("season-break clock", () => {
     expect(weeksSinceSeasonBreak([build("2026-01-12"), transition], "2026-07-01")).toBe(10); // from its END
   });
 });
+
+describe("genuine season break (phase transition) in the draft", () => {
+  it("leads with a transition instead of a base touch when the break clock is overdue", () => {
+    const arc = draftSeasonArc(baseInput({ recentFocuses: [], weeksSinceSeasonBreak: 24 }), "2026-07-01");
+    expect(arc[0].phase).toBe("transition");
+    expect(arc[0].focus).toBe("aerobic-base");
+    expect(arc[0].plannedWeeks).toBe(SEASON_CONSTANTS.transitionWeeks);
+    expect(arc[0].deloadWeek).toBe(false);
+  });
+  it("replaces the arc-boundary base touch with a transition when the clock runs out mid-draft — once", () => {
+    const arc = draftSeasonArc(baseInput({ weeksSinceSeasonBreak: 24 }), "2026-07-01"); // default seed: no gate, 4 wk behind
+    const idx = arc.findIndex((p) => p.phase === "transition");
+    expect(idx).toBeGreaterThan(0); // mid-draft, at the arc cap — not the lead period
+    expect(arc.filter((p) => p.phase === "transition").length).toBe(1); // the clock resets after the break
+  });
+  it("drafts a plain base touch when the clock is young or unknown", () => {
+    const young = draftSeasonArc(baseInput({ weeksSinceSeasonBreak: 10 }), "2026-07-01");
+    expect(young.every((p) => p.phase !== "transition")).toBe(true);
+    expect(young.some((p) => p.focus === "aerobic-base")).toBe(true); // the arc cap still resets — just with base
+    const unknown = draftSeasonArc(baseInput({ recentFocuses: [] }), "2026-07-01");
+    expect(unknown.every((p) => p.phase !== "transition")).toBe(true);
+  });
+  it("replanSeasonArc feeds the break clock from the plan's own periods", () => {
+    // Six frozen 4-week build periods = 24 calendar weeks of loading, no transition ever.
+    const frozen: FocusPeriod[] = ["2026-01-12", "2026-02-09", "2026-03-09", "2026-04-06", "2026-05-04", "2026-06-01"].map((startDate, i) => ({
+      focus: i % 2 === 0 ? "threshold" : "vo2max", phase: "build", startDate, plannedWeeks: 4,
+      intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
+    }));
+    const out = replanSeasonArc(planWith(frozen), baseInput(), () => 400, "2026-07-01");
+    const t = out.periods.find((p) => p.phase === "transition");
+    expect(t).toBeDefined();
+    expect(t!.startDate).toBe("2026-07-01"); // the redraft leads with the overdue break
+  });
+});
