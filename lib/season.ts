@@ -18,6 +18,8 @@ export const SEASON_CONSTANTS = {
   loadRampPct: 6, // +5–8% weekly-TSS ramp midpoint
   horizonPeriods: 5, // how many future periods to draft (rough & rolling)
   arcWeeks: { min: 8, max: 12 }, // bounded emphasis arc: consecutive loading weeks between aerobic-base touches
+  transitionEveryLoadingWeeks: 20, // a genuine season break after ~2 full arcs of continuous loading
+  transitionWeeks: 2, // the break itself: a light fortnight — volume AND intensity down
 } as const;
 
 // Display labels for a goal's focus. "general" is not a physiological system — it means "relevant in
@@ -514,6 +516,20 @@ export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean): Focu
 // definition replanSeasonArc's "current" bucket uses. Null when no period covers the date.
 export function periodForDate(plan: SeasonPlan, date: string): FocusPeriod | null {
   return plan.periods.find((p) => p.startDate <= date && periodEnd(p) > date) ?? null;
+}
+
+// Calendar weeks since the athlete's last genuine reduced-load break (phase "transition") ended,
+// measured over periods that have started by `asOf`. No transition ever → measured from the first
+// started period (season length so far). Null when nothing has started — a brand-new season cannot
+// be "overdue for a break".
+export function weeksSinceSeasonBreak(periods: FocusPeriod[], asOf: string): number | null {
+  const started = periods.filter((p) => p.startDate <= asOf);
+  if (started.length === 0) return null;
+  const transitions = started.filter((p) => p.phase === "transition");
+  const anchor = transitions.length > 0
+    ? transitions.map((p) => addWeeks(p.startDate, p.plannedWeeks)).sort().reverse()[0]
+    : started.map((p) => p.startDate).sort()[0];
+  return weeksBetween(anchor, asOf); // clamps at 0 for an in-progress transition
 }
 
 // The period straddling `today` (started, not yet ended) — periodForDate specialised to "now".

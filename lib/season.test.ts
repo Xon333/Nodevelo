@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -781,5 +781,23 @@ describe("bounded emphasis arcs (8–12 wk)", () => {
     const arc = draftSeasonArc(baseInput({ recentFocuses: ["aerobic-base", "threshold", "vo2max", "durability"] }), "2026-07-01");
     expect(arc[0].focus).toBe("aerobic-base"); // cap fires immediately: 11 + any build (3–4 wk) > 12
     expect(arc[0].rationale).toContain("Arc boundary");
+  });
+});
+
+describe("season-break clock", () => {
+  it("encodes the break cadence: ~2 arcs of loading, then a 2-week transition", () => {
+    expect(SEASON_CONSTANTS.transitionEveryLoadingWeeks).toBe(20);
+    expect(SEASON_CONSTANTS.transitionWeeks).toBe(2);
+  });
+  it("measures from the last transition's end, else the season start; null before anything started", () => {
+    const build = (startDate: string): FocusPeriod => ({
+      focus: "threshold", phase: "build", startDate, plannedWeeks: 4, intensitySplit: "80/20",
+      targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
+    });
+    expect(weeksSinceSeasonBreak([], "2026-07-01")).toBeNull();
+    expect(weeksSinceSeasonBreak([build("2099-01-01")], "2026-07-01")).toBeNull(); // nothing started yet
+    expect(weeksSinceSeasonBreak([build("2026-01-12")], "2026-07-01")).toBe(24); // no break ever → since season start
+    const transition: FocusPeriod = { ...build("2026-04-06"), phase: "transition", plannedWeeks: 2 }; // ends 2026-04-20
+    expect(weeksSinceSeasonBreak([build("2026-01-12"), transition], "2026-07-01")).toBe(10); // from its END
   });
 });
