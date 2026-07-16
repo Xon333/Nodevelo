@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput, type FocusSignals } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput, type FocusSignals } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -594,5 +594,55 @@ describe("draftSeasonArc — scored coverage selection (replaces the two-state/L
     expect(nextBuildFocus({ system: "vo2max", confidence: "high" }, ["threshold"])).toBe("vo2max"); // limiter bonus wins
     expect(nextBuildFocus({ system: null, confidence: "low" }, ["threshold"])).toBe("vo2max"); // trainability tie-break
     expect(nextBuildFocus({ system: "threshold", confidence: "high" }, ["threshold"])).not.toBe("threshold"); // never repeat
+  });
+});
+
+describe("validateFocusMatch — a period's label must match its generated sessions", () => {
+  const day = (date: string, type: PlannedDay["type"], durationMin: number, workoutText = ""): PlannedDay =>
+    ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText, description: "" });
+  const vo2Period = { focus: "vo2max" as const, phase: "build" as const, startDate: "2026-08-02", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 450, deloadWeek: false, rationale: "", source: "derived" as const, confidence: "high" as const };
+  const duraPeriod = { ...vo2Period, focus: "durability" as const };
+
+  it("flags a vo2max period whose block days carry zero VO2max sessions", () => {
+    const days = [
+      day("2026-08-03", "Z2", 120), day("2026-08-05", "Threshold", 75), day("2026-08-07", "Z2", 120),
+      day("2026-08-10", "Threshold", 75), day("2026-08-12", "Z2", 120),
+    ];
+    const w = validateFocusMatch(days, planWith([vo2Period]), 280);
+    expect(w.length).toBe(1);
+    expect(w[0]).toContain("Season fit:");
+    expect(w[0]).toContain("vo2max period");
+    expect(w[0]).toContain("VO2max");
+  });
+  it("stays silent when the implied session type is present", () => {
+    const days = [
+      day("2026-08-03", "Z2", 120), day("2026-08-05", "VO2max", 60), day("2026-08-07", "Z2", 120),
+      day("2026-08-10", "Threshold", 75), day("2026-08-12", "Z2", 120),
+    ];
+    expect(validateFocusMatch(days, planWith([vo2Period]), 280)).toEqual([]);
+  });
+  it("durability: a plain-Z2 week fails, an embedded-intensity Z2 week passes (carriesEmbeddedIntensity)", () => {
+    const plain = [
+      day("2026-08-03", "Z2", 150, "- 2h 65%"), day("2026-08-05", "Z2", 120, "- 2h 65%"),
+      day("2026-08-10", "Z2", 180, "- 3h 65%"),
+    ];
+    expect(validateFocusMatch(plain, planWith([duraPeriod]), 280).length).toBe(1);
+    const loaded = [
+      day("2026-08-03", "Z2", 150, "- 2h 65%"),
+      day("2026-08-10", "Z2", 180, "Warmup\n- 15m 55%\n\nMain Set 3x\n- 8m 92%"), // real durability insert
+    ];
+    expect(validateFocusMatch(loaded, planWith([duraPeriod]), 280)).toEqual([]);
+  });
+  it("does not fire when the block only brushes the period (< 7 calendar days of overlap)", () => {
+    const days = [day("2026-08-03", "Z2", 120), day("2026-08-05", "Z2", 120)]; // 3-day span
+    expect(validateFocusMatch(days, planWith([vo2Period]), 280)).toEqual([]);
+  });
+  it("ignores base/sharpen periods, rest/strength days, and uncovered dates", () => {
+    const base = { ...vo2Period, focus: "aerobic-base" as const, phase: "base" as const };
+    const days = [
+      day("2026-08-03", "Z2", 120), day("2026-08-05", "Rest", 0), day("2026-08-07", "Strength", 45),
+      day("2026-08-12", "Z2", 120), day("2026-09-20", "Z2", 120), // last date: no covering period
+    ];
+    expect(validateFocusMatch(days, planWith([base]), 280)).toEqual([]);
   });
 });

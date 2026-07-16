@@ -549,6 +549,48 @@ export function validateSeasonFit(days: PlannedDay[], plan: SeasonPlan, ftp: num
   return warnings;
 }
 
+// Companion to validateSeasonFit (same non-blocking "Season fit: ..." contract): does a build period's
+// actual generated training match its own focus LABEL? Intensity-share can pass while the label lies —
+// a "vo2max" period full of threshold work is a plan/label disagreement worth surfacing. Mapping is the
+// reverse of the route's mapSystemToFocus vocabulary: vo2max→VO2max, threshold→Threshold, anaerobic→SIT,
+// durability→a Z2/Recovery ride actually carrying embedded threshold+ work (carriesEmbeddedIntensity —
+// PlannedDay carries no durability-template stamp, so the parsed prescription is the evidence). Only
+// fires when the block gives the period a fair chance: the period's bucket must span ≥ 7 calendar days.
+// aerobic-base/sharpen imply no specific quality type and are skipped.
+export function validateFocusMatch(days: PlannedDay[], plan: SeasonPlan, ftp: number): string[] {
+  const matchers: Partial<Record<SeasonFocus, { label: string; match: (d: PlannedDay) => boolean }>> = {
+    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
+    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
+    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
+    durability: {
+      label: "durability-loaded Z2 (embedded threshold+ work)",
+      match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
+    },
+  };
+  const warnings: string[] = [];
+  const buckets = new Map<FocusPeriod, PlannedDay[]>();
+  for (const d of days) {
+    if (d.type === "Rest" || d.type === "Strength") continue;
+    const p = periodForDate(plan, d.date);
+    if (!p) continue;
+    const rides = buckets.get(p);
+    if (rides) rides.push(d);
+    else buckets.set(p, [d]);
+  }
+  for (const [p, rides] of buckets) {
+    const m = matchers[p.focus];
+    if (!m) continue;
+    const dates = rides.map((d) => d.date).sort();
+    const spanDays = (Date.parse(dates[dates.length - 1]) - Date.parse(dates[0])) / 86_400_000;
+    if (spanDays < 6) continue; // the block only brushes this period — it doesn't owe it a session
+    if (rides.some(m.match)) continue;
+    warnings.push(
+      `Season fit: ${dates[0]} → ${dates[dates.length - 1]} sits in a ${p.focus} period but carries zero ${m.label} sessions — the period's focus label and its prescribed training disagree.`
+    );
+  }
+  return warnings;
+}
+
 const FOCUS_LABEL: Record<SeasonFocus, string> = {
   "aerobic-base": "Aerobic", threshold: "Threshold", vo2max: "VO2max", anaerobic: "Anaerobic", durability: "Durability", sharpen: "Sharpen",
 };
