@@ -128,6 +128,9 @@ export interface SeasonDraftInput {
   limiter: { system: SeasonFocus | null; confidence: "low" | "medium" | "high" };
   recentFocuses: SeasonFocus[]; // most recent last
   heavyFatigue: boolean;
+  // Optional reality signals for the scored coverage selector (goal text, real session exposure,
+  // execution EWMAs). Absent → labels-only selection (every pre-existing caller/fixture unchanged).
+  focusSignals?: FocusSignals;
 }
 
 const BUILD_FOCI: SeasonFocus[] = ["threshold", "vo2max", "anaerobic", "durability"];
@@ -237,32 +240,15 @@ export function execQualityByFocus(model: AthleteModel): Partial<Record<SeasonFo
   return out;
 }
 
-// Weakest system first when confident; else a least-recently-used rotation over BUILD_FOCI (KB variety).
-// Never repeats the last focus — the last focus is by definition the most recently used candidate.
+// Thin wrapper kept for existing call sites/tests: labels-only scored selection. The scored selector
+// (selectBuildFocus, above) replaced both the original "first non-last of defaultBuildOrder()" fallback
+// and the interim least-recently-used fallback (2026-07-15-season-critical-fixes) — the limiter is now
+// a weighted bonus, not an unconditional winner.
 export function nextBuildFocus(
   limiter: SeasonDraftInput["limiter"],
   recentFocuses: SeasonFocus[]
 ): SeasonFocus {
-  const last = recentFocuses[recentFocuses.length - 1] ?? null;
-  const wanted =
-    limiter.system && limiter.confidence !== "low" && BUILD_FOCI.includes(limiter.system)
-      ? limiter.system
-      : null;
-  if (wanted && wanted !== last) return wanted;
-  // LRU fallback: the candidate that appeared furthest back in recentFocuses wins (lastIndexOf === -1,
-  // i.e. never appeared, wins outright). Ties break by defaultBuildOrder()'s stable order; anaerobic
-  // (absent from the default order) sorts last among ties, so it surfaces only via genuine staleness,
-  // never as a tiebreak default. This replaces the old first-non-last scan over defaultBuildOrder(),
-  // which locked a confident limiter into a permanent two-focus alternation (anaerobic → threshold →
-  // anaerobic → ...) and starved vo2max/durability forever.
-  const order = defaultBuildOrder();
-  const tiebreak = (f: SeasonFocus): number => {
-    const i = order.indexOf(f);
-    return i === -1 ? order.length : i;
-  };
-  return [...BUILD_FOCI].sort(
-    (a, b) => recentFocuses.lastIndexOf(a) - recentFocuses.lastIndexOf(b) || tiebreak(a) - tiebreak(b)
-  )[0];
+  return selectBuildFocus(limiter, recentFocuses);
 }
 
 function period(focus: SeasonFocus, phase: SeasonPhase, startDate: string, confidence: FocusPeriod["confidence"], rationale: string): FocusPeriod {
@@ -296,7 +282,7 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
   }
 
   while (periods.length < SEASON_CONSTANTS.horizonPeriods - 1) {
-    const focus = nextBuildFocus(input.limiter, recent);
+    const focus = selectBuildFocus(input.limiter, recent, input.focusSignals);
     const why =
       input.limiter.system === focus && conf !== "low"
         ? `Build ${focus} — your most depressed system relative to your engine.`

@@ -63,7 +63,7 @@ describe("draftSeasonArc — Mode-C", () => {
     expect(picks).toContain("vo2max");
     expect(picks).toContain("durability");
     // The limiter still leads every other period; the interleaved periods rotate least-recently-used.
-    expect(picks).toEqual(["anaerobic", "threshold", "anaerobic", "vo2max", "anaerobic", "durability"]);
+    expect(picks).toEqual(["anaerobic", "threshold", "vo2max", "durability", "anaerobic", "threshold"]); // scored selector (coverage plan) — supersedes the interim LRU sequence
   });
 
   it("REGRESSION: the fallback is least-recently-used, not first-in-default-order", () => {
@@ -570,5 +570,29 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
       behaviourAllTime: { totalRides: 40, plannedRides: 30, unplannedRides: 10, offPlanPct: 25, unplannedAvgQuality: null, weeklyHours: 7 },
     };
     expect(execQualityByFocus(model)).toEqual({ threshold: 3.2, durability: 7.1 });
+  });
+});
+
+describe("draftSeasonArc — scored coverage selection (replaces the two-state/LRU selector)", () => {
+  const anHigh = { system: "anaerobic" as const, confidence: "high" as const };
+  it("one horizon reaches all four build systems under a confident anaerobic limiter (hand-traced)", () => {
+    // baseInput's recentFocuses = ["aerobic-base", "threshold"] → base gate silent → 4 builds + sharpen.
+    const arc = draftSeasonArc(baseInput({ limiter: anHigh }), "2026-07-01");
+    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
+    expect(builds).toEqual(["anaerobic", "vo2max", "durability", "threshold"]);
+  });
+  it("focusSignals flow through the draft: an FTP goal leads the arc with threshold/vo2max, not the anaerobic limiter", () => {
+    const arc = draftSeasonArc(
+      baseInput({ limiter: anHigh, recentFocuses: ["aerobic-base"], focusSignals: { goalText: "Raise my FTP from 280 to 300 W" } }),
+      "2026-07-01"
+    );
+    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
+    expect(builds.slice(0, 2)).toEqual(["threshold", "vo2max"]);
+    expect(builds[0]).not.toBe("anaerobic");
+  });
+  it("nextBuildFocus delegates to the scored selector (labels-only) — old contracts hold", () => {
+    expect(nextBuildFocus({ system: "vo2max", confidence: "high" }, ["threshold"])).toBe("vo2max"); // limiter bonus wins
+    expect(nextBuildFocus({ system: null, confidence: "low" }, ["threshold"])).toBe("vo2max"); // trainability tie-break
+    expect(nextBuildFocus({ system: "threshold", confidence: "high" }, ["threshold"])).not.toBe("threshold"); // never repeat
   });
 });
