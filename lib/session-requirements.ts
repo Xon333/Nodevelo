@@ -48,7 +48,7 @@ function clauseStart(haystack: string, index: number): number {
 // A tag counts only if it appears at least once *not* preceded by a negation word within the same
 // clause — so "avoid hills" / "no racing this block" don't wrongly require a RaceSim, but a negation
 // in a separate clause ("no rest weeks — hilly KOM race") leaves the tag standing.
-function tagPresent(haystack: string, re: RegExp): boolean {
+export function tagPresent(haystack: string, re: RegExp): boolean {
   const scan = new RegExp(re.source, "g");
   let m: RegExpExecArray | null;
   while ((m = scan.exec(haystack)) !== null) {

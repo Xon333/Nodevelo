@@ -2,6 +2,7 @@
 // limiter-focus periods, grounded in the knowledge base. The LLM only phrases FocusPeriod.rationale.
 import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan } from "./types";
 import { DEFAULT_ACWR_BANDS } from "./calibration";
+import { tagPresent } from "./session-requirements";
 
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus
 // periods are mesocycle-sized (a "base touch" is 2–4 wk, not the 10–16 wk annual base phase).
@@ -32,6 +33,31 @@ export const FOCUS_LABELS: Record<SeasonFocus | "general", string> = {
 // Build-phase rotation order when no confident limiter is known (KB variety rule).
 export function defaultBuildOrder(): SeasonFocus[] {
   return ["threshold", "vo2max", "durability"];
+}
+
+// ---------- Coverage selector, factor 1: goal relevance ----------
+// (2026-07-15-season-coverage-selector) Does the stated goal/weakpoint text plausibly gate on a focus?
+// Same negation-aware clause matching as deriveSessionRequirements (lib/session-requirements.ts) — no
+// new NLP. Research-grounded weight choice: an FTP/TTE goal makes BOTH threshold and vo2max relevant
+// (Odden et al. 2024 — threshold and VO2max sessions raise VO2max comparably; at high fractional
+// utilization the aerobic ceiling gates further FTP), so a goal-driven athlete is steered to the
+// ceiling, not to a deficit-greedy "weakest system" pick. Regexes are lowercase-only (haystack is
+// lowercased); a focus a fired pattern doesn't mention scores 0 (deliberately penalised vs neutral).
+const GOAL_PATTERNS: Array<{ re: RegExp; weights: Partial<Record<SeasonFocus, number>> }> = [
+  { re: /\b(ftp|tte|time.?trial|sustained|steady.?state|threshold)\b/, weights: { threshold: 1, vo2max: 0.8, durability: 0.3 } },
+  { re: /\b(sprint|sprints|kick|snap|jump|neuromuscular)\b/, weights: { anaerobic: 1 } },
+  { re: /\b(fondo|century|endurance|ultra|all.?day|long ride|long rides|kom|climb|climbs|climbing)\b/, weights: { durability: 1, threshold: 0.5 } },
+];
+
+// 0..1 relevance of a focus to the athlete's goal text. Neutral 0.5 when there is no text or no
+// pattern fires (absence of a goal must not distort the other scoring factors). When patterns fire,
+// the max weight across fired patterns wins; an unmentioned focus scores 0.
+export function goalRelevanceForFocus(goalText: string | undefined, focus: SeasonFocus): number {
+  const haystack = (goalText ?? "").toLowerCase();
+  if (!haystack.trim()) return 0.5;
+  const fired = GOAL_PATTERNS.filter((p) => tagPresent(haystack, p.re));
+  if (fired.length === 0) return 0.5;
+  return Math.max(...fired.map((p) => p.weights[focus] ?? 0));
 }
 
 // Add whole weeks to an ISO date (UTC-safe).

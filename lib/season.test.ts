@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, FOCUS_LABELS, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, FOCUS_LABELS, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -422,5 +422,32 @@ describe("filterGoalsByFocus", () => {
   });
   it("returns only general-tagged goals when no goal matches the given focus", () => {
     expect(filterGoalsByFocus(goals, "anaerobic").map((x) => x.goal)).toEqual(["C"]);
+  });
+});
+
+describe("goalRelevanceForFocus — goal text gates focus relevance", () => {
+  it("an FTP goal weights threshold AND vo2max high (Odden 2024: both raise the ceiling), anaerobic zero", () => {
+    const goal = "Raise my FTP from 280 to 300 W and hold it longer";
+    expect(goalRelevanceForFocus(goal, "threshold")).toBe(1);
+    expect(goalRelevanceForFocus(goal, "vo2max")).toBe(0.8);
+    expect(goalRelevanceForFocus(goal, "durability")).toBe(0.3);
+    expect(goalRelevanceForFocus(goal, "anaerobic")).toBe(0);
+  });
+  it("a sprint goal weights anaerobic, a long-event goal weights durability", () => {
+    expect(goalRelevanceForFocus("win the town-sign sprint", "anaerobic")).toBe(1);
+    expect(goalRelevanceForFocus("finish a 200km gran fondo strong", "durability")).toBe(1);
+    expect(goalRelevanceForFocus("finish a 200km gran fondo strong", "threshold")).toBe(0.5);
+  });
+  it("neutral 0.5 for every focus when text is empty, absent, or matches nothing", () => {
+    for (const f of ["threshold", "vo2max", "anaerobic", "durability"] as const) {
+      expect(goalRelevanceForFocus(undefined, f)).toBe(0.5);
+      expect(goalRelevanceForFocus("", f)).toBe(0.5);
+      expect(goalRelevanceForFocus("just ride and have fun", f)).toBe(0.5);
+    }
+  });
+  it("negation in the same clause suppresses a pattern (session-requirements' clause matcher)", () => {
+    expect(goalRelevanceForFocus("no FTP targets this year, just consistency", "threshold")).toBe(0.5);
+    // negation in an EARLIER clause does not reach across — the FTP tag stands
+    expect(goalRelevanceForFocus("no racing, but raise my FTP", "threshold")).toBe(1);
   });
 });
