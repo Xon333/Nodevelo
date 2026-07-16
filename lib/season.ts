@@ -544,9 +544,16 @@ export function achievedTssForPeriod(
 // Mark the period that crosses each deload boundary (30–50% volume cut lands in its trailing week).
 // Boundary fires when cumulative loading weeks reach (every - 1), i.e. after 3 loading weeks for 3:1,
 // after 2 loading weeks for 2:1 (tight).
+// Mark the period that crosses each deload boundary (30–50% volume cut lands in its trailing week).
+// Boundary fires when cumulative loading weeks reach `every` (a genuine rolling count ACROSS period
+// boundaries, not per-period): a period shorter than `every` on its own must not self-trip just
+// because it happens to be a whole mesocycle — it combines with the next period(s) until the full
+// cadence is reached. A period whose own length equals or exceeds `every` still fires on its own,
+// which is correct (a 4-week period IS one full 4-week loading cycle). Fixed live, 2026-07-16: the
+// previous `every - 1` threshold was smaller than any real KB period's own length (all ≥3 weeks),
+// so it fired on almost every period regardless of how many calendar weeks had actually passed.
 export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean): FocusPeriod[] {
   const every = tight ? SEASON_CONSTANTS.deloadTightEveryWeeks : SEASON_CONSTANTS.deloadEveryWeeks;
-  const threshold = every - 1; // loading weeks before the deload period
   let weeksSinceDeload = 0;
   return periods.map((p) => {
     // A transition IS recovery: never also flag it as a deload, and restart the cadence after it.
@@ -555,7 +562,7 @@ export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean): Focu
       return { ...p, deloadWeek: false };
     }
     weeksSinceDeload += p.plannedWeeks;
-    if (weeksSinceDeload >= threshold) {
+    if (weeksSinceDeload >= every) {
       weeksSinceDeload = 0;
       return { ...p, deloadWeek: true };
     }

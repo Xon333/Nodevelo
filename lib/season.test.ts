@@ -85,8 +85,9 @@ describe("draftSeasonArc — Mode-C", () => {
     // baseInput's recentFocuses includes aerobic-base → no base gate → exactly horizonPeriods (5) periods.
     const arc = draftSeasonArc(baseInput({ recentWeeklyTss: 806 }), "2026-07-01");
     expect(arc).toHaveLength(5);
-    // Every 3-4-week period trips the 3:1 cadence; only the 1-week sharpen doesn't — the real pathology shape.
-    expect(arc.map((x) => x.deloadWeek)).toEqual([true, true, true, true, false]);
+    // After the deload-cadence fix (2026-07-16): rolling 4-week boundaries, not buggy per-period threshold.
+    // The correct pattern now spaces deloads every ~4 calendar weeks, not every ~3.
+    expect(arc.map((x) => x.deloadWeek)).toEqual([true, false, true, true, false]);
     const targets = arc.map((x) => x.targetWeeklyTss!);
     expect(targets).toEqual([854, 905, 959, 1017, 1048]);
     for (let i = 1; i < targets.length; i++) {
@@ -180,21 +181,58 @@ describe("load envelope", () => {
   });
 });
 
-describe("deload cadence", () => {
+describe("deload cadence — rolling calendar weeks across period boundaries", () => {
   const p = (weeks: number): import("./types").FocusPeriod => ({
     focus: "threshold", phase: "build", startDate: "2026-07-01", plannedWeeks: weeks,
     intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
   });
-  it("flags a deload after ~3 loading weeks (3:1 default)", () => {
-    const out = applyDeloadCadence([p(2), p(2), p(2)], false); // cumulative 2,4,6 wk
-    expect(out[0].deloadWeek).toBe(false); // 2 wk in
-    expect(out[1].deloadWeek).toBe(true); // crosses the 4-week (3:1) boundary
-    expect(out[2].deloadWeek).toBe(false); // counter reset after the deload — next period is only 2 wk in
+  it("does not self-trip on a single period whose own length already reaches the OLD (buggy) threshold", () => {
+    // A lone 3-week period must NOT be flagged deload under the loose (4-wk) cadence — 3 < 4.
+    // The old code used threshold = every - 1 = 3, so a bare 3-week period alone used to trip it.
+    expect(applyDeloadCadence([p(3)], false)[0].deloadWeek).toBe(false);
   });
-  it("tightens to 2:1 under heavy fatigue", () => {
-    const out = applyDeloadCadence([p(2), p(2)], true); // boundary at 3 wk
-    expect(out[0].deloadWeek).toBe(true);
-    expect(out[1].deloadWeek).toBe(true); // after reset, the next 2-wk period hits the 2:1 boundary again
+  it("flags a deload once cumulative loading weeks reach the FULL cadence (4wk default)", () => {
+    const out = applyDeloadCadence([p(2), p(2), p(2)], false); // cumulative 2, 4, 6
+    expect(out[0].deloadWeek).toBe(false); // 2 wk in
+    expect(out[1].deloadWeek).toBe(true); // crosses the 4-week boundary exactly
+    expect(out[2].deloadWeek).toBe(false); // counter reset after the deload — next period only 2 wk in
+  });
+  it("tightens to every 3 calendar weeks under heavy fatigue — corrected from the old, buggy pinned values", () => {
+    // REGRESSION (2026-07-16 live feedback): the OLD threshold (every - 1 = 2) made p(2) alone ALWAYS
+    // trip immediately, giving [true, true] for two 2-week periods — every single period flagged,
+    // not a genuine 3-week rolling cadence. The correct cadence: first period (2wk) doesn't yet reach
+    // 3, second period's cumulative (4wk) crosses it.
+    const out = applyDeloadCadence([p(2), p(2)], true);
+    expect(out[0].deloadWeek).toBe(false);
+    expect(out[1].deloadWeek).toBe(true);
+  });
+  it("REGRESSION (found live, 2026-07-16): real KB period lengths no longer deload almost every period", () => {
+    // Exact shape of the athlete's real season-plan.json at the time of the report: aerobic-base(3),
+    // anaerobic(3), threshold(4), vo2max(4), aerobic-base(3, arc boundary), sharpen(1). The live bug
+    // flagged 5 of 6 as deloadWeek:true (deloads every ~3 weeks); the fix produces genuine ~4-week
+    // spacing: aerobic-base+anaerobic together (3+3=6wk) cross the boundary once at anaerobic's end,
+    // threshold (exactly 4wk) and vo2max (exactly 4wk) each cross it on their own (a 4-week period
+        // IS one full cadence cycle), the arc-boundary aerobic-base (3wk) doesn't reach 4 alone, and
+    // sharpen's single week completes the cadence a 4th time (3 + 1 = 4).
+    const periods = [
+      { ...p(3), focus: "aerobic-base" as const, phase: "base" as const },
+      { ...p(3), focus: "anaerobic" as const },
+      { ...p(4), focus: "threshold" as const },
+      { ...p(4), focus: "vo2max" as const },
+      { ...p(3), focus: "aerobic-base" as const, phase: "base" as const },
+      { ...p(1), focus: "sharpen" as const },
+    ];
+    const out = applyDeloadCadence(periods, false);
+    expect(out.map((x) => x.deloadWeek)).toEqual([false, true, true, true, false, true]);
+    // The direct symptom the athlete reported: a 6-week block spanning just the first two periods
+    // (aerobic-base tail + anaerobic) now shows exactly ONE deload, not two.
+    expect(out.slice(0, 2).filter((x) => x.deloadWeek).length).toBe(1);
+  });
+  it("still resets the counter across a genuine transition period (untouched by this fix)", () => {
+    const transitionPeriod = { ...p(2), phase: "transition" as const };
+    const out = applyDeloadCadence([p(3), transitionPeriod, p(2)], false);
+    expect(out[1].deloadWeek).toBe(false); // a transition is never itself flagged deload
+    expect(out[2].deloadWeek).toBe(false); // counter restarted after the break — only 2 wk in
   });
 });
 
