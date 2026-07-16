@@ -1,6 +1,6 @@
 // Macro periodization engine (MACRO-1..3). Pure + deterministic: drafts a rough, rolling season arc of
 // limiter-focus periods, grounded in the knowledge base. The LLM only phrases FocusPeriod.rationale.
-import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType, AthleteModel } from "./types";
+import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType, AthleteModel, RideScoreEntry } from "./types";
 import { DEFAULT_ACWR_BANDS } from "./calibration";
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
@@ -412,6 +412,22 @@ export function replanSeasonArc(
   const derived = draftSeasonArc({ ...input, recentFocuses }, draftStart);
   const periods = [...frozen, ...current, ...overrides, ...derived].sort((a, b) => a.startDate.localeCompare(b.startDate));
   return { ...plan, periods, updatedAt: plan.updatedAt };
+}
+
+// Real achieved load for a period, summed from the score-log ledger (RideScoreEntry.tss) — the
+// immutable, long-lived record (last-sync.json is a rolling ~45-day window that can age a period
+// out before it's stamped; the ledger can't). End-EXCLUSIVE range, matching periodForDate's
+// straddling definition. null when no in-range entry carries a tss: "no data" must stay
+// distinguishable from "zero load" (replanSeasonArc stamps achievedTss once, ?? keeps retrying
+// null until data exists). Wired as the route's achievedTssFor (closes the `() => null` gap).
+export function achievedTssForPeriod(
+  entries: Array<Pick<RideScoreEntry, "date" | "tss">>,
+  period: FocusPeriod
+): number | null {
+  const end = periodEnd(period);
+  const inRange = entries.filter((e) => e.date >= period.startDate && e.date < end && e.tss !== null);
+  if (inRange.length === 0) return null;
+  return Math.round(inRange.reduce((sum, e) => sum + (e.tss as number), 0));
 }
 
 // Mark the period that crosses each deload boundary (30–50% volume cut lands in its trailing week).

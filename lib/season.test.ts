@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput, type FocusSignals } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput, type FocusSignals } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -644,5 +644,30 @@ describe("validateFocusMatch — a period's label must match its generated sessi
       day("2026-08-12", "Z2", 120), day("2026-09-20", "Z2", 120), // last date: no covering period
     ];
     expect(validateFocusMatch(days, planWith([base]), 280)).toEqual([]);
+  });
+});
+
+describe("achievedTssForPeriod — real achieved load from the score-log ledger", () => {
+  const period: FocusPeriod = {
+    focus: "threshold", phase: "build", startDate: "2026-06-01", plannedWeeks: 3, intensitySplit: "80/20",
+    targetWeeklyTss: 420, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
+  }; // covers 2026-06-01 → 2026-06-22 (exclusive)
+  it("sums ledger tss inside [startDate, periodEnd) — end-exclusive, matching periodForDate", () => {
+    const entries = [
+      { date: "2026-06-01", tss: 80 }, // first day: in
+      { date: "2026-06-10", tss: 100.4 },
+      { date: "2026-06-21", tss: 50 }, // last covered day: in
+      { date: "2026-06-22", tss: 999 }, // period end: OUT (exclusive)
+      { date: "2026-05-31", tss: 999 }, // before: out
+    ];
+    expect(achievedTssForPeriod(entries, period)).toBe(230); // round(80 + 100.4 + 50)
+  });
+  it("skips null-tss entries but still sums the rest", () => {
+    expect(achievedTssForPeriod([{ date: "2026-06-05", tss: null }, { date: "2026-06-06", tss: 120 }], period)).toBe(120);
+  });
+  it("returns null (not 0) when no in-range entry carries tss — no data is not zero load", () => {
+    expect(achievedTssForPeriod([], period)).toBeNull();
+    expect(achievedTssForPeriod([{ date: "2026-06-05", tss: null }], period)).toBeNull();
+    expect(achievedTssForPeriod([{ date: "2026-07-05", tss: 300 }], period)).toBeNull(); // outside the range
   });
 });
