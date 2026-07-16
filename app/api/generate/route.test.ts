@@ -118,24 +118,30 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
   const genWithSeason = () =>
     POST(new Request("http://t/api/generate", { method: "POST", body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }) }));
 
-  it("injects the multi-period season context when the block spans two periods", async () => {
+  it("does NOT inject season-phase context into the prompt while SEASON_SHAPES_GENERATION is off (2026-07-16)", async () => {
     vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
     await genWithSeason();
     const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
-    expect(dynamic).toContain("spans 2 season periods");
-    expect(dynamic).toContain("focus aerobic-base");
-    expect(dynamic).toContain("focus threshold");
+    expect(dynamic).not.toContain("spans 2 season periods");
+    expect(dynamic).not.toContain("focus aerobic-base");
+    expect(dynamic).not.toContain("focus threshold");
+    // Season state must still be tracked underneath even though it's not shown to the model.
+    expect(store.writeSeasonPlan).toHaveBeenCalled();
   });
 
-  it("validates each generated day against its own period, duration-weighted", async () => {
+  it("does NOT push Season fit / focus-match warnings while SEASON_SHAPES_GENERATION is off", async () => {
     vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
     const json = await (await genWithSeason()).json();
-    // Both mocked days (06-15 Threshold 36m + 06-16 Z2 90m) land in the base portion: 36/126 ≈ 28.6%
-    // of riding time is hard → exactly one warning, scoped to those dates, phrased by time not count.
-    const fit = json.plan.warnings.filter((w: string) => /^Season fit/.test(w));
-    expect(fit.length).toBe(1);
-    expect(fit[0]).toContain("2026-06-15");
-    expect(fit[0]).toContain("riding time");
+    expect(json.plan.warnings.some((w: string) => /^Season fit/.test(w))).toBe(false);
+  });
+
+  it("still surfaces a B/C-priority event inside the block range even with phase context disabled (Task 5 stays decoupled)", async () => {
+    const withEvent = { ...seasonPlan, events: [{ name: "Areh FTP Test", date: "2026-06-16", priority: "B" }] };
+    vi.mocked(store.readSeasonPlan).mockResolvedValue(withEvent as never);
+    await genWithSeason();
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(dynamic).toContain("Areh FTP Test");
+    expect(dynamic).not.toContain("spans 2 season periods"); // phase text still absent
   });
 });
 

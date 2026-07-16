@@ -36,7 +36,7 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, replanSeasonArc, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, replanSeasonArc, SEASON_SHAPES_GENERATION, validateFocusMatch, validateSeasonFit } from "@/lib/season";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
@@ -236,6 +236,7 @@ export async function POST(req: Request) {
     // period boundaries — describing it as one static phase was the bug). Best-effort — a failure here
     // must never block generation.
     let seasonContext = "";
+    let upcomingEventsContext = "";
     let replannedSeason: import("@/lib/types").SeasonPlan | null = null;
     try {
       const limiter = powerProfile?.easyWin
@@ -271,10 +272,14 @@ export async function POST(req: Request) {
       replannedSeason = replanned;
       // The block's real date range (first → last calendar day) drives the period sequence in the prompt.
       const blockEnd = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
-      const line = formatSeasonContext(replanned, today, { startDate: blockParams.startDate, endDate: blockEnd });
-      if (line) seasonContext = `\n${line}`;
+      // B/C-priority events are calendar facts (not a phase opinion) — always surfaced, regardless of
+      // SEASON_SHAPES_GENERATION, onto their own context variable so they stay decoupled from the flag.
       const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEnd });
-      if (upcomingEventsLine) seasonContext += `\n${upcomingEventsLine}`;
+      if (upcomingEventsLine) upcomingEventsContext = `\n${upcomingEventsLine}`;
+      if (SEASON_SHAPES_GENERATION) {
+        const line = formatSeasonContext(replanned, today, { startDate: blockParams.startDate, endDate: blockEnd });
+        if (line) seasonContext = `\n${line}`;
+      }
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
     }
@@ -282,7 +287,8 @@ export async function POST(req: Request) {
     // Retest cadence (macro-structure): a stale tested FTP quietly rots zones and TSS math — nudge
     // the generator to place a retest in the next lighter week. Additive to seasonContext; if the
     // replan above failed there is no season line to extend, and the nudge is skipped with it.
-    if (physStore && replannedSeason) {
+    // Temporarily disabled with the rest of the phase-derived context (SEASON_SHAPES_GENERATION).
+    if (SEASON_SHAPES_GENERATION && physStore && replannedSeason) {
       const ftpStaleDays = Math.floor((Date.parse(today) - Date.parse(physStore.current.effectiveFrom)) / 86_400_000);
       const retestNote = formatRetestNote(Number.isFinite(ftpStaleDays) ? ftpStaleDays : null, replannedSeason, today);
       if (retestNote) seasonContext += `\n${retestNote}`;
@@ -310,7 +316,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + powerProfileContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext + goalsContext + weakpointsContext + seasonContext,
+      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + powerProfileContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext + goalsContext + weakpointsContext + seasonContext + upcomingEventsContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );
@@ -368,11 +374,12 @@ export async function POST(req: Request) {
     warnings.push(...validateSessionRequirements(days, requirements));
     // MACRO-3: flag intensity that contradicts the season arc — each day is checked against the period
     // active on ITS OWN date (a long block can legitimately shift base → build mid-way), with the hard
-    // share duration-weighted. Only when the season re-plan above succeeded.
-    if (replannedSeason) warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
+    // share duration-weighted. Only when the season re-plan above succeeded. Temporarily disabled with
+    // the rest of the phase-derived context (SEASON_SHAPES_GENERATION).
+    if (SEASON_SHAPES_GENERATION && replannedSeason) warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
     // Coverage plan: flag a period whose focus LABEL and generated session types disagree (a "vo2max"
     // period with zero VO2max sessions) — intensity-share alone can pass while the label lies.
-    if (replannedSeason) warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
+    if (SEASON_SHAPES_GENERATION && replannedSeason) warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
     if (truncated) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }

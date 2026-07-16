@@ -6,6 +6,17 @@ import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { execFor } from "./intervention";
 
+// Season phase/deload/retest context + the two season-fit/focus-match validators are TEMPORARILY
+// DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
+// phase-sequence model itself is a separate, deferred question (see ROADMAP.md "Season architecture
+// doubt": whether always prescribing a phase sequence regardless of a rider's existing base is even
+// the right model). Season state keeps being tracked underneath this flag (replanSeasonArc still
+// runs, season-plan.json still updates, B/C-priority event surfacing still injects -- those are
+// calendar facts, not phase opinion) -- only the PHASE-DERIVED opinion about what a week should
+// emphasise, and the validators that grade generated days against it, are switched off. Flip back to
+// true once the season model is revisited.
+export const SEASON_SHAPES_GENERATION = false;
+
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus
 // periods are mesocycle-sized (a "base touch" is 2–4 wk, not the 10–16 wk annual base phase).
 export const SEASON_CONSTANTS = {
