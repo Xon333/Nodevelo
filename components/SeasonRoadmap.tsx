@@ -54,6 +54,9 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
   const today = localToday();
   const view = roadmapView(plan, today);
   const nextEvent = plan.events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  // The A-priority event the engine is backward-scheduling toward — strict `>` mirrors
+  // backwardScheduleFromEvent's routing (on race day itself the countdown framing is stale).
+  const nextA = plan.events.filter((e) => e.priority === "A" && e.date > today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
   // Distinguishes an auto-drafted roadmap from one the athlete fully hand-edited — periods can be
   // "derived" (engine-drafted), "override" (athlete-edited), or frozen past periods either way.
   const hasDerived = plan.periods.some((p) => p.source === "derived");
@@ -86,7 +89,14 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
       </div>
       {hasDerived && (
         <p className="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
-          Auto-drafted from your objective, events, fitness/load, and current limiter. It refreshes when you generate a block.
+          {nextA ? (
+            <>
+              Counting down to <span className="font-medium">{nextA.name}</span> ({nextA.date}): build blocks first, then a
+              peak (race-specific sharpening), then a taper ending on race week. It refreshes when you generate a block.
+            </>
+          ) : (
+            "Auto-drafted from your objective, events, fitness/load, and current limiter. It refreshes when you generate a block."
+          )}
         </p>
       )}
     </section>
