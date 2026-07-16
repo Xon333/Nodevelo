@@ -15,7 +15,7 @@ const h = vi.hoisted(() => ({
         weekNumber: 1,
         theme: "Build",
         days: [
-          { date: "2026-06-15", name: "Threshold 3x12", type: "Threshold", durationMin: 75, workout: "Main Set 3x\n- 12m 95%", description: "x" },
+          { date: "2026-06-15", name: "Threshold 3x12", type: "Threshold", durationMin: 36, workout: "Main Set 3x\n- 12m 95%", description: "x" },
           { date: "2026-06-16", name: "Endurance", type: "Z2", durationMin: 90, workout: "- 90m 65%", description: "x" },
         ],
       },
@@ -222,7 +222,7 @@ describe("POST /api/generate — protocol-violation severity (measurability)", (
       weeks: [{
         weekNumber: 1,
         theme: "t",
-        days: [{ date: "2026-06-15", name: "SIT 5x1min", type: "SIT", durationMin: 45, workout: "Main Set 5x\n- 1m 150%\n- 4m 40%", description: "x" }],
+        days: [{ date: "2026-06-15", name: "SIT 5x1min", type: "SIT", durationMin: 25, workout: "Main Set 5x\n- 1m 150%\n- 4m 40%", description: "x" }],
       }],
     };
     vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: badSit, raw: "", truncated: false, stopReason: null } as never);

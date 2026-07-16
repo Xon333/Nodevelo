@@ -64,6 +64,49 @@ const EMBEDDED_MIN_SEC = 5 * 60;
 // with late threshold/VO2 efforts. Lets the spacing + protocol checks stop treating such a ride as
 // "easy". Sweet-spot/tempo steady rides (80–87%) and pure endurance don't trip it. `embeddedHardPct`
 // defaults to the population floor; pass the athlete's resolved envelope edge to personalise it.
+// Shared line-iteration state machine: walks a workout's step lines, expanding "Nx" repeat blocks
+// in order (matching Intervals.icu's own step semantics — a repeat header repeats the WHOLE
+// following block N times, not each step in place). `keep` decides whether a given step (with its
+// section-excluded flag) counts at all — parsePrescription excludes warmup/cooldown sections and
+// sub-work-floor steps; totalPrescribedMinutes below keeps everything, matching how Intervals.icu's
+// own parser computes real ride duration (it does not distinguish warmup from work).
+function walkWorkoutSteps(
+  workoutText: string,
+  keep: (step: { durationSec: number; pct: number }, inExcludedSection: boolean) => boolean
+): Array<{ durationSec: number; pct: number }> {
+  if (!workoutText) return [];
+  const expanded: Array<{ durationSec: number; pct: number }> = [];
+  let block: Array<{ durationSec: number; pct: number }> = [];
+  let blockReps = 1;
+  const flush = () => {
+    for (let r = 0; r < blockReps; r++) expanded.push(...block);
+    block = [];
+    blockReps = 1;
+  };
+  let inExcludedSection = false;
+  for (const raw of workoutText.split("\n")) {
+    const line = raw.trim();
+    if (line === "") {
+      flush();
+      inExcludedSection = false;
+      continue;
+    }
+    if (!line.startsWith("-")) {
+      flush();
+      inExcludedSection = EXCLUDED_SECTION_RX.test(line);
+      const rx = line.match(/(\d+)\s*x/i);
+      blockReps = rx ? Math.max(1, Number(rx[1])) : 1;
+      continue;
+    }
+    const step = parseStep(line);
+    if (!step) continue;
+    if (!keep(step, inExcludedSection)) continue;
+    block.push(step);
+  }
+  flush();
+  return expanded;
+}
+
 export function carriesEmbeddedIntensity(
   workoutText: string | undefined,
   ftp: number,
@@ -87,40 +130,15 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
   // entry per rep; collapse only CONSECUTIVE-identical reps afterwards for a compact label (matching is
   // unaffected — identical reps flatten to the same sequence whether stored as N×reps:1 or 1×reps:N).
   type Work = { durationSec: number; pct: number; targetWatts: number };
-  const expanded: Work[] = [];
-  let block: Work[] = [];
-  let blockReps = 1;
-  const flush = () => {
-    for (let r = 0; r < blockReps; r++) expanded.push(...block);
-    block = [];
-    blockReps = 1;
-  };
 
-  let inExcludedSection = false;
-  for (const raw of workoutText.split("\n")) {
-    const line = raw.trim();
-    if (line === "") {
-      flush(); // blank line ends a repeat block…
-      inExcludedSection = false; // …and the section — an unlabeled group that follows counts again
-      continue;
-    }
-    if (!line.startsWith("-")) {
-      flush(); // a new section label ends the previous block before reading its repeat count
-      inExcludedSection = EXCLUDED_SECTION_RX.test(line);
-      const rx = line.match(/(\d+)\s*x/i);
-      blockReps = rx ? Math.max(1, Number(rx[1])) : 1;
-      continue;
-    }
-    if (inExcludedSection) continue; // warmup/cooldown steps are never work, whatever their %FTP
-    const step = parseStep(line);
-    if (!step || step.pct < WORK_THRESHOLD_PCT) continue; // warmups/recovery valves/endurance dropped
-    block.push({
-      durationSec: step.durationSec,
-      pct: step.pct,
-      targetWatts: ftp > 0 ? Math.round((step.pct / 100) * ftp) : 0,
-    });
-  }
-  flush(); // trailing block at EOF
+  const expanded = walkWorkoutSteps(
+    workoutText,
+    (step, inExcludedSection) => !inExcludedSection && step.pct >= WORK_THRESHOLD_PCT
+  ).map((s) => ({
+    durationSec: s.durationSec,
+    pct: s.pct,
+    targetWatts: ftp > 0 ? Math.round((s.pct / 100) * ftp) : 0,
+  }));
 
   // Collapse consecutive-identical efforts into reps>1 (e.g. a 5×5min VO2 block reads "5×5m", not five
   // separate chips); genuinely-varied blocks like over-unders stay one entry per rep, in order.
@@ -137,4 +155,13 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
     iv.label = formatPrescriptionLabel(iv);
   }
   return out;
+}
+
+// The REAL total ride duration Intervals.icu's own step-parser computes from the workout text —
+// every step, every section (warmup/cooldown included), no intensity floor. This is deliberately
+// the OPPOSITE filter from parsePrescription's WORK-only view; the two answer different questions
+// ("what did the coach prescribe as work" vs. "how long will this ride actually run").
+export function totalPrescribedMinutes(workoutText: string): number {
+  const steps = walkWorkoutSteps(workoutText, () => true);
+  return steps.reduce((sum, s) => sum + s.durationSec, 0) / 60;
 }

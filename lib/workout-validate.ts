@@ -11,7 +11,7 @@
 // Z4 Threshold 91–105%; sweet spot 88–93%).
 
 import type { PlannedDay, WorkoutType } from "./types";
-import { parsePrescription } from "./prescription";
+import { parsePrescription, totalPrescribedMinutes } from "./prescription";
 import { DEFAULT_DURABILITY_INSERT_ENVELOPE, type DurabilityInsertEnvelope } from "./calibration";
 
 export interface ProtocolRule {
@@ -30,6 +30,26 @@ export const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
   VO2max: { minEffortSec: 90, maxEffortSec: 600, minIntensityPct: 100, maxIntensityPct: 130, cite: "KB database Z5: VO2max is 3–8 min at 106–120% FTP" },
   Threshold: { minIntensityPct: 80, maxIntensityPct: 115, cite: "KB database Z4: threshold/sweet-spot is 88–105% FTP" },
 };
+
+// Tolerance: the greater of 15% relative or 8 minutes absolute, whichever is more lenient — small
+// rounding/estimation gaps are normal and must not fire on every session; a 30+ minute real-world
+// gap on a stated 90-minute session (found live, 2026-07-16) must.
+function durationTolerance(statedMin: number): number {
+  return Math.max(statedMin * 0.15, 8);
+}
+
+// Real prescribed total vs. stated duration — the SAME number Intervals.icu's own step-parser will
+// compute and display, since Ride-category events never set an explicit moving_time (lib/plan-
+// parser.ts). A mismatch here is exactly why NodeVelo's own weekly-hours totals can disagree with
+// what the athlete's calendar actually shows. null when the day has no workoutText or the gap is
+// within tolerance.
+export function validateDurationConsistency(day: PlannedDay): string | null {
+  if (!day.workoutText) return null;
+  const real = totalPrescribedMinutes(day.workoutText);
+  const gap = day.durationMin - real;
+  if (Math.abs(gap) <= durationTolerance(day.durationMin)) return null;
+  return `DAY ${day.date} (${day.type}): stated ${day.durationMin}min but the prescribed steps only sum to ~${Math.round(real)}min — tighten the workout text or the stated duration so Intervals.icu's real displayed time matches what NodeVelo shows.`;
+}
 
 // Durability templates (KB §12) embed threshold/VO2 efforts inside an otherwise-easy ride (TYPE
 // Z2/Recovery). Those inserts are invisible to the per-type rules above, so validate the genuinely-
@@ -104,6 +124,8 @@ export function splitPlanProtocol(
   const out: ProtocolFindings = { violations: [], advisories: [] };
   for (const d of days) {
     const findings = validateWorkoutProtocol(d, ftp, envelope);
+    const durationFinding = validateDurationConsistency(d);
+    if (durationFinding) findings.push(durationFinding);
     if (findings.length === 0) continue;
     (QUALITY_TYPES.has(d.type) ? out.violations : out.advisories).push(...findings);
   }

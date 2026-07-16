@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateWorkoutProtocol, splitPlanProtocol } from "./workout-validate";
+import { validateWorkoutProtocol, splitPlanProtocol, validateDurationConsistency } from "./workout-validate";
 import type { PlannedDay, WorkoutType } from "./types";
 
 const FTP = 288;
@@ -139,11 +139,11 @@ describe("validateWorkoutProtocol — untyped / empty", () => {
 
 describe("splitPlanProtocol", () => {
   it("routes quality-session breaches to violations and leaves clean days silent", () => {
-    const days = [
-      day("SIT", "Main Set 5x\n- 1m 150%\n- 4m 40%"), // 1-min SIT reps — protocol breach
-      day("Threshold", "Main Set 2x\n- 20m 95%\n- 10m 50%"), // clean
-    ];
-    const f = splitPlanProtocol(days, FTP);
+    const d1 = day("SIT", "Main Set 5x\n- 1m 150%\n- 4m 40%"); // 1-min SIT reps — protocol breach; actual ~25min
+    d1.durationMin = 25;
+    const d2 = day("Threshold", "Main Set 2x\n- 20m 95%\n- 10m 50%"); // clean; actual ~60min
+    d2.durationMin = 60;
+    const f = splitPlanProtocol([d1, d2], FTP);
     expect(f.violations).toHaveLength(1);
     expect(f.violations[0]).toMatch(/SIT/);
     expect(f.violations[0]).toMatch(/longer than protocol/);
@@ -151,16 +151,47 @@ describe("splitPlanProtocol", () => {
   });
 
   it("keeps endurance-day durability-insert findings advisory (the existing lighter touch)", () => {
-    const f = splitPlanProtocol([day("Z2", "- 5m 140%")], FTP);
+    const d = day("Z2", "- 5m 140%");
+    d.durationMin = 5; // actual ~5min
+    const f = splitPlanProtocol([d], FTP);
     expect(f.violations).toEqual([]);
     expect(f.advisories).toHaveLength(1);
     expect(f.advisories[0]).toMatch(/exceeds the 122% ceiling/);
   });
 
   it("returns empty findings for a clean plan", () => {
-    expect(splitPlanProtocol([day("VO2max", "Main Set 4x\n- 4m 110%\n- 4m 50%")], FTP)).toEqual({
+    const d = day("VO2max", "Main Set 4x\n- 4m 110%\n- 4m 50%");
+    d.durationMin = 32; // actual ~32min
+    expect(splitPlanProtocol([d], FTP)).toEqual({
       violations: [],
       advisories: [],
     });
+  });
+});
+
+describe("validateDurationConsistency — stated durationMin vs. the real prescribed total", () => {
+  const planDay = (workoutText: string, durationMin: number): PlannedDay =>
+    ({ date: "2026-07-21", weekNumber: 1, weekTheme: "", name: "n", type: "SIT", durationMin, workoutText, description: "" });
+  it("stays silent when the stated duration matches the real prescribed total", () => {
+    const d = planDay("Warmup\n- 15m ramp 50-65%\n\nMain\n- 3h 60-70%\n\nCooldown\n- 15m 55%", 210);
+    expect(validateDurationConsistency(d)).toBeNull();
+  });
+  it("flags a day whose real prescribed total runs meaningfully short of the stated duration", () => {
+    // Real live case: RaceSim stated 90min, steps summed to ~30min (15+2+25/60+3+10).
+    const d = planDay(
+      "Warmup\n- 15m ramp 50-70%\n\nMove 1\n- Seated climb 2m 102%\n- Standing attack 25s 130%\n- Easy 3m 50%\n\nCooldown\n- 10m 50%",
+      90
+    );
+    const msg = validateDurationConsistency(d)!;
+    expect(msg).toContain("2026-07-21");
+    expect(msg).toContain("stated 90min");
+    expect(msg).toMatch(/prescribed steps.*sum.*~\d+min/); // ~30min real total
+  });
+  it("tolerates small rounding gaps (within the tolerance band) without flagging", () => {
+    const d = planDay("Warmup\n- 10m ramp 50-65%\n\nMain\n- 48m 62%\n\nCooldown\n- 10m 50%", 70); // 68 real vs 70 stated
+    expect(validateDurationConsistency(d)).toBeNull();
+  });
+  it("returns null for Rest days / days with no workoutText", () => {
+    expect(validateDurationConsistency({ date: "2026-07-21", weekNumber: 1, weekTheme: "", name: "Rest", type: "Rest", durationMin: 0, workoutText: "", description: "" })).toBeNull();
   });
 });

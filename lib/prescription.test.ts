@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carriesEmbeddedIntensity, formatPrescriptionLabel, parsePrescription } from "./prescription";
+import { carriesEmbeddedIntensity, formatPrescriptionLabel, parsePrescription, totalPrescribedMinutes } from "./prescription";
 import type { PrescribedInterval } from "./types";
 
 const FTP = 288;
@@ -175,5 +175,26 @@ describe("parsePrescription — warmup/cooldown sections never count as work (se
     const p = parsePrescription("Openers 3x\n- 1m 100%\n- 2m 50%", FTP);
     expect(p).toHaveLength(1);
     expect(p[0]).toMatchObject({ reps: 3, durationSec: 60, targetPctFtp: 100 });
+  });
+});
+
+describe("totalPrescribedMinutes — the REAL duration Intervals.icu's own step-parser computes", () => {
+  it("sums every step regardless of section or intensity (warmup + main + cooldown)", () => {
+    const text = "Warmup\n- 15m ramp 50-65%\n\nMain\n- 3h 60-70%\n\nCooldown\n- 15m 55%";
+    expect(totalPrescribedMinutes(text)).toBe(15 + 180 + 15); // 210 — matches a real long-ride day
+  });
+  it("applies the repeat-block multiplier to every step inside it, matching parsePrescription's own repeat semantics", () => {
+    const text = "Warmup\n- 10m ramp 50-65%\n- 5m 65%\n\nMain Set 5x\n- Seated all-out 30s 150%\n- Easy spin 4m 50%\n\nCooldown\n- 10m 50%";
+    // warmup 15 + 5x(0.5+4) + cooldown 10 = 15 + 22.5 + 10 = 47.5
+    expect(totalPrescribedMinutes(text)).toBeCloseTo(47.5, 5);
+  });
+  it("returns 0 for an empty or Rest workout text", () => {
+    expect(totalPrescribedMinutes("")).toBe(0);
+  });
+  it("counts steps below the work floor and inside warmup/cooldown sections — the opposite of parsePrescription's exclusions", () => {
+    // parsePrescription would return [] for this (all sub-80% / inside Warmup/Cooldown); the total-
+    // duration view must still count it, because Intervals.icu counts it too.
+    const text = "Warmup\n- 10m ramp 50-60%\n\nMain\n- 70m 62%\n\nCooldown\n- 10m 50%";
+    expect(totalPrescribedMinutes(text)).toBe(90);
   });
 });
