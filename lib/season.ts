@@ -299,6 +299,10 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
 
   const periods: FocusPeriod[] = [];
   const recent = [...input.recentFocuses];
+  // Foci actually drafted during THIS draftSeasonArc call — deliberately separate from `recent`,
+  // which is seeded from input.recentFocuses (the incoming history) and then grows. See the
+  // real-exposure filter below for why the distinction matters.
+  const draftedThisCall = new Set<SeasonFocus>();
   let cursor = today;
   const conf = input.limiter.confidence;
   let sinceBreak = input.weeksSinceSeasonBreak ?? null;
@@ -325,6 +329,7 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
       if (sinceBreak !== null) sinceBreak += periods[periods.length - 1].plannedWeeks;
     }
     recent.push("aerobic-base");
+    draftedThisCall.add("aerobic-base");
     cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
   };
 
@@ -344,15 +349,22 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
     // anaerobic limiter with real recent SIT/Threshold exposure locked out vo2max/durability, whose
     // real exposure was real but comparatively stale and never got a chance to grow further). Fix:
     // extrapolate a not-yet-drafted focus's real staleness forward by how far this draft has already
-    // advanced past `today`; once a focus IS drafted, drop its real exposure entirely so it falls
-    // through to labelExposureWeeks, which already resets/regrows correctly from that point on.
+    // advanced past `today`; once a focus IS drafted (during THIS call), drop its real exposure
+    // entirely so it falls through to labelExposureWeeks, which already resets/regrows correctly from
+    // that point on. NOTE (bug found by the final whole-branch review): this must check
+    // `draftedThisCall`, NOT `recent` — `recent` is seeded from input.recentFocuses (the incoming
+    // history, e.g. the last 4 kept period labels in replanSeasonArc) and only grows from there, so
+    // checking it conflated "already in the incoming history" with "drafted this call". That silently
+    // discarded real exposure data for any focus whose label already appeared in the incoming history —
+    // from iteration 1, before this call had drafted anything — defeating the real-data preference for
+    // exactly the foci most likely to have real data.
     const weeksIntoThisDraft = weeksBetween(today, cursor);
     const adjustedSignals: FocusSignals | undefined = input.focusSignals?.exposure
       ? {
           ...input.focusSignals,
           exposure: Object.fromEntries(
             Object.entries(input.focusSignals.exposure)
-              .filter(([f]) => !recent.includes(f as SeasonFocus))
+              .filter(([f]) => !draftedThisCall.has(f as SeasonFocus))
               .map(([f, weeks]) => [f, (weeks as number) + weeksIntoThisDraft])
           ) as Partial<Record<SeasonFocus, number>>,
         }
@@ -370,6 +382,7 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
         : `Build ${focus} — rotating the quality focus (KB: avoid repeating one stimulus).`;
     periods.push(period(focus, "build", cursor, conf, why));
     recent.push(focus);
+    draftedThisCall.add(focus);
     sinceBase += focusWeeks;
     if (sinceBreak !== null) sinceBreak += focusWeeks;
     cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);

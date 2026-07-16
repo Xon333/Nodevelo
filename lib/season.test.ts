@@ -674,6 +674,33 @@ describe("draftSeasonArc — scored coverage selection (replaces the two-state/L
     expect(builds).toContain("vo2max"); // the actual bug this test exists to catch
     expect(arc.some((p) => p.focus === "aerobic-base" && p.rationale.includes("Arc boundary"))).toBe(true);
   });
+  it("REGRESSION (found by the final whole-branch review): a focus with fresh REAL exposure is not penalized just because its label already sits in the incoming recentFocuses history", () => {
+    // The exposure-extrapolation filter inside the draft loop used to check `recent.includes(f)` —
+    // but `recent` is seeded from input.recentFocuses (the incoming history) and only grows, so it
+    // conflated "already in the incoming history" with "drafted during THIS call". Any focus whose
+    // label already appeared in the last-4 kept periods had its real exposure silently discarded from
+    // iteration 1 — before this call had drafted anything — and fell back to labelExposureWeeks,
+    // which can meaningfully disagree with the real data.
+    //
+    // Here durability's label sits in the incoming history (second-to-last), but real generated-
+    // session data says it was trained 0 weeks ago (maximally fresh, minimal urgency). The buggy
+    // filter discarded that real freshness (because "durability" ∈ recent) and fell back to the
+    // label-derived staleness estimate instead, which overstated durability's urgency enough to
+    // draft it BEFORE threshold. The fix tracks a separate `draftedThisCall` set (empty at the start
+    // of every call) instead of `recent`, so durability's real freshness is honored and it correctly
+    // lands in the LAST build slot.
+    const arc = draftSeasonArc(
+      baseInput({
+        limiter: { system: null, confidence: "low" },
+        recentFocuses: ["aerobic-base", "vo2max", "anaerobic", "durability", "threshold"],
+        focusSignals: { exposure: { durability: 0 } },
+      }),
+      "2026-07-01"
+    );
+    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
+    expect(builds).toEqual(["vo2max", "threshold", "durability"]); // fixed order
+    expect(builds).not.toEqual(["vo2max", "durability", "threshold"]); // the pre-fix (buggy) order
+  });
 });
 
 describe("validateFocusMatch — a period's label must match its generated sessions", () => {
