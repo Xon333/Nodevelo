@@ -835,3 +835,33 @@ describe("genuine season break (phase transition) in the draft", () => {
     expect(t!.startDate).toBe("2026-07-01"); // the redraft leads with the overdue break
   });
 });
+
+describe("transition-period load & cadence handling", () => {
+  const p = (over: Partial<FocusPeriod> = {}): FocusPeriod => ({
+    focus: "threshold", phase: "build", startDate: "2026-07-01", plannedWeeks: 3,
+    intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium", ...over,
+  });
+  it("assigns a transition ~50% of the running load and does not advance the ramp base", () => {
+    const out = assignLoadTargets([p(), p({ phase: "transition", plannedWeeks: 2 }), p()], 400, 1.3);
+    expect(out[0].targetWeeklyTss).toBe(424); // 400 * 1.06
+    expect(out[1].targetWeeklyTss).toBe(212); // 424 * 0.5 — a genuine cut, deeper than a deload's 0.6
+    expect(out[2].targetWeeklyTss).toBe(449); // resumes from 424, not 212: 424 * 1.06, rounded
+  });
+  it("never flags a transition as a deload week and resets the deload counter across it", () => {
+    const out = applyDeloadCadence([p({ plannedWeeks: 2 }), p({ phase: "transition", plannedWeeks: 2 }), p({ plannedWeeks: 2 })], false);
+    expect(out[1].deloadWeek).toBe(false); // 2+2 wk crosses the 3:1 boundary, but a transition IS recovery already
+    expect(out[2].deloadWeek).toBe(false); // counter restarted after the break — only 2 loading wk in
+  });
+  it("never flags a transition as a deload week even under tight (heavyFatigue) cadence", () => {
+    const out = applyDeloadCadence([p({ plannedWeeks: 2 }), p({ phase: "transition", plannedWeeks: 2 }), p({ plannedWeeks: 2 })], true);
+    expect(out[1].deloadWeek).toBe(false);
+  });
+  it("warns when hard riding lands inside a transition period", () => {
+    const day = (date: string, type: PlannedDay["type"], durationMin: number): PlannedDay =>
+      ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText: "", description: "" });
+    const plan = planWith([p({ phase: "transition", startDate: "2026-07-12", plannedWeeks: 2, intensitySplit: "95/5" })]);
+    const w = validateSeasonFit([day("2026-07-13", "VO2max", 60), day("2026-07-14", "Z2", 60)], plan, 280);
+    expect(w.length).toBe(1);
+    expect(w[0]).toContain("transition");
+  });
+});

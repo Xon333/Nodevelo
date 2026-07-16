@@ -397,8 +397,11 @@ export function assignLoadTargets(periods: FocusPeriod[], seedWeeklyTss: number 
   const ceiling = seedWeeklyTss * acwrCeiling;
   let prev = seedWeeklyTss;
   return periods.map((p) => {
-    const target = Math.min(Math.round(prev * ramp), Math.round(ceiling));
-    prev = target;
+    const isBreak = p.phase === "transition"; // a genuine season break: ~50% load, deeper than a deload
+    const target = isBreak
+      ? Math.round(prev * 0.5)
+      : Math.min(Math.round(prev * ramp), Math.round(ceiling));
+    if (!isBreak) prev = target; // deloadWeek still advances the base (KB: only the flag dampens the trailing week, never this envelope) — only a transition break freezes it
     return { ...p, targetWeeklyTss: target };
   });
 }
@@ -532,6 +535,11 @@ export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean): Focu
   const threshold = every - 1; // loading weeks before the deload period
   let weeksSinceDeload = 0;
   return periods.map((p) => {
+    // A transition IS recovery: never also flag it as a deload, and restart the cadence after it.
+    if (p.phase === "transition") {
+      weeksSinceDeload = 0;
+      return { ...p, deloadWeek: false };
+    }
     weeksSinceDeload += p.plannedWeeks;
     if (weeksSinceDeload >= threshold) {
       weeksSinceDeload = 0;
@@ -663,10 +671,11 @@ export function validateSeasonFit(days: PlannedDay[], plan: SeasonPlan, ftp: num
     if (totalMin <= 0) continue;
     const hardMin = rides.filter((d) => HARD.has(d.type)).reduce((sum, d) => sum + d.durationMin, 0);
     const hardShare = hardMin / totalMin;
-    if (p.phase === "base" && hardShare > 0.2) {
+    if ((p.phase === "base" || p.phase === "transition") && hardShare > 0.2) {
+      const label = p.phase === "transition" ? "transition (season-break)" : "base/aerobic";
       const dates = rides.map((d) => d.date).sort();
       warnings.push(
-        `Season fit: ${dates[0]} → ${dates[dates.length - 1]} sits in a base/aerobic period (${p.intensitySplit}), but ${Math.round(hardShare * 100)}% of riding time is hard — expected mostly Z2.`
+        `Season fit: ${dates[0]} → ${dates[dates.length - 1]} sits in a ${label} period (${p.intensitySplit}), but ${Math.round(hardShare * 100)}% of riding time is hard — expected mostly Z2.`
       );
     }
   }
