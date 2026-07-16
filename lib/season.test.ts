@@ -48,6 +48,31 @@ describe("draftSeasonArc — Mode-C", () => {
     expect(nextBuildFocus({ system: "threshold", confidence: "high" }, ["threshold"])).not.toBe("threshold");
   });
 
+  it("confident-limiter rotation eventually surfaces every build focus — not a two-state trap", () => {
+    // Real athlete case: limiter = confident anaerobic. The old fallback alternated
+    // anaerobic → threshold forever; vo2max and durability were structurally unreachable.
+    const limiter = { system: "anaerobic" as const, confidence: "high" as const };
+    const recent: import("./types").SeasonFocus[] = ["aerobic-base"];
+    const picks: import("./types").SeasonFocus[] = [];
+    for (let i = 0; i < 6; i++) {
+      const f = nextBuildFocus(limiter, recent);
+      picks.push(f);
+      recent.push(f);
+    }
+    expect(picks).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold", "anaerobic", "threshold"]); // the old trap
+    expect(picks).toContain("vo2max");
+    expect(picks).toContain("durability");
+    // The limiter still leads every other period; the interleaved periods rotate least-recently-used.
+    expect(picks).toEqual(["anaerobic", "threshold", "anaerobic", "vo2max", "anaerobic", "durability"]);
+  });
+
+  it("REGRESSION: the fallback is least-recently-used, not first-in-default-order", () => {
+    // Old code returned "threshold" for both of these unconditionally (first non-last entry of
+    // defaultBuildOrder), even when vo2max/durability had never appeared at all.
+    expect(nextBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold", "anaerobic"])).toBe("vo2max");
+    expect(nextBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold", "vo2max", "anaerobic"])).toBe("durability");
+  });
+
   it("drafts base(if gated) → rotating build periods → a realize week, dated contiguously", () => {
     const arc = draftSeasonArc(baseInput({ recentFocuses: [] }), "2026-07-01");
     expect(arc[0].focus).toBe("aerobic-base");

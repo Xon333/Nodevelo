@@ -57,7 +57,8 @@ export function needsBaseGate(recentFocuses: SeasonFocus[]): boolean {
   return !recentFocuses.slice(-4).includes("aerobic-base");
 }
 
-// Weakest system first when confident; else default rotation. Never repeat the last focus (KB variety).
+// Weakest system first when confident; else a least-recently-used rotation over BUILD_FOCI (KB variety).
+// Never repeats the last focus — the last focus is by definition the most recently used candidate.
 export function nextBuildFocus(
   limiter: SeasonDraftInput["limiter"],
   recentFocuses: SeasonFocus[]
@@ -68,8 +69,20 @@ export function nextBuildFocus(
       ? limiter.system
       : null;
   if (wanted && wanted !== last) return wanted;
+  // LRU fallback: the candidate that appeared furthest back in recentFocuses wins (lastIndexOf === -1,
+  // i.e. never appeared, wins outright). Ties break by defaultBuildOrder()'s stable order; anaerobic
+  // (absent from the default order) sorts last among ties, so it surfaces only via genuine staleness,
+  // never as a tiebreak default. This replaces the old first-non-last scan over defaultBuildOrder(),
+  // which locked a confident limiter into a permanent two-focus alternation (anaerobic → threshold →
+  // anaerobic → ...) and starved vo2max/durability forever.
   const order = defaultBuildOrder();
-  return order.find((f) => f !== last) ?? order[0];
+  const tiebreak = (f: SeasonFocus): number => {
+    const i = order.indexOf(f);
+    return i === -1 ? order.length : i;
+  };
+  return [...BUILD_FOCI].sort(
+    (a, b) => recentFocuses.lastIndexOf(a) - recentFocuses.lastIndexOf(b) || tiebreak(a) - tiebreak(b)
+  )[0];
 }
 
 function period(focus: SeasonFocus, phase: SeasonPhase, startDate: string, confidence: FocusPeriod["confidence"], rationale: string): FocusPeriod {
