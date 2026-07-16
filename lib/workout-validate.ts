@@ -45,6 +45,10 @@ function durationTolerance(statedMin: number): number {
 // within tolerance.
 export function validateDurationConsistency(day: PlannedDay): string | null {
   if (!day.workoutText) return null;
+  // Strength sessions get an explicit moving_time written directly from durationMin (lib/plan-
+  // parser.ts:40), never step-parsed. Their prose workoutText (sets/reps) has no parseable steps,
+  // so don't flag the expected ~0min real total against the stated duration.
+  if (day.type === "Strength") return null;
   const real = totalPrescribedMinutes(day.workoutText);
   const gap = day.durationMin - real;
   if (Math.abs(gap) <= durationTolerance(day.durationMin)) return null;

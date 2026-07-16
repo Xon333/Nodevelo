@@ -194,4 +194,17 @@ describe("validateDurationConsistency — stated durationMin vs. the real prescr
   it("returns null for Rest days / days with no workoutText", () => {
     expect(validateDurationConsistency({ date: "2026-07-21", weekNumber: 1, weekTheme: "", name: "Rest", type: "Rest", durationMin: 0, workoutText: "", description: "" })).toBeNull();
   });
+  it("returns null for Strength days even when workoutText has no parseable steps (moving_time is set from durationMin directly, not step-parsed)", () => {
+    const d: PlannedDay = {
+      date: "2026-07-24",
+      weekNumber: 1,
+      weekTheme: "",
+      name: "Strength",
+      type: "Strength",
+      durationMin: 45,
+      workoutText: "Warm-up: 5 min dynamic mobility\n\n1. Barbell squat 4x6 @ 75% 1RM, rest 2min\n2. Romanian deadlift 3x8, rest 90s\n3. Bulgarian split squat 3x10 each leg, rest 90s\n4. Plank 3x45s\n\nCool-down: 5 min stretching",
+      description: "",
+    };
+    expect(validateDurationConsistency(d)).toBeNull();
+  });
 });

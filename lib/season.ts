@@ -409,9 +409,9 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
 // targetWeeklyTss is the period's LOADING-week target: every period advances the ramp — deloadWeek does
 // NOT dampen it. The flag means "this period's TRAILING week is lighter", and that lighter week is sized
 // downstream (BlockSettings.recoveryWeekHoursMin/Max in the block generator + formatSeasonContext's
-// "deload week" prompt phrase), never by this envelope. (The old 0.6x/frozen-base branch here collided
-// with applyDeloadCadence flagging every 3-4-week period, flattening whole seasons to ~0.6x seed and
-// making the unflagged sharpen week the heaviest of the season.)
+// "deload week" prompt phrase), never by this envelope. (The old 0.6x/frozen-base branch was abandoned
+// because applyDeloadCadence and this load-target logic together were colliding, each over-flagging.
+// This session fixed applyDeloadCadence's threshold math; the 0.6x path remains inert.)
 // Capped so a target never exceeds seedWeeklyTss * acwrCeiling.
 // Null seed → all targets remain null.
 export function assignLoadTargets(periods: FocusPeriod[], seedWeeklyTss: number | null, acwrCeiling: number): FocusPeriod[] {
