@@ -12,6 +12,72 @@ exact commits.
 
 ---
 
+## Block-generation fidelity fixes + temporary season-disable (2026-07-16)
+
+Five concrete defects surfaced by the athlete's first real generation on the redesigned
+season/coverage-selector engine (`docs/superpowers/plans/2026-07-16-block-generation-fidelity.md`),
+executed via subagent-driven-development, each task reviewed independently. Mid-execution, the
+athlete separately decided season should stop shaping/gating block generation entirely for now (the
+fixed phase-sequence model itself is a deferred, separate question — see "Season architecture doubt"
+below) — this amended the plan before any task was dispatched: Task 3 was skipped as moot, and a new
+Task 6 added the disable itself.
+
+- **Deload cadence — genuine rolling calendar-week count** (`applyDeloadCadence`, `lib/season.ts`).
+  The threshold (`every - 1`) was smaller than any real KB period's own length (all ≥3wk), so it
+  fired on almost every period (5 of 6 in the athlete's real season) instead of a genuine ~4-week
+  cadence. Dropping the `-1` lets short periods correctly accumulate across boundaries. Live-verified:
+  the redrafted tail now shows `[false, true, true, false, true]` (~4wk spacing) instead of near-
+  universal `true`; the athlete's exact reported symptom (2 deloads inside one 6-week block) is now 1.
+- **Workout-duration self-consistency** (`totalPrescribedMinutes` + `validateDurationConsistency`,
+  `lib/prescription.ts`/`lib/workout-validate.ts`). Ride-category calendar events never carry an
+  explicit Intervals.icu duration, so the platform derives real ride time by parsing the workout-text
+  steps itself — while NodeVelo's own hours totals used the AI's stated `durationMin` verbatim, and the
+  prompt hedged with "approximately." A live 6-week block had interval sessions off by up to 32
+  minutes; live-verified the new check still catches real mismatches post-fix (7 flagged, hand-
+  confirmed 2 by re-summing the actual workout text) — this is the intended, accepted outcome
+  (measurability, not a hard prompt guarantee).
+- **Goal-vs-season-phase precedence rule — SKIPPED.** Would have added a prompt rule reconciling the
+  block goal against the season's phase emphasis; moot once phase text is no longer shown to the model
+  at all (see the disable below). Left unexecuted in the plan file as the record of the original
+  finding, in case season generation-shaping is ever re-enabled.
+- **Goal-aware durability template selection** (`selectDurabilityTemplate`, `lib/durability.ts`). Was
+  100% insight-driven; a stated goal (e.g. "move up TTE") had zero influence on template choice. Added
+  an optional trailing `goalText` fallback, checked only when no insight-driven match fires — a real
+  detected weakness always wins outright. Live-verified both branches on real data: the goal text
+  ("FTP → 300W") matches the Threshold/B pattern, but the athlete's real athlete-model currently
+  carries a genuine `Overall`/`alert` insight (execution trending down, sampleSize 24) — correctly and
+  by design overriding goal text to the safer template A, exactly the "absent a stronger insight-driven
+  override" precedence this task specified.
+- **B/C-priority event surfacing** (`formatUpcomingEventsForBlock`, `lib/season.ts`). Only A-priority
+  events triggered anything (full backward-scheduling); B/C events (a planned FTP test, a KOM attempt)
+  were stored but never surfaced, so a generic session could land directly on a real test day.
+  Live-verified emphatically: the athlete's real B-priority "Areh FTP Test" (2026-07-22) and
+  "Prepih-Vahta KOM Attempt" (2026-08-02) events each produced a session explicitly named after the
+  event itself, not generic filler.
+- **Temporary season-disable** (new Task 6, `SEASON_SHAPES_GENERATION` in `lib/season.ts`, default
+  `false`). One named, reversible flag gates `formatSeasonContext`'s phase text, `formatRetestNote`'s
+  retest nudge, and the `validateSeasonFit`/`validateFocusMatch` warnings out of generation — while
+  `replanSeasonArc`/`writeSeasonPlan` keep running unconditionally every call, so `season-plan.json`
+  (periods, deload flags, events) keeps evolving in the background for whenever the model is revisited.
+  B/C-event surfacing (above) was decoupled onto its own always-on prompt variable so it keeps working
+  regardless of the flag. Live-verified: the redraft updated `season-plan.json` (tracking intact) while
+  the generated plan carried zero `Season fit`/focus-match warnings and no phase-period text.
+
+**Live-verified end-to-end**: one real `/api/generate` call (6wk, the athlete's real goal/weakpoint
+text, `startDate` 2026-07-20) exercised all four shipped fixes plus the disable simultaneously — 200
+response, `npm run check` clean (1166/1166 tests) before and unaffected after. Full task-by-task
+verification detail (including the diagnostic confirming the real `Overall` insight) in
+`.git/sdd/progress.md`.
+
+**Tracked debt, not fixed here** (flagged during this plan's execution, see ROADMAP.md "Season
+engine — known debt"): B/C-priority event surfacing and the season-replan's `formatSeasonContext`
+call currently share one `try`/`catch` — if `replanSeasonArc` itself ever throws, both the (already-
+disabled) phase text AND the always-on event line are silently dropped together. Pre-existing
+fragility inherited from the original plan's own "best-effort" design, not introduced by this
+session; worth unwinding if event-surfacing reliability ever matters more than it does today.
+
+---
+
 ## Training-engine redesign: coverage selector, macro-structure, measurability slice (2026-07-16)
 
 First-principles research review (`research.md`) of the season/block engine, followed by four

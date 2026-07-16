@@ -113,8 +113,20 @@ thresholds + headline against real use; possible score-over-time trend.
 The macro-periodization arc + scored coverage selector + macro-structure layer (bounded arcs, genuine
 season breaks, FTP retest nudge) are fully shipped → [ARCHIVE.md](ARCHIVE.md); specs/plans under
 `docs/superpowers/`. The old "anaerobic unreachable via the default fallback" debt item is resolved
-(the scored selector replaced that fallback entirely) and removed. Tracked debt surfaced by the
-2026-07-16 final whole-branch review, none currently worth a dedicated pass:
+(the scored selector replaced that fallback entirely) and removed.
+
+**Season is currently NOT shaping or gating block generation (2026-07-16 athlete decision, `←` a
+future dedicated research session on the fixed phase-sequence model itself — e.g. whether always
+prescribing an aerobic-base phase regardless of a rider's existing base fitness is even right).**
+`SEASON_SHAPES_GENERATION` (`lib/season.ts`, default `false`) gates `formatSeasonContext`'s phase
+text, `formatRetestNote`'s retest nudge, and the `validateSeasonFit`/`validateFocusMatch` warnings out
+of every `/api/generate` call. Season state keeps being tracked underneath regardless — `season-
+plan.json` still updates every call, B/C-priority event surfacing stays on (a calendar fact, not a
+phase opinion) — so nothing here atrophies while the model question is open. Flip the flag back once
+that research session lands; until then, treat every debt item below through that lens (most only
+matter again once phase text reaches generation again).
+
+Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currently worth a dedicated pass:
 - **Event-anchored path bypasses the whole macro layer, not just deload cadence.** A future A-event
   routes `draftSeasonArc` to `backwardScheduleFromEvent`, which gets the scored selector
   (`pickBuildFocus`) but none of the rest: no arc caps, no base re-touches (the fill loop only ever
@@ -130,11 +142,13 @@ season breaks, FTP retest nudge) are fully shipped → [ARCHIVE.md](ARCHIVE.md);
 - `nextBuildFocus`/`pickBuildFocus` are now byte-identical one-line delegations to `selectBuildFocus`;
   `nextBuildFocus` has zero production callers left (tests only), same for `defaultBuildOrder()`.
   Could collapse to one wrapper (or none) and retarget the tests — pure cleanup, no behavior change.
-- `formatRetestNote`'s "best slot" label is misleading on two paths: the rolling path's cadence math
-  flags nearly every 3–4wk period `deloadWeek: true`, so "the lighter deload period" is almost always
-  just "the next period," not a genuinely lighter one; the event path's earliest `sharpen` period is
-  the **peak**, which the engine elsewhere insists must hold near-race load, yet the note would call
-  it lighter. Prompt-only impact.
+- `formatRetestNote`'s "best slot" label is misleading on the event path: its earliest `sharpen`
+  period is the **peak**, which the engine elsewhere insists must hold near-race load, yet the note
+  would call it lighter. Prompt-only impact. (The rolling-path half of this note — cadence math
+  flagging nearly every 3–4wk period, making "the lighter deload period" meaningless — is resolved:
+  the 2026-07-16 block-generation-fidelity fixes corrected `applyDeloadCadence`'s threshold math to a
+  genuine ~4wk rolling count → ARCHIVE.md. Moot either way right now: `formatRetestNote`'s prompt
+  injection is currently switched off entirely, see the note below.)
 - `GeneratedPlan.protocolViolations` (measurability slice) lives only on the preview plan —
   `/api/write` doesn't persist it onto `CurrentBlockDay` next to the new `sessionLevel` stamp, so
   there's no way to later correlate "written despite a known protocol violation" with outcomes.
@@ -148,6 +162,13 @@ season breaks, FTP retest nudge) are fully shipped → [ARCHIVE.md](ARCHIVE.md);
 - `PlanView`'s season-context fetch can overwrite a manual in-progress goal-textarea edit if the
   athlete types between the two independent fetches resolving — narrow single-user timing window,
   not observed in practice.
+- B/C-priority event surfacing (`formatUpcomingEventsForBlock`) and `formatSeasonContext`'s call
+  currently share one `try`/`catch` in `app/api/generate/route.ts` — if `replanSeasonArc` itself ever
+  throws, the (currently-disabled anyway) phase text AND the always-on event line are silently dropped
+  together. Found during the 2026-07-16 block-generation-fidelity plan's task review; pre-existing
+  fragility inherited from the original event-surfacing plan's own "best-effort" design, not introduced
+  that session. Worth unwinding (pull the event-line computation out of the replan's try/catch) if
+  event-surfacing reliability ever matters more than it does today.
 
 **Ties:** `6a` event-aware race planning is the surfacing of event mode; `§7` calendar; `#4`
 validates whether a phase sequence worked; `#2` calibrates the ramp/deload constants (currently
@@ -236,6 +257,15 @@ does not change.
 - **Wearable morning-readiness** — when a wearable lands, objective HRV / sleep / resting-HR slots
   into readiness + athlete-state, replacing the manual ill/fatigue flag for the fatigue case (the
   subjective-wellness sync was deliberately removed 2026-06-26 — don't re-propose it).
+- **Intervals.icu workout-library sync** — when a session scores as well-executed, write it into
+  Intervals.icu's own reusable workout library (confirmed feasible: `POST
+  /api/v1/athlete/{id}/workouts`, `/workouts/bulk` — a distinct API from the calendar-event endpoints
+  `lib/intervals-api.ts` already uses). Builds a curated "proven workouts" folder over blocks —
+  pullable by the athlete directly in Intervals.icu, and a future hook for cutting generation cost on
+  repeat sessions. A **write-time side effect after scoring**, not an input to `generateTrainingBlock`
+  — that call stays one holistic per-block LLM pass; this doesn't touch its shape. `← #4` for
+  "well-executed" (needs real scored verdicts — currently n=1–8, see the state-of-the-app note at the
+  top of this doc); Track B's per-template durability score is the natural quality gate to reuse.
 
 ---
 
