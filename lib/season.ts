@@ -682,6 +682,22 @@ export function formatSeasonContext(
   return `SEASON CONTEXT: ${objective}phase ${p.phase} · focus ${p.focus} · wk ${wk} of ${p.plannedWeeks}${load}${deload}. ${p.rationale}`;
 }
 
+// B/C-priority events inside this block's own date range — surfaced so a real planned test/race
+// day doesn't get a generic session written on top of it. A-priority events are deliberately
+// excluded here: they already take over the whole arc via draftSeasonArc's backward-scheduling
+// (this is the ONLY place a B/C event gets any generation-time visibility at all).
+export function formatUpcomingEventsForBlock(
+  events: SeasonEvent[],
+  blockRange: { startDate: string; endDate: string }
+): string | null {
+  const inRange = events
+    .filter((e) => e.priority !== "A" && e.date >= blockRange.startDate && e.date <= blockRange.endDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (inRange.length === 0) return null;
+  const lines = inRange.map((e) => `- ${e.date}: ${e.name} (priority ${e.priority}) — protect this day; build the week around it rather than overwriting it with a generic session.`);
+  return `UPCOMING EVENTS THIS BLOCK:\n${lines.join("\n")}`;
+}
+
 // A short prompt-injectable nudge when the athlete's tested FTP has gone stale (ftpStaleDays is the
 // figure /api/profile already computes off physiology.json's effectiveFrom). Due every
 // retestEveryWeeks — one arc — and pointed at the next lighter slot (sharpen / deload / transition)

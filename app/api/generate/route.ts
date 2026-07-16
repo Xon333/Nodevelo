@@ -36,7 +36,7 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatRetestNote, formatSeasonContext, replanSeasonArc, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, replanSeasonArc, validateFocusMatch, validateSeasonFit } from "@/lib/season";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
@@ -273,6 +273,8 @@ export async function POST(req: Request) {
       const blockEnd = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
       const line = formatSeasonContext(replanned, today, { startDate: blockParams.startDate, endDate: blockEnd });
       if (line) seasonContext = `\n${line}`;
+      const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEnd });
+      if (upcomingEventsLine) seasonContext += `\n${upcomingEventsLine}`;
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
     }

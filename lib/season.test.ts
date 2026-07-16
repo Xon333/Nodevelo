@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -991,5 +991,34 @@ describe("formatRetestNote — FTP retest cadence", () => {
     const note = formatRetestNote(70, planWith([]), "2026-07-15")!;
     expect(note).toContain("RETEST DUE");
     expect(note).not.toContain("Best slot");
+  });
+});
+
+describe("formatUpcomingEventsForBlock — B/C-priority events inside the block's own date range", () => {
+  it("lists a B-priority event that falls inside the block range, naming the date and asking it be protected", () => {
+    const events: import("./types").SeasonEvent[] = [{ name: "Areh FTP Test", date: "2026-07-22", priority: "B" }];
+    const line = formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })!;
+    expect(line).toContain("Areh FTP Test");
+    expect(line).toContain("2026-07-22");
+    expect(line).toMatch(/protect|build around|do not overwrite/i);
+  });
+  it("returns null when no B/C event falls inside the range", () => {
+    const events: import("./types").SeasonEvent[] = [{ name: "Late Event", date: "2026-09-15", priority: "C" }];
+    expect(formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
+  });
+  it("returns null for an empty events array", () => {
+    expect(formatUpcomingEventsForBlock([], { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
+  });
+  it("ignores A-priority events entirely — those already redirect the whole season via draftSeasonArc, not this line", () => {
+    const events: import("./types").SeasonEvent[] = [{ name: "A-Race", date: "2026-07-22", priority: "A" }];
+    expect(formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
+  });
+  it("lists multiple in-range events in chronological order", () => {
+    const events: import("./types").SeasonEvent[] = [
+      { name: "Second", date: "2026-08-10", priority: "C" },
+      { name: "First", date: "2026-07-25", priority: "B" },
+    ];
+    const line = formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })!;
+    expect(line.indexOf("First")).toBeLessThan(line.indexOf("Second"));
   });
 });
