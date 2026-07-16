@@ -291,6 +291,11 @@ export interface CurrentBlockDay {
   // scoring can grade that ride against its template's expected signal. Absent on non-long-ride days and
   // on blocks written before stamping landed.
   durabilityTemplate?: string;
+  // Measurability: the session's difficulty stamp (see SessionLevel), computed from `prescription`
+  // at write time and frozen so retrospectives can compare like sessions across blocks. Absent on
+  // days with no parsed work efforts (Rest / pure endurance / Strength) and on blocks written
+  // before this shipped — read sites must truthy-check, never `=== null`.
+  sessionLevel?: SessionLevel;
   workoutText?: string; // Intervals.icu step syntax — the coach's prescription
   prescription?: PrescribedInterval[]; // structured work intervals parsed from workoutText
   // The Intervals.icu event id this day was written as. Stored so the block's planned-workout events

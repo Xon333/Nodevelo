@@ -10,6 +10,7 @@ import { staleEventIds } from "@/lib/block-events";
 import { utcToday } from "@/lib/date";
 import { truncateBlockDays } from "@/lib/score-log";
 import { parsePrescription } from "@/lib/prescription";
+import { computeSessionLevel } from "@/lib/session-level";
 import type { CurrentBlock, CurrentBlockDay, GeneratedPlan, PlannedDay, WriteResult } from "@/lib/types";
 import { WORKOUT_TYPES } from "@/lib/types";
 
@@ -140,6 +141,9 @@ export async function POST(req: Request) {
       return plan.days.map((d) => {
         // Capture the coach's prescription structurally so execution can be compared.
         const prescription = parsePrescription(d.workoutText, ftp);
+        // Measurability: freeze the comparable difficulty stamp alongside the prescription it
+        // derives from, so block history carries a stable per-session identity.
+        const sessionLevel = computeSessionLevel(d.type, prescription);
         const eventId = eventIdByDate.get(d.date) ?? null;
         return {
           date: d.date,
@@ -149,6 +153,7 @@ export async function POST(req: Request) {
           ...(isLongRide(d) && plan.durabilityTemplate ? { durabilityTemplate: plan.durabilityTemplate } : {}),
           ...(d.workoutText ? { workoutText: d.workoutText } : {}),
           ...(prescription.length > 0 ? { prescription } : {}),
+          ...(sessionLevel ? { sessionLevel } : {}),
           ...(eventId !== null ? { eventId } : {}),
         };
       });

@@ -236,3 +236,23 @@ describe("/api/write intervention recording (learning loop, first-ever write)", 
     expect(store.writeInterventionLog).not.toHaveBeenCalled();
   });
 });
+
+describe("/api/write sessionLevel stamp (measurability)", () => {
+  const qualityPlan = {
+    ...plan,
+    days: [
+      day("2026-06-15", "Endurance"), // Z2 @ 65% — no work efforts, so no stamp
+      { ...day("2026-06-16", "Threshold 2x20"), type: "Threshold", workoutText: "Main Set 2x\n- 20m 95%\n- 5m 55%" },
+    ],
+  };
+
+  it("stamps a comparable sessionLevel on quality days and omits it on pure endurance", async () => {
+    h.createEvent.mockResolvedValue(200);
+    const json = await (await post({ plan: qualityPlan })).json();
+    expect(json.blockSaved).toBe(true);
+    const [endurance, threshold] = json.currentBlock.days;
+    expect(endurance.sessionLevel).toBeUndefined();
+    // 2×20m @ 95%: 40 work-min × 0.95 = 38; band (95−80)/(115−80) = 0.43. Frozen for retrospectives.
+    expect(threshold.sessionLevel).toEqual({ score: 38, workMin: 40, avgPctFtp: 95, bandPosition: 0.43 });
+  });
+});
