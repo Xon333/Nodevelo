@@ -251,6 +251,16 @@ export function nextBuildFocus(
   return selectBuildFocus(limiter, recentFocuses);
 }
 
+// Event-anchored path selector — delegates to the scored coverage selector (2026-07-15-season-coverage-selector,
+// already landed) so both the rolling and event-anchored paths share one selection quality. No signals threaded
+// here (the event path has no per-day session data in scope); labels-only scoring still beats the old fixed cycle.
+export function pickBuildFocus(
+  limiter: SeasonDraftInput["limiter"],
+  recentFocuses: SeasonFocus[]
+): SeasonFocus {
+  return selectBuildFocus(limiter, recentFocuses);
+}
+
 function period(focus: SeasonFocus, phase: SeasonPhase, startDate: string, confidence: FocusPeriod["confidence"], rationale: string): FocusPeriod {
   return {
     focus, phase, startDate,
@@ -369,14 +379,21 @@ export function backwardScheduleFromEvent(event: SeasonEvent, input: SeasonDraft
     const peakWeeks = Math.min(SEASON_CONSTANTS.peakWeeks, runway - SEASON_CONSTANTS.taperWeeks - 1);
     tail.push(mk("sharpen", "peak", Math.max(1, peakWeeks), `Peak/sharpen for ${event.name} — race-specific.`));
     let filled = peakWeeks + SEASON_CONSTANTS.taperWeeks;
-    const order = [...defaultBuildOrder()];
-    let i = 0;
+    // Backward fill, nearest-to-peak first: each pick sees the running `chosen` history, so a
+    // confident limiter lands in the most race-specific slot (right before the peak) and the
+    // in-between slots rotate least-recently-used across ALL four build systems. The old fixed
+    // [threshold, vo2max, durability] index cycle could never schedule anaerobic and ignored the
+    // limiter entirely. (Adjacency is symmetric, so no-back-to-back survives the reversal;
+    // input.recentFocuses is deliberately NOT seeded here — chronologically it borders the START
+    // of the runway, i.e. the LAST period this loop generates, not the first.)
+    const chosen: SeasonFocus[] = [];
     while (filled < runway) {
-      const focus = order[i % order.length];
+      const focus = pickBuildFocus(input.limiter, chosen);
       const w = Math.min(SEASON_CONSTANTS.weeks[focus], runway - filled);
       if (w <= 0) break;
       tail.unshift(mk(focus, "build", w, `Build ${focus} toward ${event.name}.`));
-      filled += w; i += 1;
+      chosen.push(focus);
+      filled += w;
     }
     tail.push(taper);
   }

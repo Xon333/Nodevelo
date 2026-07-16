@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -92,6 +92,45 @@ describe("draftSeasonArc — Mode-C", () => {
     for (let i = 1; i < targets.length; i++) {
       expect(targets[i]).toBeGreaterThanOrEqual(targets[i - 1]); // never a spike after a plateau
     }
+  });
+});
+
+describe("pickBuildFocus — LRU + limiter-weighted build selection", () => {
+  it("prefers a confident limiter when it wasn't just used", () => {
+    expect(pickBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold"])).toBe("anaerobic");
+    expect(pickBuildFocus({ system: "durability", confidence: "medium" }, [])).toBe("durability");
+  });
+  it("never repeats the most recent focus — even the limiter", () => {
+    expect(pickBuildFocus({ system: "anaerobic", confidence: "high" }, ["anaerobic"])).not.toBe("anaerobic");
+  });
+  it("falls back to the least-recently-used candidate across ALL four build systems", () => {
+    // anaerobic has never appeared — the fixed [threshold, vo2max, durability] cycle could never pick it
+    expect(pickBuildFocus({ system: null, confidence: "low" }, ["threshold", "vo2max", "durability"])).toBe("anaerobic");
+    // durability is the most starved candidate here (oldest last appearance)
+    expect(pickBuildFocus({ system: null, confidence: "low" }, ["durability", "anaerobic", "threshold", "vo2max"])).toBe("durability");
+    // a low-confidence limiter gets no special weighting
+    expect(pickBuildFocus({ system: "anaerobic", confidence: "low" }, ["anaerobic"])).toBe("threshold");
+  });
+  it("tie-breaks never-used candidates in BUILD_FOCI order", () => {
+    expect(pickBuildFocus({ system: null, confidence: "low" }, [])).toBe("threshold");
+  });
+});
+
+describe("backwardScheduleFromEvent — build rotation quality (the athlete's live KOM path)", () => {
+  const ev = { name: "Alpe KOM", date: "2026-12-01", priority: "A" as const }; // 21-wk runway from 2026-07-01
+  it("reaches anaerobic in a long runway (the fixed 3-focus cycle never did)", () => {
+    const arc = backwardScheduleFromEvent(ev, baseInput(), "2026-07-01");
+    expect(arc.filter((p) => p.phase === "build").map((p) => p.focus)).toContain("anaerobic");
+  });
+  it("schedules a confident limiter into the runway, landing nearest the peak", () => {
+    const arc = backwardScheduleFromEvent(ev, baseInput({ limiter: { system: "anaerobic", confidence: "high" } }), "2026-07-01");
+    const builds = arc.filter((p) => p.phase === "build");
+    expect(builds[builds.length - 1].focus).toBe("anaerobic"); // last build before peak — the most race-specific slot
+  });
+  it("never repeats a focus back-to-back within the runway", () => {
+    const arc = backwardScheduleFromEvent(ev, baseInput({ limiter: { system: "vo2max", confidence: "high" } }), "2026-07-01");
+    const builds = arc.filter((p) => p.phase === "build");
+    for (let i = 1; i < builds.length; i++) expect(builds[i].focus).not.toBe(builds[i - 1].focus);
   });
 });
 
