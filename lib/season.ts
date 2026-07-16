@@ -282,7 +282,28 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
   }
 
   while (periods.length < SEASON_CONSTANTS.horizonPeriods - 1) {
-    const focus = selectBuildFocus(input.limiter, recent, input.focusSignals);
+    // Real exposure (signals.exposure) is measured once, as of `today` — it does not update as this
+    // loop hypothetically drafts future periods, unlike labelExposureWeeks(recent, focus), which
+    // grows every iteration. Left unadjusted, a focus with real (low) exposure and no confident-limiter
+    // competitor can out-score every focus that's never been trained at all for the ENTIRE draft,
+    // recreating a two-focus alternation for a new reason (found live, 2026-07-15 — a confident
+    // anaerobic limiter with real recent SIT/Threshold exposure locked out vo2max/durability, whose
+    // real exposure was real but comparatively stale and never got a chance to grow further). Fix:
+    // extrapolate a not-yet-drafted focus's real staleness forward by how far this draft has already
+    // advanced past `today`; once a focus IS drafted, drop its real exposure entirely so it falls
+    // through to labelExposureWeeks, which already resets/regrows correctly from that point on.
+    const weeksIntoThisDraft = weeksBetween(today, cursor);
+    const adjustedSignals: FocusSignals | undefined = input.focusSignals?.exposure
+      ? {
+          ...input.focusSignals,
+          exposure: Object.fromEntries(
+            Object.entries(input.focusSignals.exposure)
+              .filter(([f]) => !recent.includes(f as SeasonFocus))
+              .map(([f, weeks]) => [f, (weeks as number) + weeksIntoThisDraft])
+          ) as Partial<Record<SeasonFocus, number>>,
+        }
+      : input.focusSignals;
+    const focus = selectBuildFocus(input.limiter, recent, adjustedSignals);
     const why =
       input.limiter.system === focus && conf !== "low"
         ? `Build ${focus} — your most depressed system relative to your engine.`

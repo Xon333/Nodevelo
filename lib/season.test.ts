@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput, type FocusSignals } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -594,6 +594,35 @@ describe("draftSeasonArc — scored coverage selection (replaces the two-state/L
     expect(nextBuildFocus({ system: "vo2max", confidence: "high" }, ["threshold"])).toBe("vo2max"); // limiter bonus wins
     expect(nextBuildFocus({ system: null, confidence: "low" }, ["threshold"])).toBe("vo2max"); // trainability tie-break
     expect(nextBuildFocus({ system: "threshold", confidence: "high" }, ["threshold"])).not.toBe("threshold"); // never repeat
+  });
+  it("REGRESSION (found live, 2026-07-15): real exposure for ALL foci must not freeze urgency for the whole draft — a never-yet-drafted focus must still surface within one horizon", () => {
+    // Reproduces the exact live scenario: a confident anaerobic limiter, a goal mentioning both FTP
+    // ("raise FTP") and sprint ("Sprint (0-30s)" weakpoint), and REAL exposure data for all four build
+    // foci (as any athlete with a training history has) — none of it stale enough to hit
+    // NEVER_SEEN_URGENCY on its own. Before the fix, vo2max/durability's real exposure never grew
+    // across the draft (unlike labelExposureWeeks for whatever kept getting picked), so the draft
+    // degenerated into anaerobic/threshold alternating forever — the exact pathology this whole plan
+    // exists to prevent, just triggered by frozen real signals instead of a broken fallback array.
+    const arc = draftSeasonArc(
+      baseInput({
+        limiter: anHigh,
+        recentFocuses: ["aerobic-base"],
+        focusSignals: {
+          goalText: "Raise my FTP from 280 to 300 W. Weakpoint: Sprint (0-30s).",
+          exposure: { threshold: 0, anaerobic: 0, vo2max: 3, durability: 2 }, // all real, all comparatively fresh
+          execQuality: { threshold: 6.2, vo2max: 7, anaerobic: 7, durability: 6.8 },
+        },
+      }),
+      "2026-07-01"
+    );
+    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
+    // vo2max surfaces at slot 3 — previously structurally impossible. Durability doesn't quite
+    // overtake anaerobic within this specific 4-slot horizon (its urgency is still compounding); that's
+    // an honest, expected outcome, not a regression — it will surface on a later replan or a longer
+    // horizon as its own urgency keeps growing, exactly as labelExposureWeeks already does for anaerobic.
+    expect(builds).toEqual(["anaerobic", "threshold", "vo2max", "anaerobic"]);
+    expect(builds).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold"]); // the old (re-)trap
+    expect(builds).toContain("vo2max"); // the actual bug this test exists to catch
   });
 });
 
