@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -614,11 +614,17 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
 
 describe("draftSeasonArc — scored coverage selection (replaces the two-state/LRU selector)", () => {
   const anHigh = { system: "anaerobic" as const, confidence: "high" as const };
-  it("one horizon reaches all four build systems under a confident anaerobic limiter (hand-traced)", () => {
-    // baseInput's recentFocuses = ["aerobic-base", "threshold"] → base gate silent → 4 builds + sharpen.
+  it("one horizon reaches three of four build systems, then the arc cap re-touches base before a 4th build would cross 12wk (Task 2, 2026-07-15-season-macro-structure)", () => {
+    // baseInput's recentFocuses = ["aerobic-base", "threshold"] → base gate silent, but seeds 4 loading
+    // weeks already on the athlete's legs (weeksSinceBase). anaerobic(3) + vo2max(4) + durability(3) = 10
+    // more → 14 consecutive loading weeks, which would cross arcWeeks.max (12) on the would-be 4th build
+    // (threshold, 4wk) — so the arc cap substitutes an aerobic-base touch for that slot instead. This
+    // supersedes the pre-arc-cap expectation (all four systems in one horizon): the cap is exactly what
+    // stops an unbounded monotone build (Foster 1998), so a re-touch pre-empting the 4th build is correct.
     const arc = draftSeasonArc(baseInput({ limiter: anHigh }), "2026-07-01");
     const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
-    expect(builds).toEqual(["anaerobic", "vo2max", "durability", "threshold"]);
+    expect(builds).toEqual(["anaerobic", "vo2max", "durability"]);
+    expect(arc.some((p) => p.focus === "aerobic-base" && p.rationale.includes("Arc boundary"))).toBe(true);
   });
   it("focusSignals flow through the draft: an FTP goal leads the arc with threshold/vo2max, not the anaerobic limiter", () => {
     const arc = draftSeasonArc(
@@ -659,9 +665,14 @@ describe("draftSeasonArc — scored coverage selection (replaces the two-state/L
     // overtake anaerobic within this specific 4-slot horizon (its urgency is still compounding); that's
     // an honest, expected outcome, not a regression — it will surface on a later replan or a longer
     // horizon as its own urgency keeps growing, exactly as labelExposureWeeks already does for anaerobic.
-    expect(builds).toEqual(["anaerobic", "threshold", "vo2max", "anaerobic"]);
+    // The would-be 4th build (anaerobic again, 3wk) would push consecutive loading to 11+3=14wk, crossing
+    // arcWeeks.max (12) — the arc cap (Task 2, 2026-07-15-season-macro-structure) substitutes an
+    // aerobic-base touch there instead, which is itself further confirmation the old two-focus trap is
+    // broken: a real reset fires, not just a third focus appearing before the pattern would resume.
+    expect(builds).toEqual(["anaerobic", "threshold", "vo2max"]);
     expect(builds).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold"]); // the old (re-)trap
     expect(builds).toContain("vo2max"); // the actual bug this test exists to catch
+    expect(arc.some((p) => p.focus === "aerobic-base" && p.rationale.includes("Arc boundary"))).toBe(true);
   });
 });
 
@@ -737,5 +748,38 @@ describe("achievedTssForPeriod — real achieved load from the score-log ledger"
     expect(achievedTssForPeriod([], period)).toBeNull();
     expect(achievedTssForPeriod([{ date: "2026-06-05", tss: null }], period)).toBeNull();
     expect(achievedTssForPeriod([{ date: "2026-07-05", tss: 300 }], period)).toBeNull(); // outside the range
+  });
+});
+
+describe("bounded emphasis arcs (8–12 wk)", () => {
+  it("encodes the arc bounds", () => {
+    expect(SEASON_CONSTANTS.arcWeeks).toEqual({ min: 8, max: 12 });
+  });
+  it("estimates loading weeks since the last aerobic-base touch", () => {
+    expect(weeksSinceBase([])).toBe(0);
+    expect(weeksSinceBase(["aerobic-base"])).toBe(0);
+    expect(weeksSinceBase(["aerobic-base", "threshold", "vo2max"])).toBe(8); // 4 + 4 KB default weeks
+    expect(weeksSinceBase(["threshold", "durability"])).toBe(7); // no base anywhere → the whole history counts
+  });
+  it("inserts an aerobic-base touch before consecutive loading weeks exceed arcWeeks.max", () => {
+    const arc = draftSeasonArc(baseInput(), "2026-07-01"); // seed: base already in the window → gate silent, 4 loading wk behind
+    expect(needsBaseGate(baseInput().recentFocuses)).toBe(false); // proves the gate did NOT produce the base below
+    expect(arc.some((p) => p.focus === "aerobic-base")).toBe(true); // the arc cap did
+    // Invariant (selector-agnostic — survives the sibling plans' rotation fixes): no stretch of
+    // consecutive loading periods exceeds the arc cap, counting the 4 weeks already on the athlete's
+    // legs from the seeded threshold period. sharpen resets too — it is itself a lighter week.
+    let run = 4;
+    for (const p of arc) {
+      if (p.focus === "aerobic-base" || p.focus === "sharpen") { run = 0; continue; }
+      run += p.plannedWeeks;
+      expect(run).toBeLessThanOrEqual(SEASON_CONSTANTS.arcWeeks.max);
+    }
+  });
+  it("forces the reset at the cap even when the 4-period lookback still contains a base", () => {
+    // 11 loading weeks since the base (4+4+3) — yet base is still inside needsBaseGate's window.
+    expect(needsBaseGate(["aerobic-base", "threshold", "vo2max", "durability"])).toBe(false);
+    const arc = draftSeasonArc(baseInput({ recentFocuses: ["aerobic-base", "threshold", "vo2max", "durability"] }), "2026-07-01");
+    expect(arc[0].focus).toBe("aerobic-base"); // cap fires immediately: 11 + any build (3–4 wk) > 12
+    expect(arc[0].rationale).toContain("Arc boundary");
   });
 });

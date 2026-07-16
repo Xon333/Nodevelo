@@ -17,6 +17,7 @@ export const SEASON_CONSTANTS = {
   deloadTightEveryWeeks: 3, // 2:1 under heavy fatigue
   loadRampPct: 6, // +5–8% weekly-TSS ramp midpoint
   horizonPeriods: 5, // how many future periods to draft (rough & rolling)
+  arcWeeks: { min: 8, max: 12 }, // bounded emphasis arc: consecutive loading weeks between aerobic-base touches
 } as const;
 
 // Display labels for a goal's focus. "general" is not a physiological system — it means "relevant in
@@ -138,6 +139,16 @@ const BUILD_FOCI: SeasonFocus[] = ["threshold", "vo2max", "anaerobic", "durabili
 // KB: "base is non-negotiable." Lead with a base touch when the recent window carries none.
 export function needsBaseGate(recentFocuses: SeasonFocus[]): boolean {
   return !recentFocuses.slice(-4).includes("aerobic-base");
+}
+
+// Estimated consecutive loading weeks since the last aerobic-base touch in a focus history
+// (most recent last). The history carries no per-period week counts, so KB default weeks per
+// focus are the estimate — good enough to bound an arc; overrides that stretched a period only
+// shift the boundary by a week or two.
+export function weeksSinceBase(recentFocuses: SeasonFocus[]): number {
+  const idx = recentFocuses.lastIndexOf("aerobic-base");
+  const tail = idx === -1 ? recentFocuses : recentFocuses.slice(idx + 1);
+  return tail.reduce((sum, f) => sum + SEASON_CONSTANTS.weeks[f], 0);
 }
 
 // ---------- Coverage selector (2026-07-15-season-coverage-selector) ----------
@@ -291,6 +302,11 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
     cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
   }
 
+  // Arc cap (Foster 1998: illness risk tracks load × monotony): consecutive loading weeks since the
+  // last base touch may never exceed arcWeeks.max — the touch also resets the rotation's recency
+  // window, so the same two-focus pattern can't repeat unchanged across an arc boundary.
+  let sinceBase = weeksSinceBase(recent);
+
   while (periods.length < SEASON_CONSTANTS.horizonPeriods - 1) {
     // Real exposure (signals.exposure) is measured once, as of `today` — it does not update as this
     // loop hypothetically drafts future periods, unlike labelExposureWeeks(recent, focus), which
@@ -314,12 +330,21 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
         }
       : input.focusSignals;
     const focus = selectBuildFocus(input.limiter, recent, adjustedSignals);
+    const focusWeeks = SEASON_CONSTANTS.weeks[focus];
+    if (sinceBase >= SEASON_CONSTANTS.arcWeeks.min && sinceBase + focusWeeks > SEASON_CONSTANTS.arcWeeks.max) {
+      periods.push(period("aerobic-base", "base", cursor, conf, "Arc boundary — re-touch aerobic base so the build doesn't run monotone (Foster 1998: illness tracks load × monotony)."));
+      recent.push("aerobic-base");
+      sinceBase = 0;
+      cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
+      continue;
+    }
     const why =
       input.limiter.system === focus && conf !== "low"
         ? `Build ${focus} — your most depressed system relative to your engine.`
         : `Build ${focus} — rotating the quality focus (KB: avoid repeating one stimulus).`;
     periods.push(period(focus, "build", cursor, conf, why));
     recent.push(focus);
+    sinceBase += focusWeeks;
     cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
   }
 
