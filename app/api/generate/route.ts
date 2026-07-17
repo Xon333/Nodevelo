@@ -211,11 +211,18 @@ export async function POST(req: Request) {
     const requirements = deriveSessionRequirements(blockParams.goal, blockParams.weakpoints);
     const sessionReqLine = formatSessionRequirements(requirements);
     const sessionReqContext = sessionReqLine ? `\n${sessionReqLine}` : "";
-    const durability = selectDurabilityTemplate(
-      insights,
-      currentBlock?.durabilityTemplate ?? null,
-      [existingSeason.objective, blockParams.goal].filter(Boolean).join(" \n ")
-    );
+    // HR-18: one shared "everything the athlete has said" string, reused by both consumers below —
+    // previously selectDurabilityTemplate saw only objective+goal while the season-replan's own
+    // focusSignals.goalText (a few lines down) additionally folded in weakpoints/profile goals, so a
+    // stated weakpoint recorded only in profile.weakpoints could never bias durability template choice.
+    const combinedGoalText = [
+      existingSeason.objective,
+      blockParams.goal,
+      ...blockParams.weakpoints,
+      ...profile.goals.map((g) => `${g.goal} ${g.target}`),
+      ...profile.weakpoints.map((w) => `${w.weakpoint} ${w.detail}`),
+    ].join(" \n ");
+    const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null, combinedGoalText);
     const durabilityContext = `\n${formatDurabilityForPrompt(durability)}`;
     // Carry-forward (CR-6): quality dropped mid-block with no make-up slot — re-prioritise it here.
     const deferredContext = currentBlock?.deferredQuality?.length
@@ -251,13 +258,7 @@ export async function POST(req: Request) {
           // generated (session exposure from the current block + archived block days — not the plan's
           // own period labels), and how execution has actually been going per system.
           focusSignals: {
-            goalText: [
-              existingSeason.objective,
-              blockParams.goal,
-              ...blockParams.weakpoints,
-              ...profile.goals.map((g) => `${g.goal} ${g.target}`),
-              ...profile.weakpoints.map((w) => `${w.weakpoint} ${w.detail}`),
-            ].join(" \n "),
+            goalText: combinedGoalText,
             exposure: exposureFromSessions(
               [...(currentBlock?.days ?? []), ...blockHistory.flatMap((h) => h.days ?? [])].filter((d) => d.date <= today),
               profile.performance.ftp,

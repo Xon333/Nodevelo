@@ -100,6 +100,16 @@ describe("POST /api/generate — Track B wiring", () => {
     const json = await (await gen("Improve 40k TT power on the flats")).json();
     expect(json.plan.warnings.some((w: string) => /RaceSim/.test(w))).toBe(false);
   });
+
+  it("HR-18: a weakpoint recorded only in profile.weakpoints still biases durability template selection", async () => {
+    // Before the fix, selectDurabilityTemplate's goalText only joined existingSeason.objective +
+    // blockParams.goal -- a stated weakpoint living in the athlete's PROFILE (not retyped into the
+    // block-goal textbox or the request's own weakpoints array) had zero influence. "5-second power"
+    // matches GOAL_TEMPLATE_PATTERNS' sprint/neuromuscular pattern -> template D.
+    vi.mocked(store.readAthleteProfile).mockResolvedValue({ ...profile, weakpoints: [{ weakpoint: "5-second power", detail: "" }] } as never);
+    const json = await (await gen("Have fun and stay consistent")).json(); // goal text alone matches nothing
+    expect(json.plan.durabilityTemplate).toBe("D");
+  });
 });
 
 describe("POST /api/generate — season wiring (multi-period blocks)", () => {
