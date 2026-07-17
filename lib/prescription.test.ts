@@ -122,6 +122,20 @@ describe("parsePrescription", () => {
     const explicit = parsePrescription("- 5m 110%\n- 5m 110%\n- 5m 110%\n- 5m 110%\n- 5m 110%", FTP);
     expect(explicit).toEqual(collapsed);
   });
+
+  it("HR-16: a single line naming TWO efforts keeps both as separate reps, not just the first (RaceSim compound-move regression)", () => {
+    // Real live RaceSim text: "Move 3: Seated climb 2m30s 108%, then standing attack 25s 140%" — a
+    // single "- " line describing a climb effort AND a standing attack. Before the fix, parseStep's
+    // non-global regex only ever captured the FIRST duration+%FTP pair per line, silently dropping
+    // the standing attack entirely — so execution-scoring never checked whether it was ridden.
+    const wo = "Main Set\n- Move 1: Seated climb 2m30s 108%, then standing attack 25s 140%";
+    const p = parsePrescription(wo, FTP);
+    expect(p).toHaveLength(2);
+    expect(p.map((i) => ({ durationSec: i.durationSec, targetPctFtp: i.targetPctFtp }))).toEqual([
+      { durationSec: 150, targetPctFtp: 108 },
+      { durationSec: 25, targetPctFtp: 140 },
+    ]);
+  });
 });
 
 describe("parsePrescription — warmup/cooldown sections never count as work (section fix)", () => {
@@ -196,5 +210,13 @@ describe("totalPrescribedMinutes — the REAL duration Intervals.icu's own step-
     // duration view must still count it, because Intervals.icu counts it too.
     const text = "Warmup\n- 10m ramp 50-60%\n\nMain\n- 70m 62%\n\nCooldown\n- 10m 50%";
     expect(totalPrescribedMinutes(text)).toBe(90);
+  });
+  it("HR-16: counts BOTH efforts on a compound multi-effort line, not just the first (real RaceSim text)", () => {
+    // The exact live text (2026-07-30 RaceSim day) that produced a reported ~59min real total when
+    // it should be ~60.25min — the gap was this exact bug, silently dropping the standing attacks.
+    const text =
+      "Warmup\n- 15m ramp 50-72%\n- 3m 55%\n\nMain Set\n- Move 3: Seated climb 2m30s 108%, then standing attack 25s 140%\n\nCooldown\n- 12m 50%";
+    // warmup 15+3=18, move 2.5+25/60=2.91666.., cooldown 12 → 18 + 2.91666.. + 12 = 32.91666..
+    expect(totalPrescribedMinutes(text)).toBeCloseTo(18 + 2.5 + 25 / 60 + 12, 5);
   });
 });

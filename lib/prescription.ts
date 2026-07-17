@@ -29,14 +29,25 @@ function durationToSec(head: string): number {
   return sec;
 }
 
-// One "- …" step → its duration and power %. Ramps ("50-70%") use the upper bound.
-function parseStep(line: string): { durationSec: number; pct: number } | null {
-  const pm = line.match(/(\d+)\s*(?:-\s*(\d+))?\s*%/);
-  if (!pm) return null;
-  const pct = pm[2] ? Math.max(Number(pm[1]), Number(pm[2])) : Number(pm[1]);
-  const durationSec = durationToSec(line.slice(0, pm.index));
-  if (durationSec <= 0) return null;
-  return { durationSec, pct };
+// One "- …" step → its work clause(s). Ramps ("50-70%") use the upper bound. A line can carry MORE
+// THAN ONE effort ("Seated climb 2m30s 108%, then standing attack 25s 140%") — Intervals.icu's own
+// step-parser reads each duration+%FTP clause independently, so this returns every clause found on
+// the line (HR-16, 2026-07-17: the old single-match version silently dropped every clause after the
+// first, undercounting real duration and losing real prescribed intervals like the standing attack
+// above). Each clause's duration is read from the text since the PREVIOUS clause ended (or the line
+// start, for the first).
+function parseStep(line: string): Array<{ durationSec: number; pct: number }> {
+  const re = /(\d+)\s*(?:-\s*(\d+))?\s*%/g;
+  const steps: Array<{ durationSec: number; pct: number }> = [];
+  let cursor = 0;
+  let pm: RegExpExecArray | null;
+  while ((pm = re.exec(line)) !== null) {
+    const pct = pm[2] ? Math.max(Number(pm[1]), Number(pm[2])) : Number(pm[1]);
+    const durationSec = durationToSec(line.slice(cursor, pm.index));
+    cursor = pm.index + pm[0].length;
+    if (durationSec > 0) steps.push({ durationSec, pct });
+  }
+  return steps;
 }
 
 // Real-duration label: sub-minute → "30s", exact minutes → "20m", mixed → "1m30s".
@@ -98,10 +109,10 @@ function walkWorkoutSteps(
       blockReps = rx ? Math.max(1, Number(rx[1])) : 1;
       continue;
     }
-    const step = parseStep(line);
-    if (!step) continue;
-    if (!keep(step, inExcludedSection)) continue;
-    block.push(step);
+    for (const step of parseStep(line)) {
+      if (!keep(step, inExcludedSection)) continue;
+      block.push(step);
+    }
   }
   flush();
   return expanded;
