@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, nextMonday } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks, FOCUS_LABELS } from "@/lib/season";
+import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks, FOCUS_LABELS, SEASON_SHAPES_GENERATION } from "@/lib/season";
 import { mergeGoalsFromBlockText, parseWeakpointLines } from "@/lib/profile-goals";
 import type { BlockHistoryEntry, CurrentBlock, GeneratedPlan, SeasonPlan, WriteResult } from "@/lib/types";
 import { useSync } from "../SyncProvider";
@@ -117,7 +117,12 @@ export default function PlanView() {
       const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
       const today = localToday();
       const period = currentPeriod(plan, today);
-      if (period) {
+      // HR-21: season is temporarily disabled from shaping generation (SEASON_SHAPES_GENERATION,
+      // lib/season.ts) — the block-length suggestion is still a harmless UI convenience, but the
+      // phase readout / "Targeting: X" pill / goal-narrowing-by-focus all claim the generator will
+      // target this period, which is no longer true. Treat this exactly like "no current period"
+      // for everything except the length suggestion, so the UI never promises what it can't deliver.
+      if (period && SEASON_SHAPES_GENERATION) {
         setLengthWeeks(suggestedBlockWeeks(period, today));
         setSeasonReadout(formatSeasonContext(plan, today));
         setFocusLabel(FOCUS_LABELS[period.focus]);
@@ -128,7 +133,11 @@ export default function PlanView() {
           setShownGoals(filtered);
         }
       } else {
-        // No current period — nothing to target, so the generator's context line stays hidden.
+        // No current period, or season is disabled from shaping generation — nothing to target,
+        // so the generator's context line stays hidden and every stated goal shows (none dropped
+        // by a focus filter that no longer reflects what the generator will actually do).
+        if (period) setLengthWeeks(suggestedBlockWeeks(period, today));
+        setSeasonReadout(null);
         setFocusLabel(null);
         if (rawGoals.length > 0) {
           setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
@@ -138,6 +147,7 @@ export default function PlanView() {
       setSeasonCtxFailed(false);
     } catch {
       // Failed fetch — same as "no season": don't show a stale target from a prior successful load.
+      setSeasonReadout(null);
       setFocusLabel(null);
       setSeasonCtxFailed(true);
     }

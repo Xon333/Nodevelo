@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { roadmapView } from "@/lib/season";
+import { roadmapView, SEASON_SHAPES_GENERATION } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
 import { LoadFailed, useMountLoad } from "./ui";
 
@@ -43,7 +43,12 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
           <li aria-hidden className="hidden text-zinc-400 sm:block">→</li>
           <li className="flex items-baseline gap-1.5"><span className="font-mono text-[#ff49c8]">2</span> <span className="font-medium">Blocks</span> fill it in, 2–8 weeks at a time.</li>
           <li aria-hidden className="hidden text-zinc-400 sm:block">→</li>
-          <li className="flex items-baseline gap-1.5"><span className="font-mono text-[#ff49c8]">3</span> Each block auto-targets the current phase &amp; your goals.</li>
+          <li className="flex items-baseline gap-1.5">
+            <span className="font-mono text-[#ff49c8]">3</span>
+            {SEASON_SHAPES_GENERATION
+              ? <>Each block auto-targets the current phase &amp; your goals.</>
+              : <>Each block targets your stated goals (phase-targeting is temporarily paused).</>}
+          </li>
         </ol>
         <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
           Add an objective &amp; a target event below to generate your season.
