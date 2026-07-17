@@ -18,56 +18,61 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 requested after the athlete reported the shipped fixes didn't actually resolve their symptoms.**
 15 findings from an xhigh multi-agent review (10 independent finder angles — 4 hit a session-limit
 mid-run and were retried after reset, all 10 completed — 32 raw candidates deduped). Continues the
-HR- series (append, not renumber). Three of the athlete's named complaints are directly explained:
-the Intervals.icu/NodeVelo time mismatch is real and still unfixed (HR-19, warn-only), the schedule
-violations ship unenforced (HR-20), and "only template A" is a real precedence bug (HR-17/HR-18), not
-a one-off. HR-21 is a genuinely new regression from *this session's own* Task 6 (season-disable) work
-— the frontend still promises phase-targeting the backend no longer does. Burn down P1 first.
+HR- series (append, not renumber).
+
+**5 of 7 P1s fixed same-session, each TDD'd and live-verified against the real athlete data**
+(commits `fc0b78a..a31e3e9`): HR-21 (frontend season-disable propagation — a new regression from
+this session's own Task 6), HR-16 (compound multi-effort line parsing), HR-18 (widened goalText),
+HR-19 (reconcile `durationMin` to the real step-sum instead of only warning), HR-17 (confirmed root
+cause of "only template A" — an environmentally-explained Overall-alert no longer forces the safe
+template). A combined live `/api/generate` re-run after all 5 landed confirmed
+`durabilityTemplate: B` (was `A`) and `protocolViolations: null` on the same real fixture. **HR-20**
+(schedule violations ship unenforced) and **HR-22** (deload-cadence counter resets across replans)
+remain open — both need real design work (auto-regenerating/reordering days; how to seed the
+counter across calls) rather than a mechanical fix, deliberately not attempted without more
+consideration. P2/P3 (HR-23..HR-30) remain open, lower priority.
 
 ### P1 — correctness / data-integrity (2026-07-17 round)
 
-- ☐ P1 `bug` **HR-16** — Compound multi-effort workout lines (e.g. `"Move 3: Seated climb 2m30s
-  108%, then standing attack 25s 140%"`) silently drop the second effort: `parseStep`
-  ([lib/prescription.ts:34](lib/prescription.ts:34)) uses a non-global regex match, so only the
-  FIRST duration+%FTP pair per line is ever captured. Confirmed against the athlete's real,
-  already-written RaceSim day (`data/current-block.json`, 2026-07-30): the persisted `prescription`
-  array is missing 3 real "standing attack" reps entirely (so execution-scoring never checks whether
-  they were ridden), and `totalPrescribedMinutes` — the new function this plan's Task 2 built to
-  emulate Intervals.icu's real step-parser — undercounts that session's real duration by ~75s across
-  three such lines, quietly weakening the accuracy of the exact check Task 2 shipped to fix.
-- ☐ P1 `bug` **HR-17** — `selectDurabilityTemplate`'s `LIMITER_TEMPLATE`
-  ([lib/durability.ts:59](lib/durability.ts:59)) maps a systemic `Overall`/`alert` insight straight
-  to the safest template (A) as a hard override, ahead of the new goalText fallback, with no way to
-  tell genuine systemic fatigue apart from an environmental cause. `deriveInsights`
-  ([lib/athlete-model.ts:220](lib/athlete-model.ts:220)) fires `Overall`/`alert` on a blunt
-  `overallTrend === "down"` aggregate — but the SAME file already diagnoses this athlete's real
-  mechanism separately (outdoor-Z2 HR-drift, dimension `"Z2"`,
-  [lib/athlete-model.ts:158-184](lib/athlete-model.ts:158)), a dimension `LIMITER_TEMPLATE` never
-  maps to anything. **This is the confirmed root cause of "only template A":** live-verified this
-  session — the athlete's real data has exactly this Overall-alert (sampleSize 24, trend down), which
-  forced template A regardless of their stated FTP/TTE goal. The scored-candidate pattern this
-  codebase already uses for the analogous focus-selection decision
-  (`scoreFocusCandidates`/`selectBuildFocus`, [lib/season.ts:216](lib/season.ts:216) — goal 0.35,
-  urgency 0.30, trainability 0.20, execution 0.15, limiter bonus capped at 0.20) is the established
-  precedent for weighing exactly this tension instead of an absolute override.
-- ☐ P1 `bug` **HR-18** — The `goalText` built for `selectDurabilityTemplate` at its route call site
-  ([app/api/generate/route.ts:217](app/api/generate/route.ts:217),
-  `[existingSeason.objective, blockParams.goal].filter(Boolean).join(" \n ")`) omits
-  `blockParams.weakpoints`, `profile.goals`, and `profile.weakpoints` — all of which the richer,
-  near-identical `focusSignals.goalText` construction 35 lines later in the same function
-  ([app/api/generate/route.ts:254-260](app/api/generate/route.ts:254)) includes. Compounds HR-17:
-  even on a block where no insight fires and goalText IS consulted, a stated weakpoint like
-  "Durability" or "5-second power" (recorded only in `profile.weakpoints`) can never reach
-  `GOAL_TEMPLATE_PATTERNS`. Fix: build one `goalText` local before both use sites and pass it to both.
-- ☐ P1 `bug` **HR-19** — The duration-consistency check (`validateDurationConsistency`,
-  Task 2) is warn-only — it flags a mismatch but nothing derives `durationMin` from the real
-  step-sum, and `lib/plan-parser.ts` never sets an explicit `moving_time` on Ride events (only
-  Strength gets one). Three UI surfaces still sum the AI's stated `durationMin` verbatim
-  ([components/PlanPreview.tsx:22](components/PlanPreview.tsx:22),
-  [components/dashboard/plan.tsx:195](components/dashboard/plan.tsx:195) and
-  [:403](components/dashboard/plan.tsx:403)) while Intervals.icu displays the step-parsed total for
-  the same Ride event — the exact NodeVelo-vs-Intervals.icu mismatch the athlete reported is
-  detected now, but still ships unchanged to both the calendar and every hours total in the app.
+- ☑ P1 `bug` **HR-16** — **Fixed (commit 0046827).** Compound multi-effort workout lines (e.g.
+  `"Move 3: Seated climb 2m30s 108%, then standing attack 25s 140%"`) silently dropped the second
+  effort: `parseStep` used a non-global regex match, so only the FIRST duration+%FTP pair per line
+  was ever captured. Confirmed against the athlete's real, already-written RaceSim day
+  (`data/current-block.json`, 2026-07-30): the persisted `prescription` array was missing 3 real
+  "standing attack" reps entirely, and `totalPrescribedMinutes` undercounted that session's real
+  duration by ~75s. `parseStep` now global-matches every clause on a line, each measured from where
+  the previous clause ended; `walkWorkoutSteps` iterates the returned array. Recomputed the real
+  day: total duration 59min → 60.25min, prescription length 5 → 8.
+- ☑ P1 `bug` **HR-17** — **Fixed (commit a31e3e9), confirmed root cause of "only template A."**
+  `selectDurabilityTemplate`'s `LIMITER_TEMPLATE` mapped a systemic `Overall`/`alert` insight
+  straight to the safest template (A) as a hard override, ahead of goalText, with no way to tell
+  genuine systemic fatigue apart from an environmental cause `deriveInsights` already diagnoses
+  separately (a co-occurring `"{type} splits indoor vs outdoor"` insight — hot outdoor rides
+  depressing execution, not systemic fatigue). Rather than the full scored-candidate redesign
+  originally considered (this codebase's `scoreFocusCandidates` pattern), shipped a narrower,
+  safety-preserving fix: `overallDeclineIsExplained` skips the `Overall`→A rule only when that
+  co-occurring insight is present, falling through to goalText/rotation; a genuinely unexplained
+  Overall decline, and Threshold/VO2max/SIT limiters, still force their template unconditionally.
+  Live-verified against the real athlete-model data: now correctly picks template B (matching the
+  stated FTP/TTE goal) instead of A.
+- ☑ P1 `bug` **HR-18** — **Fixed (commit dada480).** The `goalText` built for
+  `selectDurabilityTemplate` at its route call site omitted `blockParams.weakpoints`,
+  `profile.goals`, and `profile.weakpoints` — all of which the richer, near-identical
+  `focusSignals.goalText` construction 35 lines later in the same function included. Hoisted one
+  `combinedGoalText` local (the richer construction) before both use sites; the season-replan's
+  `focusSignals.goalText` now reuses it instead of duplicating the join. New regression test
+  RED-confirmed pre-fix (a profile-only "5-second power" weakpoint now correctly routes to
+  template D).
+- ☑ P1 `bug` **HR-19** — **Fixed (commit d9c5d92).** The duration-consistency check
+  (`validateDurationConsistency`, Task 2) was warn-only — it flagged a mismatch but nothing derived
+  `durationMin` from the real step-sum. Added `reconcileDurationMin` (`lib/prescription.ts`):
+  treats `durationMin` as a derived statistic of the workout text (not part of the coach's
+  prescriptive intent, which it never touches) and overwrites it with the real
+  `totalPrescribedMinutes` total, exempting Rest (no steps) and Strength (gets an explicit
+  `moving_time` from `durationMin` directly). Wired into `/api/generate` right after
+  `structuredToPlannedDays`, before any validator runs — the 3 UI surfaces that sum `durationMin`
+  now sum the reconciled, honest number, and `validateDurationConsistency` stays in place as a
+  defensive check rather than being removed.
 - ☐ P1 `bug` **HR-20** — Every post-generation validator in `/api/generate`
   (`splitPlanProtocol`/duration, `validateSchedule`, nutrition, season-fit) only appends to
   `warnings`/`protocolViolations`
@@ -76,15 +81,16 @@ a one-off. HR-21 is a genuinely new regression from *this session's own* Task 6 
   schedule violations (back-to-back hard Threshold days 07-21/07-22, weeks with 3 quality sessions
   over the 2/week budget) are exactly this: the app already flagged its own rule violations and wrote
   them to the calendar anyway. Same missing enforcement/reconciliation layer as HR-19.
-- ☐ P1 `bug` **HR-21** — **New regression, introduced by this session's own Task 6.** The
-  season-disable flag (`SEASON_SHAPES_GENERATION=false`) only gates `app/api/generate/route.ts` — it
-  never reaches the frontend. `components/dashboard/PlanView.tsx:122` independently calls
-  `formatSeasonContext()` and renders phase/deload text (e.g. "phase build · focus threshold · wk 2
-  of 4 · deload week") as if it will drive the next generation, when the backend now ignores that
-  context entirely. `components/SeasonRoadmap.tsx:46`'s onboarding stepper still states "Each block
-  auto-targets the current phase & your goals" — no longer true. Confirmed live against the running
-  app. The athlete is being actively told something false about what Generate is about to do, as of
-  today's commits.
+- ☑ P1 `bug` **HR-21** — **Fixed (commit fc0b78a).** New regression, introduced by this session's own
+  Task 6. The season-disable flag (`SEASON_SHAPES_GENERATION=false`) only gated
+  `app/api/generate/route.ts` — it never reached the frontend. `components/dashboard/PlanView.tsx`
+  independently called `formatSeasonContext()` and rendered phase/deload text as if it would drive
+  the next generation, and narrowed the goal pre-fill to that phase; `components/SeasonRoadmap.tsx`'s
+  onboarding stepper still claimed "Each block auto-targets the current phase & your goals." Fixed by
+  importing the same flag into both components: `PlanView.tsx`'s `loadSeasonCtx` now treats
+  "period exists but flag is off" like "no current period" (readout/focus pill hidden, all goals
+  shown, not filtered); `SeasonRoadmap.tsx`'s step 3 now says "phase-targeting is temporarily paused"
+  when the flag is off.
 - ☐ P1 `bug` **HR-22** — `applyDeloadCadence`'s Task-1 fix ("a genuine rolling calendar-week count
   ACROSS period boundaries") doesn't actually persist across `/api/generate` calls: `replanSeasonArc`
   preserves the in-progress "current" period verbatim and only redrafts the future tail via
