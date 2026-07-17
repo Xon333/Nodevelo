@@ -75,6 +75,21 @@ const EMBEDDED_MIN_SEC = 5 * 60;
 // with late threshold/VO2 efforts. Lets the spacing + protocol checks stop treating such a ride as
 // "easy". Sweet-spot/tempo steady rides (80–87%) and pure endurance don't trip it. `embeddedHardPct`
 // defaults to the population floor; pass the athlete's resolved envelope edge to personalise it.
+export function carriesEmbeddedIntensity(
+  workoutText: string | undefined,
+  ftp: number,
+  embeddedHardPct: number = DEFAULT_DURABILITY_INSERT_ENVELOPE.embeddedHardPct
+): boolean {
+  if (!workoutText) return false;
+  const hardSec = parsePrescription(workoutText, ftp)
+    .filter((w) => w.targetPctFtp >= embeddedHardPct)
+    .reduce((sum, w) => sum + w.reps * w.durationSec, 0);
+  return hardSec >= EMBEDDED_MIN_SEC;
+}
+
+// HR-28 (2026-07-17 hostile review): relocated to sit directly above parsePrescription, its primary
+// caller — it previously sat between carriesEmbeddedIntensity's doc comment and that function's own
+// declaration, displacing it.
 // Shared line-iteration state machine: walks a workout's step lines, expanding "Nx" repeat blocks
 // in order (matching Intervals.icu's own step semantics — a repeat header repeats the WHOLE
 // following block N times, not each step in place). `keep` decides whether a given step (with its
@@ -120,18 +135,6 @@ function walkWorkoutSteps(
   }
   flush();
   return expanded;
-}
-
-export function carriesEmbeddedIntensity(
-  workoutText: string | undefined,
-  ftp: number,
-  embeddedHardPct: number = DEFAULT_DURABILITY_INSERT_ENVELOPE.embeddedHardPct
-): boolean {
-  if (!workoutText) return false;
-  const hardSec = parsePrescription(workoutText, ftp)
-    .filter((w) => w.targetPctFtp >= embeddedHardPct)
-    .reduce((sum, w) => sum + w.reps * w.durationSec, 0);
-  return hardSec >= EMBEDDED_MIN_SEC;
 }
 
 export function parsePrescription(workoutText: string, ftp: number): PrescribedInterval[] {
