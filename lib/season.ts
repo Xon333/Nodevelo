@@ -149,6 +149,10 @@ export interface SeasonDraftInput {
   // Calendar weeks since the last genuine reduced-load break (phase "transition") ended — from
   // weeksSinceSeasonBreak(). Absent/null = unknown → never draft a break (conservative).
   weeksSinceSeasonBreak?: number | null;
+  // Calendar weeks already accumulated toward the NEXT deload boundary — from weeksSinceLastDeload().
+  // Absent → 0 (matches every pre-existing caller/test: a fresh draft with no prior context starts
+  // the cadence from scratch, same as before this field existed).
+  weeksSinceLastDeload?: number;
 }
 
 const BUILD_FOCI: SeasonFocus[] = ["threshold", "vo2max", "anaerobic", "durability"];
@@ -400,7 +404,7 @@ export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPer
   }
 
   periods.push(period("sharpen", "build", cursor, conf, "Realize — a lighter week to absorb the block and re-test."));
-  const withDeloads = applyDeloadCadence(periods, input.heavyFatigue);
+  const withDeloads = applyDeloadCadence(periods, input.heavyFatigue, input.weeksSinceLastDeload ?? 0);
   const seed = input.ftp !== null && input.ctl !== null ? input.recentWeeklyTss : null;
   return assignLoadTargets(withDeloads, seed, DEFAULT_ACWR_BANDS.optimalHigh);
 }
@@ -526,13 +530,15 @@ export function replanSeasonArc(
   const draftStart = anchors.length
     ? anchors.map((p) => periodEnd(p)).sort().reverse()[0]
     : today;
-  // Break clock from the KEPT periods only ([frozen, current, overrides]) — the old derived tail
-  // being replaced must not count: a discarded drafted transition never actually happened.
+  // Break clock + deload-cadence clock (HR-22) from the KEPT periods only ([frozen, current,
+  // overrides]) — the old derived tail being replaced must not count: a discarded drafted
+  // transition/deload never actually happened.
+  const keptPeriods = [...frozen, ...current, ...overrides];
   const derived = draftSeasonArc(
-    { ...input, recentFocuses, weeksSinceSeasonBreak: weeksSinceSeasonBreak([...frozen, ...current, ...overrides], draftStart) },
+    { ...input, recentFocuses, weeksSinceSeasonBreak: weeksSinceSeasonBreak(keptPeriods, draftStart), weeksSinceLastDeload: weeksSinceLastDeload(keptPeriods, draftStart) },
     draftStart
   );
-  const periods = [...frozen, ...current, ...overrides, ...derived].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const periods = [...keptPeriods, ...derived].sort((a, b) => a.startDate.localeCompare(b.startDate));
   return { ...plan, periods, updatedAt: plan.updatedAt };
 }
 
@@ -560,9 +566,13 @@ export function achievedTssForPeriod(
 // which is correct (a 4-week period IS one full 4-week loading cycle). Fixed live, 2026-07-16: the
 // previous `every - 1` threshold was smaller than any real KB period's own length (all ≥3 weeks),
 // so it fired on almost every period regardless of how many calendar weeks had actually passed.
-export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean): FocusPeriod[] {
+// `seedWeeks` (HR-22, 2026-07-17): weeks already accumulated toward the boundary BEFORE `periods`
+// starts — from weeksSinceLastDeload(), threaded in by replanSeasonArc so the rolling count survives
+// across /api/generate calls instead of restarting at 0 on every redraft of the future tail. Defaults
+// to 0, matching every pre-existing caller/test (a fresh draft with no prior context).
+export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean, seedWeeks: number = 0): FocusPeriod[] {
   const every = tight ? SEASON_CONSTANTS.deloadTightEveryWeeks : SEASON_CONSTANTS.deloadEveryWeeks;
-  let weeksSinceDeload = 0;
+  let weeksSinceDeload = seedWeeks;
   return periods.map((p) => {
     // A transition IS recovery: never also flag it as a deload, and restart the cadence after it.
     if (p.phase === "transition") {
@@ -596,6 +606,26 @@ export function weeksSinceSeasonBreak(periods: FocusPeriod[], asOf: string): num
     ? transitions.map((p) => addWeeks(p.startDate, p.plannedWeeks)).sort().reverse()[0]
     : started.map((p) => p.startDate).sort()[0];
   return weeksBetween(anchor, asOf); // clamps at 0 for an in-progress transition
+}
+
+// HR-22 (2026-07-17 hostile review): applyDeloadCadence's "genuine rolling calendar-week count"
+// (fixed 2026-07-16) never actually persisted across /api/generate calls — replanSeasonArc preserves
+// the in-progress current period verbatim and only redrafts the future tail, so the counter always
+// restarted at 0 on that tail, discarding whatever the kept periods had already accumulated toward
+// the next boundary. Mirrors weeksSinceSeasonBreak's exact pattern: find the most recent RESET
+// point's end (a period flagged deloadWeek:true, or a phase:"transition" — both reset
+// applyDeloadCadence's own counter identically) and measure calendar weeks forward from there; no
+// reset ever → measure from the first started period (season start). 0 (not null) when nothing has
+// started — unlike the break clock, a fresh cadence with no history is simply "0 weeks in", not
+// unknown/conservative.
+export function weeksSinceLastDeload(periods: FocusPeriod[], asOf: string): number {
+  const started = periods.filter((p) => p.startDate <= asOf);
+  if (started.length === 0) return 0;
+  const resets = started.filter((p) => p.deloadWeek || p.phase === "transition");
+  const anchor = resets.length > 0
+    ? resets.map((p) => periodEnd(p)).sort().reverse()[0]
+    : started.map((p) => p.startDate).sort()[0];
+  return weeksBetween(anchor, asOf);
 }
 
 // The period straddling `today` (started, not yet ended) — periodForDate specialised to "now".

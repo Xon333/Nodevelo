@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, weeksSinceLastDeload, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -935,6 +935,45 @@ describe("genuine season break (phase transition) in the draft", () => {
     const t = out.periods.find((p) => p.phase === "transition");
     expect(t).toBeDefined();
     expect(t!.startDate).toBe("2026-07-01"); // the redraft leads with the overdue break
+  });
+});
+
+describe("deload-cadence clock (HR-22, 2026-07-17 hostile review)", () => {
+  const build = (startDate: string, over: Partial<FocusPeriod> = {}): FocusPeriod => ({
+    focus: "threshold", phase: "build", startDate, plannedWeeks: 4, intensitySplit: "80/20",
+    targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium", ...over,
+  });
+
+  it("measures from the last deload-flagged period's end, else the season start; 0 before anything started", () => {
+    expect(weeksSinceLastDeload([], "2026-07-01")).toBe(0);
+    expect(weeksSinceLastDeload([build("2099-01-01")], "2026-07-01")).toBe(0); // nothing started yet
+    expect(weeksSinceLastDeload([build("2026-01-12")], "2026-07-01")).toBe(24); // no deload ever → since season start
+    const deloaded: FocusPeriod = build("2026-04-06", { deloadWeek: true }); // ends 2026-05-04
+    expect(weeksSinceLastDeload([build("2026-01-12"), deloaded], "2026-07-01")).toBe(8); // from its END
+  });
+
+  it("a transition also resets the clock, same as applyDeloadCadence's own reset semantics", () => {
+    const transition: FocusPeriod = build("2026-04-06", { phase: "transition", plannedWeeks: 2 }); // ends 2026-04-20
+    expect(weeksSinceLastDeload([build("2026-01-12"), transition], "2026-07-01")).toBe(10); // from its END
+  });
+
+  it("applyDeloadCadence accepts a seed and continues the cadence from it instead of restarting at 0", () => {
+    // Bare call (no seed / seed 0): a single 3-wk period doesn't reach the 4-wk loose boundary alone.
+    expect(applyDeloadCadence([build("2026-07-01", { plannedWeeks: 3 })], false)[0].deloadWeek).toBe(false);
+    // Seeded with 1 week already accumulated: 1+3=4 reaches the boundary this time.
+    expect(applyDeloadCadence([build("2026-07-01", { plannedWeeks: 3 })], false, 1)[0].deloadWeek).toBe(true);
+  });
+
+  it("replanSeasonArc threads the real deload clock into the redrafted tail instead of restarting it at 0", () => {
+    // A frozen 3-week period, unflagged, ending exactly 1 week before the redraft's own next 3-week
+    // period would otherwise self-trip — the real elapsed week must carry forward.
+    const frozen: FocusPeriod[] = [build("2026-06-01", { plannedWeeks: 3, deloadWeek: false })]; // ends 2026-06-22
+    const out = replanSeasonArc(planWith(frozen), baseInput({ recentFocuses: ["threshold"] }), () => 400, "2026-06-22");
+    // First redrafted period starts exactly where the frozen one ended, so its own weeksSinceLastDeload
+    // seed (computed against the frozen period alone) is 3 (the frozen period's full length, since it
+    // itself never reached the boundary) — a 3-week seed + a same-length next period reaches 6 >= 4.
+    const firstDerived = out.periods.find((p) => p.startDate === "2026-06-22")!;
+    expect(firstDerived.deloadWeek).toBe(true);
   });
 });
 
