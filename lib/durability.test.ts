@@ -104,6 +104,11 @@ describe("selectDurabilityTemplate — goal text as a fallback signal (2026-07-1
     const t = selectDurabilityTemplate([], null, "Raise my VO2max and high-end repeatability");
     expect(t.id).toBe("C");
   });
+  it("HR-25: a negated mention doesn't match — 'no interest in threshold work' must not route to B", () => {
+    // Same clause negation: "no" sits before "threshold" with no clause break between them.
+    const t = selectDurabilityTemplate([], null, "No interest in threshold work, want VO2max gains");
+    expect(t.id).toBe("C"); // the un-negated VO2max clause still matches — not the negated threshold one
+  });
   it("falls through to the existing rotation when goal text names nothing recognisable", () => {
     const t = selectDurabilityTemplate([], "A", "Have fun and stay consistent");
     expect(t.id).toBe("B"); // nextAfter("A") — unchanged rotation behaviour

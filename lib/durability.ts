@@ -5,6 +5,7 @@
 // replacing it). The LLM only phrases the chosen, hardwired structure. See KB §12.
 
 import type { Insight } from "./types";
+import { tagPresent } from "./session-requirements";
 
 export type DurabilityTemplateId = "A" | "B" | "C" | "D" | "E";
 
@@ -70,10 +71,13 @@ function nextAfter(lastId: string | null): DurabilityTemplate {
 // selection toward the matching template when no insight already decided it -- otherwise a goal the
 // athlete explicitly named can go completely unaddressed by the long ride for as many blocks as it
 // takes a weakness to get formally flagged. Same three dimensions LIMITER_TEMPLATE already covers.
+// No `/i` flags: matched against an already-lowercased haystack (see the goalText branch below),
+// the same convention lib/season.ts's GOAL_PATTERNS/tagPresent pairing already uses -- tagPresent
+// rebuilds the regex with only the "g" flag, so an `/i` flag here would silently stop applying.
 const GOAL_TEMPLATE_PATTERNS: Array<{ re: RegExp; id: DurabilityTemplateId }> = [
-  { re: /\b(threshold|ftp|tte|time.?to.?exhaustion|sustained|steady.?state)\b/i, id: "B" },
-  { re: /\b(vo2.?max|vo2|high.?end|aerobic (power|ceiling))\b/i, id: "C" },
-  { re: /\b(sprint|neuromuscular|explosive|1.?min(ute)? power|5.?sec(ond)? power)\b/i, id: "D" },
+  { re: /\b(threshold|ftp|tte|time.?to.?exhaustion|sustained|steady.?state)\b/, id: "B" },
+  { re: /\b(vo2.?max|vo2|high.?end|aerobic (power|ceiling))\b/, id: "C" },
+  { re: /\b(sprint|neuromuscular|explosive|1.?min(ute)? power|5.?sec(ond)? power)\b/, id: "D" },
 ];
 
 // HR-17 (2026-07-17 hostile review): an "Overall" alert/watch fires on a blunt
@@ -107,8 +111,12 @@ export function selectDurabilityTemplate(insights: Insight[], lastId: string | n
     }
   }
   if (goalText) {
+    // HR-25 (2026-07-17 hostile review): tagPresent (already used by lib/season.ts's own
+    // goal-text matching) strips a negated clause before it can fire -- "no interest in threshold
+    // work" no longer routes to B just because "threshold" appears in the text.
+    const haystack = goalText.toLowerCase();
     for (const { re, id } of GOAL_TEMPLATE_PATTERNS) {
-      if (re.test(goalText)) return BY_ID.get(id)!;
+      if (tagPresent(haystack, re)) return BY_ID.get(id)!;
     }
   }
   return nextAfter(lastId);
