@@ -28,13 +28,28 @@ cause of "only template A" — an environmentally-explained Overall-alert no lon
 template). A combined live `/api/generate` re-run after all 5 landed confirmed
 `durabilityTemplate: B` (was `A`) and `protocolViolations: null` on the same real fixture.
 
-**All 7 P1s now resolved** (commits `fc0b78a..3622f04`) — HR-20 and HR-22 were deliberately left
-open pending the user's own design call (asked via `AskUserQuestion` since both had genuine
-tradeoffs, not a single obviously-correct fix), then implemented per their explicit choices: HR-20
-as prompt-only reinforcement (not deterministic auto-repair — `lib/schedule-validate.ts`'s own
-contract is "never reorders the coach's plan," and which day is hard/easy is prescriptive content,
-not a checksum-able stat); HR-22 fixed now (not deferred) by mirroring the existing
-`weeksSinceSeasonBreak` pattern. P2/P3 (HR-23..HR-30) remain open, lower priority.
+**All 7 P1s resolved** (commits `fc0b78a..3622f04`) — HR-20 and HR-22 were deliberately left open
+pending the user's own design call (asked via `AskUserQuestion` since both had genuine tradeoffs,
+not a single obviously-correct fix), then implemented per their explicit choices: HR-20 as
+prompt-only reinforcement (not deterministic auto-repair — `lib/schedule-validate.ts`'s own contract
+is "never reorders the coach's plan," and which day is hard/easy is prescriptive content, not a
+checksum-able stat); HR-22 fixed now (not deferred) by mirroring the existing `weeksSinceSeasonBreak`
+pattern.
+
+**All 8 P2/P3s also resolved** (commits `e69d3ff..9679f38`), **with one reclassified after
+re-verification caught the finding's own premise was wrong before any edit landed**: HR-23 claimed
+`SEASON_CONSTANTS`'s deload-cadence comments were stale — a direct diagnostic proved the opposite
+(the comments correctly describe the fixed cadence; Task 1 made the *code* match the
+already-correct comments, not the reverse) — marked Won't-fix, no edit made. HR-25 similarly had its
+*suggested* fix (reuse `lib/season.ts`'s `goalRelevanceForFocus` wholesale) checked before
+implementing — it would have broken VO2max goal-text detection, since season's own vocabulary has
+no VO2max keyword at all — fixed narrower instead (reuse just the negation-aware `tagPresent`
+primitive, keep durability's own correct keyword table). The rest: HR-24+HR-29 (duration-warning
+wording + test-fixture dedup, one commit), HR-26 (test coverage for the `SEASON_SHAPES_GENERATION=
+true` branch — a separate file, since `vi.mock` is file-scoped), HR-27 (a narrow `"Warmup 2x"`
+double-count edge case), HR-28 (pure code relocation, no logic change), HR-30 (extracted a shared
+`toleranceBand` helper into `lib/stats.ts`). 1190/1190 tests throughout, tsc/eslint clean at every
+step.
 
 ### P1 — correctness / data-integrity (2026-07-17 round)
 
@@ -119,56 +134,69 @@ not a checksum-able stat); HR-22 fixed now (not deferred) by mirroring the exist
 
 ### P2 — high-value correctness (2026-07-17 round)
 
-- ☐ P2 `bug` **HR-23** — `SEASON_CONSTANTS.deloadEveryWeeks`/`deloadTightEveryWeeks`
-  ([lib/season.ts:27-28](lib/season.ts:27)) still carry inline comments describing the PRE-Task-1
-  buggy ratio (`// 3:1 — a deload week after 3 loading weeks`, `// 2:1 under heavy fatigue`) even
-  though Task 1 removed the `every - 1` threshold — the cadence now genuinely fires after 4
-  (resp. 3) loading weeks, not 3 (resp. 2). Same stale-comment class this session's final review
-  already caught and fixed once for `assignLoadTargets` — missed here. Risk: a future maintainer
-  reads the comment at its own definition site and reintroduces the `-1` "fix" to match it,
-  regressing the exact bug Task 1 just fixed.
-- ☐ P2 `bug` **HR-24** — `validateDurationConsistency`'s warning message
-  ([lib/workout-validate.ts:55](lib/workout-validate.ts:55)) always reads "...the prescribed steps
-  only sum to ~Xmin" even when the real total is LONGER than stated (overshoot direction) — e.g.
-  "stated 60min but the prescribed steps only sum to ~90min" is self-contradictory ("only" implies
-  shorter). The check fires correctly either direction; only the wording is wrong, and the diff's own
-  tests only exercise the undershoot case.
-- ☐ P2 `bug` **HR-25** — `GOAL_TEMPLATE_PATTERNS` ([lib/durability.ts:73](lib/durability.ts:73))
-  reimplements goal-text-to-training-dimension matching that `lib/season.ts` already provides via
-  `goalRelevanceForFocus` + the negation-aware `tagPresent` helper
-  ([lib/session-requirements.ts:51](lib/session-requirements.ts:51)) — confirmed
-  `tagPresent` strips clauses like "no interest in raising FTP" before matching, while
-  `GOAL_TEMPLATE_PATTERNS` uses a plain `re.test()` with no negation awareness, so a negated goal
-  phrase can make durability selection fire on the wrong dimension.
-- ☐ P2 `bug` **HR-26** — The pre-existing `app/api/generate/route.test.ts` season-wiring tests that
-  verified `formatSeasonContext`/validator injection actually work were REPLACED by their negations
-  (Task 6) rather than kept alongside a `SEASON_SHAPES_GENERATION=true` branch — the flag-on code
-  path in `route.ts` is now completely untested. `ROADMAP.md` already documents the flag as the
-  planned re-enable point; when that happens, `npm run check` would stay green through a regression
-  in the untested branch until it's exercised live.
+- ☑ P2 `bug` **HR-23** — **Won't-fix (finding's premise was wrong, caught on re-verification before
+  editing).** Claimed `SEASON_CONSTANTS.deloadEveryWeeks`/`deloadTightEveryWeeks`'s inline comments
+  (`// 3:1 — a deload week after 3 loading weeks`, `// 2:1 under heavy fatigue`) describe the
+  PRE-Task-1 buggy ratio. Traced the real cadence with a direct diagnostic before touching
+  anything: `applyDeloadCadence` over eight 1-week periods (loose, `every=4`) produces
+  `[false,false,false,true, false,false,false,true]` — 3 loading weeks then 1 lighter trailing
+  week, repeating: a genuine 3:1 ratio, exactly as commented. Tight (`every=3`) over six 1-week
+  periods produces `[false,false,true, false,false,true]` — 2:1, also exactly as commented. The
+  boundary firing at cumulative weeks `>= every` means the FLAGGED period's own trailing week
+  is the Nth week of the cycle, not an extra week beyond it — `every=4` correctly encodes "3 real
+  loading weeks + 1 lighter week," not "4 loading weeks." The comments were correct before Task 1's
+  fix too (they described the *intended* cadence the buggy code failed to deliver); Task 1 made the
+  code match the comments, not the reverse. No edit made.
+- ☑ P2 `bug` **HR-24** — **Fixed (commit e69d3ff).** `validateDurationConsistency`'s warning message
+  always read "...the prescribed steps only sum to ~Xmin" even when the real total is LONGER than
+  stated (overshoot direction) — self-contradictory ("only" implies shorter). Now picks "only sum
+  to" / "actually sum to" by the sign of the gap. (Fixed together with HR-29 — see below.)
+- ☑ P2 `bug` **HR-25** — **Fixed (commit 76dbc34), but not as originally suggested — verified the
+  suggested reuse would have regressed a real behavior before implementing.** `GOAL_TEMPLATE_PATTERNS`
+  used a plain `re.test()` with no negation awareness, unlike `lib/season.ts`'s own goal-text
+  matching (`goalRelevanceForFocus` + the negation-aware `tagPresent`). The original finding
+  suggested reusing `goalRelevanceForFocus`/`GOAL_PATTERNS` wholesale — checked first with a direct
+  diagnostic: `goalRelevanceForFocus("...VO2max...", "vo2max")` returns `0.5` (season's own
+  `GOAL_PATTERNS` has no VO2max-specific keyword at all), and a threshold-flavoured goal text
+  spills an `0.8` "vo2max" weight via `GOAL_PATTERNS`' own cross-weighting — a full swap would have
+  broken the existing "matches VO2max-flavoured goal text to template C" test. Fixed narrower
+  instead: durability keeps its own purpose-built keyword table (which correctly covers VO2max),
+  but now reuses `tagPresent` (the shared negation-aware matching primitive) directly against a
+  lowercased haystack, matching the convention `lib/season.ts` itself follows.
+- ☑ P2 `bug` **HR-26** — **Fixed (commit 838a934).** The pre-existing
+  `app/api/generate/route.test.ts` season-wiring tests that verified `formatSeasonContext`/validator
+  injection actually work were REPLACED by their negations (Task 6) rather than kept alongside a
+  `SEASON_SHAPES_GENERATION=true` branch — the flag-on code path in `route.ts` was completely
+  untested. New file `app/api/generate/route.season-enabled.test.ts` (a separate file, since
+  `vi.mock` is hoisted/file-scoped — overriding the flag in route.test.ts itself would also flip it
+  for that file's own flag-off assertions): mocks `SEASON_SHAPES_GENERATION` to `true` via
+  `importOriginal`, reuses the same `seasonPlan` fixture + the exact pre-Task-6 assertions. Sanity-
+  checked the test itself by flipping the mock back to `false` — both assertions correctly fail,
+  confirming they genuinely exercise the flag.
 
 ### P3 — polish / edge-case (2026-07-17 round)
 
-- ☐ P3 `bug` **HR-27** — A `"Warmup 2x"`-style repeat header double-counts that excluded section's
-  minutes in `totalPrescribedMinutes` only (not `parsePrescription`, which filters it to empty before
-  the multiplier matters): confirmed via direct test, `10m` warmup under a `2x` header contributes
-  `20m` to the real-duration total. Narrow — the model typically only puts `Nx` headers on
-  `Main Set`-style blocks — but a real bug in the shared `walkWorkoutSteps` extraction.
-- ☐ P3 `bug` **HR-28** — `carriesEmbeddedIntensity`'s doc comment
-  ([lib/prescription.ts:63-66](lib/prescription.ts:63)) is now separated from its own function
-  (line ~110) by the entire newly-inserted `walkWorkoutSteps` comment+body — a reader sees "True when
-  a ride carries a meaningful dose of threshold-or-harder work..." directly above `walkWorkoutSteps`
-  instead. 3 of 10 review angles independently flagged this same displacement.
-- ☐ P3 `bug` **HR-29** — `lib/workout-validate.test.ts` now has two divergent `PlannedDay` fixture
-  builders (`day(...)` at the top of the file, and a new local `planDay(...)` inside the
-  `validateDurationConsistency` describe block) with no functional reason for the split — the same
-  diff's `splitPlanProtocol` tests demonstrate the reuse pattern (`day(...)` then override a field)
-  just above.
-- ☐ P3 `bug` **HR-30** — `durationTolerance` ([lib/workout-validate.ts:37](lib/workout-validate.ts:37),
-  `Math.max(statedMin * 0.15, 8)`) duplicates the same "relative-percent-or-absolute-floor,
+- ☑ P3 `bug` **HR-27** — **Fixed (commit 7ca5dba).** A `"Warmup 2x"`-style repeat header
+  double-counted that excluded section's minutes in `totalPrescribedMinutes` only (not
+  `parsePrescription`, which filters it to empty before the multiplier matters). A repeat count on
+  an excluded-section header now always resolves to `blockReps=1` regardless of any "Nx" text on it.
+- ☑ P3 `bug` **HR-28** — **Fixed (commit cb782b8), pure relocation, no logic change.**
+  `carriesEmbeddedIntensity`'s doc comment was separated from its own function by the entire
+  `walkWorkoutSteps` comment+body sitting between them — 3 of 10 review angles independently flagged
+  this. `walkWorkoutSteps` now sits directly above `parsePrescription`, its primary caller;
+  `carriesEmbeddedIntensity`'s comment now sits directly above its own function.
+- ☑ P3 `bug` **HR-29** — **Fixed (commit e69d3ff, together with HR-24).**
+  `lib/workout-validate.test.ts` had two divergent `PlannedDay` fixture builders (`day(...)` at the
+  top of the file, and a redundant local `planDay(...)`). Widened `day()` to accept an optional
+  `durationMin` (default 60, every existing 2-arg call site unaffected) and rewrote all of
+  `validateDurationConsistency`'s tests to use it via the same "`day(...)` then override a field"
+  pattern the `splitPlanProtocol` tests already established.
+- ☑ P3 `bug` **HR-30** — **Fixed (commit 9679f38).** `durationTolerance`
+  (`Math.max(statedMin * 0.15, 8)`) duplicated the same "relative-percent-or-absolute-floor,
   whichever is greater" shape already used by `lib/nutrition-validate.ts`'s `validateNutrition`
-  (`Math.max(300, expected * 0.18)`) — no shared tolerance-band helper, so a future repo-wide
-  tolerance tuning pass has to find and edit both by hand.
+  (`Math.max(300, expected * 0.18)`). Extracted `toleranceBand(value, relPct, absFloor)` into
+  `lib/stats.ts` (the repo's existing canonical home for tiny shared numeric helpers); both call
+  sites now share it, no behavior change.
 
 ### P1 — correctness / data-integrity
 
