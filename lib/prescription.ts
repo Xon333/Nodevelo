@@ -105,7 +105,11 @@ function walkWorkoutSteps(
     if (!line.startsWith("-")) {
       flush();
       inExcludedSection = EXCLUDED_SECTION_RX.test(line);
-      const rx = line.match(/(\d+)\s*x/i);
+      // HR-27 (2026-07-17 hostile review): a repeat count only means something for actual work sets
+      // -- a malformed "Warmup 2x" header must not multiply the warmup's own minutes, since `keep`
+      // for totalPrescribedMinutes keeps excluded-section steps too (unlike parsePrescription, which
+      // filters them to empty before the multiplier would ever matter).
+      const rx = inExcludedSection ? null : line.match(/(\d+)\s*x/i);
       blockReps = rx ? Math.max(1, Number(rx[1])) : 1;
       continue;
     }

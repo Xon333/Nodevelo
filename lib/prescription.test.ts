@@ -219,6 +219,12 @@ describe("totalPrescribedMinutes — the REAL duration Intervals.icu's own step-
     // warmup 15+3=18, move 2.5+25/60=2.91666.., cooldown 12 → 18 + 2.91666.. + 12 = 32.91666..
     expect(totalPrescribedMinutes(text)).toBeCloseTo(18 + 2.5 + 25 / 60 + 12, 5);
   });
+  it("HR-27: a repeat header on an excluded (warmup/cooldown) section is not multiplied", () => {
+    // "Warmup 2x" is malformed prose no real KB workout would intentionally write, but if the model
+    // ever does, a 10m warmup step must count once (10m), not 2x (20m) — repeats only apply to work.
+    const text = "Warmup 2x\n- 10m ramp 50-65%\n\nMain\n- 20m 90%\n\nCooldown\n- 10m 50%";
+    expect(totalPrescribedMinutes(text)).toBe(10 + 20 + 10); // 40, not 50
+  });
 });
 
 describe("reconcileDurationMin — HR-19: make NodeVelo's own number match what Intervals.icu will show", () => {
