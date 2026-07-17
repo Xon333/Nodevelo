@@ -52,7 +52,10 @@ export function validateDurationConsistency(day: PlannedDay): string | null {
   const real = totalPrescribedMinutes(day.workoutText);
   const gap = day.durationMin - real;
   if (Math.abs(gap) <= durationTolerance(day.durationMin)) return null;
-  return `DAY ${day.date} (${day.type}): stated ${day.durationMin}min but the prescribed steps only sum to ~${Math.round(real)}min — tighten the workout text or the stated duration so Intervals.icu's real displayed time matches what NodeVelo shows.`;
+  // HR-24 (2026-07-17 hostile review): "only sum to" reads backwards when the real total runs
+  // LONGER than stated (gap < 0) — "only" implies shorter. Word it by direction instead.
+  const direction = gap > 0 ? "only sum to" : "actually sum to";
+  return `DAY ${day.date} (${day.type}): stated ${day.durationMin}min but the prescribed steps ${direction} ~${Math.round(real)}min — tighten the workout text or the stated duration so Intervals.icu's real displayed time matches what NodeVelo shows.`;
 }
 
 // Durability templates (KB §12) embed threshold/VO2 efforts inside an otherwise-easy ride (TYPE

@@ -4,14 +4,14 @@ import type { PlannedDay, WorkoutType } from "./types";
 
 const FTP = 288;
 
-function day(type: WorkoutType, workoutText: string): PlannedDay {
+function day(type: WorkoutType, workoutText: string, durationMin = 60): PlannedDay {
   return {
     date: "2026-06-20",
     weekNumber: 1,
     weekTheme: "test",
     name: `${type} session`,
     type,
-    durationMin: 60,
+    durationMin,
     workoutText,
     description: "x",
   };
@@ -170,41 +170,46 @@ describe("splitPlanProtocol", () => {
 });
 
 describe("validateDurationConsistency — stated durationMin vs. the real prescribed total", () => {
-  const planDay = (workoutText: string, durationMin: number): PlannedDay =>
-    ({ date: "2026-07-21", weekNumber: 1, weekTheme: "", name: "n", type: "SIT", durationMin, workoutText, description: "" });
   it("stays silent when the stated duration matches the real prescribed total", () => {
-    const d = planDay("Warmup\n- 15m ramp 50-65%\n\nMain\n- 3h 60-70%\n\nCooldown\n- 15m 55%", 210);
+    const d = day("SIT", "Warmup\n- 15m ramp 50-65%\n\nMain\n- 3h 60-70%\n\nCooldown\n- 15m 55%", 210);
     expect(validateDurationConsistency(d)).toBeNull();
   });
   it("flags a day whose real prescribed total runs meaningfully short of the stated duration", () => {
     // Real live case: RaceSim stated 90min, steps summed to ~30min (15+2+25/60+3+10).
-    const d = planDay(
+    const d = day(
+      "SIT",
       "Warmup\n- 15m ramp 50-70%\n\nMove 1\n- Seated climb 2m 102%\n- Standing attack 25s 130%\n- Easy 3m 50%\n\nCooldown\n- 10m 50%",
       90
     );
+    d.date = "2026-07-21";
     const msg = validateDurationConsistency(d)!;
     expect(msg).toContain("2026-07-21");
     expect(msg).toContain("stated 90min");
-    expect(msg).toMatch(/prescribed steps.*sum.*~\d+min/); // ~30min real total
+    expect(msg).toMatch(/prescribed steps only sum to ~\d+min/); // ~30min real total — undershoot direction
+  });
+  it("HR-24: flags the OVERSHOOT direction with wording that doesn't contradict itself", () => {
+    // A day whose real prescribed total runs meaningfully LONGER than stated must not read
+    // "...only sum to ~90min" when 90 > the stated 60 — "only" implies shorter, which is backwards.
+    const d = day("Threshold", "Warmup\n- 15m ramp 50-70%\n\nMain\n- 60m 95%\n\nCooldown\n- 15m 50%", 60); // real 90min
+    const msg = validateDurationConsistency(d)!;
+    expect(msg).toContain("stated 60min");
+    expect(msg).toMatch(/prescribed steps actually sum to ~90min/);
+    expect(msg).not.toMatch(/only sum to/);
   });
   it("tolerates small rounding gaps (within the tolerance band) without flagging", () => {
-    const d = planDay("Warmup\n- 10m ramp 50-65%\n\nMain\n- 48m 62%\n\nCooldown\n- 10m 50%", 70); // 68 real vs 70 stated
+    const d = day("SIT", "Warmup\n- 10m ramp 50-65%\n\nMain\n- 48m 62%\n\nCooldown\n- 10m 50%", 70); // 68 real vs 70 stated
     expect(validateDurationConsistency(d)).toBeNull();
   });
   it("returns null for Rest days / days with no workoutText", () => {
-    expect(validateDurationConsistency({ date: "2026-07-21", weekNumber: 1, weekTheme: "", name: "Rest", type: "Rest", durationMin: 0, workoutText: "", description: "" })).toBeNull();
+    const d = day("Rest", "", 0);
+    expect(validateDurationConsistency(d)).toBeNull();
   });
   it("returns null for Strength days even when workoutText has no parseable steps (moving_time is set from durationMin directly, not step-parsed)", () => {
-    const d: PlannedDay = {
-      date: "2026-07-24",
-      weekNumber: 1,
-      weekTheme: "",
-      name: "Strength",
-      type: "Strength",
-      durationMin: 45,
-      workoutText: "Warm-up: 5 min dynamic mobility\n\n1. Barbell squat 4x6 @ 75% 1RM, rest 2min\n2. Romanian deadlift 3x8, rest 90s\n3. Bulgarian split squat 3x10 each leg, rest 90s\n4. Plank 3x45s\n\nCool-down: 5 min stretching",
-      description: "",
-    };
+    const d = day(
+      "Strength",
+      "Warm-up: 5 min dynamic mobility\n\n1. Barbell squat 4x6 @ 75% 1RM, rest 2min\n2. Romanian deadlift 3x8, rest 90s\n3. Bulgarian split squat 3x10 each leg, rest 90s\n4. Plank 3x45s\n\nCool-down: 5 min stretching",
+      45
+    );
     expect(validateDurationConsistency(d)).toBeNull();
   });
 });
