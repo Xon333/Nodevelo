@@ -26,11 +26,15 @@ this session's own Task 6), HR-16 (compound multi-effort line parsing), HR-18 (w
 HR-19 (reconcile `durationMin` to the real step-sum instead of only warning), HR-17 (confirmed root
 cause of "only template A" — an environmentally-explained Overall-alert no longer forces the safe
 template). A combined live `/api/generate` re-run after all 5 landed confirmed
-`durabilityTemplate: B` (was `A`) and `protocolViolations: null` on the same real fixture. **HR-20**
-(schedule violations ship unenforced) and **HR-22** (deload-cadence counter resets across replans)
-remain open — both need real design work (auto-regenerating/reordering days; how to seed the
-counter across calls) rather than a mechanical fix, deliberately not attempted without more
-consideration. P2/P3 (HR-23..HR-30) remain open, lower priority.
+`durabilityTemplate: B` (was `A`) and `protocolViolations: null` on the same real fixture.
+
+**All 7 P1s now resolved** (commits `fc0b78a..3622f04`) — HR-20 and HR-22 were deliberately left
+open pending the user's own design call (asked via `AskUserQuestion` since both had genuine
+tradeoffs, not a single obviously-correct fix), then implemented per their explicit choices: HR-20
+as prompt-only reinforcement (not deterministic auto-repair — `lib/schedule-validate.ts`'s own
+contract is "never reorders the coach's plan," and which day is hard/easy is prescriptive content,
+not a checksum-able stat); HR-22 fixed now (not deferred) by mirroring the existing
+`weeksSinceSeasonBreak` pattern. P2/P3 (HR-23..HR-30) remain open, lower priority.
 
 ### P1 — correctness / data-integrity (2026-07-17 round)
 
@@ -73,14 +77,18 @@ consideration. P2/P3 (HR-23..HR-30) remain open, lower priority.
   `structuredToPlannedDays`, before any validator runs — the 3 UI surfaces that sum `durationMin`
   now sum the reconciled, honest number, and `validateDurationConsistency` stays in place as a
   defensive check rather than being removed.
-- ☐ P1 `bug` **HR-20** — Every post-generation validator in `/api/generate`
-  (`splitPlanProtocol`/duration, `validateSchedule`, nutrition, season-fit) only appends to
-  `warnings`/`protocolViolations`
-  ([app/api/generate/route.ts:365-382](app/api/generate/route.ts:365)); nothing blocks the response,
-  retries, or auto-fixes before `/api/write` persists the plan verbatim. The athlete's reported
-  schedule violations (back-to-back hard Threshold days 07-21/07-22, weeks with 3 quality sessions
-  over the 2/week budget) are exactly this: the app already flagged its own rule violations and wrote
-  them to the calendar anyway. Same missing enforcement/reconciliation layer as HR-19.
+- ☑ P1 `bug` **HR-20** — **Fixed (commit 4505243, prompt-only reinforcement — user's explicit
+  choice over deterministic auto-repair, given `lib/schedule-validate.ts`'s own stated "never
+  reorders the coach's plan" contract).** `validateSchedule` only ever warned about back-to-back hard days and
+  over-budget weeks; nothing enforced it. Tightened `lib/anthropic-prompts.ts`'s WEEKLY STRUCTURE
+  rule: made the quality-session count an explicit CEILING that includes RaceSim (previously
+  omitted from that line's count list, despite counting toward the budget in
+  `schedule-validate.ts` — a likely real contributor to the reported overruns), and elevated
+  "avoid back-to-back hard days" from a weak parenthetical to an explicit, bolded rule with a
+  concrete self-check instruction. **Known, accepted residual gap** (same tradeoff as HR-19's
+  detection-only cases): live-verified post-fix — the model still produced one schedule violation
+  on the re-run (a back-to-back hard day, a 3-quality week) — this is a probabilistic improvement,
+  not a guarantee; detection stays in place as the safety net either way.
 - ☑ P1 `bug` **HR-21** — **Fixed (commit fc0b78a).** New regression, introduced by this session's own
   Task 6. The season-disable flag (`SEASON_SHAPES_GENERATION=false`) only gated
   `app/api/generate/route.ts` — it never reached the frontend. `components/dashboard/PlanView.tsx`
@@ -91,15 +99,23 @@ consideration. P2/P3 (HR-23..HR-30) remain open, lower priority.
   "period exists but flag is off" like "no current period" (readout/focus pill hidden, all goals
   shown, not filtered); `SeasonRoadmap.tsx`'s step 3 now says "phase-targeting is temporarily paused"
   when the flag is off.
-- ☐ P1 `bug` **HR-22** — `applyDeloadCadence`'s Task-1 fix ("a genuine rolling calendar-week count
-  ACROSS period boundaries") doesn't actually persist across `/api/generate` calls: `replanSeasonArc`
-  preserves the in-progress "current" period verbatim and only redrafts the future tail via
-  `draftSeasonArc`, which calls `applyDeloadCadence` fresh on just that tail —
-  `weeksSinceDeload` always restarts at 0. Confirmed live, this session: after regenerating, the
-  athlete's current/frozen period (2026-07-12 start) kept its stale, pre-fix `deloadWeek: true`
-  flag completely unchanged, while only the newly-redrafted periods got the corrected math. Real
-  elapsed weeks within an in-progress period are discarded every replan — since blocks routinely
-  land mid-period (3-4wk KB periods, 2-8wk blocks), this is the common case, not an edge case.
+- ☑ P1 `bug` **HR-22** — **Fixed (commit 3622f04), user's explicit choice to fix now rather than
+  defer** (mirrors an existing pattern closely, low architectural risk, and is currently dormant
+  while `SEASON_SHAPES_GENERATION=false` — cheaper to do while fresh in context than re-derive
+  later). `applyDeloadCadence`'s Task-1 fix ("a genuine rolling calendar-week count ACROSS period
+  boundaries") didn't actually persist across `/api/generate` calls: `replanSeasonArc` preserves
+  the in-progress "current" period verbatim and only redrafts the future tail via
+  `draftSeasonArc`, which called `applyDeloadCadence` fresh on just that tail — `weeksSinceDeload`
+  always restarted at 0, discarding whatever the kept periods had already accumulated. New
+  `weeksSinceLastDeload(periods, asOf)` mirrors `weeksSinceSeasonBreak`'s exact pattern (find the
+  most recent reset — a `deloadWeek:true` period or a `transition` — measure calendar weeks
+  forward); `applyDeloadCadence` gains an optional `seedWeeks` parameter (default 0, every
+  pre-existing caller unaffected); `replanSeasonArc` threads the real value through. Live-verified
+  post-fix: season-plan.json's redrafted tail is unchanged from before for the athlete's *current*
+  real data specifically (the in-progress period happens to already be a deload-reset point ending
+  exactly at the redraft boundary, so the seed coincidentally computes to 0 either way) — the fix
+  itself is proven correct via 2 new integration tests with a synthetic non-coincidental scenario
+  (RED-confirmed pre-fix), not by this particular live dataset happening to show a visible diff.
 
 ### P2 — high-value correctness (2026-07-17 round)
 
