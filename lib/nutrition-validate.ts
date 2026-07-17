@@ -10,6 +10,7 @@
 // never false-flags — only an invented number trips it.
 
 import { calculateDailyTarget, estimateWorkoutBurnKcal, type AthleteNutritionConfig } from "./nutrition";
+import { toleranceBand } from "./stats";
 import type { PlannedDay } from "./types";
 
 // Pull the "Daily intake: 2600 kcal" figure (the value the generator is told to copy). Tolerant of
@@ -40,7 +41,7 @@ export function validateNutrition(
       { type: d.type, durationMin: d.durationMin }
     ).dailyTarget;
     // Generous band: rounding + the model copying the closest-duration row must never trip this.
-    const tolerance = Math.max(300, expected * 0.18);
+    const tolerance = toleranceBand(expected, 0.18, 300);
     if (Math.abs(stated - expected) > tolerance) {
       warnings.push(
         `${d.date} (${d.type}): stated daily intake ${stated} kcal differs from the computed ${expected} kcal (tolerance ±${Math.round(tolerance)}) — verify it was copied from the reference table, not invented.`

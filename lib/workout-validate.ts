@@ -13,6 +13,7 @@
 import type { PlannedDay, WorkoutType } from "./types";
 import { parsePrescription, totalPrescribedMinutes } from "./prescription";
 import { DEFAULT_DURABILITY_INSERT_ENVELOPE, type DurabilityInsertEnvelope } from "./calibration";
+import { toleranceBand } from "./stats";
 
 export interface ProtocolRule {
   maxEffortSec?: number; // longest a single work effort should run
@@ -35,7 +36,7 @@ export const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
 // rounding/estimation gaps are normal and must not fire on every session; a 30+ minute real-world
 // gap on a stated 90-minute session (found live, 2026-07-16) must.
 function durationTolerance(statedMin: number): number {
-  return Math.max(statedMin * 0.15, 8);
+  return toleranceBand(statedMin, 0.15, 8);
 }
 
 // Real prescribed total vs. stated duration — the SAME number Intervals.icu's own step-parser will

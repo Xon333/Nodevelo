@@ -11,3 +11,11 @@ export function median(xs: number[]): number {
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
+
+// "Whichever is more lenient" tolerance band — a relative percentage of `value` for figures that
+// scale, floored by an absolute minimum so small values don't get an unreasonably tight band.
+// Two independent post-generation validators (workout duration, nutrition kcal) reimplemented this
+// identically before being unified here (HR-30, 2026-07-17 hostile review).
+export function toleranceBand(value: number, relPct: number, absFloor: number): number {
+  return Math.max(value * relPct, absFloor);
+}
