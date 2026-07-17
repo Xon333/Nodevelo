@@ -30,6 +30,7 @@ import {
   type AthleteNutritionConfig,
 } from "@/lib/nutrition";
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
+import { reconcileDurationMin } from "@/lib/prescription";
 import { splitPlanProtocol } from "@/lib/workout-validate";
 import { validateNutrition } from "@/lib/nutrition-validate";
 import { validateSchedule } from "@/lib/schedule-validate";
@@ -352,7 +353,11 @@ export async function POST(req: Request) {
           : "The model did not return a structured plan. Please retry."
       );
     }
-    const { overview, days } = structuredToPlannedDays(parsedTool.data);
+    const { overview, days: rawDays } = structuredToPlannedDays(parsedTool.data);
+    // HR-19 (2026-07-17 hostile review): make NodeVelo's own durationMin agree with the real
+    // step-sum Intervals.icu will display, instead of only warning when they disagree — the
+    // mismatch was shipping unchanged to the calendar and every hours total in the app.
+    const days = reconcileDurationMin(rawDays);
     const warnings: string[] = [];
     const expected = weeks.flat();
     if (days.length !== expected.length) {

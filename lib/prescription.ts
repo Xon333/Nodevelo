@@ -7,7 +7,7 @@
 // filtered by the %FTP work floor.
 
 import { DEFAULT_DURABILITY_INSERT_ENVELOPE } from "./calibration";
-import type { PrescribedInterval } from "./types";
+import type { PlannedDay, PrescribedInterval } from "./types";
 
 const WORK_THRESHOLD_PCT = 80;
 
@@ -173,4 +173,23 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
 export function totalPrescribedMinutes(workoutText: string): number {
   const steps = walkWorkoutSteps(workoutText, () => true);
   return steps.reduce((sum, s) => sum + s.durationSec, 0) / 60;
+}
+
+// HR-19 (2026-07-17 hostile review): lib/workout-validate.ts's validateDurationConsistency only
+// WARNED when a day's stated durationMin disagreed with its real step-sum -- the mismatch still
+// shipped to Intervals.icu (which derives the displayed ride time from these same steps) and to
+// every NodeVelo hours total, unchanged, every time. durationMin is a derived STATISTIC of the
+// workout text, not part of the coach's prescriptive intent (the steps/intensities themselves,
+// which this reconciliation never touches) -- so unlike workout-validate.ts's deliberate
+// warn-only stance on protocol content, making this one number agree with the text it summarises
+// is a checksum fix, not a silent override of what the coach chose to prescribe. Exempt Rest (no
+// workoutText) and Strength (gets an explicit moving_time from durationMin directly, lib/plan-
+// parser.ts -- its prose text was never meant to be step-parsed; reconciling it would zero out a
+// real strength session's duration).
+export function reconcileDurationMin(days: PlannedDay[]): PlannedDay[] {
+  return days.map((d) => {
+    if (!d.workoutText || d.type === "Strength") return d;
+    const real = Math.round(totalPrescribedMinutes(d.workoutText));
+    return real === d.durationMin ? d : { ...d, durationMin: real };
+  });
 }

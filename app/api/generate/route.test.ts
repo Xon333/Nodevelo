@@ -252,4 +252,22 @@ describe("POST /api/generate — protocol-violation severity (measurability)", (
     const json = await (await gen("Build FTP")).json(); // default mocked toolInput is protocol-clean
     expect(json.plan.protocolViolations).toBeUndefined();
   });
+
+  it("HR-19: reconciles a mismatched durationMin to the real prescribed total instead of just flagging it", async () => {
+    const mismatched = {
+      overview: "o",
+      weeks: [{
+        weekNumber: 1,
+        theme: "t",
+        days: [{ date: "2026-06-15", name: "Z2 ride", type: "Z2", durationMin: 90, workout: "Warmup\n- 10m ramp 50-65%\n\nMain\n- 40m 65%\n\nCooldown\n- 10m 50%", description: "x" }],
+      }],
+    };
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: mismatched, raw: "", truncated: false, stopReason: null } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.days[0].durationMin).toBe(60); // 10+40+10, not the stated 90
+    // Reconciled means real === stated by construction, so the duration-consistency check (which
+    // now sees the corrected number) has nothing left to flag.
+    expect(json.plan.protocolViolations).toBeUndefined();
+    expect(json.plan.warnings.some((w: string) => /prescribed steps/.test(w))).toBe(false);
+  });
 });

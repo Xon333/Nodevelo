@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { carriesEmbeddedIntensity, formatPrescriptionLabel, parsePrescription, totalPrescribedMinutes } from "./prescription";
-import type { PrescribedInterval } from "./types";
+import { carriesEmbeddedIntensity, formatPrescriptionLabel, parsePrescription, reconcileDurationMin, totalPrescribedMinutes } from "./prescription";
+import type { PlannedDay, PrescribedInterval } from "./types";
 
 const FTP = 288;
 
@@ -218,5 +218,48 @@ describe("totalPrescribedMinutes — the REAL duration Intervals.icu's own step-
       "Warmup\n- 15m ramp 50-72%\n- 3m 55%\n\nMain Set\n- Move 3: Seated climb 2m30s 108%, then standing attack 25s 140%\n\nCooldown\n- 12m 50%";
     // warmup 15+3=18, move 2.5+25/60=2.91666.., cooldown 12 → 18 + 2.91666.. + 12 = 32.91666..
     expect(totalPrescribedMinutes(text)).toBeCloseTo(18 + 2.5 + 25 / 60 + 12, 5);
+  });
+});
+
+describe("reconcileDurationMin — HR-19: make NodeVelo's own number match what Intervals.icu will show", () => {
+  const day = (overrides: Partial<PlannedDay>): PlannedDay => ({
+    date: "2026-07-30", weekNumber: 1, weekTheme: "", name: "n", type: "RaceSim", durationMin: 90,
+    workoutText: "Warmup\n- 15m ramp 50-70%\n\nMain\n- 30m 100%\n\nCooldown\n- 10m 50%", description: "",
+    ...overrides,
+  });
+
+  it("overwrites a mismatched durationMin with the real prescribed total, rounded", () => {
+    // real = 15+30+10 = 55, stated 90 — should be corrected to 55, not just flagged.
+    const [d] = reconcileDurationMin([day({ durationMin: 90 })]);
+    expect(d.durationMin).toBe(55);
+  });
+
+  it("leaves an already-matching day untouched (same object reference, not just equal value)", () => {
+    const input = day({ durationMin: 55 });
+    const [d] = reconcileDurationMin([input]);
+    expect(d).toBe(input);
+  });
+
+  it("leaves Strength days untouched even though their prose text has no parseable steps", () => {
+    // Strength gets an explicit moving_time from durationMin directly (lib/plan-parser.ts) — real
+    // Intervals.icu duration for a Strength event IS the stated number, never step-parsed. Forcibly
+    // reconciling it to totalPrescribedMinutes's ~0 would zero out a real strength session.
+    const input = day({ type: "Strength", durationMin: 45, workoutText: "1. Barbell squat 4x6\n2. Deadlift 3x8" });
+    const [d] = reconcileDurationMin([input]);
+    expect(d.durationMin).toBe(45);
+    expect(d).toBe(input);
+  });
+
+  it("leaves Rest days (no workoutText) untouched", () => {
+    const input = day({ type: "Rest", durationMin: 0, workoutText: "" });
+    const [d] = reconcileDurationMin([input]);
+    expect(d).toBe(input);
+  });
+
+  it("reconciles the real RaceSim day end-to-end: stated 90min corrects to the true 60min (HR-16's fix reflected here too)", () => {
+    const text =
+      "Warmup\n- 15m ramp 50-72%\n- 3m 55%\n\nMain Set\n- Move 1: Seated climb 2m 102%\n- Easy 3m 55%\n- Move 2: Seated climb 3m 105%\n- Easy 2m 55%\n- Move 3: Seated climb 2m30s 108%, then standing attack 25s 140%\n- Easy 5m 55%\n- Move 4: Seated climb 4m 112%, then standing attack 20s 150%\n- Easy 4m 55%\n- Move 5 (hardest): Seated climb 3m30s 115%, then standing attack 30s 160%\n\nCooldown\n- 12m 50%";
+    const [d] = reconcileDurationMin([day({ durationMin: 90, workoutText: text })]);
+    expect(d.durationMin).toBe(60); // Math.round(60.25)
   });
 });
