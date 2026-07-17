@@ -32,6 +32,42 @@ describe("selectDurabilityTemplate — limiter-driven", () => {
   });
 });
 
+describe("selectDurabilityTemplate — HR-17: an EXPLAINED Overall decline no longer forces template A", () => {
+  // deriveInsights' "{type} splits indoor vs outdoor" branch (lib/athlete-model.ts) already
+  // diagnoses an execution decline as an environmental artifact (hot outdoor rides), not systemic
+  // fatigue. Confirmed live: the real athlete's Overall/alert co-occurs with exactly this Z2
+  // insight, and every long ride still defaulted to the safest template regardless of their
+  // stated FTP/TTE goal -- goal text was structurally unreachable for as long as the pattern held.
+  const explainedOverall: Insight[] = [
+    { dimension: "Overall", severity: "alert", title: "Execution trending down", evidence: "", suggestion: "" },
+    { dimension: "Z2", severity: "watch", title: "Z2 splits indoor vs outdoor", evidence: "", suggestion: "" },
+  ];
+
+  it("falls through to goal text when the Overall decline is explained by an indoor/outdoor split", () => {
+    const t = selectDurabilityTemplate(explainedOverall, null, "Raise FTP to 300w and move up TTE");
+    expect(t.id).toBe("B"); // goal text reached — not forced to A
+  });
+
+  it("falls through to rotation (not goal text) when goal text also names nothing", () => {
+    const t = selectDurabilityTemplate(explainedOverall, "A", "Have fun and stay consistent");
+    expect(t.id).toBe("B"); // nextAfter("A") — the pre-existing rotation, unaffected
+  });
+
+  it("an UNEXPLAINED Overall alert (no co-occurring split insight) still forces the safe template A", () => {
+    // Same severity, no environmental explanation present — the safety behaviour must hold.
+    const t = selectDurabilityTemplate([insight("Overall", "alert")], null, "Raise FTP to 300w and move up TTE");
+    expect(t.id).toBe("A");
+  });
+
+  it("a specific measured limiter (Threshold/VO2max/SIT) still wins outright even when Overall is explained", () => {
+    // The carve-out is scoped to the generic "Overall" dimension only — a real, specific limiter
+    // must never be silently deprioritised just because an unrelated Overall alert happens to be
+    // environmentally explained.
+    const t = selectDurabilityTemplate([...explainedOverall, insight("SIT", "alert")], null, "Raise my VO2max");
+    expect(t.id).toBe("D");
+  });
+});
+
 describe("selectDurabilityTemplate — rotation (no limiter)", () => {
   it("rotates to the next template after the last one", () => {
     expect(selectDurabilityTemplate([], "A").id).toBe("B");

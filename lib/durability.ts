@@ -76,15 +76,33 @@ const GOAL_TEMPLATE_PATTERNS: Array<{ re: RegExp; id: DurabilityTemplateId }> = 
   { re: /\b(sprint|neuromuscular|explosive|1.?min(ute)? power|5.?sec(ond)? power)\b/i, id: "D" },
 ];
 
+// HR-17 (2026-07-17 hostile review): an "Overall" alert/watch fires on a blunt
+// `overallTrend === "down"` aggregate (lib/athlete-model.ts) with no attribution to cause -- it can
+// be genuine systemic fatigue, or it can be fully explained by an environmental artifact the athlete
+// model ALREADY diagnoses separately (deriveInsights' "{type} splits indoor vs outdoor" branch: hot
+// outdoor rides depressing execution scores, not a training-load problem). Forcing template A (the
+// safest, effort-suppressing choice) for the second case made the athlete's stated goal
+// structurally unreachable for as long as the environmental pattern held — confirmed live: this
+// exact athlete's real Overall alert co-occurs with a "Z2 splits indoor vs outdoor" insight, and
+// every long ride defaulted to A regardless of a stated FTP/TTE goal. Only an insight the model
+// itself has NOT already explained should still force the safe template.
+function overallDeclineIsExplained(insights: Insight[]): boolean {
+  return insights.some((i) => /splits indoor vs outdoor/.test(i.title));
+}
+
 // Pick this block's durability template: address the strongest flagged limiter (alert beats watch;
 // a systemic Overall alert deliberately wins → A, the safest, rather than stacking hard late efforts
-// on a fatigued athlete); else — new, 2026-07-16 — check the athlete's stated goal text for the same
-// three dimensions; else rotate from the last block's template to keep adaptation broad. `goalText`
-// is optional so every pre-existing call site/test compiles and behaves unchanged without it.
+// on a fatigued athlete — UNLESS the model has already explained the decline environmentally, see
+// overallDeclineIsExplained above); else — 2026-07-16 — check the athlete's stated goal text for the
+// same three dimensions; else rotate from the last block's template to keep adaptation broad.
+// `goalText` is optional so every pre-existing call site/test compiles and behaves unchanged
+// without it.
 export function selectDurabilityTemplate(insights: Insight[], lastId: string | null, goalText?: string): DurabilityTemplate {
   const weak = insights.filter((i) => i.severity === "alert" || i.severity === "watch");
+  const overallExplained = overallDeclineIsExplained(insights);
   for (const sev of ["alert", "watch"] as const) {
     for (const { dimension, id } of LIMITER_TEMPLATE) {
+      if (dimension === "Overall" && overallExplained) continue;
       if (weak.some((i) => i.severity === sev && i.dimension === dimension)) return BY_ID.get(id)!;
     }
   }
