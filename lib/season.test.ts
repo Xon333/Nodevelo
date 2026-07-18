@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, validateBlockFocus, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -848,5 +848,47 @@ describe("isSeasonFocus", () => {
     expect(isSeasonFocus("aerobic-base")).toBe(true);
     expect(isSeasonFocus("made-up")).toBe(false);
     expect(isSeasonFocus(undefined)).toBe(false);
+  });
+});
+
+describe("formatFocusContext (rolling mode — season-continuous-focus-selection §4)", () => {
+  it("names the focus and rationale, with an objective prefix when set", () => {
+    const line = formatFocusContext({ focus: "threshold", rationale: "rotating the quality focus", scores: [] }, "get faster");
+    expect(line).toContain("get faster");
+    expect(line).toContain("threshold");
+    expect(line).toContain("rotating the quality focus");
+    expect(line).toContain("every week shares it");
+  });
+  it("omits the objective prefix when there is none", () => {
+    const line = formatFocusContext({ focus: "vo2max", rationale: "r", scores: [] }, "");
+    expect(line.startsWith("BLOCK FOCUS: vo2max")).toBe(true);
+  });
+});
+
+describe("validateBlockFocus (rolling mode)", () => {
+  const day = (date: string, type: PlannedDay["type"], durationMin: number, workoutText = ""): PlannedDay =>
+    ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText, description: "" });
+
+  it("flags a build-focus block with zero matching sessions", () => {
+    const days = [day("2026-07-01", "Z2", 90), day("2026-07-03", "Z2", 90)];
+    const warnings = validateBlockFocus(days, "vo2max", 250);
+    expect(warnings.some((w) => w.includes("vo2max") && w.includes("zero"))).toBe(true);
+  });
+  it("passes a build-focus block with at least one matching session", () => {
+    const days = [day("2026-07-01", "VO2max", 60), day("2026-07-03", "Z2", 90)];
+    expect(validateBlockFocus(days, "vo2max", 250)).toEqual([]);
+  });
+  it("flags an aerobic-base block with too much hard riding time", () => {
+    const days = [day("2026-07-01", "Threshold", 60), day("2026-07-03", "Z2", 60)]; // 50% hard by time
+    const warnings = validateBlockFocus(days, "aerobic-base", 250);
+    expect(warnings.some((w) => w.includes("aerobic-base"))).toBe(true);
+  });
+  it("passes an aerobic-base block that stays mostly easy", () => {
+    const days = [day("2026-07-01", "Threshold", 20), day("2026-07-03", "Z2", 180)]; // ~10% hard by time
+    expect(validateBlockFocus(days, "aerobic-base", 250)).toEqual([]);
+  });
+  it("has no matcher for sharpen — never fires", () => {
+    const days = [day("2026-07-01", "Z2", 60)];
+    expect(validateBlockFocus(days, "sharpen", 250)).toEqual([]);
   });
 });

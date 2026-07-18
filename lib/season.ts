@@ -585,6 +585,50 @@ export function formatSeasonContext(
   return `SEASON CONTEXT: ${objective}phase ${p.phase} · focus ${p.focus} · wk ${wk} of ${p.plannedWeeks}${load}${deload}. ${p.rationale}`;
 }
 
+// Rolling-mode prompt context (season-continuous-focus-selection §4) — replaces formatSeasonContext
+// for the no-upcoming-A-event case. Instruction-shaped, not "you are in phase X": there is no drafted
+// period for "wk N of M" to refer to — one focus covers the whole block, every week, full stop (no
+// mid-block phase shift, unlike the old period-boundary model).
+export function formatFocusContext(choice: FocusChoice, objective: string): string {
+  const obj = objective.trim() ? `${objective.trim()} — ` : "";
+  return `BLOCK FOCUS: ${obj}${choice.focus} — ${choice.rationale}. Build this block's quality sessions around this focus; every week shares it (no mid-block phase shift).`;
+}
+
+// Rolling-mode validator (season-continuous-focus-selection §4) — replaces validateSeasonFit +
+// validateFocusMatch for the no-upcoming-A-event case: one block-wide focus, no per-period bucketing,
+// no spanDays fairness gate (the whole block belongs to its one chosen focus, so it always gets a fair
+// chance). Merges both old checks: a build focus needs >=1 matching session; aerobic-base needs a
+// duration-weighted hard-share <= 20%. Mirrors validateFocusMatch's matcher table and
+// validateSeasonFit's hard-share math exactly (same thresholds, same "Season fit:" prefix contract).
+export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: number): string[] {
+  const rides = days.filter((d) => d.type !== "Rest" && d.type !== "Strength");
+  if (rides.length === 0) return [];
+  const dates = rides.map((d) => d.date).sort();
+
+  if (focus === "aerobic-base") {
+    const totalMin = rides.reduce((sum, d) => sum + d.durationMin, 0);
+    if (totalMin <= 0) return [];
+    const HARD = new Set(["Threshold", "VO2max", "SIT", "RaceSim"]);
+    const hardMin = rides.filter((d) => HARD.has(d.type)).reduce((sum, d) => sum + d.durationMin, 0);
+    const hardShare = hardMin / totalMin;
+    if (hardShare <= 0.2) return [];
+    return [`Season fit: ${dates[0]} → ${dates[dates.length - 1]} — this block's focus is aerobic-base, but ${Math.round(hardShare * 100)}% of riding time is hard — expected mostly Z2.`];
+  }
+
+  const matchers: Partial<Record<SeasonFocus, { label: string; match: (d: PlannedDay) => boolean }>> = {
+    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
+    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
+    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
+    durability: {
+      label: "durability-loaded Z2 (embedded threshold+ work)",
+      match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
+    },
+  };
+  const m = matchers[focus];
+  if (!m || rides.some(m.match)) return [];
+  return [`Season fit: ${dates[0]} → ${dates[dates.length - 1]} — this block's focus is ${focus} but carries zero ${m.label} sessions.`];
+}
+
 // B/C-priority events inside this block's own date range — surfaced so a real planned test/race
 // day doesn't get a generic session written on top of it. A-priority events are deliberately
 // excluded here: they already take over the whole arc via replanEventArc's backward-scheduling
