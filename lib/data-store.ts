@@ -139,8 +139,8 @@ export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void
 }
 
 // Transactional read-modify-write on block history (mirrors updateCurrentBlock/updateScoreLog) — the
-// read happens inside the per-file lock, so the sync route's execution-outcome backfill (§8) can't
-// race a concurrent appendBlockHistory (a block discard/replace) and lose either write.
+// read happens inside the per-file lock. Doesn't protect against appendBlockHistory (which has an
+// unlocked read); both need hardening for mutual race-safety.
 export async function updateBlockHistory(
   mutate: (entries: BlockHistoryEntry[]) => BlockHistoryEntry[]
 ): Promise<BlockHistoryEntry[]> {
