@@ -1148,6 +1148,7 @@ describe("chooseNextFocus (season-continuous-focus-selection §4)", () => {
       signals: { goalText: "Raise my FTP from 280 to 300 W" },
     });
     expect(choice.focus).toBe("threshold"); // goal-relevance overrides the anaerobic limiter, same as the old draft-level regression test proved
+    expect(choice.rationale).toBe("rotating the quality focus (KB: avoid repeating one stimulus)");
   });
 });
 
