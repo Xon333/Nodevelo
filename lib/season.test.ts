@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, weeksSinceLastDeload, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, weeksSinceLastDeload, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -1056,29 +1056,88 @@ describe("transition-period load & cadence handling", () => {
   });
 });
 
-describe("formatRetestNote — FTP retest cadence", () => {
-  const sharpen: FocusPeriod = {
-    focus: "sharpen", phase: "build", startDate: "2026-08-10", plannedWeeks: 1, intensitySplit: "75/25",
-    targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
-  };
-  it("encodes the ~8-week cadence (intersection of the 6–8 and 8–12 wk coaching ranges — one arc)", () => {
-    expect(SEASON_CONSTANTS.retestEveryWeeks).toBe(8);
+describe("realWeeksSinceLastRecovery (season-continuous-focus-selection §5)", () => {
+  it("returns 0 with no baseline (never force a cap blind)", () => {
+    expect(realWeeksSinceLastRecovery([], null, "2026-07-01")).toBe(0);
+    expect(realWeeksSinceLastRecovery([{ date: "2026-06-01", tss: 500 }], 0, "2026-07-01")).toBe(0);
   });
-  it("stays silent when the tested FTP is fresh or staleness is unknown", () => {
-    expect(formatRetestNote(30, planWith([sharpen]), "2026-07-15")).toBeNull();
-    expect(formatRetestNote(55, planWith([sharpen]), "2026-07-15")).toBeNull(); // one day under the line
-    expect(formatRetestNote(null, planWith([sharpen]), "2026-07-15")).toBeNull();
+
+  it("finds the most recent week whose real TSS sits at/below 50% of the baseline", () => {
+    const entries = [
+      { date: "2026-06-15", tss: 90 }, // light week (exactly 3wk before 2026-07-06): 90 <= 400*0.5=200
+      { date: "2026-06-22", tss: 380 }, // loading
+      { date: "2026-06-29", tss: 410 }, // loading
+      { date: "2026-07-01", tss: 60 }, // this week so far
+    ];
+    // "Today" is 2026-07-06, so the current 7-day window is [2026-06-30, 2026-07-06]: only the
+    // 2026-07-01 entry falls in it (2026-06-29 is one day outside). Window ending 2026-07-06 (this
+    // week, partial): 60 <= 200 → light. 0 weeks since.
+    expect(realWeeksSinceLastRecovery(entries, 400, "2026-07-06")).toBe(0);
   });
-  it("fires at 8 weeks and points at the next lighter slot (sharpen / deload / transition)", () => {
-    const note = formatRetestNote(56, planWith([sharpen]), "2026-07-15")!;
+
+  it("counts real calendar weeks back to the last genuinely light week", () => {
+    const entries = [
+      { date: "2026-06-08", tss: 100 }, // light week, 3 weeks before 2026-06-29
+      { date: "2026-06-15", tss: 420 },
+      { date: "2026-06-22", tss: 410 },
+      { date: "2026-06-29", tss: 430 }, // "today" — a loading week
+    ];
+    expect(realWeeksSinceLastRecovery(entries, 400, "2026-06-29")).toBe(3);
+  });
+
+  it("gives up at the lookback cap when no light week exists in the ledger's history", () => {
+    const entries = Array.from({ length: 30 }, (_, i) => ({ date: addWeeks("2026-01-05", i), tss: 450 }));
+    expect(realWeeksSinceLastRecovery(entries, 400, "2026-07-27")).toBe(26);
+  });
+});
+
+describe("planRecoveryWeeks", () => {
+  it("places no recovery week when already recently recovered and the block is short", () => {
+    expect(planRecoveryWeeks(0, 4, false)).toEqual([]);
+  });
+  it("forces week 1 (index 0) when already at/over the hard cap", () => {
+    expect(planRecoveryWeeks(4, 4, false)).toEqual([0]);
+    expect(planRecoveryWeeks(6, 2, false)).toEqual([0]);
+  });
+  it("places a recovery week exactly when the cumulative count reaches the cap, then repeats every `every` weeks", () => {
+    expect(planRecoveryWeeks(2, 8, false)).toEqual([1, 5]); // 2+1+1=4 at index 1; resets; +4 more at index 5
+  });
+  it("uses the tighter 3-week cadence under heavy fatigue", () => {
+    expect(planRecoveryWeeks(0, 6, true)).toEqual([2]); // 0+1+1+1=3 at index 2
+  });
+});
+
+describe("formatRecoveryWeeks", () => {
+  it("returns null when nothing is due", () => {
+    expect(formatRecoveryWeeks([], 4)).toBeNull();
+  });
+  it("names the week(s) and the hard-cap rationale", () => {
+    const line = formatRecoveryWeeks([2], 6);
+    expect(line).toContain("week 3");
+    expect(line).toContain("6-week block");
+  });
+});
+
+describe("formatRetestNote (new signature — season-continuous-focus-selection §5)", () => {
+  it("returns null when fresh", () => {
+    expect(formatRetestNote(10, [], "2026-07-01")).toBeNull();
+    expect(formatRetestNote(null, [], "2026-07-01")).toBeNull();
+  });
+  it("fires once stale, pointing at this block's own recovery week when one exists", () => {
+    const note = formatRetestNote(60, [2], "2026-07-01");
     expect(note).toContain("RETEST DUE");
-    expect(note).toContain("56 days");
-    expect(note).toContain("2026-08-10");
+    expect(note).toContain(addWeeks("2026-07-01", 2));
   });
-  it("still nudges when there is no lighter slot to point at", () => {
-    const note = formatRetestNote(70, planWith([]), "2026-07-15")!;
+  it("fires with no slot line when this block has no recovery week", () => {
+    const note = formatRetestNote(60, [], "2026-07-01");
     expect(note).toContain("RETEST DUE");
     expect(note).not.toContain("Best slot");
+  });
+});
+
+describe("formatRetestNote — FTP retest cadence", () => {
+  it("encodes the ~8-week cadence (intersection of the 6–8 and 8–12 wk coaching ranges — one arc)", () => {
+    expect(SEASON_CONSTANTS.retestEveryWeeks).toBe(8);
   });
 });
 

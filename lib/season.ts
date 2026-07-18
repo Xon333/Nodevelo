@@ -304,6 +304,69 @@ export function isSeasonFocus(v: string | undefined): v is SeasonFocus {
   return v !== undefined && (SEASON_FOCI as readonly string[]).includes(v);
 }
 
+// A week is "genuinely light" at/below this fraction of the athlete's own rolling weekly baseline —
+// mirrors assignLoadTargets' "a genuine season break: ~50% load" convention and
+// BlockSettings.recoveryWeekHoursMin/Max's real recovery-week volume band, so "light" means the same
+// thing everywhere in this codebase.
+const LIGHT_WEEK_FRACTION = 0.5;
+// Give up after this many weeks of backward search (a new athlete with under ~6mo of ledger) rather
+// than loop indefinitely — the whole available history simply counts as "since the last light week".
+const MAX_RECOVERY_LOOKBACK_WEEKS = 26;
+
+// Real-data recovery hard cap (season-continuous-focus-selection §5) — replaces applyDeloadCadence's
+// cross-call counter (the single largest source of correctness bugs across the last three sessions,
+// most recently HR-22) with a value re-derived fresh from real ride history every call: nothing is
+// stored or threaded between /api/generate calls, so there's no cross-call state to drift.
+export function realWeeksSinceLastRecovery(
+  entries: Array<Pick<RideScoreEntry, "date" | "tss">>,
+  avgWeeklyTss: number | null,
+  today: string
+): number {
+  if (avgWeeklyTss === null || !Number.isFinite(avgWeeklyTss) || avgWeeklyTss <= 0) return 0;
+  const dayMs = 86_400_000;
+  for (let w = 0; w < MAX_RECOVERY_LOOKBACK_WEEKS; w++) {
+    const weekEndMs = Date.parse(today) - w * 7 * dayMs;
+    const weekStartMs = weekEndMs - 6 * dayMs;
+    const weekEnd = new Date(weekEndMs).toISOString().slice(0, 10);
+    const weekStart = new Date(weekStartMs).toISOString().slice(0, 10);
+    const weekTss = entries
+      .filter((e) => e.date >= weekStart && e.date <= weekEnd && e.tss !== null)
+      .reduce((sum, e) => sum + (e.tss as number), 0);
+    if (weekTss <= avgWeeklyTss * LIGHT_WEEK_FRACTION) return w;
+  }
+  return MAX_RECOVERY_LOOKBACK_WEEKS;
+}
+
+// Which 0-indexed week(s) within a new block of `lengthWeeks` must be recovery, given how many real
+// calendar weeks have already elapsed since the last genuinely light one. Hard cap: never more than
+// `every` weeks without recovery — continues counting forward within a block longer than the cap, so
+// an 8-week block still gets recovery weeks spaced correctly, not just one at the front.
+// NB: the loop deliberately stops one week short of `lengthWeeks` — a cap reached on a block's own
+// final week is never planned as a recovery week *inside* that block. That final week is the block's
+// transition point anyway (the next block's own realWeeksSinceLastRecovery call sees the same real
+// data and, being right back at/over the cap, force-places recovery at ITS week 0 instead) — so a
+// same-week recovery designation right at the boundary would be redundant, not helpful.
+export function planRecoveryWeeks(weeksSinceRecovery: number, lengthWeeks: number, tight: boolean): number[] {
+  const every = tight ? SEASON_CONSTANTS.deloadTightEveryWeeks : SEASON_CONSTANTS.deloadEveryWeeks;
+  const indices: number[] = [];
+  let sinceRecovery = weeksSinceRecovery;
+  for (let wk = 0; wk < lengthWeeks - 1; wk++) {
+    sinceRecovery += 1;
+    if (sinceRecovery >= every) {
+      indices.push(wk);
+      sinceRecovery = 0;
+    }
+  }
+  return indices;
+}
+
+// Prompt-injectable recovery-week callout — additive to formatFocusContext/formatSeasonContext (Task 5).
+export function formatRecoveryWeeks(indices: number[], lengthWeeks: number): string | null {
+  if (indices.length === 0) return null;
+  const label = indices.map((i) => `week ${i + 1}`).join(", ");
+  return `RECOVERY: cut volume ~30–50% in ${label} of this ${lengthWeeks}-week block (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`;
+}
+
 // Execution EWMA per build focus, via the intervention loop's own accessor (execFor) so focus
 // selection and intervention validation read the SAME number. Durability's execution dimension is
 // Z2 — durability rides are typed Z2 and scored there. Only foci with data appear.
@@ -794,15 +857,14 @@ export function formatUpcomingEventsForBlock(
 
 // A short prompt-injectable nudge when the athlete's tested FTP has gone stale (ftpStaleDays is the
 // figure /api/profile already computes off physiology.json's effectiveFrom). Due every
-// retestEveryWeeks — one arc — and pointed at the next lighter slot (sharpen / deload / transition)
-// where fresh legs make the test valid. Null when fresh or unknown. A nudge, never a hard gate.
-export function formatRetestNote(ftpStaleDays: number | null, plan: SeasonPlan, today: string): string | null {
+// retestEveryWeeks — one arc. Points at THIS block's own recovery week (from planRecoveryWeeks, above)
+// instead of looking ahead into a drafted period array — there is no such array to look ahead into
+// once a block's focus is chosen fresh each call (season-continuous-focus-selection §5). Null when
+// fresh or unknown. A nudge, never a hard gate.
+export function formatRetestNote(ftpStaleDays: number | null, recoveryWeekIndices: number[], blockStartDate: string): string | null {
   if (ftpStaleDays === null || ftpStaleDays < SEASON_CONSTANTS.retestEveryWeeks * 7) return null;
-  const slot = plan.periods
-    .filter((p) => periodEnd(p) > today && (p.focus === "sharpen" || p.deloadWeek || p.phase === "transition"))
-    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
-  const where = slot
-    ? ` Best slot: the lighter ${slot.phase === "transition" ? "transition" : slot.focus === "sharpen" ? "sharpen" : "deload"} period starting ${slot.startDate}.`
+  const where = recoveryWeekIndices.length > 0
+    ? ` Best slot: this block's recovery week starting ${addWeeks(blockStartDate, recoveryWeekIndices[0])}.`
     : "";
   return `RETEST DUE: FTP last validated ${ftpStaleDays} days ago (cadence ~${SEASON_CONSTANTS.retestEveryWeeks} wk). Schedule an FTP/power-curve retest to re-anchor zones and load targets.${where}`;
 }
