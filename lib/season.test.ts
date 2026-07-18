@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, weeksSinceLastDeload, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, weeksSinceLastDeload, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -1108,5 +1108,71 @@ describe("formatUpcomingEventsForBlock — B/C-priority events inside the block'
     ];
     const line = formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })!;
     expect(line.indexOf("First")).toBeLessThan(line.indexOf("Second"));
+  });
+});
+
+describe("chooseNextFocus (season-continuous-focus-selection §4)", () => {
+  it("picks the highest-scored candidate that isn't the last focus", () => {
+    const choice = chooseNextFocus({
+      limiter: { system: "vo2max", confidence: "high" },
+      lastFocus: "threshold",
+      signals: {},
+    });
+    expect(choice.focus).toBe("vo2max"); // limiter bonus wins
+    expect(choice.focus).not.toBe("threshold"); // no-back-to-back
+    expect(choice.scores).toHaveLength(5); // full ranking, including the loser
+  });
+
+  it("gives a KB-grounded rationale distinguishing a confident-limiter pick from a rotation pick", () => {
+    const limiterPick = chooseNextFocus({ limiter: { system: "vo2max", confidence: "high" }, lastFocus: "threshold", signals: {} });
+    expect(limiterPick.rationale).toContain("depressed system");
+    const rotationPick = chooseNextFocus({ limiter: { system: null, confidence: "low" }, lastFocus: "threshold", signals: {} });
+    expect(rotationPick.rationale).toBeTruthy();
+    expect(rotationPick.rationale).not.toBe(limiterPick.rationale);
+  });
+
+  it("gives aerobic-base its own rationale wording when it wins", () => {
+    const choice = chooseNextFocus({
+      limiter: { system: null, confidence: "low" },
+      lastFocus: "threshold",
+      signals: { exposure: { "aerobic-base": undefined, threshold: 0, vo2max: 0, anaerobic: 0, durability: 0 } },
+    });
+    expect(choice.focus).toBe("aerobic-base"); // never-seen urgency (undefined exposure) outranks saturated staleness
+    expect(choice.rationale.toLowerCase()).toContain("aerobic");
+  });
+
+  it("real signals (goal text, exposure, execution) shape the pick, same as scoreFocusCandidates directly", () => {
+    const choice = chooseNextFocus({
+      limiter: { system: "anaerobic", confidence: "high" },
+      lastFocus: "aerobic-base",
+      signals: { goalText: "Raise my FTP from 280 to 300 W" },
+    });
+    expect(choice.focus).toBe("threshold"); // goal-relevance overrides the anaerobic limiter, same as the old draft-level regression test proved
+  });
+});
+
+describe("findUpcomingAEvent", () => {
+  it("finds the nearest future A-priority event", () => {
+    const events = [
+      { name: "B race", date: "2026-08-01", priority: "B" as const },
+      { name: "A race", date: "2026-10-01", priority: "A" as const },
+    ];
+    expect(findUpcomingAEvent(events, "2026-07-01")?.name).toBe("A race");
+  });
+  it("returns null when the only A-event is today or in the past", () => {
+    const events = [{ name: "A race", date: "2026-07-01", priority: "A" as const }];
+    expect(findUpcomingAEvent(events, "2026-07-01")).toBeNull();
+  });
+  it("returns null when there is no A-event at all", () => {
+    expect(findUpcomingAEvent([{ name: "B race", date: "2026-08-01", priority: "B" as const }], "2026-07-01")).toBeNull();
+  });
+});
+
+describe("isSeasonFocus", () => {
+  it("narrows a valid focus string, rejects anything else", () => {
+    expect(isSeasonFocus("threshold")).toBe(true);
+    expect(isSeasonFocus("aerobic-base")).toBe(true);
+    expect(isSeasonFocus("made-up")).toBe(false);
+    expect(isSeasonFocus(undefined)).toBe(false);
   });
 });

@@ -260,6 +260,50 @@ export function selectBuildFocus(
   return scoreFocusCandidates(limiter, recentFocuses, signals).filter((s) => s.focus !== last)[0].focus;
 }
 
+// One stateless focus decision for the next block, made fresh every /api/generate call from real data —
+// replaces the old drafted-period-sequence model for the rolling (no upcoming A-event) case (season-
+// continuous-focus-selection §4). Thin wrapper over the existing scored selector: no new scoring logic,
+// just a caller-friendly input/output shape plus a rationale string for the prompt.
+export interface FocusChoice {
+  focus: SeasonFocus;
+  rationale: string;
+  scores: FocusScore[]; // full ranking, for the roadmap outlook + debug
+}
+
+export interface ChooseNextFocusInput {
+  limiter: SeasonDraftInput["limiter"];
+  lastFocus: SeasonFocus | null; // no-back-to-back variety rule
+  signals: FocusSignals;
+}
+
+export function chooseNextFocus(input: ChooseNextFocusInput): FocusChoice {
+  const recent = input.lastFocus ? [input.lastFocus] : [];
+  const scores = scoreFocusCandidates(input.limiter, recent, input.signals);
+  const focus = scores.filter((s) => s.focus !== input.lastFocus)[0].focus;
+  const rationale =
+    input.limiter.system === focus && input.limiter.confidence !== "low"
+      ? "your most depressed system relative to your engine"
+      : focus === "aerobic-base"
+        ? "re-touching the aerobic ceiling — every later phase depends on it (KB)"
+        : "rotating the quality focus (KB: avoid repeating one stimulus)";
+  return { focus, rationale, scores };
+}
+
+// The same A-event lookup draftSeasonArc used to gate on internally — extracted so /api/generate can
+// branch on it directly (season-continuous-focus-selection §4/§9: the rolling and event-anchored paths
+// now diverge before this point, not inside one dispatcher function).
+export function findUpcomingAEvent(events: SeasonEvent[], today: string): SeasonEvent | null {
+  return events.find((e) => e.priority === "A" && Date.parse(e.date) > Date.parse(today)) ?? null;
+}
+
+// Type guard for a persisted-but-untyped focus string (CurrentBlock.seasonFocus is `string`, not
+// SeasonFocus, so a block written before this field existed — or corrupted by hand-editing JSON —
+// can't be trusted without a runtime check before feeding it into chooseNextFocus's lastFocus).
+const SEASON_FOCI: readonly SeasonFocus[] = ["aerobic-base", "threshold", "vo2max", "anaerobic", "durability", "sharpen"];
+export function isSeasonFocus(v: string | undefined): v is SeasonFocus {
+  return v !== undefined && (SEASON_FOCI as readonly string[]).includes(v);
+}
+
 // Execution EWMA per build focus, via the intervention loop's own accessor (execFor) so focus
 // selection and intervention validation read the SAME number. Durability's execution dimension is
 // Z2 — durability rides are typed Z2 and scored there. Only foci with data appear.
