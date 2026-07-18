@@ -263,7 +263,11 @@ does not change.
   `lib/intervals-api.ts` already uses). Builds a curated "proven workouts" folder over blocks —
   pullable by the athlete directly in Intervals.icu, and a future hook for cutting generation cost on
   repeat sessions. A **write-time side effect after scoring**, not an input to `generateTrainingBlock`
-  — that call stays one holistic per-block LLM pass; this doesn't touch its shape. `← #4` for
+  — that call stays one holistic per-block LLM pass; this doesn't touch its shape. Deliberately split
+  out of the 2026-07-17 season-architecture redesign (spec §2 non-goals) as its own future design
+  session — build it on the enriched block-history data (real execution outcome + persisted protocol
+  findings on each `CurrentBlockDay`) that plan's block-history-enrichment slice produces, once shipped:
+  `docs/superpowers/plans/2026-07-17-season-block-history-enrichment.md`. `← #4` for
   "well-executed" (needs real scored verdicts — currently n=1–8, see the state-of-the-app note at the
   top of this doc); Track B's per-template durability score is the natural quality gate to reuse.
 
