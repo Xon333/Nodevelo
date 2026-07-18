@@ -105,10 +105,12 @@ describe("pickBuildFocus — LRU + limiter-weighted build selection", () => {
     expect(pickBuildFocus({ system: "anaerobic", confidence: "high" }, ["anaerobic"])).not.toBe("anaerobic");
   });
   it("falls back to the least-recently-used candidate across ALL four build systems", () => {
-    // anaerobic has never appeared — the fixed [threshold, vo2max, durability] cycle could never pick it
-    expect(pickBuildFocus({ system: null, confidence: "low" }, ["threshold", "vo2max", "durability"])).toBe("anaerobic");
+    // anaerobic has never appeared — the fixed [threshold, vo2max, durability] cycle could never pick it.
+    // aerobic-base sits recently-touched (last) so it competes as a normal candidate without winning
+    // this particular round — keeps this test's original intent (LRU among the four BUILD systems).
+    expect(pickBuildFocus({ system: null, confidence: "low" }, ["durability", "threshold", "vo2max", "aerobic-base"])).toBe("anaerobic");
     // durability is the most starved candidate here (oldest last appearance)
-    expect(pickBuildFocus({ system: null, confidence: "low" }, ["durability", "anaerobic", "threshold", "vo2max"])).toBe("durability");
+    expect(pickBuildFocus({ system: null, confidence: "low" }, ["durability", "anaerobic", "threshold", "vo2max", "aerobic-base"])).toBe("durability");
     // a low-confidence limiter gets no special weighting
     expect(pickBuildFocus({ system: "anaerobic", confidence: "low" }, ["anaerobic"])).toBe("threshold");
   });
@@ -118,7 +120,12 @@ describe("pickBuildFocus — LRU + limiter-weighted build selection", () => {
 });
 
 describe("backwardScheduleFromEvent — build rotation quality (the athlete's live KOM path)", () => {
-  const ev = { name: "Alpe KOM", date: "2026-12-01", priority: "A" as const }; // 21-wk runway from 2026-07-01
+  // 30-wk runway from 2026-07-01 (was 21-wk/2026-12-01 before aerobic-base joined the build-focus
+  // pool — with 5 candidates now sharing the same runway, 21 weeks' worth of slots run out on
+  // {threshold, durability, vo2max, aerobic-base, threshold} before anaerobic's turn ever comes up;
+  // a longer runway restores this block's original intent — anaerobic reachability — without
+  // changing what it's actually testing).
+  const ev = { name: "Alpe KOM", date: "2027-02-01", priority: "A" as const };
   it("reaches anaerobic in a long runway (the fixed 3-focus cycle never did)", () => {
     const arc = backwardScheduleFromEvent(ev, baseInput(), "2026-07-01");
     expect(arc.filter((p) => p.phase === "build").map((p) => p.focus)).toContain("anaerobic");
@@ -607,13 +614,13 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
   const anHigh = { system: "anaerobic" as const, confidence: "high" as const };
 
   it("encodes the trainability constants and the intensity floor (Hickson 1985 / Odden 2024)", () => {
-    expect(FOCUS_TRAINABILITY).toEqual({ threshold: 1.0, vo2max: 0.9, durability: 0.6, anaerobic: 0.3 });
+    expect(FOCUS_TRAINABILITY).toEqual({ "aerobic-base": 0.9, threshold: 1.0, vo2max: 0.9, durability: 0.6, anaerobic: 0.3 });
     expect(WEEKLY_INTENSITY_FLOOR).toBe(1); // ≥1 quality session/wk at high %FTP — satisfiable by ANY quality label
   });
 
-  it("returns all four build foci with labeled parts summing to the score", () => {
+  it("returns all five foci (aerobic-base + the four build systems) with labeled parts summing to the score", () => {
     const scored = scoreFocusCandidates(noLimiter, []);
-    expect(scored.map((s) => s.focus).sort()).toEqual(["anaerobic", "durability", "threshold", "vo2max"]);
+    expect(scored.map((s) => s.focus).sort()).toEqual(["aerobic-base", "anaerobic", "durability", "threshold", "vo2max"]);
     for (const s of scored) {
       const { goal, urgency, trainability, execution, limiter } = s.parts;
       expect(goal + urgency + trainability + execution + limiter).toBeCloseTo(s.score, 6);
@@ -625,13 +632,17 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
 
   it("(a) an FTP goal ranks threshold and vo2max above a confident anaerobic limiter — goal-driven, not deficit-greedy", () => {
     const scored = scoreFocusCandidates(anHigh, ["aerobic-base"], { goalText: "Raise my FTP from 280 to 300 W" });
-    expect(scored.map((s) => s.focus)).toEqual(["threshold", "vo2max", "anaerobic", "durability"]);
+    // aerobic-base is neutral on goal (0.5) and recently-touched here, so it lands last.
+    expect(scored.map((s) => s.focus)).toEqual(["threshold", "vo2max", "anaerobic", "durability", "aerobic-base"]);
     expect(scored[0].score).toBeCloseTo(1.015, 6); // 0.35·1 + 0.3·1.3 + 0.2·1 + 0.15·0.5
     expect(scored[2].parts.limiter).toBeCloseTo(0.2, 6); // the limiter bonus is visible — just outweighed
   });
 
   it("(b) decay-urgency surfaces whichever focus has been dark longest", () => {
-    const scored = scoreFocusCandidates(noLimiter, [], { exposure: { threshold: 1, vo2max: 2, anaerobic: 1, durability: 26 } });
+    // aerobic-base given fresh exposure (1wk) too — otherwise, with none of the four other real-exposure
+    // signals covering it, it would fall back to NEVER_SEEN_URGENCY and (being foundational + highly
+    // trainable) outscore durability's 26-week staleness, which isn't what this test is about.
+    const scored = scoreFocusCandidates(noLimiter, [], { exposure: { threshold: 1, vo2max: 2, anaerobic: 1, durability: 26, "aerobic-base": 1 } });
     expect(scored[0].focus).toBe("durability"); // 26 weeks dark beats every trainability advantage
   });
 
@@ -648,7 +659,9 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
     expect(picks).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold", "anaerobic", "threshold"]);
     expect(picks).toContain("vo2max");
     expect(picks).toContain("durability");
-    expect(picks).toEqual(["anaerobic", "threshold", "vo2max", "durability", "anaerobic", "threshold"]); // hand-traced
+    // hand-traced (now against the 5-candidate pool — aerobic-base itself surfaces at slot 6 once
+    // every other focus has been recently touched and out-scores it on urgency)
+    expect(picks).toEqual(["anaerobic", "threshold", "vo2max", "durability", "anaerobic", "aerobic-base"]);
   });
 
   it("(d) trainability keeps a slow-responding limiter from dominating every slot", () => {
@@ -683,7 +696,43 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
       behaviour: { totalRides: 10, plannedRides: 8, unplannedRides: 2, offPlanPct: 20, unplannedAvgQuality: null, weeklyHours: 7 },
       behaviourAllTime: { totalRides: 40, plannedRides: 30, unplannedRides: 10, offPlanPct: 25, unplannedAvgQuality: null, weeklyHours: 7 },
     };
-    expect(execQualityByFocus(model)).toEqual({ threshold: 3.2, durability: 7.1 });
+    // Z2 execEwma feeds BOTH durability and aerobic-base — same dimension, no finer distinction.
+    expect(execQualityByFocus(model)).toEqual({ threshold: 3.2, durability: 7.1, "aerobic-base": 7.1 });
+  });
+});
+
+describe("aerobic-base as a scored candidate (season-continuous-focus-selection §4)", () => {
+  it("BUILD_FOCI now includes aerobic-base alongside the four build systems", () => {
+    const scores = scoreFocusCandidates({ system: null, confidence: "low" }, []);
+    expect(scores.map((s) => s.focus).sort()).toEqual(["aerobic-base", "anaerobic", "durability", "threshold", "vo2max"]);
+  });
+
+  it("goalRelevanceForFocus never penalizes aerobic-base to 0, even when another pattern fires", () => {
+    expect(goalRelevanceForFocus("Raise my FTP", "aerobic-base")).toBe(0.5);
+    expect(goalRelevanceForFocus(undefined, "aerobic-base")).toBe(0.5);
+    expect(goalRelevanceForFocus("", "aerobic-base")).toBe(0.5);
+  });
+
+  it("execQualityByFocus maps aerobic-base onto the same Z2 dimension as durability", () => {
+    const model: AthleteModel = {
+      byType: [{ type: "Z2", n: 5, execEwma: 7.1, complianceEwma: 90, trend: "flat" as const }],
+      overallExecEwma: 7, overallTrend: "flat" as const, sampleSize: 5,
+      behaviour: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, unplannedAvgQuality: null, weeklyHours: 8 },
+      behaviourAllTime: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, unplannedAvgQuality: null, weeklyHours: 8 },
+    };
+    const out = execQualityByFocus(model);
+    expect(out["aerobic-base"]).toBe(7.1);
+    expect(out["aerobic-base"]).toBe(out.durability);
+  });
+
+  it("exposureFromSessions splits plain Z2/Recovery (aerobic-base) from embedded-intensity Z2/Recovery (durability)", () => {
+    const days = [
+      { date: "2026-07-01", type: "Z2" as const, durationMin: 120, workoutText: "" }, // plain — no template, no embedded intensity
+      { date: "2026-07-03", type: "Recovery" as const, durationMin: 300, durabilityTemplate: "B" }, // durability-templated
+    ];
+    const out = exposureFromSessions(days, 250, "2026-07-10");
+    expect(out["aerobic-base"]).toBe(1); // whole weeks since 2026-07-01
+    expect(out.durability).toBe(1); // whole weeks since 2026-07-03
   });
 });
 

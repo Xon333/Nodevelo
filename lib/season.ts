@@ -70,6 +70,10 @@ const GOAL_PATTERNS: Array<{ re: RegExp; weights: Partial<Record<SeasonFocus, nu
 // pattern fires (absence of a goal must not distort the other scoring factors). When patterns fire,
 // the max weight across fired patterns wins; an unmentioned focus scores 0.
 export function goalRelevanceForFocus(goalText: string | undefined, focus: SeasonFocus): number {
+  // Foundational, not goal-gated (season-continuous-focus-selection §4, KB: "base is non-negotiable") —
+  // no goal ever names aerobic-base explicitly, so letting the fired-pattern penalty zero it out
+  // whenever ANY other pattern fires would make it lose every goal-driven scoring round by construction.
+  if (focus === "aerobic-base") return 0.5;
   const haystack = (goalText ?? "").toLowerCase();
   if (!haystack.trim()) return 0.5;
   const fired = GOAL_PATTERNS.filter((p) => tagPresent(haystack, p.re));
@@ -118,8 +122,9 @@ export function exposureFromSessions(
     if (d.type === "Threshold") note("threshold", d.date);
     else if (d.type === "VO2max") note("vo2max", d.date);
     else if (d.type === "SIT") note("anaerobic", d.date);
-    else if ((d.type === "Z2" || d.type === "Recovery") && (d.durabilityTemplate || carriesEmbeddedIntensity(d.workoutText, ftp))) {
-      note("durability", d.date);
+    else if (d.type === "Z2" || d.type === "Recovery") {
+      if (d.durabilityTemplate || carriesEmbeddedIntensity(d.workoutText, ftp)) note("durability", d.date);
+      else note("aerobic-base", d.date);
     }
   }
   const out: Partial<Record<SeasonFocus, number>> = {};
@@ -155,7 +160,7 @@ export interface SeasonDraftInput {
   weeksSinceLastDeload?: number;
 }
 
-const BUILD_FOCI: SeasonFocus[] = ["threshold", "vo2max", "anaerobic", "durability"];
+const BUILD_FOCI: SeasonFocus[] = ["aerobic-base", "threshold", "vo2max", "anaerobic", "durability"];
 
 // KB: "base is non-negotiable." Lead with a base touch when the recent window carries none.
 export function needsBaseGate(recentFocuses: SeasonFocus[]): boolean {
@@ -189,7 +194,8 @@ export const WEEKLY_INTENSITY_FLOOR = 1;
 // Fixed responsiveness-per-week constant per focus (deliberately not modeled further): threshold/
 // vo2max respond within a mesocycle; durability is slower; sprint/anaerobic gains are multi-season
 // and strength-anchored.
-export const FOCUS_TRAINABILITY: Record<"threshold" | "vo2max" | "anaerobic" | "durability", number> = {
+export const FOCUS_TRAINABILITY: Record<"aerobic-base" | "threshold" | "vo2max" | "anaerobic" | "durability", number> = {
+  "aerobic-base": 0.9, // responds quickly to a short re-touch (KB: 2-4wk sufficient to re-establish the ceiling)
   threshold: 1.0,
   vo2max: 0.9,
   durability: 0.6,
@@ -263,6 +269,9 @@ export function execQualityByFocus(model: AthleteModel): Partial<Record<SeasonFo
     ["vo2max", "VO2max"],
     ["anaerobic", "SIT"],
     ["durability", "Z2"],
+    // Same Z2 dimension as durability — the athlete model has no finer distinction between a
+    // durability-templated Z2 ride and a plain aerobic-base Z2 ride; both are steady-state execution.
+    ["aerobic-base", "Z2"],
   ];
   const out: Partial<Record<SeasonFocus, number>> = {};
   for (const [focus, dim] of dims) {
