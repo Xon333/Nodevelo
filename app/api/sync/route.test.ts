@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import type { ActivitySummary, CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, RideScoreEntry, SyncData } from "@/lib/types";
+import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, RideScoreEntry, SyncData } from "@/lib/types";
 
 // Route tests for /api/sync (SUB-3): the 500-line orchestrator guarding the immutable ledger.
 // Network (intervals-api) + fs (data-store, physiology) are mocked at the module boundary; the
@@ -148,6 +148,17 @@ const mkScoreEntry = (over: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
   ftpUsed: 250,
   durationMin: 75,
   tss: 80,
+  ...over,
+});
+
+const mkHistoryEntry = (over: Partial<BlockHistoryEntry> = {}): BlockHistoryEntry => ({
+  id: "h1",
+  goal: "Build FTP",
+  startDate: "2026-06-01",
+  endDate: "2026-06-30",
+  lengthWeeks: 4,
+  overview: "prior block",
+  createdAt: "2026-06-01T00:00:00.000Z",
   ...over,
 });
 
@@ -383,6 +394,40 @@ describe("POST /api/sync — ledger wiring", () => {
     await postSync();
     expect(store.mergeCurrentBlockDays).not.toHaveBeenCalled();
   });
+
+  it("backfills the fresh execution outcome onto a matching block-history day (§8 block-history enrichment)", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-07-01", executionScore: 9, compliancePct: 100 })];
+    const historyEntry = mkHistoryEntry({
+      days: [{ date: "2026-07-01", name: "Threshold", type: "Threshold", durationMin: 60 }],
+    });
+    vi.mocked(store.readBlockHistory).mockResolvedValue([historyEntry]);
+    await postSync();
+    expect(store.updateBlockHistory).toHaveBeenCalledOnce();
+    const mutate = vi.mocked(store.updateBlockHistory).mock.calls[0][0];
+    const patched = mutate([historyEntry]);
+    expect(patched[0].days).toEqual([
+      expect.objectContaining({ date: "2026-07-01", execution: { score: 9, compliancePct: 100 } }),
+    ]);
+  });
+
+  it("does not call the block-history patch when no history day's execution stamp actually changed (§8 block-history enrichment)", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-07-01", executionScore: 9, compliancePct: 100 })];
+    vi.mocked(store.readBlockHistory).mockResolvedValue([
+      mkHistoryEntry({
+        days: [
+          {
+            date: "2026-07-01",
+            name: "Threshold",
+            type: "Threshold",
+            durationMin: 60,
+            execution: { score: 9, compliancePct: 100 },
+          },
+        ],
+      }),
+    ]);
+    await postSync();
+    expect(store.updateBlockHistory).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/sync — ledger rebuild one-shot (LEDGER-3)", () => {
@@ -461,6 +506,17 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     const res = await postSync();
     expect(res.status).toBe(200);
     expect((await res.json()).warnings.some((w: string) => /Intervention validation failed: corrupt log/.test(w))).toBe(true);
+  });
+
+  it("surfaces an execution-outcome backfill failure as a warning without failing the sync", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-07-01", executionScore: 9, compliancePct: 100 })];
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-07-01", name: "Threshold", type: "Threshold", durationMin: 60 }] })
+    );
+    vi.mocked(store.mergeCurrentBlockDays).mockRejectedValueOnce(new Error("disk full"));
+    const res = await postSync();
+    expect(res.status).toBe(200);
+    expect((await res.json()).warnings.some((w: string) => /Execution-outcome backfill failed: disk full/.test(w))).toBe(true);
   });
 });
 

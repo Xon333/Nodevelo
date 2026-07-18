@@ -556,6 +556,7 @@ export async function POST(req: Request) {
         }
       } catch (e) {
         logWarn("/api/sync", "execution-backfill", e instanceof Error ? e.message : String(e));
+        warnings.push(`Execution-outcome backfill failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
