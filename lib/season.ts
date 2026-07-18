@@ -1,7 +1,8 @@
-// Macro periodization engine (MACRO-1..3). Pure + deterministic: drafts a rough, rolling season arc of
-// limiter-focus periods, grounded in the knowledge base. The LLM only phrases FocusPeriod.rationale.
+// Macro periodization engine (MACRO-1..3). Pure + deterministic: settles season history (rolling mode —
+// each block's focus is chosen fresh via chooseNextFocus, not drafted ahead) or backward-schedules an
+// event-anchored arc (event mode), grounded in the knowledge base. The LLM only phrases
+// FocusPeriod.rationale.
 import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType, AthleteModel, RideScoreEntry } from "./types";
-import { DEFAULT_ACWR_BANDS } from "./calibration";
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { execFor } from "./intervention";
@@ -10,11 +11,11 @@ import { execFor } from "./intervention";
 // DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
 // phase-sequence model itself is a separate, deferred question (see ROADMAP.md "Season architecture
 // doubt": whether always prescribing a phase sequence regardless of a rider's existing base is even
-// the right model). Season state keeps being tracked underneath this flag (replanSeasonArc still
-// runs, season-plan.json still updates, B/C-priority event surfacing still injects -- those are
-// calendar facts, not phase opinion) -- only the PHASE-DERIVED opinion about what a week should
-// emphasise, and the validators that grade generated days against it, are switched off. Flip back to
-// true once the season model is revisited.
+// the right model). Season state keeps being tracked underneath this flag (settleSeasonHistory/
+// replanEventArc still run, season-plan.json still updates, B/C-priority event surfacing still
+// injects -- those are calendar facts, not phase opinion) -- only the PHASE-DERIVED opinion about
+// what a week should emphasise, and the validators that grade generated days against it, are
+// switched off. Flip back to true once the season model is revisited.
 export const SEASON_SHAPES_GENERATION = false;
 
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus
@@ -26,11 +27,6 @@ export const SEASON_CONSTANTS = {
   taperWeeks: 1, // 1–2
   deloadEveryWeeks: 4, // 3:1 — a deload week after 3 loading weeks
   deloadTightEveryWeeks: 3, // 2:1 under heavy fatigue
-  loadRampPct: 6, // +5–8% weekly-TSS ramp midpoint
-  horizonPeriods: 5, // how many future periods to draft (rough & rolling)
-  arcWeeks: { min: 8, max: 12 }, // bounded emphasis arc: consecutive loading weeks between aerobic-base touches
-  transitionEveryLoadingWeeks: 20, // a genuine season break after ~2 full arcs of continuous loading
-  transitionWeeks: 2, // the break itself: a light fortnight — volume AND intensity down
   retestEveryWeeks: 8, // FTP/power-curve retest cadence: 6–8 wk (aggressive) ∩ 8–12 wk (conservative) = one arc
 } as const;
 
@@ -151,31 +147,9 @@ export interface SeasonDraftInput {
   // Optional reality signals for the scored coverage selector (goal text, real session exposure,
   // execution EWMAs). Absent → labels-only selection (every pre-existing caller/fixture unchanged).
   focusSignals?: FocusSignals;
-  // Calendar weeks since the last genuine reduced-load break (phase "transition") ended — from
-  // weeksSinceSeasonBreak(). Absent/null = unknown → never draft a break (conservative).
-  weeksSinceSeasonBreak?: number | null;
-  // Calendar weeks already accumulated toward the NEXT deload boundary — from weeksSinceLastDeload().
-  // Absent → 0 (matches every pre-existing caller/test: a fresh draft with no prior context starts
-  // the cadence from scratch, same as before this field existed).
-  weeksSinceLastDeload?: number;
 }
 
 const BUILD_FOCI: SeasonFocus[] = ["aerobic-base", "threshold", "vo2max", "anaerobic", "durability"];
-
-// KB: "base is non-negotiable." Lead with a base touch when the recent window carries none.
-export function needsBaseGate(recentFocuses: SeasonFocus[]): boolean {
-  return !recentFocuses.slice(-4).includes("aerobic-base");
-}
-
-// Estimated consecutive loading weeks since the last aerobic-base touch in a focus history
-// (most recent last). The history carries no per-period week counts, so KB default weeks per
-// focus are the estimate — good enough to bound an arc; overrides that stretched a period only
-// shift the boundary by a week or two.
-export function weeksSinceBase(recentFocuses: SeasonFocus[]): number {
-  const idx = recentFocuses.lastIndexOf("aerobic-base");
-  const tail = idx === -1 ? recentFocuses : recentFocuses.slice(idx + 1);
-  return tail.reduce((sum, f) => sum + SEASON_CONSTANTS.weeks[f], 0);
-}
 
 // ---------- Coverage selector (2026-07-15-season-coverage-selector) ----------
 // Scored build-focus selection: goal-relevance × decay-urgency × trainability × execution quality,
@@ -207,8 +181,8 @@ const URGENCY_SATURATION_WEEKS = 12; // exposure this old (or older) is maximall
 const NEVER_SEEN_URGENCY = 1.3; // …except NEVER seen, which outranks even saturated staleness.
 
 // Optional reality signals for the selector. All absent → the selector degrades to label-only
-// urgency with neutral goal/execution — the exact call shape the macro-structure sibling's
-// pickBuildFocus delegation uses.
+// urgency with neutral goal/execution — the exact call shape backwardScheduleFromEvent's
+// selectBuildFocus call uses.
 export interface FocusSignals {
   goalText?: string; // objective + block goal + goals/weakpoints, joined
   exposure?: Partial<Record<SeasonFocus, number>>; // weeks since real exposure (exposureFromSessions)
@@ -250,7 +224,7 @@ export function scoreFocusCandidates(
 
 // The selector: top-scored candidate that isn't the most recent focus (KB variety — never repeat
 // back-to-back, preserved from every prior selector version). `signals` optional by design: this is
-// the drop-in seam the macro-structure sibling's pickBuildFocus delegates to.
+// the drop-in seam backwardScheduleFromEvent's backward fill calls directly (no signals in scope there).
 export function selectBuildFocus(
   limiter: SeasonDraftInput["limiter"],
   recentFocuses: SeasonFocus[],
@@ -305,7 +279,7 @@ export function isSeasonFocus(v: string | undefined): v is SeasonFocus {
 }
 
 // A week is "genuinely light" at/below this fraction of the athlete's own rolling weekly baseline —
-// mirrors assignLoadTargets' "a genuine season break: ~50% load" convention and
+// the same "a genuine season break: ~50% load" convention the old load-target envelope used, and
 // BlockSettings.recoveryWeekHoursMin/Max's real recovery-week volume band, so "light" means the same
 // thing everywhere in this codebase.
 const LIGHT_WEEK_FRACTION = 0.5;
@@ -387,169 +361,6 @@ export function execQualityByFocus(model: AthleteModel): Partial<Record<SeasonFo
   return out;
 }
 
-// Thin wrapper kept for existing call sites/tests: labels-only scored selection. The scored selector
-// (selectBuildFocus, above) replaced both the original "first non-last of defaultBuildOrder()" fallback
-// and the interim least-recently-used fallback (2026-07-15-season-critical-fixes) — the limiter is now
-// a weighted bonus, not an unconditional winner.
-export function nextBuildFocus(
-  limiter: SeasonDraftInput["limiter"],
-  recentFocuses: SeasonFocus[]
-): SeasonFocus {
-  return selectBuildFocus(limiter, recentFocuses);
-}
-
-// Event-anchored path selector — delegates to the scored coverage selector (2026-07-15-season-coverage-selector,
-// already landed) so both the rolling and event-anchored paths share one selection quality. No signals threaded
-// here (the event path has no per-day session data in scope); labels-only scoring still beats the old fixed cycle.
-export function pickBuildFocus(
-  limiter: SeasonDraftInput["limiter"],
-  recentFocuses: SeasonFocus[]
-): SeasonFocus {
-  return selectBuildFocus(limiter, recentFocuses);
-}
-
-function period(focus: SeasonFocus, phase: SeasonPhase, startDate: string, confidence: FocusPeriod["confidence"], rationale: string): FocusPeriod {
-  return {
-    focus, phase, startDate,
-    plannedWeeks: focus === "sharpen" ? 1 : SEASON_CONSTANTS.weeks[focus],
-    intensitySplit: SEASON_CONSTANTS.split[focus],
-    targetWeeklyTss: null, // assigned in Task 4
-    deloadWeek: false, // assigned in Task 3
-    rationale, source: "derived", confidence,
-  };
-}
-
-// Mode-C rolling cycle: base-gate → rotating limiter-focus build periods → a realize week. (Deload + load
-// targets + the event overlay are layered by later helpers.) Drafts SEASON_CONSTANTS.horizonPeriods ahead.
-export function draftSeasonArc(input: SeasonDraftInput, today: string): FocusPeriod[] {
-  // Event-anchored mode: a future A-priority event takes over the whole arc (dormant until one exists —
-  // see backwardScheduleFromEvent). Otherwise fall through to the Mode-C rolling cycle unchanged.
-  const aEvent = input.events.find((e) => e.priority === "A" && Date.parse(e.date) > Date.parse(today));
-  if (aEvent) return backwardScheduleFromEvent(aEvent, input, today);
-
-  const periods: FocusPeriod[] = [];
-  const recent = [...input.recentFocuses];
-  // Foci actually drafted during THIS draftSeasonArc call — deliberately separate from `recent`,
-  // which is seeded from input.recentFocuses (the incoming history) and then grows. See the
-  // real-exposure filter below for why the distinction matters.
-  const draftedThisCall = new Set<SeasonFocus>();
-  let cursor = today;
-  const conf = input.limiter.confidence;
-  let sinceBreak = input.weeksSinceSeasonBreak ?? null;
-
-  // A "reset" is either a plain 3-wk aerobic-base touch (arc boundary / base gate) or — once
-  // ~two arcs of continuous loading have accrued since the last one — a genuine 2-wk
-  // phase-"transition" break: volume AND intensity down, a real seasonal breather the weekly
-  // 3:1 deloadWeek cadence never provides. Either way it counts as the arc's base touch.
-  const pushReset = () => {
-    if (sinceBreak !== null && sinceBreak >= SEASON_CONSTANTS.transitionEveryLoadingWeeks) {
-      periods.push({
-        focus: "aerobic-base", phase: "transition", startDate: cursor,
-        plannedWeeks: SEASON_CONSTANTS.transitionWeeks, intensitySplit: "95/5",
-        targetWeeklyTss: null, deloadWeek: false,
-        rationale: "Season break — ~two arcs of continuous loading absorbed; a genuinely light fortnight (volume AND intensity down) before the next arc.",
-        source: "derived", confidence: conf,
-      });
-      sinceBreak = 0;
-    } else {
-      periods.push(period("aerobic-base", "base", cursor, conf,
-        periods.length === 0 && needsBaseGate(input.recentFocuses)
-          ? "Aerobic base — the ceiling for every later phase (KB)."
-          : "Arc boundary — re-touch aerobic base so the build doesn't run monotone (Foster 1998: illness tracks load × monotony)."));
-      if (sinceBreak !== null) sinceBreak += periods[periods.length - 1].plannedWeeks;
-    }
-    recent.push("aerobic-base");
-    draftedThisCall.add("aerobic-base");
-    cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
-  };
-
-  if (needsBaseGate(recent)) pushReset();
-
-  // Arc cap (Foster 1998: illness risk tracks load × monotony): consecutive loading weeks since the
-  // last base touch may never exceed arcWeeks.max — the touch also resets the rotation's recency
-  // window, so the same two-focus pattern can't repeat unchanged across an arc boundary.
-  let sinceBase = weeksSinceBase(recent);
-
-  while (periods.length < SEASON_CONSTANTS.horizonPeriods - 1) {
-    // Real exposure (signals.exposure) is measured once, as of `today` — it does not update as this
-    // loop hypothetically drafts future periods, unlike labelExposureWeeks(recent, focus), which
-    // grows every iteration. Left unadjusted, a focus with real (low) exposure and no confident-limiter
-    // competitor can out-score every focus that's never been trained at all for the ENTIRE draft,
-    // recreating a two-focus alternation for a new reason (found live, 2026-07-15 — a confident
-    // anaerobic limiter with real recent SIT/Threshold exposure locked out vo2max/durability, whose
-    // real exposure was real but comparatively stale and never got a chance to grow further). Fix:
-    // extrapolate a not-yet-drafted focus's real staleness forward by how far this draft has already
-    // advanced past `today`; once a focus IS drafted (during THIS call), drop its real exposure
-    // entirely so it falls through to labelExposureWeeks, which already resets/regrows correctly from
-    // that point on. NOTE (bug found by the final whole-branch review): this must check
-    // `draftedThisCall`, NOT `recent` — `recent` is seeded from input.recentFocuses (the incoming
-    // history, e.g. the last 4 kept period labels in replanSeasonArc) and only grows from there, so
-    // checking it conflated "already in the incoming history" with "drafted this call". That silently
-    // discarded real exposure data for any focus whose label already appeared in the incoming history —
-    // from iteration 1, before this call had drafted anything — defeating the real-data preference for
-    // exactly the foci most likely to have real data.
-    const weeksIntoThisDraft = weeksBetween(today, cursor);
-    const adjustedSignals: FocusSignals | undefined = input.focusSignals?.exposure
-      ? {
-          ...input.focusSignals,
-          exposure: Object.fromEntries(
-            Object.entries(input.focusSignals.exposure)
-              .filter(([f]) => !draftedThisCall.has(f as SeasonFocus))
-              .map(([f, weeks]) => [f, (weeks as number) + weeksIntoThisDraft])
-          ) as Partial<Record<SeasonFocus, number>>,
-        }
-      : input.focusSignals;
-    const focus = selectBuildFocus(input.limiter, recent, adjustedSignals);
-    const focusWeeks = SEASON_CONSTANTS.weeks[focus];
-    if (sinceBase >= SEASON_CONSTANTS.arcWeeks.min && sinceBase + focusWeeks > SEASON_CONSTANTS.arcWeeks.max) {
-      pushReset();
-      sinceBase = 0;
-      continue;
-    }
-    const why =
-      input.limiter.system === focus && conf !== "low"
-        ? `Build ${focus} — your most depressed system relative to your engine.`
-        : `Build ${focus} — rotating the quality focus (KB: avoid repeating one stimulus).`;
-    periods.push(period(focus, "build", cursor, conf, why));
-    recent.push(focus);
-    draftedThisCall.add(focus);
-    sinceBase += focusWeeks;
-    if (sinceBreak !== null) sinceBreak += focusWeeks;
-    cursor = addWeeks(cursor, periods[periods.length - 1].plannedWeeks);
-  }
-
-  periods.push(period("sharpen", "build", cursor, conf, "Realize — a lighter week to absorb the block and re-test."));
-  const withDeloads = applyDeloadCadence(periods, input.heavyFatigue, input.weeksSinceLastDeload ?? 0);
-  const seed = input.ftp !== null && input.ctl !== null ? input.recentWeeklyTss : null;
-  return assignLoadTargets(withDeloads, seed, DEFAULT_ACWR_BANDS.optimalHigh);
-}
-
-// Ramps each period's targetWeeklyTss ~+loadRampPct% off the prior period (first period off seedWeeklyTss).
-// targetWeeklyTss is the period's LOADING-week target: every period advances the ramp — deloadWeek does
-// NOT dampen it. The flag means "this period's TRAILING week is lighter", and that lighter week is sized
-// downstream (BlockSettings.recoveryWeekHoursMin/Max in the block generator + formatSeasonContext's
-// "deload week" prompt phrase), never by this envelope. (The old 0.6x/frozen-base branch was abandoned
-// because applyDeloadCadence and this load-target logic together were colliding, each over-flagging.
-// This session fixed applyDeloadCadence's threshold math; the 0.6x path remains inert.)
-// Capped so a target never exceeds seedWeeklyTss * acwrCeiling.
-// Null seed → all targets remain null.
-export function assignLoadTargets(periods: FocusPeriod[], seedWeeklyTss: number | null, acwrCeiling: number): FocusPeriod[] {
-  if (seedWeeklyTss === null || !Number.isFinite(seedWeeklyTss) || seedWeeklyTss <= 0) {
-    return periods.map((p) => ({ ...p, targetWeeklyTss: null }));
-  }
-  const ramp = 1 + SEASON_CONSTANTS.loadRampPct / 100;
-  const ceiling = seedWeeklyTss * acwrCeiling;
-  let prev = seedWeeklyTss;
-  return periods.map((p) => {
-    const isBreak = p.phase === "transition"; // a genuine season break: ~50% load, deeper than a deload
-    const target = isBreak
-      ? Math.round(prev * 0.5)
-      : Math.min(Math.round(prev * ramp), Math.round(ceiling));
-    if (!isBreak) prev = target; // deloadWeek still advances the base (KB: only the flag dampens the trailing week, never this envelope) — only a transition break freezes it
-    return { ...p, targetWeeklyTss: target };
-  });
-}
-
 // Whole weeks between two ISO dates, floored, clamped at 0 (never negative for a past "today").
 function weeksBetween(fromIso: string, toIso: string): number {
   return Math.max(0, Math.floor((Date.parse(toIso) - Date.parse(fromIso)) / (7 * 86_400_000)));
@@ -579,14 +390,14 @@ export function backwardScheduleFromEvent(event: SeasonEvent, input: SeasonDraft
     let filled = peakWeeks + SEASON_CONSTANTS.taperWeeks;
     // Backward fill, nearest-to-peak first: each pick sees the running `chosen` history, so a
     // confident limiter lands in the most race-specific slot (right before the peak) and the
-    // in-between slots rotate least-recently-used across ALL four build systems. The old fixed
+    // in-between slots rotate least-recently-used across every build system. The old fixed
     // [threshold, vo2max, durability] index cycle could never schedule anaerobic and ignored the
     // limiter entirely. (Adjacency is symmetric, so no-back-to-back survives the reversal;
     // input.recentFocuses is deliberately NOT seeded here — chronologically it borders the START
     // of the runway, i.e. the LAST period this loop generates, not the first.)
     const chosen: SeasonFocus[] = [];
     while (filled < runway) {
-      const focus = pickBuildFocus(input.limiter, chosen);
+      const focus = selectBuildFocus(input.limiter, chosen);
       const w = Math.min(SEASON_CONSTANTS.weeks[focus], runway - filled);
       if (w <= 0) break;
       tail.unshift(mk(focus, "build", w, `Build ${focus} toward ${event.name}.`));
@@ -608,51 +419,49 @@ export function backwardScheduleFromEvent(event: SeasonEvent, input: SeasonDraft
 // A period's computed end date (startDate + plannedWeeks).
 const periodEnd = (p: FocusPeriod): string => addWeeks(p.startDate, p.plannedWeeks);
 
-// Re-plan the rolling arc: periods that have already ended are frozen (stamped with achieved load, never
-// re-derived), the period straddling today is preserved verbatim (it's already in progress — regenerating
-// it mid-stream would change the roadmap's "current, wk N/M" card's identity on every re-plan), any future
-// athlete-edited override is preserved verbatim, and only the remaining derived tail is re-drafted —
-// starting after whichever of {the current period, the last override} ends latest (or from `today` if
-// neither exists). Pure + idempotent: unchanged inputs re-run produce the same periods (frozen achievedTss
-// is filled once, not re-stamped; the current period is never re-stamped either; the derived tail is a
-// deterministic function of the unchanged seed state).
-export function replanSeasonArc(
+// Rolling mode (season-continuous-focus-selection §4/§9): freeze past periods with achieved load
+// (same semantics the old replanSeasonArc always had for this bucket), preserve a period straddling
+// today verbatim until it ends, and drop every future period — rolling mode no longer drafts a
+// forward sequence; chooseNextFocus decides each block's focus fresh instead. What remains after this
+// is pure settled history: done-cards for the roadmap, achievedTss for the selector's execution
+// signal. Pure + idempotent.
+export function settleSeasonHistory(
   plan: SeasonPlan,
+  achievedTssFor: (period: FocusPeriod) => number | null,
+  today: string
+): SeasonPlan {
+  const frozen = plan.periods
+    .filter((p) => periodEnd(p) <= today)
+    .map((p) => ({ ...p, achievedTss: p.achievedTss ?? achievedTssFor(p) ?? undefined }));
+  const current = plan.periods.filter((p) => p.startDate <= today && periodEnd(p) > today);
+  const periods = [...frozen, ...current].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return { ...plan, periods, updatedAt: plan.updatedAt };
+}
+
+// Event-anchored mode (season-continuous-focus-selection §7 — kept close to shipped behavior): the
+// same three-bucket re-plan the old replanSeasonArc always did for this case (freeze past / preserve
+// current / preserve overrides / redraft the tail), with the tail always going straight to
+// backwardScheduleFromEvent instead of through draftSeasonArc's now-removed dispatcher. Deload-cadence
+// threading is gone because it never applied to this path (see backwardScheduleFromEvent's own
+// comment: peak/taper are exempt).
+export function replanEventArc(
+  plan: SeasonPlan,
+  event: SeasonEvent,
   input: SeasonDraftInput,
   achievedTssFor: (period: FocusPeriod) => number | null,
   today: string
 ): SeasonPlan {
-  // Past = periods that have already ended → frozen with achieved load, never re-drafted.
   const frozen = plan.periods
     .filter((p) => periodEnd(p) <= today)
     .map((p) => ({ ...p, achievedTss: p.achievedTss ?? achievedTssFor(p) ?? undefined }));
-  // The period straddling today (started, not yet ended) is preserved verbatim — regenerating it
-  // mid-stream would make the roadmap's "current, wk N/M" card change identity on every re-plan.
-  // No achievedTss stamp: it isn't complete yet.
   const current = plan.periods.filter((p) => p.startDate <= today && periodEnd(p) > today);
-  // Future overrides the athlete edited → preserved verbatim. Excludes anything already in `current`
-  // so a straddling override isn't duplicated between the two buckets.
   const overrides = plan.periods.filter(
     (p) => periodEnd(p) > today && p.source === "override" && !current.includes(p)
   );
-  // Re-draft the derived tail seeded by what actually happened, starting after whichever of
-  // {the straddling current period, the last override} ends latest — never before either. The
-  // current period counts as "recent" too (it's real, in-progress context for base-gating/rotation) —
-  // omitting it would let the redraft immediately re-insert e.g. a duplicate aerobic-base period right
-  // after an in-progress aerobic-base period ends.
-  const recentFocuses = [...frozen, ...current].slice(-4).map((p) => p.focus);
   const anchors = [...current, ...overrides];
-  const draftStart = anchors.length
-    ? anchors.map((p) => periodEnd(p)).sort().reverse()[0]
-    : today;
-  // Break clock + deload-cadence clock (HR-22) from the KEPT periods only ([frozen, current,
-  // overrides]) — the old derived tail being replaced must not count: a discarded drafted
-  // transition/deload never actually happened.
+  const draftStart = anchors.length ? anchors.map((p) => periodEnd(p)).sort().reverse()[0] : today;
   const keptPeriods = [...frozen, ...current, ...overrides];
-  const derived = draftSeasonArc(
-    { ...input, recentFocuses, weeksSinceSeasonBreak: weeksSinceSeasonBreak(keptPeriods, draftStart), weeksSinceLastDeload: weeksSinceLastDeload(keptPeriods, draftStart) },
-    draftStart
-  );
+  const derived = backwardScheduleFromEvent(event, input, draftStart);
   const periods = [...keptPeriods, ...derived].sort((a, b) => a.startDate.localeCompare(b.startDate));
   return { ...plan, periods, updatedAt: plan.updatedAt };
 }
@@ -661,8 +470,9 @@ export function replanSeasonArc(
 // immutable, long-lived record (last-sync.json is a rolling ~45-day window that can age a period
 // out before it's stamped; the ledger can't). End-EXCLUSIVE range, matching periodForDate's
 // straddling definition. null when no in-range entry carries a tss: "no data" must stay
-// distinguishable from "zero load" (replanSeasonArc stamps achievedTss once, ?? keeps retrying
-// null until data exists). Wired as the route's achievedTssFor (closes the `() => null` gap).
+// distinguishable from "zero load" (settleSeasonHistory/replanEventArc each stamp achievedTss once,
+// ?? keeps retrying null until data exists). Wired as the route's achievedTssFor (closes the `() =>
+// null` gap).
 export function achievedTssForPeriod(
   entries: Array<Pick<RideScoreEntry, "date" | "tss">>,
   period: FocusPeriod
@@ -673,74 +483,10 @@ export function achievedTssForPeriod(
   return Math.round(inRange.reduce((sum, e) => sum + (e.tss as number), 0));
 }
 
-// Mark the period that crosses each deload boundary (30–50% volume cut lands in its trailing week).
-// Boundary fires when cumulative loading weeks reach `every` (a genuine rolling count ACROSS period
-// boundaries, not per-period): a period shorter than `every` on its own must not self-trip just
-// because it happens to be a whole mesocycle — it combines with the next period(s) until the full
-// cadence is reached. A period whose own length equals or exceeds `every` still fires on its own,
-// which is correct (a 4-week period IS one full 4-week loading cycle). Fixed live, 2026-07-16: the
-// previous `every - 1` threshold was smaller than any real KB period's own length (all ≥3 weeks),
-// so it fired on almost every period regardless of how many calendar weeks had actually passed.
-// `seedWeeks` (HR-22, 2026-07-17): weeks already accumulated toward the boundary BEFORE `periods`
-// starts — from weeksSinceLastDeload(), threaded in by replanSeasonArc so the rolling count survives
-// across /api/generate calls instead of restarting at 0 on every redraft of the future tail. Defaults
-// to 0, matching every pre-existing caller/test (a fresh draft with no prior context).
-export function applyDeloadCadence(periods: FocusPeriod[], tight: boolean, seedWeeks: number = 0): FocusPeriod[] {
-  const every = tight ? SEASON_CONSTANTS.deloadTightEveryWeeks : SEASON_CONSTANTS.deloadEveryWeeks;
-  let weeksSinceDeload = seedWeeks;
-  return periods.map((p) => {
-    // A transition IS recovery: never also flag it as a deload, and restart the cadence after it.
-    if (p.phase === "transition") {
-      weeksSinceDeload = 0;
-      return { ...p, deloadWeek: false };
-    }
-    weeksSinceDeload += p.plannedWeeks;
-    if (weeksSinceDeload >= every) {
-      weeksSinceDeload = 0;
-      return { ...p, deloadWeek: true };
-    }
-    return { ...p, deloadWeek: false };
-  });
-}
-
 // The period covering an arbitrary ISO date — start inclusive, end exclusive, the same straddling
-// definition replanSeasonArc's "current" bucket uses. Null when no period covers the date.
+// definition settleSeasonHistory/replanEventArc's "current" bucket uses. Null when no period covers the date.
 export function periodForDate(plan: SeasonPlan, date: string): FocusPeriod | null {
   return plan.periods.find((p) => p.startDate <= date && periodEnd(p) > date) ?? null;
-}
-
-// Calendar weeks since the athlete's last genuine reduced-load break (phase "transition") ended,
-// measured over periods that have started by `asOf`. No transition ever → measured from the first
-// started period (season length so far). Null when nothing has started — a brand-new season cannot
-// be "overdue for a break".
-export function weeksSinceSeasonBreak(periods: FocusPeriod[], asOf: string): number | null {
-  const started = periods.filter((p) => p.startDate <= asOf);
-  if (started.length === 0) return null;
-  const transitions = started.filter((p) => p.phase === "transition");
-  const anchor = transitions.length > 0
-    ? transitions.map((p) => addWeeks(p.startDate, p.plannedWeeks)).sort().reverse()[0]
-    : started.map((p) => p.startDate).sort()[0];
-  return weeksBetween(anchor, asOf); // clamps at 0 for an in-progress transition
-}
-
-// HR-22 (2026-07-17 hostile review): applyDeloadCadence's "genuine rolling calendar-week count"
-// (fixed 2026-07-16) never actually persisted across /api/generate calls — replanSeasonArc preserves
-// the in-progress current period verbatim and only redrafts the future tail, so the counter always
-// restarted at 0 on that tail, discarding whatever the kept periods had already accumulated toward
-// the next boundary. Mirrors weeksSinceSeasonBreak's exact pattern: find the most recent RESET
-// point's end (a period flagged deloadWeek:true, or a phase:"transition" — both reset
-// applyDeloadCadence's own counter identically) and measure calendar weeks forward from there; no
-// reset ever → measure from the first started period (season start). 0 (not null) when nothing has
-// started — unlike the break clock, a fresh cadence with no history is simply "0 weeks in", not
-// unknown/conservative.
-export function weeksSinceLastDeload(periods: FocusPeriod[], asOf: string): number {
-  const started = periods.filter((p) => p.startDate <= asOf);
-  if (started.length === 0) return 0;
-  const resets = started.filter((p) => p.deloadWeek || p.phase === "transition");
-  const anchor = resets.length > 0
-    ? resets.map((p) => periodEnd(p)).sort().reverse()[0]
-    : started.map((p) => p.startDate).sort()[0];
-  return weeksBetween(anchor, asOf);
 }
 
 // The period straddling `today` (started, not yet ended) — periodForDate specialised to "now".
@@ -763,7 +509,8 @@ const ALLOWED_BLOCK_WEEKS = [2, 4, 6, 8] as const;
 // weeks to the smallest allowed value >= it, floored at 2, capped at 8. Ceiling (not nearest/floor) is
 // deliberate — the suggested block always covers AT LEAST the rest of the current period rather than
 // leaving a stray week neither covered by the block nor a full next period; a block running slightly past
-// the period boundary is the already-accepted case (replanSeasonArc's three-bucket re-plan handles it).
+// the period boundary is the already-accepted case (settleSeasonHistory/replanEventArc's three-bucket
+// re-plan handles it).
 export function suggestedBlockWeeks(period: FocusPeriod, today: string): 2 | 4 | 6 | 8 {
   const remaining = period.plannedWeeks - weeksBetween(period.startDate, today);
   for (const w of ALLOWED_BLOCK_WEEKS) {
@@ -840,7 +587,7 @@ export function formatSeasonContext(
 
 // B/C-priority events inside this block's own date range — surfaced so a real planned test/race
 // day doesn't get a generic session written on top of it. A-priority events are deliberately
-// excluded here: they already take over the whole arc via draftSeasonArc's backward-scheduling
+// excluded here: they already take over the whole arc via replanEventArc's backward-scheduling
 // (this is the ONLY place a B/C event gets any generation-time visibility at all).
 export function formatUpcomingEventsForBlock(
   events: SeasonEvent[],

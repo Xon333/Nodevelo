@@ -96,9 +96,15 @@ beforeEach(() => {
 // Same fixture route.test.ts's "season wiring" describe block uses, so this file's assertions are
 // the direct positive counterpart of that file's flag-off ones.
 describe("POST /api/generate — season wiring with SEASON_SHAPES_GENERATION=true (HR-26)", () => {
+  // CFS-4 (settleSeasonHistory replacing replanSeasonArc): rolling mode now drops every future period,
+  // including overrides, so this fixture needs an upcoming A-event to route through replanEventArc
+  // instead — the event-anchored path unchanged behavior that still preserves current + override
+  // periods verbatim, same as replanSeasonArc always did for this exact bucket shape. The event date
+  // is far enough out that its own derived tail (anchored off the override's end, 2026-07-13) can't
+  // overlap this 2-week block's own range (2026-06-15 → 06-29).
   const seasonPlan = {
     objective: "",
-    events: [],
+    events: [{ name: "Late Season Race", date: "2026-10-01", priority: "A" }],
     periods: [
       { focus: "aerobic-base", phase: "base", startDate: "2026-06-08", plannedWeeks: 2, intensitySplit: "90/10", targetWeeklyTss: null, deloadWeek: false, rationale: "Base.", source: "derived", confidence: "medium" },
       { focus: "threshold", phase: "build", startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "Build.", source: "override", confidence: "medium" },

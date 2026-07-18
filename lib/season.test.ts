@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, needsBaseGate, weeksSinceBase, nextBuildFocus, pickBuildFocus, draftSeasonArc, applyDeloadCadence, assignLoadTargets, backwardScheduleFromEvent, replanSeasonArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, weeksSinceSeasonBreak, weeksSinceLastDeload, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -31,91 +31,26 @@ const baseInput = (over: Partial<SeasonDraftInput> = {}): SeasonDraftInput => ({
   limiter: { system: null, confidence: "low" }, recentFocuses: ["aerobic-base", "threshold"], heavyFatigue: false, ...over,
 });
 
-describe("draftSeasonArc — Mode-C", () => {
-  it("base-gates when no aerobic-base sits in the recent window", () => {
-    expect(needsBaseGate([])).toBe(true); // first-ever draft leads with base
-    expect(needsBaseGate(["threshold", "vo2max", "durability", "threshold"])).toBe(true);
-    expect(needsBaseGate(["aerobic-base", "threshold"])).toBe(false);
-  });
-
-  it("picks the weakest system first when the limiter is confident, else default rotation", () => {
-    expect(nextBuildFocus({ system: "vo2max", confidence: "high" }, ["threshold"])).toBe("vo2max");
-    // low-confidence limiter → default order, skipping a back-to-back repeat
-    expect(nextBuildFocus({ system: null, confidence: "low" }, ["threshold"])).toBe("vo2max");
-  });
-
-  it("never repeats a focus back-to-back", () => {
-    expect(nextBuildFocus({ system: "threshold", confidence: "high" }, ["threshold"])).not.toBe("threshold");
-  });
-
-  it("confident-limiter rotation eventually surfaces every build focus — not a two-state trap", () => {
-    // Real athlete case: limiter = confident anaerobic. The old fallback alternated
-    // anaerobic → threshold forever; vo2max and durability were structurally unreachable.
-    const limiter = { system: "anaerobic" as const, confidence: "high" as const };
-    const recent: import("./types").SeasonFocus[] = ["aerobic-base"];
-    const picks: import("./types").SeasonFocus[] = [];
-    for (let i = 0; i < 6; i++) {
-      const f = nextBuildFocus(limiter, recent);
-      picks.push(f);
-      recent.push(f);
-    }
-    expect(picks).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold", "anaerobic", "threshold"]); // the old trap
-    expect(picks).toContain("vo2max");
-    expect(picks).toContain("durability");
-    // The limiter still leads every other period; the interleaved periods rotate least-recently-used.
-    expect(picks).toEqual(["anaerobic", "threshold", "vo2max", "durability", "anaerobic", "threshold"]); // scored selector (coverage plan) — supersedes the interim LRU sequence
-  });
-
-  it("REGRESSION: the fallback is least-recently-used, not first-in-default-order", () => {
-    // Old code returned "threshold" for both of these unconditionally (first non-last entry of
-    // defaultBuildOrder), even when vo2max/durability had never appeared at all.
-    expect(nextBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold", "anaerobic"])).toBe("vo2max");
-    expect(nextBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold", "vo2max", "anaerobic"])).toBe("durability");
-  });
-
-  it("drafts base(if gated) → rotating build periods → a realize week, dated contiguously", () => {
-    const arc = draftSeasonArc(baseInput({ recentFocuses: [] }), "2026-07-01");
-    expect(arc[0].focus).toBe("aerobic-base");
-    expect(arc[0].startDate).toBe("2026-07-01");
-    expect(arc[1].startDate).toBe(addWeeksExpected(arc[0])); // contiguous
-    expect(arc.some((p) => p.focus === "sharpen")).toBe(true); // realize week present
-    expect(arc.every((p) => p.source === "derived")).toBe(true);
-  });
-  it("drafted arcs carry a monotonically ramping load envelope — no 0.6x plateau, no taper-week spike", () => {
-    // baseInput's recentFocuses includes aerobic-base → no base gate → exactly horizonPeriods (5) periods.
-    const arc = draftSeasonArc(baseInput({ recentWeeklyTss: 806 }), "2026-07-01");
-    expect(arc).toHaveLength(5);
-    // After the deload-cadence fix (2026-07-16): rolling 4-week boundaries, not buggy per-period threshold.
-    // The correct pattern now spaces deloads every ~4 calendar weeks, not every ~3.
-    expect(arc.map((x) => x.deloadWeek)).toEqual([true, false, true, true, false]);
-    const targets = arc.map((x) => x.targetWeeklyTss!);
-    expect(targets).toEqual([854, 905, 959, 1017, 1048]);
-    for (let i = 1; i < targets.length; i++) {
-      expect(targets[i]).toBeGreaterThanOrEqual(targets[i - 1]); // never a spike after a plateau
-    }
-  });
-});
-
-describe("pickBuildFocus — LRU + limiter-weighted build selection", () => {
+describe("selectBuildFocus — LRU + limiter-weighted build selection (used by chooseNextFocus + backwardScheduleFromEvent)", () => {
   it("prefers a confident limiter when it wasn't just used", () => {
-    expect(pickBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold"])).toBe("anaerobic");
-    expect(pickBuildFocus({ system: "durability", confidence: "medium" }, [])).toBe("durability");
+    expect(selectBuildFocus({ system: "anaerobic", confidence: "high" }, ["threshold"])).toBe("anaerobic");
+    expect(selectBuildFocus({ system: "durability", confidence: "medium" }, [])).toBe("durability");
   });
   it("never repeats the most recent focus — even the limiter", () => {
-    expect(pickBuildFocus({ system: "anaerobic", confidence: "high" }, ["anaerobic"])).not.toBe("anaerobic");
+    expect(selectBuildFocus({ system: "anaerobic", confidence: "high" }, ["anaerobic"])).not.toBe("anaerobic");
   });
   it("falls back to the least-recently-used candidate across ALL four build systems", () => {
     // anaerobic has never appeared — the fixed [threshold, vo2max, durability] cycle could never pick it.
     // aerobic-base sits recently-touched (last) so it competes as a normal candidate without winning
     // this particular round — keeps this test's original intent (LRU among the four BUILD systems).
-    expect(pickBuildFocus({ system: null, confidence: "low" }, ["durability", "threshold", "vo2max", "aerobic-base"])).toBe("anaerobic");
+    expect(selectBuildFocus({ system: null, confidence: "low" }, ["durability", "threshold", "vo2max", "aerobic-base"])).toBe("anaerobic");
     // durability is the most starved candidate here (oldest last appearance)
-    expect(pickBuildFocus({ system: null, confidence: "low" }, ["durability", "anaerobic", "threshold", "vo2max", "aerobic-base"])).toBe("durability");
+    expect(selectBuildFocus({ system: null, confidence: "low" }, ["durability", "anaerobic", "threshold", "vo2max", "aerobic-base"])).toBe("durability");
     // a low-confidence limiter gets no special weighting
-    expect(pickBuildFocus({ system: "anaerobic", confidence: "low" }, ["anaerobic"])).toBe("threshold");
+    expect(selectBuildFocus({ system: "anaerobic", confidence: "low" }, ["anaerobic"])).toBe("threshold");
   });
   it("tie-breaks never-used candidates in BUILD_FOCI order", () => {
-    expect(pickBuildFocus({ system: null, confidence: "low" }, [])).toBe("threshold");
+    expect(selectBuildFocus({ system: null, confidence: "low" }, [])).toBe("threshold");
   });
 });
 
@@ -146,103 +81,6 @@ function addWeeksExpected(p: { startDate: string; plannedWeeks: number }): strin
   return new Date(Date.parse(p.startDate) + p.plannedWeeks * 7 * 86_400_000).toISOString().slice(0, 10);
 }
 
-describe("load envelope", () => {
-  const p = (): import("./types").FocusPeriod => ({
-    focus: "threshold", phase: "build", startDate: "2026-07-01", plannedWeeks: 3,
-    intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
-  });
-  it("ramps ~+6% off the seed, capped by ACWR", () => {
-    const out = assignLoadTargets([p(), p(), p()], 400, 1.3);
-    expect(out[0].targetWeeklyTss).toBe(424); // 400 * 1.06
-    expect(out[1].targetWeeklyTss!).toBeGreaterThan(out[0].targetWeeklyTss!);
-    // never a jump beyond the ACWR ceiling vs the seed-derived chronic
-    expect(out[2].targetWeeklyTss! / 400).toBeLessThanOrEqual(1.3 + 0.001);
-  });
-  it("withholds targets when there is no seed (no FTP/CTL)", () => {
-    expect(assignLoadTargets([p()], null, 1.3)[0].targetWeeklyTss).toBeNull();
-  });
-  it("ignores deloadWeek entirely — every period ramps and the base always advances (the lighter week lives inside the block, not in this envelope)", () => {
-    const periods = [
-      { ...p(), deloadWeek: false },
-      { ...p(), deloadWeek: false },
-      { ...p(), deloadWeek: true }, // flagged: the TRAILING week is lighter — but the loading-week target still ramps
-      { ...p(), deloadWeek: false },
-      { ...p(), deloadWeek: false },
-    ];
-    const out = assignLoadTargets(periods, 400, 1.3);
-    expect(out.map((x) => x.targetWeeklyTss)).toEqual([424, 449, 476, 505, 520]); // +6% each, last capped at 400 * 1.3
-    expect(out[2].deloadWeek).toBe(true); // the flag itself is untouched — display/prompt consumers still see it
-  });
-  it("real cadence shape (every multi-week period flagged) ramps off the seed instead of freezing at 0.6x", () => {
-    // Real generated-season shape: every 3-4-week period trips the 3:1 boundary and carries
-    // deloadWeek: true; only the single-week sharpen doesn't. Seed = this athlete's real
-    // 90-day baseline x 7 ~= 806. The old bug produced [484, 484, 484, 484, 854] — a 0.6x
-    // plateau with the nominal taper week spiking +76% above it.
-    const flagged = (weeks: number, deload: boolean) => ({ ...p(), plannedWeeks: weeks, deloadWeek: deload });
-    const out = assignLoadTargets(
-      [flagged(4, true), flagged(3, true), flagged(4, true), flagged(3, true), flagged(1, false)],
-      806,
-      1.3
-    );
-    expect(out.map((x) => x.targetWeeklyTss)).toEqual([854, 905, 959, 1017, 1048]); // +6% ramp, capped at round(806 * 1.3)
-  });
-});
-
-describe("deload cadence — rolling calendar weeks across period boundaries", () => {
-  const p = (weeks: number): import("./types").FocusPeriod => ({
-    focus: "threshold", phase: "build", startDate: "2026-07-01", plannedWeeks: weeks,
-    intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
-  });
-  it("does not self-trip on a single period whose own length already reaches the OLD (buggy) threshold", () => {
-    // A lone 3-week period must NOT be flagged deload under the loose (4-wk) cadence — 3 < 4.
-    // The old code used threshold = every - 1 = 3, so a bare 3-week period alone used to trip it.
-    expect(applyDeloadCadence([p(3)], false)[0].deloadWeek).toBe(false);
-  });
-  it("flags a deload once cumulative loading weeks reach the FULL cadence (4wk default)", () => {
-    const out = applyDeloadCadence([p(2), p(2), p(2)], false); // cumulative 2, 4, 6
-    expect(out[0].deloadWeek).toBe(false); // 2 wk in
-    expect(out[1].deloadWeek).toBe(true); // crosses the 4-week boundary exactly
-    expect(out[2].deloadWeek).toBe(false); // counter reset after the deload — next period only 2 wk in
-  });
-  it("tightens to every 3 calendar weeks under heavy fatigue — corrected from the old, buggy pinned values", () => {
-    // REGRESSION (2026-07-16 live feedback): the OLD threshold (every - 1 = 2) made p(2) alone ALWAYS
-    // trip immediately, giving [true, true] for two 2-week periods — every single period flagged,
-    // not a genuine 3-week rolling cadence. The correct cadence: first period (2wk) doesn't yet reach
-    // 3, second period's cumulative (4wk) crosses it.
-    const out = applyDeloadCadence([p(2), p(2)], true);
-    expect(out[0].deloadWeek).toBe(false);
-    expect(out[1].deloadWeek).toBe(true);
-  });
-  it("REGRESSION (found live, 2026-07-16): real KB period lengths no longer deload almost every period", () => {
-    // Exact shape of the athlete's real season-plan.json at the time of the report: aerobic-base(3),
-    // anaerobic(3), threshold(4), vo2max(4), aerobic-base(3, arc boundary), sharpen(1). The live bug
-    // flagged 5 of 6 as deloadWeek:true (deloads every ~3 weeks); the fix produces genuine ~4-week
-    // spacing: aerobic-base+anaerobic together (3+3=6wk) cross the boundary once at anaerobic's end,
-    // threshold (exactly 4wk) and vo2max (exactly 4wk) each cross it on their own (a 4-week period
-        // IS one full cadence cycle), the arc-boundary aerobic-base (3wk) doesn't reach 4 alone, and
-    // sharpen's single week completes the cadence a 4th time (3 + 1 = 4).
-    const periods = [
-      { ...p(3), focus: "aerobic-base" as const, phase: "base" as const },
-      { ...p(3), focus: "anaerobic" as const },
-      { ...p(4), focus: "threshold" as const },
-      { ...p(4), focus: "vo2max" as const },
-      { ...p(3), focus: "aerobic-base" as const, phase: "base" as const },
-      { ...p(1), focus: "sharpen" as const },
-    ];
-    const out = applyDeloadCadence(periods, false);
-    expect(out.map((x) => x.deloadWeek)).toEqual([false, true, true, true, false, true]);
-    // The direct symptom the athlete reported: a 6-week block spanning just the first two periods
-    // (aerobic-base tail + anaerobic) now shows exactly ONE deload, not two.
-    expect(out.slice(0, 2).filter((x) => x.deloadWeek).length).toBe(1);
-  });
-  it("still resets the counter across a genuine transition period (untouched by this fix)", () => {
-    const transitionPeriod = { ...p(2), phase: "transition" as const };
-    const out = applyDeloadCadence([p(3), transitionPeriod, p(2)], false);
-    expect(out[1].deloadWeek).toBe(false); // a transition is never itself flagged deload
-    expect(out[2].deloadWeek).toBe(false); // counter restarted after the break — only 2 wk in
-  });
-});
-
 describe("event-anchored mode (dormant until an A-event exists)", () => {
   it("back-fills taper → peak ending on the A-date, build/base before", () => {
     const ev = { name: "Gran Fondo", date: "2026-10-01", priority: "A" as const };
@@ -259,10 +97,6 @@ describe("event-anchored mode (dormant until an A-event exists)", () => {
     const arc = backwardScheduleFromEvent(ev, baseInput(), "2026-07-01");
     expect(arc.every((p) => p.phase === "taper" || p.phase === "peak")).toBe(true);
   });
-  it("draftSeasonArc routes to the event scheduler only for a future A-event", () => {
-    const arc = draftSeasonArc(baseInput({ events: [{ name: "X", date: "2026-10-01", priority: "A" }] }), "2026-07-01");
-    expect(arc.some((p) => p.phase === "taper")).toBe(true);
-  });
   it("never applies deload cadence to the event-anchored tail — peak/taper are exempt", () => {
     // 13-week runway: build 3wk → build 4wk → peak 5wk → taper 1wk — this is the exact shape that
     // previously crossed the 3:1 deload boundary on the peak block (Task 5 review finding).
@@ -270,61 +104,71 @@ describe("event-anchored mode (dormant until an A-event exists)", () => {
     const direct = backwardScheduleFromEvent(ev, baseInput(), "2026-07-01");
     expect(direct.some((p) => p.deloadWeek)).toBe(false);
     expect(direct.every((p) => p.deloadWeek === false)).toBe(true);
-    // Also verify via draftSeasonArc's routing into event mode with the same runway.
-    const routed = draftSeasonArc(baseInput({ events: [{ name: "Gran Fondo", date: "2026-10-01", priority: "A" }] }), "2026-07-01");
-    expect(routed.some((p) => p.deloadWeek)).toBe(false);
   });
 });
 
 const planWith = (periods: SeasonPlan["periods"]): SeasonPlan => ({ objective: "get faster", events: [], periods, updatedAt: "" });
 
-describe("replanSeasonArc", () => {
+describe("settleSeasonHistory (rolling mode — season-continuous-focus-selection §4/§9)", () => {
   const achieved = () => 400;
   it("freezes elapsed periods with achievedTss and never re-drafts them", () => {
     const past = { focus: "aerobic-base" as const, phase: "base" as const, startDate: "2026-06-01", plannedWeeks: 3, intensitySplit: "90/10", targetWeeklyTss: 380, deloadWeek: false, rationale: "", source: "derived" as const, confidence: "medium" as const };
-    const out = replanSeasonArc(planWith([past]), baseInput(), achieved, "2026-07-01");
+    const out = settleSeasonHistory(planWith([past]), achieved, "2026-07-01");
+    const frozen = out.periods.find((p) => p.startDate === "2026-06-01")!;
+    expect(frozen.achievedTss).toBe(400);
+  });
+  it("drops a future period entirely — rolling mode no longer preserves a forward-drafted tail of any kind", () => {
+    const future = { focus: "durability" as const, phase: "build" as const, startDate: "2026-07-15", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "was an override", source: "override" as const, confidence: "high" as const };
+    const out = settleSeasonHistory(planWith([future]), achieved, "2026-07-01");
+    expect(out.periods).toHaveLength(0);
+  });
+  it("preserves the period straddling today verbatim, without stamping achievedTss", () => {
+    const current = { focus: "threshold" as const, phase: "build" as const, startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "in progress", source: "derived" as const, confidence: "medium" as const };
+    const out = settleSeasonHistory(planWith([current]), achieved, "2026-07-01");
+    const preserved = out.periods.find((p) => p.startDate === "2026-06-22")!;
+    expect(preserved).toEqual(current);
+    expect(preserved.achievedTss).toBeUndefined();
+  });
+  it("is idempotent: settling an already-settled plan with the same today reproduces it unchanged", () => {
+    const current = { focus: "threshold" as const, phase: "build" as const, startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "in progress", source: "derived" as const, confidence: "medium" as const };
+    const first = settleSeasonHistory(planWith([current]), achieved, "2026-07-01");
+    const second = settleSeasonHistory(first, achieved, "2026-07-01");
+    expect(second.periods).toEqual(first.periods);
+  });
+});
+
+describe("replanEventArc (event-anchored mode — unchanged behavior, narrower entry point)", () => {
+  const achieved = () => 400;
+  const event = { name: "Gran Fondo", date: "2026-10-01", priority: "A" as const };
+  it("freezes elapsed periods with achievedTss and never re-drafts them", () => {
+    const past = { focus: "aerobic-base" as const, phase: "base" as const, startDate: "2026-06-01", plannedWeeks: 3, intensitySplit: "90/10", targetWeeklyTss: 380, deloadWeek: false, rationale: "", source: "derived" as const, confidence: "medium" as const };
+    const out = replanEventArc(planWith([past]), event, baseInput(), achieved, "2026-07-01");
     const frozen = out.periods.find((p) => p.startDate === "2026-06-01")!;
     expect(frozen.achievedTss).toBe(400);
   });
   it("preserves a future override period", () => {
-    // Starts 2026-07-15 (after today, 2026-07-01) — a pure future override, does not straddle today,
-    // so it must land in the `overrides` bucket, not the new `current` bucket.
     const ovr = { focus: "durability" as const, phase: "build" as const, startDate: "2026-07-15", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "mine", source: "override" as const, confidence: "high" as const };
-    const out = replanSeasonArc(planWith([ovr]), baseInput(), achieved, "2026-07-01");
+    const out = replanEventArc(planWith([ovr]), event, baseInput(), achieved, "2026-07-01");
     expect(out.periods.some((p) => p.source === "override" && p.rationale === "mine")).toBe(true);
   });
-  it("is idempotent on unchanged inputs", () => {
-    // `a` is a fresh draft from an empty plan: its first period (aerobic-base) starts exactly at
-    // "2026-07-01", so it straddles that same `today` and gets swept into the new `current` bucket on
-    // the NEXT call — that transition (nothing preserved → something preserved) legitimately changes
-    // the horizon-relative redraft, so a → b is not required to be a no-op. The real idempotency
-    // contract is a fixed point: once a plan HAS been through a re-plan (so the straddling period is
-    // already sitting in it), replanning again with the same `today` must reproduce exactly the same
-    // periods. So compare b → c, not a → b.
-    const a = replanSeasonArc(planWith([]), baseInput({ recentFocuses: [] }), achieved, "2026-07-01");
-    const b = replanSeasonArc(a, baseInput({ recentFocuses: [] }), achieved, "2026-07-01");
-    const c = replanSeasonArc(b, baseInput({ recentFocuses: [] }), achieved, "2026-07-01");
-    expect(c.periods.map((p) => p.focus + p.startDate)).toEqual(b.periods.map((p) => p.focus + p.startDate));
-  });
   it("preserves the period straddling today verbatim, without stamping achievedTss", () => {
-    // Starts before today, plannedWeeks pushes its end past today → straddles "today" (2026-07-01).
     const current = { focus: "threshold" as const, phase: "build" as const, startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "in progress", source: "derived" as const, confidence: "medium" as const };
-    const out = replanSeasonArc(planWith([current]), baseInput(), achieved, "2026-07-01");
+    const out = replanEventArc(planWith([current]), event, baseInput(), achieved, "2026-07-01");
     const preserved = out.periods.find((p) => p.startDate === "2026-06-22")!;
-    expect(preserved).toEqual(current); // unchanged: same focus/startDate/plannedWeeks/everything
-    expect(preserved.achievedTss).toBeUndefined(); // not complete yet — must not be stamped
+    expect(preserved).toEqual(current);
+    expect(preserved.achievedTss).toBeUndefined();
   });
   it("starts the redrafted tail strictly after the straddling period ends, not at today", () => {
     const current = { focus: "threshold" as const, phase: "build" as const, startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "in progress", source: "derived" as const, confidence: "medium" as const };
-    const out = replanSeasonArc(planWith([current]), baseInput(), achieved, "2026-07-01");
-    const currentEnd = addWeeks(current.startDate, current.plannedWeeks); // 2026-07-13
+    const out = replanEventArc(planWith([current]), event, baseInput(), achieved, "2026-07-01");
+    const currentEnd = addWeeks(current.startDate, current.plannedWeeks);
     const firstDerived = out.periods.filter((p) => p.startDate > current.startDate).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
     expect(firstDerived.startDate).toBe(currentEnd);
   });
-  it("is idempotent for the current-period bucket specifically: re-running with the same today reproduces it unchanged", () => {
+  it("is idempotent for the current-period bucket specifically", () => {
     const current = { focus: "threshold" as const, phase: "build" as const, startDate: "2026-06-22", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "in progress", source: "derived" as const, confidence: "medium" as const };
-    const first = replanSeasonArc(planWith([current]), baseInput(), achieved, "2026-07-01");
-    const second = replanSeasonArc(first, baseInput(), achieved, "2026-07-01");
+    const first = replanEventArc(planWith([current]), event, baseInput(), achieved, "2026-07-01");
+    const second = replanEventArc(first, event, baseInput(), achieved, "2026-07-01");
     const preserved = second.periods.find((p) => p.startDate === "2026-06-22")!;
     expect(preserved).toEqual(current);
   });
@@ -736,97 +580,6 @@ describe("aerobic-base as a scored candidate (season-continuous-focus-selection 
   });
 });
 
-describe("draftSeasonArc — scored coverage selection (replaces the two-state/LRU selector)", () => {
-  const anHigh = { system: "anaerobic" as const, confidence: "high" as const };
-  it("one horizon reaches three of four build systems, then the arc cap re-touches base before a 4th build would cross 12wk (Task 2, 2026-07-15-season-macro-structure)", () => {
-    // baseInput's recentFocuses = ["aerobic-base", "threshold"] → base gate silent, but seeds 4 loading
-    // weeks already on the athlete's legs (weeksSinceBase). anaerobic(3) + vo2max(4) + durability(3) = 10
-    // more → 14 consecutive loading weeks, which would cross arcWeeks.max (12) on the would-be 4th build
-    // (threshold, 4wk) — so the arc cap substitutes an aerobic-base touch for that slot instead. This
-    // supersedes the pre-arc-cap expectation (all four systems in one horizon): the cap is exactly what
-    // stops an unbounded monotone build (Foster 1998), so a re-touch pre-empting the 4th build is correct.
-    const arc = draftSeasonArc(baseInput({ limiter: anHigh }), "2026-07-01");
-    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
-    expect(builds).toEqual(["anaerobic", "vo2max", "durability"]);
-    expect(arc.some((p) => p.focus === "aerobic-base" && p.rationale.includes("Arc boundary"))).toBe(true);
-  });
-  it("focusSignals flow through the draft: an FTP goal leads the arc with threshold/vo2max, not the anaerobic limiter", () => {
-    const arc = draftSeasonArc(
-      baseInput({ limiter: anHigh, recentFocuses: ["aerobic-base"], focusSignals: { goalText: "Raise my FTP from 280 to 300 W" } }),
-      "2026-07-01"
-    );
-    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
-    expect(builds.slice(0, 2)).toEqual(["threshold", "vo2max"]);
-    expect(builds[0]).not.toBe("anaerobic");
-  });
-  it("nextBuildFocus delegates to the scored selector (labels-only) — old contracts hold", () => {
-    expect(nextBuildFocus({ system: "vo2max", confidence: "high" }, ["threshold"])).toBe("vo2max"); // limiter bonus wins
-    expect(nextBuildFocus({ system: null, confidence: "low" }, ["threshold"])).toBe("vo2max"); // trainability tie-break
-    expect(nextBuildFocus({ system: "threshold", confidence: "high" }, ["threshold"])).not.toBe("threshold"); // never repeat
-  });
-  it("REGRESSION (found live, 2026-07-15): real exposure for ALL foci must not freeze urgency for the whole draft — a never-yet-drafted focus must still surface within one horizon", () => {
-    // Reproduces the exact live scenario: a confident anaerobic limiter, a goal mentioning both FTP
-    // ("raise FTP") and sprint ("Sprint (0-30s)" weakpoint), and REAL exposure data for all four build
-    // foci (as any athlete with a training history has) — none of it stale enough to hit
-    // NEVER_SEEN_URGENCY on its own. Before the fix, vo2max/durability's real exposure never grew
-    // across the draft (unlike labelExposureWeeks for whatever kept getting picked), so the draft
-    // degenerated into anaerobic/threshold alternating forever — the exact pathology this whole plan
-    // exists to prevent, just triggered by frozen real signals instead of a broken fallback array.
-    const arc = draftSeasonArc(
-      baseInput({
-        limiter: anHigh,
-        recentFocuses: ["aerobic-base"],
-        focusSignals: {
-          goalText: "Raise my FTP from 280 to 300 W. Weakpoint: Sprint (0-30s).",
-          exposure: { threshold: 0, anaerobic: 0, vo2max: 3, durability: 2 }, // all real, all comparatively fresh
-          execQuality: { threshold: 6.2, vo2max: 7, anaerobic: 7, durability: 6.8 },
-        },
-      }),
-      "2026-07-01"
-    );
-    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
-    // vo2max surfaces at slot 3 — previously structurally impossible. Durability doesn't quite
-    // overtake anaerobic within this specific 4-slot horizon (its urgency is still compounding); that's
-    // an honest, expected outcome, not a regression — it will surface on a later replan or a longer
-    // horizon as its own urgency keeps growing, exactly as labelExposureWeeks already does for anaerobic.
-    // The would-be 4th build (anaerobic again, 3wk) would push consecutive loading to 11+3=14wk, crossing
-    // arcWeeks.max (12) — the arc cap (Task 2, 2026-07-15-season-macro-structure) substitutes an
-    // aerobic-base touch there instead, which is itself further confirmation the old two-focus trap is
-    // broken: a real reset fires, not just a third focus appearing before the pattern would resume.
-    expect(builds).toEqual(["anaerobic", "threshold", "vo2max"]);
-    expect(builds).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold"]); // the old (re-)trap
-    expect(builds).toContain("vo2max"); // the actual bug this test exists to catch
-    expect(arc.some((p) => p.focus === "aerobic-base" && p.rationale.includes("Arc boundary"))).toBe(true);
-  });
-  it("REGRESSION (found by the final whole-branch review): a focus with fresh REAL exposure is not penalized just because its label already sits in the incoming recentFocuses history", () => {
-    // The exposure-extrapolation filter inside the draft loop used to check `recent.includes(f)` —
-    // but `recent` is seeded from input.recentFocuses (the incoming history) and only grows, so it
-    // conflated "already in the incoming history" with "drafted during THIS call". Any focus whose
-    // label already appeared in the last-4 kept periods had its real exposure silently discarded from
-    // iteration 1 — before this call had drafted anything — and fell back to labelExposureWeeks,
-    // which can meaningfully disagree with the real data.
-    //
-    // Here durability's label sits in the incoming history (second-to-last), but real generated-
-    // session data says it was trained 0 weeks ago (maximally fresh, minimal urgency). The buggy
-    // filter discarded that real freshness (because "durability" ∈ recent) and fell back to the
-    // label-derived staleness estimate instead, which overstated durability's urgency enough to
-    // draft it BEFORE threshold. The fix tracks a separate `draftedThisCall` set (empty at the start
-    // of every call) instead of `recent`, so durability's real freshness is honored and it correctly
-    // lands in the LAST build slot.
-    const arc = draftSeasonArc(
-      baseInput({
-        limiter: { system: null, confidence: "low" },
-        recentFocuses: ["aerobic-base", "vo2max", "anaerobic", "durability", "threshold"],
-        focusSignals: { exposure: { durability: 0 } },
-      }),
-      "2026-07-01"
-    );
-    const builds = arc.filter((p) => p.phase === "build" && p.focus !== "sharpen").map((p) => p.focus);
-    expect(builds).toEqual(["vo2max", "threshold", "durability"]); // fixed order
-    expect(builds).not.toEqual(["vo2max", "durability", "threshold"]); // the pre-fix (buggy) order
-  });
-});
-
 describe("validateFocusMatch — a period's label must match its generated sessions", () => {
   const day = (date: string, type: PlannedDay["type"], durationMin: number, workoutText = ""): PlannedDay =>
     ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText, description: "" });
@@ -902,154 +655,15 @@ describe("achievedTssForPeriod — real achieved load from the score-log ledger"
   });
 });
 
-describe("bounded emphasis arcs (8–12 wk)", () => {
-  it("encodes the arc bounds", () => {
-    expect(SEASON_CONSTANTS.arcWeeks).toEqual({ min: 8, max: 12 });
-  });
-  it("estimates loading weeks since the last aerobic-base touch", () => {
-    expect(weeksSinceBase([])).toBe(0);
-    expect(weeksSinceBase(["aerobic-base"])).toBe(0);
-    expect(weeksSinceBase(["aerobic-base", "threshold", "vo2max"])).toBe(8); // 4 + 4 KB default weeks
-    expect(weeksSinceBase(["threshold", "durability"])).toBe(7); // no base anywhere → the whole history counts
-  });
-  it("inserts an aerobic-base touch before consecutive loading weeks exceed arcWeeks.max", () => {
-    const arc = draftSeasonArc(baseInput(), "2026-07-01"); // seed: base already in the window → gate silent, 4 loading wk behind
-    expect(needsBaseGate(baseInput().recentFocuses)).toBe(false); // proves the gate did NOT produce the base below
-    expect(arc.some((p) => p.focus === "aerobic-base")).toBe(true); // the arc cap did
-    // Invariant (selector-agnostic — survives the sibling plans' rotation fixes): no stretch of
-    // consecutive loading periods exceeds the arc cap, counting the 4 weeks already on the athlete's
-    // legs from the seeded threshold period. sharpen resets too — it is itself a lighter week.
-    let run = 4;
-    for (const p of arc) {
-      if (p.focus === "aerobic-base" || p.focus === "sharpen") { run = 0; continue; }
-      run += p.plannedWeeks;
-      expect(run).toBeLessThanOrEqual(SEASON_CONSTANTS.arcWeeks.max);
-    }
-  });
-  it("forces the reset at the cap even when the 4-period lookback still contains a base", () => {
-    // 11 loading weeks since the base (4+4+3) — yet base is still inside needsBaseGate's window.
-    expect(needsBaseGate(["aerobic-base", "threshold", "vo2max", "durability"])).toBe(false);
-    const arc = draftSeasonArc(baseInput({ recentFocuses: ["aerobic-base", "threshold", "vo2max", "durability"] }), "2026-07-01");
-    expect(arc[0].focus).toBe("aerobic-base"); // cap fires immediately: 11 + any build (3–4 wk) > 12
-    expect(arc[0].rationale).toContain("Arc boundary");
-  });
-});
-
-describe("season-break clock", () => {
-  it("encodes the break cadence: ~2 arcs of loading, then a 2-week transition", () => {
-    expect(SEASON_CONSTANTS.transitionEveryLoadingWeeks).toBe(20);
-    expect(SEASON_CONSTANTS.transitionWeeks).toBe(2);
-  });
-  it("measures from the last transition's end, else the season start; null before anything started", () => {
-    const build = (startDate: string): FocusPeriod => ({
-      focus: "threshold", phase: "build", startDate, plannedWeeks: 4, intensitySplit: "80/20",
-      targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
-    });
-    expect(weeksSinceSeasonBreak([], "2026-07-01")).toBeNull();
-    expect(weeksSinceSeasonBreak([build("2099-01-01")], "2026-07-01")).toBeNull(); // nothing started yet
-    expect(weeksSinceSeasonBreak([build("2026-01-12")], "2026-07-01")).toBe(24); // no break ever → since season start
-    const transition: FocusPeriod = { ...build("2026-04-06"), phase: "transition", plannedWeeks: 2 }; // ends 2026-04-20
-    expect(weeksSinceSeasonBreak([build("2026-01-12"), transition], "2026-07-01")).toBe(10); // from its END
-  });
-});
-
-describe("genuine season break (phase transition) in the draft", () => {
-  it("leads with a transition instead of a base touch when the break clock is overdue", () => {
-    const arc = draftSeasonArc(baseInput({ recentFocuses: [], weeksSinceSeasonBreak: 24 }), "2026-07-01");
-    expect(arc[0].phase).toBe("transition");
-    expect(arc[0].focus).toBe("aerobic-base");
-    expect(arc[0].plannedWeeks).toBe(SEASON_CONSTANTS.transitionWeeks);
-    expect(arc[0].deloadWeek).toBe(false);
-  });
-  it("replaces the arc-boundary base touch with a transition when the clock runs out mid-draft — once", () => {
-    const arc = draftSeasonArc(baseInput({ weeksSinceSeasonBreak: 24 }), "2026-07-01"); // default seed: no gate, 4 wk behind
-    const idx = arc.findIndex((p) => p.phase === "transition");
-    expect(idx).toBeGreaterThan(0); // mid-draft, at the arc cap — not the lead period
-    expect(arc.filter((p) => p.phase === "transition").length).toBe(1); // the clock resets after the break
-  });
-  it("drafts a plain base touch when the clock is young or unknown", () => {
-    const young = draftSeasonArc(baseInput({ weeksSinceSeasonBreak: 10 }), "2026-07-01");
-    expect(young.every((p) => p.phase !== "transition")).toBe(true);
-    expect(young.some((p) => p.focus === "aerobic-base")).toBe(true); // the arc cap still resets — just with base
-    const unknown = draftSeasonArc(baseInput({ recentFocuses: [] }), "2026-07-01");
-    expect(unknown.every((p) => p.phase !== "transition")).toBe(true);
-  });
-  it("replanSeasonArc feeds the break clock from the plan's own periods", () => {
-    // Six frozen 4-week build periods = 24 calendar weeks of loading, no transition ever.
-    const frozen: FocusPeriod[] = ["2026-01-12", "2026-02-09", "2026-03-09", "2026-04-06", "2026-05-04", "2026-06-01"].map((startDate, i) => ({
-      focus: i % 2 === 0 ? "threshold" : "vo2max", phase: "build", startDate, plannedWeeks: 4,
-      intensitySplit: "80/20", targetWeeklyTss: 420, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
-    }));
-    const out = replanSeasonArc(planWith(frozen), baseInput(), () => 400, "2026-07-01");
-    const t = out.periods.find((p) => p.phase === "transition");
-    expect(t).toBeDefined();
-    expect(t!.startDate).toBe("2026-07-01"); // the redraft leads with the overdue break
-  });
-});
-
-describe("deload-cadence clock (HR-22, 2026-07-17 hostile review)", () => {
-  const build = (startDate: string, over: Partial<FocusPeriod> = {}): FocusPeriod => ({
-    focus: "threshold", phase: "build", startDate, plannedWeeks: 4, intensitySplit: "80/20",
-    targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium", ...over,
-  });
-
-  it("measures from the last deload-flagged period's end, else the season start; 0 before anything started", () => {
-    expect(weeksSinceLastDeload([], "2026-07-01")).toBe(0);
-    expect(weeksSinceLastDeload([build("2099-01-01")], "2026-07-01")).toBe(0); // nothing started yet
-    expect(weeksSinceLastDeload([build("2026-01-12")], "2026-07-01")).toBe(24); // no deload ever → since season start
-    const deloaded: FocusPeriod = build("2026-04-06", { deloadWeek: true }); // ends 2026-05-04
-    expect(weeksSinceLastDeload([build("2026-01-12"), deloaded], "2026-07-01")).toBe(8); // from its END
-  });
-
-  it("a transition also resets the clock, same as applyDeloadCadence's own reset semantics", () => {
-    const transition: FocusPeriod = build("2026-04-06", { phase: "transition", plannedWeeks: 2 }); // ends 2026-04-20
-    expect(weeksSinceLastDeload([build("2026-01-12"), transition], "2026-07-01")).toBe(10); // from its END
-  });
-
-  it("applyDeloadCadence accepts a seed and continues the cadence from it instead of restarting at 0", () => {
-    // Bare call (no seed / seed 0): a single 3-wk period doesn't reach the 4-wk loose boundary alone.
-    expect(applyDeloadCadence([build("2026-07-01", { plannedWeeks: 3 })], false)[0].deloadWeek).toBe(false);
-    // Seeded with 1 week already accumulated: 1+3=4 reaches the boundary this time.
-    expect(applyDeloadCadence([build("2026-07-01", { plannedWeeks: 3 })], false, 1)[0].deloadWeek).toBe(true);
-  });
-
-  it("replanSeasonArc threads the real deload clock into the redrafted tail instead of restarting it at 0", () => {
-    // A frozen 3-week period, unflagged, ending exactly 1 week before the redraft's own next 3-week
-    // period would otherwise self-trip — the real elapsed week must carry forward.
-    const frozen: FocusPeriod[] = [build("2026-06-01", { plannedWeeks: 3, deloadWeek: false })]; // ends 2026-06-22
-    const out = replanSeasonArc(planWith(frozen), baseInput({ recentFocuses: ["threshold"] }), () => 400, "2026-06-22");
-    // First redrafted period starts exactly where the frozen one ended, so its own weeksSinceLastDeload
-    // seed (computed against the frozen period alone) is 3 (the frozen period's full length, since it
-    // itself never reached the boundary) — a 3-week seed + a same-length next period reaches 6 >= 4.
-    const firstDerived = out.periods.find((p) => p.startDate === "2026-06-22")!;
-    expect(firstDerived.deloadWeek).toBe(true);
-  });
-});
-
-describe("transition-period load & cadence handling", () => {
-  const p = (over: Partial<FocusPeriod> = {}): FocusPeriod => ({
-    focus: "threshold", phase: "build", startDate: "2026-07-01", plannedWeeks: 3,
-    intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium", ...over,
-  });
-  it("assigns a transition ~50% of the running load and does not advance the ramp base", () => {
-    const out = assignLoadTargets([p(), p({ phase: "transition", plannedWeeks: 2 }), p()], 400, 1.3);
-    expect(out[0].targetWeeklyTss).toBe(424); // 400 * 1.06
-    expect(out[1].targetWeeklyTss).toBe(212); // 424 * 0.5 — a genuine cut, deeper than a deload's 0.6
-    expect(out[2].targetWeeklyTss).toBe(449); // resumes from 424, not 212: 424 * 1.06, rounded
-  });
-  it("never flags a transition as a deload week and resets the deload counter across it", () => {
-    const out = applyDeloadCadence([p({ plannedWeeks: 2 }), p({ phase: "transition", plannedWeeks: 2 }), p({ plannedWeeks: 2 })], false);
-    expect(out[1].deloadWeek).toBe(false); // 2+2 wk crosses the 3:1 boundary, but a transition IS recovery already
-    expect(out[2].deloadWeek).toBe(false); // counter restarted after the break — only 2 loading wk in
-  });
-  it("never flags a transition as a deload week even under tight (heavyFatigue) cadence", () => {
-    const out = applyDeloadCadence([p({ plannedWeeks: 2 }), p({ phase: "transition", plannedWeeks: 2 }), p({ plannedWeeks: 2 })], true);
-    expect(out[1].deloadWeek).toBe(false);
-  });
+describe("transition-period fit validation (validateSeasonFit — untouched by this task)", () => {
   it("warns when hard riding lands inside a transition period", () => {
     const day = (date: string, type: PlannedDay["type"], durationMin: number): PlannedDay =>
       ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText: "", description: "" });
-    const plan = planWith([p({ phase: "transition", startDate: "2026-07-12", plannedWeeks: 2, intensitySplit: "95/5" })]);
+    const transitionPeriod: FocusPeriod = {
+      focus: "threshold", phase: "transition", startDate: "2026-07-12", plannedWeeks: 2,
+      intensitySplit: "95/5", targetWeeklyTss: null, deloadWeek: false, rationale: "", source: "derived", confidence: "medium",
+    };
+    const plan = planWith([transitionPeriod]);
     const w = validateSeasonFit([day("2026-07-13", "VO2max", 60), day("2026-07-14", "Z2", 60)], plan, 280);
     expect(w.length).toBe(1);
     expect(w[0]).toContain("transition");

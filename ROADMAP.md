@@ -139,9 +139,6 @@ Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currentl
   path (caps and all) fill the earlier weeks.
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label; only the
   phase caption distinguishes them. Cosmetic; visible only once event mode activates.
-- `nextBuildFocus`/`pickBuildFocus` are now byte-identical one-line delegations to `selectBuildFocus`;
-  `nextBuildFocus` has zero production callers left (tests only), same for `defaultBuildOrder()`.
-  Could collapse to one wrapper (or none) and retarget the tests — pure cleanup, no behavior change.
 - `formatRetestNote`'s "best slot" label is misleading on the event path: its earliest `sharpen`
   period is the **peak**, which the engine elsewhere insists must hold near-race load, yet the note
   would call it lighter. Prompt-only impact. (The rolling-path half of this note — cadence math

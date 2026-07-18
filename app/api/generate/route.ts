@@ -37,7 +37,7 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, replanSeasonArc, SEASON_SHAPES_GENERATION, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, findUpcomingAEvent, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateFocusMatch, validateSeasonFit } from "@/lib/season";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
 
@@ -251,25 +251,32 @@ export async function POST(req: Request) {
         ? { system: mapSystemToFocus(powerProfile.easyWin.system), confidence: powerProfile.confident ? "high" as const : "low" as const }
         : { system: null, confidence: "low" as const };
       // Preserve the athlete's owned objective/events (Task 8 PUT); the engine only re-drafts `periods`.
-      const replanned = replanSeasonArc(
-        existingSeason,
-        { objective: existingSeason.objective, events: existingSeason.events, ctl: sync?.fitness.ctl ?? null, ftp: profile.performance.ftp, recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null, limiter, recentFocuses: [], // ignored — replanSeasonArc derives this itself from the plan's frozen+current periods
-          heavyFatigue: !!(signals.loadRamp?.triggered),
-          // Coverage selector signals: what the athlete SAYS they want (goal text), what was REALLY
-          // generated (session exposure from the current block + archived block days — not the plan's
-          // own period labels), and how execution has actually been going per system.
-          focusSignals: {
-            goalText: combinedGoalText,
-            exposure: exposureFromSessions(
-              [...(currentBlock?.days ?? []), ...blockHistory.flatMap((h) => h.days ?? [])].filter((d) => d.date <= today),
-              profile.performance.ftp,
-              today
-            ),
-            execQuality: execQualityByFocus(athleteModel),
-          } },
-        (p) => achievedTssForPeriod(scoreLog.entries, p),
-        today
-      );
+      // TEMPORARY (CFS-4 fallout): replanSeasonArc was removed in favor of settleSeasonHistory (rolling)
+      // + replanEventArc (event-anchored), dispatched here via findUpcomingAEvent exactly the way
+      // replanSeasonArc's own draftSeasonArc dispatch used to — same behavior, narrower entry points.
+      // A fuller rewiring (chooseNextFocus per-block, etc.) is CFS-7's job; this keeps /api/generate
+      // working (B/C-event surfacing, season-plan persistence) in the meantime.
+      const draftInput = {
+        objective: existingSeason.objective, events: existingSeason.events, ctl: sync?.fitness.ctl ?? null, ftp: profile.performance.ftp, recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null, limiter, recentFocuses: [],
+        heavyFatigue: !!(signals.loadRamp?.triggered),
+        // Coverage selector signals: what the athlete SAYS they want (goal text), what was REALLY
+        // generated (session exposure from the current block + archived block days — not the plan's
+        // own period labels), and how execution has actually been going per system.
+        focusSignals: {
+          goalText: combinedGoalText,
+          exposure: exposureFromSessions(
+            [...(currentBlock?.days ?? []), ...blockHistory.flatMap((h) => h.days ?? [])].filter((d) => d.date <= today),
+            profile.performance.ftp,
+            today
+          ),
+          execQuality: execQualityByFocus(athleteModel),
+        },
+      };
+      const achievedTssFor = (p: import("@/lib/types").FocusPeriod) => achievedTssForPeriod(scoreLog.entries, p);
+      const upcomingEvent = findUpcomingAEvent(existingSeason.events, today);
+      const replanned = upcomingEvent
+        ? replanEventArc(existingSeason, upcomingEvent, draftInput, achievedTssFor, today)
+        : settleSeasonHistory(existingSeason, achievedTssFor, today);
       await writeSeasonPlan(replanned);
       replannedSeason = replanned;
       // The block's real date range (first → last calendar day) drives the period sequence in the prompt.
