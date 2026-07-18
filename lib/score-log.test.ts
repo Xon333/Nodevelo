@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildRideScores, easyStampFor, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, npStampFor, summariseBehaviour, truncateBlockDays } from "./score-log";
-import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, IntervalComparison, RideScoreEntry, WorkoutType } from "./types";
+import { backfillExecutionOntoDays, buildRideScores, easyStampFor, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, npStampFor, summariseBehaviour, truncateBlockDays } from "./score-log";
+import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
   return {
@@ -780,5 +780,44 @@ describe("truncateBlockDays", () => {
   it("keeps every day when the cutoff is on/after the block's last day", () => {
     expect(truncateBlockDays(days, "2026-06-17")).toHaveLength(3);
     expect(truncateBlockDays(days, "2026-07-01")).toHaveLength(3);
+  });
+});
+
+describe("backfillExecutionOntoDays", () => {
+  const day = (date: string, overrides: Partial<CurrentBlockDay> = {}): CurrentBlockDay => ({
+    date, name: "Threshold", type: "Threshold", durationMin: 60, ...overrides,
+  });
+  const entry = (date: string, overrides: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
+    date, executionScore: 8, plannedType: "Threshold", inferredType: "Threshold", planned: true,
+    legacy: false, compliancePct: 95, intensityFactor: 0.9, ftpUsed: 250, durationMin: 60, tss: 80,
+    ...overrides,
+  });
+
+  it("stamps execution score + compliance from a matching planned entry", () => {
+    const out = backfillExecutionOntoDays([day("2026-07-01")], [entry("2026-07-01")]);
+    expect(out[0].execution).toEqual({ score: 8, compliancePct: 95 });
+  });
+
+  it("leaves a day untouched (same reference) when no entry matches its date", () => {
+    const days = [day("2026-07-01")];
+    const out = backfillExecutionOntoDays(days, [entry("2026-07-02")]);
+    expect(out[0]).toBe(days[0]);
+  });
+
+  it("ignores an off-plan entry (planned: false) — nothing to attribute to a prescribed day", () => {
+    const out = backfillExecutionOntoDays([day("2026-07-01")], [entry("2026-07-01", { planned: false })]);
+    expect(out[0].execution).toBeUndefined();
+  });
+
+  it("leaves a day untouched (same reference) when its stamp is already up to date — idempotent", () => {
+    const days = [day("2026-07-01", { execution: { score: 8, compliancePct: 95 } })];
+    const out = backfillExecutionOntoDays(days, [entry("2026-07-01")]);
+    expect(out[0]).toBe(days[0]);
+  });
+
+  it("updates an existing stamp when the ledger entry has since changed (e.g. a rebuild)", () => {
+    const days = [day("2026-07-01", { execution: { score: 5, compliancePct: 70 } })];
+    const out = backfillExecutionOntoDays(days, [entry("2026-07-01", { executionScore: 9, compliancePct: 100 })]);
+    expect(out[0].execution).toEqual({ score: 9, compliancePct: 100 });
   });
 });

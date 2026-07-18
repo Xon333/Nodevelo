@@ -114,6 +114,24 @@ export function truncateBlockDays(days: CurrentBlockDay[], asOfDate: string): Cu
   return days.filter((d) => d.date <= asOfDate);
 }
 
+// Block history enrichment (ROADMAP season-architecture-redesign §8): join each day's real execution
+// outcome from the score log by date. Planned-only (`e.planned`) — an off-plan ride has no prescribed
+// day to attribute an outcome to. Pure; returns a fresh array only when at least one day's stamp
+// actually changes, and preserves referential equality on every unchanged day so a caller (the sync
+// route) can diff cheaply and only persist the days that moved.
+export function backfillExecutionOntoDays(days: CurrentBlockDay[], entries: RideScoreEntry[]): CurrentBlockDay[] {
+  const byDate = new Map(entries.filter((e) => e.planned).map((e) => [e.date, e]));
+  let changed = false;
+  const out = days.map((d) => {
+    const e = byDate.get(d.date);
+    if (!e) return d;
+    if (d.execution?.score === e.executionScore && d.execution?.compliancePct === e.compliancePct) return d;
+    changed = true;
+    return { ...d, execution: { score: e.executionScore, compliancePct: e.compliancePct } };
+  });
+  return changed ? out : days;
+}
+
 export function buildRideScores(
   block: CurrentBlock | null,
   activities: ActivitySummary[],
