@@ -149,10 +149,6 @@ Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currentl
   the 2026-07-16 block-generation-fidelity fixes corrected `applyDeloadCadence`'s threshold math to a
   genuine ~4wk rolling count → ARCHIVE.md. Moot either way right now: `formatRetestNote`'s prompt
   injection is currently switched off entirely, see the note below.)
-- `GeneratedPlan.protocolViolations` (measurability slice) lives only on the preview plan —
-  `/api/write` doesn't persist it onto `CurrentBlockDay` next to the new `sessionLevel` stamp, so
-  there's no way to later correlate "written despite a known protocol violation" with outcomes.
-  Natural follow-up stamp, not in this slice's stated scope.
 - `exposureFromSessions` measures generated (prescribed) sessions, not ridden ones — a planned-but-
   skipped VO2max day still counts as real exposure. `execQualityByFocus` only partially compensates.
   Worth a join against the score log if this ever mis-steers the selector in practice.
