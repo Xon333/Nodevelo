@@ -152,9 +152,12 @@ date. On success, flips to a disabled "Saved" label — no further action, match
 
 ### Mount point
 
-Wherever the day's `executionScore` is already rendered (the same score display `DayAction`'s
-Move/Swap buttons sit alongside) — exact component TBD during planning once the current score-display
-call site is confirmed; conceptually the same pinned-day-cell area `MoveDay`/`SwapDay` already use.
+`components/dashboard/plan.tsx`'s pinned day-cell popover, alongside the two existing
+`<DayAction verb="move" .../>` / `<DayAction verb="swap" .../>` lines (`plan.tsx:328-329`) — same
+`eligible && pinned` gate block. That file already builds `scoreByDate` (`plan.tsx:191`, currently
+`date → executionScore` only) to feed the score display; extend it to also carry `durabilityDelivery`
+so the client-side display gate matches `isWellExecuted` exactly instead of a looser
+executionScore-only approximation that could show the button on a day the server then rejects.
 
 ## 7. Testing plan
 
@@ -189,5 +192,5 @@ call site is confirmed; conceptually the same pinned-day-cell area `MoveDay`/`Sw
 | `app/api/workout-library/route.ts` | New — `POST` handler |
 | `app/api/workout-library/route.test.ts` | New |
 | `components/SaveToLibrary.tsx` | New |
-| Score-display mount site (TBD during planning) | Mount `SaveToLibrary` alongside the existing day actions |
+| `components/dashboard/plan.tsx` | Extend `scoreByDate` to carry `durabilityDelivery`; mount `SaveToLibrary` alongside the existing `DayAction` move/swap buttons in the pinned popover |
 | `FEATURES.md`, `ROADMAP.md`, `ARCHIVE.md` | Docs, once shipped |
