@@ -138,6 +138,15 @@ export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void
   await writeJson("block-history.json", [entry, ...filtered].slice(0, 200));
 }
 
+// Transactional read-modify-write on block history (mirrors updateCurrentBlock/updateScoreLog) — the
+// read happens inside the per-file lock, so the sync route's execution-outcome backfill (§8) can't
+// race a concurrent appendBlockHistory (a block discard/replace) and lose either write.
+export async function updateBlockHistory(
+  mutate: (entries: BlockHistoryEntry[]) => BlockHistoryEntry[]
+): Promise<BlockHistoryEntry[]> {
+  return updateJson<BlockHistoryEntry[]>("block-history.json", [], mutate);
+}
+
 export async function readTodayAnalysis(): Promise<TodayAnalysis | null> {
   return readJson<TodayAnalysis | null>("today-analysis.json", null);
 }
