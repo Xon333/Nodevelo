@@ -203,6 +203,12 @@ export interface GeneratedPlan {
   // Track B: the durability template (A–E) the long ride was built around — drives rotation across
   // blocks and lets the future per-template scoring loop attribute outcomes.
   durabilityTemplate?: string;
+  // Season-architecture-redesign §4: the rolling-mode focus chosen at generation time (chooseNextFocus),
+  // carried through so /api/write can stamp CurrentBlock.seasonFocus without recomputing it against
+  // different "as of" data. Absent for an event-anchored block (that path keeps its own persisted
+  // period lookup) and for plans generated before this shipped — truthy-check, never `=== null`.
+  seasonFocus?: SeasonFocus;
+  seasonFocusRationale?: string;
   // Protocol violations on quality sessions (Threshold/VO2max/SIT/RaceSim) — a distinct,
   // higher-severity category than `warnings`: the session contradicts its own KB protocol, so
   // writing it means the plan and the lived session describe different things. Kept out of

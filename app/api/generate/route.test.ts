@@ -231,6 +231,33 @@ describe("POST /api/generate — generation outcomes", () => {
   });
 });
 
+// CFS-7: chooseNextFocus now runs (and stamps the plan) regardless of SEASON_SHAPES_GENERATION — only
+// the prompt/validator opinion is flag-gated, not the tracking. gatherFocusInputs is left UNMOCKED here:
+// its own dependencies (readAthleteProfile/readLastSync/readCurrentBlock/readBlockHistory/readScoreLog/
+// readSeasonPlan) are already fully covered by this file's @/lib/data-store mock, so running it for real
+// is more faithful than hand-rolling a second ChooseNextFocusInput fixture that could drift from it.
+describe("POST /api/generate — seasonFocus stamping (chooseNextFocus wiring)", () => {
+  it("stamps plan.seasonFocus/seasonFocusRationale for a rolling-mode block (no upcoming A-event)", async () => {
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "" } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.seasonFocus).toBeDefined();
+    expect(typeof json.plan.seasonFocusRationale).toBe("string");
+    expect(json.plan.seasonFocusRationale.length).toBeGreaterThan(0);
+  });
+
+  it("omits plan.seasonFocus/seasonFocusRationale for an event-anchored block (upcoming A-event)", async () => {
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({
+      objective: "",
+      events: [{ name: "A Race", date: "2026-10-01", priority: "A" }],
+      periods: [],
+      updatedAt: "",
+    } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.seasonFocus).toBeUndefined();
+    expect(json.plan.seasonFocusRationale).toBeUndefined();
+  });
+});
+
 describe("POST /api/generate — protocol-violation severity (measurability)", () => {
   it("carries quality-session protocol breaches as plan.protocolViolations, not generic warnings", async () => {
     const badSit = {

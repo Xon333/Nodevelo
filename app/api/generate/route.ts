@@ -37,27 +37,13 @@ import { validateSchedule } from "@/lib/schedule-validate";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, execQualityByFocus, exposureFromSessions, findUpcomingAEvent, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateBlockFocus, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { gatherFocusInputs } from "@/lib/season-signals";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
-import type { BlockParams, GeneratedPlan, PowerSystem, SeasonFocus } from "@/lib/types";
+import type { BlockParams, GeneratedPlan } from "@/lib/types";
 
 // Generation calls take 1–2 minutes for a 4-week block.
 export const maxDuration = 300;
-
-// Maps the power-profile's physiological systems onto the season engine's focus vocabulary. Threshold
-// maps 1:1; anaerobic covers both neuromuscular and anaerobic (the season arc has no separate sprint focus).
-function mapSystemToFocus(system: PowerSystem): SeasonFocus {
-  switch (system) {
-    case "neuromuscular":
-      return "anaerobic";
-    case "anaerobic":
-      return "anaerobic";
-    case "vo2max":
-      return "vo2max";
-    case "threshold":
-      return "threshold";
-  }
-}
 
 function parseBlockParams(body: unknown): BlockParams | string {
   if (!body || typeof body !== "object") return "Request body must be a JSON object.";
@@ -212,17 +198,11 @@ export async function POST(req: Request) {
     const requirements = deriveSessionRequirements(blockParams.goal, blockParams.weakpoints);
     const sessionReqLine = formatSessionRequirements(requirements);
     const sessionReqContext = sessionReqLine ? `\n${sessionReqLine}` : "";
-    // HR-18: one shared "everything the athlete has said" string, reused by both consumers below —
-    // previously selectDurabilityTemplate saw only objective+goal while the season-replan's own
-    // focusSignals.goalText (a few lines down) additionally folded in weakpoints/profile goals, so a
-    // stated weakpoint recorded only in profile.weakpoints could never bias durability template choice.
-    const combinedGoalText = [
-      existingSeason.objective,
-      blockParams.goal,
-      ...blockParams.weakpoints,
-      ...profile.goals.map((g) => `${g.goal} ${g.target}`),
-      ...profile.weakpoints.map((w) => `${w.weakpoint} ${w.detail}`),
-    ].join(" \n ");
+    // HR-18 (still honored): one shared "everything the athlete has said" string, now assembled once
+    // by gatherFocusInputs (season-continuous-focus-selection §6/§9) and reused by both durability
+    // template selection and season focus selection below — keeps the two from ever drifting apart.
+    const focusInputs = await gatherFocusInputs({ blockGoal: blockParams.goal, weakpoints: blockParams.weakpoints, today });
+    const combinedGoalText = focusInputs.signals.goalText ?? "";
     const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null, combinedGoalText);
     const durabilityContext = `\n${formatDurabilityForPrompt(durability)}`;
     // Carry-forward (CR-6): quality dropped mid-block with no make-up slot — re-prioritise it here.
@@ -239,67 +219,81 @@ export async function POST(req: Request) {
       ? `\nWEAKPOINTS TO ADDRESS\n${profile.weakpoints.map((w) => `- ${w.weakpoint}${w.detail ? `: ${w.detail}` : ""}`).join("\n")}`
       : "";
 
-    // Macro periodization (MACRO-3): re-plan the arc from current fitness, then hand the generator the
-    // focus-period sequence the block's actual date range spans (a 6–8-week block routinely crosses
-    // period boundaries — describing it as one static phase was the bug). Best-effort — a failure here
-    // must never block generation.
+    // Season (season-continuous-focus-selection): rolling blocks get a fresh, stateless focus choice
+    // every call (chooseNextFocus) instead of a drafted period sequence; a future A-event keeps the
+    // existing persisted, backward-scheduled build→peak→taper arc. Best-effort — a failure here must
+    // never block generation.
     let seasonContext = "";
+    let recoveryContext = "";
     let upcomingEventsContext = "";
     let replannedSeason: import("@/lib/types").SeasonPlan | null = null;
+    let rollingFocusChoice: import("@/lib/season").FocusChoice | null = null;
+    let aEventForBlock: import("@/lib/types").SeasonEvent | null = null;
+    let recoveryWeekIndices: number[] = [];
     try {
-      const limiter = powerProfile?.easyWin
-        ? { system: mapSystemToFocus(powerProfile.easyWin.system), confidence: powerProfile.confident ? "high" as const : "low" as const }
-        : { system: null, confidence: "low" as const };
-      // Preserve the athlete's owned objective/events (Task 8 PUT); the engine only re-drafts `periods`.
-      // TEMPORARY (CFS-4 fallout): replanSeasonArc was removed in favor of settleSeasonHistory (rolling)
-      // + replanEventArc (event-anchored), dispatched here via findUpcomingAEvent exactly the way
-      // replanSeasonArc's own draftSeasonArc dispatch used to — same behavior, narrower entry points.
-      // A fuller rewiring (chooseNextFocus per-block, etc.) is CFS-7's job; this keeps /api/generate
-      // working (B/C-event surfacing, season-plan persistence) in the meantime.
-      const draftInput = {
-        objective: existingSeason.objective, events: existingSeason.events, ctl: sync?.fitness.ctl ?? null, ftp: profile.performance.ftp, recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null, limiter, recentFocuses: [],
-        heavyFatigue: !!(signals.loadRamp?.triggered),
-        // Coverage selector signals: what the athlete SAYS they want (goal text), what was REALLY
-        // generated (session exposure from the current block + archived block days — not the plan's
-        // own period labels), and how execution has actually been going per system.
-        focusSignals: {
-          goalText: combinedGoalText,
-          exposure: exposureFromSessions(
-            [...(currentBlock?.days ?? []), ...blockHistory.flatMap((h) => h.days ?? [])].filter((d) => d.date <= today),
-            profile.performance.ftp,
-            today
-          ),
-          execQuality: execQualityByFocus(athleteModel),
-        },
-      };
       const achievedTssFor = (p: import("@/lib/types").FocusPeriod) => achievedTssForPeriod(scoreLog.entries, p);
-      const upcomingEvent = findUpcomingAEvent(existingSeason.events, today);
-      const replanned = upcomingEvent
-        ? replanEventArc(existingSeason, upcomingEvent, draftInput, achievedTssFor, today)
-        : settleSeasonHistory(existingSeason, achievedTssFor, today);
-      await writeSeasonPlan(replanned);
-      replannedSeason = replanned;
-      // The block's real date range (first → last calendar day) drives the period sequence in the prompt.
+      aEventForBlock = findUpcomingAEvent(existingSeason.events, today);
+
+      // §5 recovery hard cap — computed once, shared by both branches (it applies to a rolling block
+      // AND the build stretch leading into an event; peak/taper keep their own load-shaping untouched).
+      const avgWeeklyTss = baselines.avgTss90d != null ? baselines.avgTss90d * 7 : null;
+      const weeksSinceRecovery = realWeeksSinceLastRecovery(scoreLog.entries, avgWeeklyTss, today);
+      const allRecoveryIndices = planRecoveryWeeks(weeksSinceRecovery, blockParams.lengthWeeks, !!(signals.loadRamp?.triggered));
+
+      if (aEventForBlock) {
+        replannedSeason = replanEventArc(
+          existingSeason,
+          aEventForBlock,
+          {
+            objective: existingSeason.objective, events: existingSeason.events,
+            ctl: sync?.fitness.ctl ?? null, ftp: profile.performance.ftp,
+            recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null,
+            limiter: focusInputs.limiter, recentFocuses: [], heavyFatigue: !!(signals.loadRamp?.triggered),
+          },
+          achievedTssFor,
+          today
+        );
+        // Peak/taper hold their own deliberate load-shaping — never overlay the generic recovery cap there.
+        recoveryWeekIndices = allRecoveryIndices.filter((wk) => {
+          const weekStart = addWeeks(blockParams.startDate, wk);
+          const period = periodForDate(replannedSeason as import("@/lib/types").SeasonPlan, weekStart);
+          return period ? period.phase === "build" || period.phase === "base" : true;
+        });
+      } else {
+        replannedSeason = settleSeasonHistory(existingSeason, achievedTssFor, today);
+        recoveryWeekIndices = allRecoveryIndices;
+        // Tracked underneath the flag, same as season-plan.json itself (SEASON_SHAPES_GENERATION only
+        // gates the prompt/validator opinion, never the tracking) — chooseNextFocus always runs so
+        // GeneratedPlan.seasonFocus (write-time provenance) and the next call's no-back-to-back rule
+        // both stay live regardless of the flag.
+        rollingFocusChoice = chooseNextFocus(focusInputs);
+      }
+      await writeSeasonPlan(replannedSeason);
+
       const blockEnd = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
-      // B/C-priority events are calendar facts (not a phase opinion) — always surfaced, regardless of
-      // SEASON_SHAPES_GENERATION, onto their own context variable so they stay decoupled from the flag.
       const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEnd });
       if (upcomingEventsLine) upcomingEventsContext = `\n${upcomingEventsLine}`;
+
       if (SEASON_SHAPES_GENERATION) {
-        const line = formatSeasonContext(replanned, today, { startDate: blockParams.startDate, endDate: blockEnd });
-        if (line) seasonContext = `\n${line}`;
+        if (aEventForBlock) {
+          const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEnd });
+          if (line) seasonContext = `\n${line}`;
+        } else if (rollingFocusChoice) {
+          seasonContext = `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
+        }
+        const recoveryLine = formatRecoveryWeeks(recoveryWeekIndices, blockParams.lengthWeeks);
+        if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
       }
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
     }
 
-    // Retest cadence (macro-structure): a stale tested FTP quietly rots zones and TSS math — nudge
-    // the generator to place a retest in the next lighter week. Additive to seasonContext; if the
-    // replan above failed there is no season line to extend, and the nudge is skipped with it.
-    // Temporarily disabled with the rest of the phase-derived context (SEASON_SHAPES_GENERATION).
-    if (SEASON_SHAPES_GENERATION && physStore && replannedSeason) {
+    // Retest cadence: a stale tested FTP quietly rots zones and TSS math — nudge the generator to place
+    // a retest in the next lighter week. Additive to seasonContext. Temporarily disabled with the rest
+    // of the phase-derived context (SEASON_SHAPES_GENERATION).
+    if (SEASON_SHAPES_GENERATION && physStore) {
       const ftpStaleDays = Math.floor((Date.parse(today) - Date.parse(physStore.current.effectiveFrom)) / 86_400_000);
-      const retestNote = formatRetestNote(Number.isFinite(ftpStaleDays) ? ftpStaleDays : null, replannedSeason, today);
+      const retestNote = formatRetestNote(Number.isFinite(ftpStaleDays) ? ftpStaleDays : null, recoveryWeekIndices, blockParams.startDate);
       if (retestNote) seasonContext += `\n${retestNote}`;
     }
 
@@ -325,7 +319,7 @@ export async function POST(req: Request) {
     // don't invalidate the cached prefix.
     const { cached, dynamic } = buildSystemPrompt(
       kbContext,
-      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + powerProfileContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext + goalsContext + weakpointsContext + seasonContext + upcomingEventsContext,
+      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + powerProfileContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext + goalsContext + weakpointsContext + seasonContext + recoveryContext + upcomingEventsContext,
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );
@@ -385,14 +379,17 @@ export async function POST(req: Request) {
     warnings.push(...validateNutrition(days, nutritionConfig, profile.performance.ftp, weightTrend));
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
-    // MACRO-3: flag intensity that contradicts the season arc — each day is checked against the period
-    // active on ITS OWN date (a long block can legitimately shift base → build mid-way), with the hard
-    // share duration-weighted. Only when the season re-plan above succeeded. Temporarily disabled with
-    // the rest of the phase-derived context (SEASON_SHAPES_GENERATION).
-    if (SEASON_SHAPES_GENERATION && replannedSeason) warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
-    // Coverage plan: flag a period whose focus LABEL and generated session types disagree (a "vo2max"
-    // period with zero VO2max sessions) — intensity-share alone can pass while the label lies.
-    if (SEASON_SHAPES_GENERATION && replannedSeason) warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
+    // Season fit (event-anchored) / block focus (rolling): flag intensity or focus-label disagreement
+    // vs the active season structure. Only when the season re-plan above succeeded. Temporarily
+    // disabled with the rest of the phase-derived context (SEASON_SHAPES_GENERATION).
+    if (SEASON_SHAPES_GENERATION && replannedSeason) {
+      if (aEventForBlock) {
+        warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
+        warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
+      } else if (rollingFocusChoice) {
+        warnings.push(...validateBlockFocus(days, rollingFocusChoice.focus, profile.performance.ftp));
+      }
+    }
     if (truncated) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }
@@ -409,6 +406,7 @@ export async function POST(req: Request) {
       model: GENERATION_MODEL,
       promptVersion: PROMPT_VERSION,
       durabilityTemplate: durability.id, // Track B: stamp the template for rotation + future scoring
+      ...(rollingFocusChoice ? { seasonFocus: rollingFocusChoice.focus, seasonFocusRationale: rollingFocusChoice.rationale } : {}),
     };
     return NextResponse.json({ plan });
   } catch (err) {
