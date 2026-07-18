@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
-import { appendBlockHistory, readAthleteProfile, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, writeInterventionLog } from "@/lib/data-store";
+import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, writeInterventionLog } from "@/lib/data-store";
 import { currentPeriod } from "@/lib/season";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { buildInterventions, mergeInterventions } from "@/lib/intervention";
@@ -11,6 +11,8 @@ import { utcToday } from "@/lib/date";
 import { truncateBlockDays } from "@/lib/score-log";
 import { parsePrescription } from "@/lib/prescription";
 import { computeSessionLevel } from "@/lib/session-level";
+import { validateWorkoutProtocol, validateDurationConsistency } from "@/lib/workout-validate";
+import { resolveDurabilityInsertEnvelope } from "@/lib/calibration";
 import type { CurrentBlock, CurrentBlockDay, GeneratedPlan, PlannedDay, WriteResult } from "@/lib/types";
 import { WORKOUT_TYPES } from "@/lib/types";
 
@@ -113,7 +115,9 @@ export async function POST(req: Request) {
   }
 
   const dates = plan.days.map((d) => d.date).sort();
-  const ftp = (await readAthleteProfile()).performance.ftp;
+  const [athleteProfile, blockSettings] = await Promise.all([readAthleteProfile(), readBlockSettings()]);
+  const ftp = athleteProfile.performance.ftp;
+  const envelope = resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope);
   // MACRO: stamp the block with the season focus period active as of the block's own startDate, not
   // wall-clock "today" — a block that starts a few days out can fall in a different period than the one
   // live at generation time. Best-effort by construction — currentPeriod is a pure lookup over the plan
@@ -145,6 +149,13 @@ export async function POST(req: Request) {
         // derives from, so block history carries a stable per-session identity.
         const sessionLevel = computeSessionLevel(d.type, prescription);
         const eventId = eventIdByDate.get(d.date) ?? null;
+        // §8 (season-architecture-redesign): freeze the same deterministic protocol/duration checks
+        // generation already ran, so a "written despite a known violation" pattern is queryable later
+        // without re-running validators against whatever FTP/calibration is live at query time.
+        const protocolFindings = [
+          ...validateWorkoutProtocol(d, ftp, envelope),
+          ...(validateDurationConsistency(d) ? [validateDurationConsistency(d) as string] : []),
+        ];
         return {
           date: d.date,
           name: d.name,
@@ -155,6 +166,7 @@ export async function POST(req: Request) {
           ...(prescription.length > 0 ? { prescription } : {}),
           ...(sessionLevel ? { sessionLevel } : {}),
           ...(eventId !== null ? { eventId } : {}),
+          ...(protocolFindings.length > 0 ? { protocolFindings } : {}),
         };
       });
     })(),

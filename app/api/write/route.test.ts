@@ -19,6 +19,7 @@ vi.mock("@/lib/intervals-api", () => ({
 vi.mock("@/lib/data-store", () => ({
   appendBlockHistory: vi.fn(async () => {}),
   readAthleteProfile: vi.fn(async () => ({ performance: { ftp: 280 } })),
+  readBlockSettings: vi.fn(async () => ({ durabilityInsertEnvelope: undefined })),
   readCurrentBlock: vi.fn(async () => null),
   readInterventionLog: vi.fn(async () => ({ records: [], updatedAt: "" })),
   readLastSync: vi.fn(async () => null),
@@ -254,5 +255,33 @@ describe("/api/write sessionLevel stamp (measurability)", () => {
     expect(endurance.sessionLevel).toBeUndefined();
     // 2×20m @ 95%: 40 work-min × 0.95 = 38; band (95−80)/(115−80) = 0.43. Frozen for retrospectives.
     expect(threshold.sessionLevel).toEqual({ score: 38, workMin: 40, avgPctFtp: 95, bandPosition: 0.43 });
+  });
+});
+
+describe("/api/write protocolFindings stamp (§8, block-history-enrichment)", () => {
+  it("stamps protocolFindings onto a day whose workout text violates its own protocol", async () => {
+    h.createEvent.mockResolvedValue(200);
+    // SIT protocol (lib/workout-validate.ts PROTOCOL.SIT): maxEffortSec 45, minIntensityPct 130.
+    // 6×90s @ 150% FTP clears the intensity floor but blows past the max-effort-length ceiling.
+    const violatingPlan = {
+      ...plan,
+      days: [{ ...day("2026-06-15", "SIT"), type: "SIT", durationMin: 33, workoutText: "6x\n- 90s 150%\n- 4m 50%" }],
+    };
+    const json = await (await post({ plan: violatingPlan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.days[0].protocolFindings).toEqual(
+      expect.arrayContaining([expect.stringContaining("longer than protocol")])
+    );
+  });
+
+  it("omits protocolFindings on a clean day", async () => {
+    h.createEvent.mockResolvedValue(200);
+    const cleanPlan = {
+      ...plan,
+      days: [{ ...day("2026-06-15", "Rest"), type: "Rest", durationMin: 0, workoutText: "" }],
+    };
+    const json = await (await post({ plan: cleanPlan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.days[0].protocolFindings).toBeUndefined();
   });
 });
