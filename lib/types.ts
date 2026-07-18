@@ -309,10 +309,12 @@ export interface CurrentBlockDay {
   // written before id-tracking, or when a day's write returned no id.
   eventId?: number | null;
   // Block history enrichment (ROADMAP season-architecture-redesign §8): the real execution outcome
-  // for this day, joined from the score log once the session is actually ridden and scored. Absent
-  // until scored, and on blocks/history written before this field existed — truthy-check, never
-  // `=== null`.
-  execution?: { score: number; compliancePct: number | null };
+  // for this day, joined from the score log once the session is actually ridden and scored.
+  // `compromised: true` mirrors RideScoreEntry.compromised (sickness/equipment/etc., athlete-
+  // attributed) — present only when true, so a future consumer reading this field alone doesn't
+  // mistake a compromised low score for a genuine one. Absent until scored, and on blocks/history
+  // written before this field existed — truthy-check, never `=== null`.
+  execution?: { score: number; compliancePct: number | null; compromised?: true };
   // Deterministic protocol/duration findings for this day, re-run and frozen at WRITE time (the same
   // checks generation already ran — see lib/workout-validate.ts). Lets a later "written despite a
   // known violation" correlation exist without re-running validators against a since-changed FTP/

@@ -820,4 +820,21 @@ describe("backfillExecutionOntoDays", () => {
     const out = backfillExecutionOntoDays(days, [entry("2026-07-01", { executionScore: 9, compliancePct: 100 })]);
     expect(out[0].execution).toEqual({ score: 9, compliancePct: 100 });
   });
+
+  it("stamps compromised: true alongside score/compliance for a compromised planned entry", () => {
+    const out = backfillExecutionOntoDays([day("2026-07-01")], [entry("2026-07-01", { compromised: true })]);
+    expect(out[0].execution).toEqual({ score: 8, compliancePct: 95, compromised: true });
+  });
+
+  it("omits the compromised key entirely for a non-compromised entry (sparse-field convention, not compromised: false)", () => {
+    const out = backfillExecutionOntoDays([day("2026-07-01")], [entry("2026-07-01")]);
+    expect(out[0].execution).not.toHaveProperty("compromised");
+  });
+
+  it("re-stamps when a day's compromised flag flips (proves idempotence now considers compromised, not just score/compliance)", () => {
+    const days = [day("2026-07-01", { execution: { score: 8, compliancePct: 95, compromised: true } })];
+    const out = backfillExecutionOntoDays(days, [entry("2026-07-01", { compromised: false })]);
+    expect(out[0]).not.toBe(days[0]);
+    expect(out[0].execution).toEqual({ score: 8, compliancePct: 95 });
+  });
 });

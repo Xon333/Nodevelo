@@ -125,9 +125,20 @@ export function backfillExecutionOntoDays(days: CurrentBlockDay[], entries: Ride
   const out = days.map((d) => {
     const e = byDate.get(d.date);
     if (!e) return d;
-    if (d.execution?.score === e.executionScore && d.execution?.compliancePct === e.compliancePct) return d;
+    const next: NonNullable<CurrentBlockDay["execution"]> = {
+      score: e.executionScore,
+      compliancePct: e.compliancePct,
+      ...(e.compromised ? { compromised: true as const } : {}),
+    };
+    if (
+      d.execution?.score === next.score &&
+      d.execution?.compliancePct === next.compliancePct &&
+      d.execution?.compromised === next.compromised
+    ) {
+      return d;
+    }
     changed = true;
-    return { ...d, execution: { score: e.executionScore, compliancePct: e.compliancePct } };
+    return { ...d, execution: next };
   });
   return changed ? out : days;
 }
