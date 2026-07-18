@@ -111,3 +111,47 @@ describe("updateBlockHistory", () => {
     expect(out).toEqual([]);
   });
 });
+
+describe("appendBlockHistory", () => {
+  const entry = (id: string, overrides: Partial<BlockHistoryEntry> = {}): BlockHistoryEntry => ({
+    id,
+    goal: "Build FTP",
+    startDate: "2026-06-01",
+    endDate: "2026-06-28",
+    lengthWeeks: 4,
+    overview: "",
+    createdAt: "2026-06-01T00:00:00.000Z",
+    ...overrides,
+  });
+
+  it("dedupes by id — appending an entry whose id already exists leaves only one copy, the new one", async () => {
+    await appendBlockHistory(entry("a", { overview: "first" }));
+    await appendBlockHistory(entry("a", { overview: "second" }));
+    const history = await readBlockHistory();
+    expect(history.filter((h) => h.id === "a")).toHaveLength(1);
+    expect(history.find((h) => h.id === "a")?.overview).toBe("second");
+  });
+
+  it("does not lose concurrent appends (the lost-update race a previously-unlocked read allowed)", async () => {
+    // Mirrors json-store.test.ts's "does not lose updates when concurrent read-modify-writes
+    // interleave": with the old unlocked-read appendBlockHistory, every concurrent call's read
+    // raced ahead of the others' writes, so only the last write to acquire the lock survived and
+    // every other entry was silently lost. Routing through updateBlockHistory (one locked
+    // critical section per append) means every call's mutate sees the immediately-prior state.
+    await Promise.all(Array.from({ length: 25 }, (_, n) => appendBlockHistory(entry(`h${n}`))));
+    const history = await readBlockHistory();
+    expect(history).toHaveLength(25);
+    expect(new Set(history.map((h) => h.id)).size).toBe(25);
+  });
+
+  it("does not lose an append racing a concurrent updateBlockHistory mutate", async () => {
+    await updateBlockHistory(() => [entry("existing")]);
+    await Promise.all([
+      appendBlockHistory(entry("new")),
+      updateBlockHistory((entries) => entries.map((e) => (e.id === "existing" ? { ...e, retrospective: "done" } : e))),
+    ]);
+    const history = await readBlockHistory();
+    expect(history.find((h) => h.id === "new")).toBeTruthy();
+    expect(history.find((h) => h.id === "existing")?.retrospective).toBe("done");
+  });
+});

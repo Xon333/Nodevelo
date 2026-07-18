@@ -128,19 +128,24 @@ export async function readBlockHistory(): Promise<BlockHistoryEntry[]> {
 }
 
 export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void> {
-  const history = await readBlockHistory();
-  // Deduplicate by id to avoid duplicates on retry.
-  const filtered = history.filter((h) => h.id !== entry.id);
-  // SUB-1: raised from 20 — discarded/superseded blocks now archive too (not just completed ones), so
-  // churn is higher than "one entry per real block"; 20 was evicting real history (compliance, retro,
-  // reflections, and now per-day prescriptions) well within a season. 200 gives ample headroom at
-  // negligible local-JSON cost.
-  await writeJson("block-history.json", [entry, ...filtered].slice(0, 200));
+  // Routes through updateBlockHistory so this read-modify-write is one locked critical section — closes
+  // the lost-update race a concurrent updateBlockHistory caller (e.g. the sync route's execution-
+  // outcome backfill, ROADMAP season-architecture-redesign §8) could otherwise hit against this
+  // function's previously-unlocked read.
+  await updateBlockHistory((history) => {
+    // Deduplicate by id to avoid duplicates on retry.
+    const filtered = history.filter((h) => h.id !== entry.id);
+    // SUB-1: raised from 20 — discarded/superseded blocks now archive too (not just completed ones), so
+    // churn is higher than "one entry per real block"; 20 was evicting real history (compliance, retro,
+    // reflections, and now per-day prescriptions) well within a season. 200 gives ample headroom at
+    // negligible local-JSON cost.
+    return [entry, ...filtered].slice(0, 200);
+  });
 }
 
 // Transactional read-modify-write on block history (mirrors updateCurrentBlock/updateScoreLog) — the
-// read happens inside the per-file lock. Doesn't protect against appendBlockHistory (which has an
-// unlocked read); both need hardening for mutual race-safety.
+// read happens inside the per-file lock, so this and appendBlockHistory (which now delegates here)
+// can't race each other and lose an update.
 export async function updateBlockHistory(
   mutate: (entries: BlockHistoryEntry[]) => BlockHistoryEntry[]
 ): Promise<BlockHistoryEntry[]> {
