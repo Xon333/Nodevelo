@@ -340,17 +340,16 @@ export function realWeeksSinceLastRecovery(
 // Which 0-indexed week(s) within a new block of `lengthWeeks` must be recovery, given how many real
 // calendar weeks have already elapsed since the last genuinely light one. Hard cap: never more than
 // `every` weeks without recovery — continues counting forward within a block longer than the cap, so
-// an 8-week block still gets recovery weeks spaced correctly, not just one at the front.
-// NB: the loop deliberately stops one week short of `lengthWeeks` — a cap reached on a block's own
-// final week is never planned as a recovery week *inside* that block. That final week is the block's
-// transition point anyway (the next block's own realWeeksSinceLastRecovery call sees the same real
-// data and, being right back at/over the cap, force-places recovery at ITS week 0 instead) — so a
-// same-week recovery designation right at the boundary would be redundant, not helpful.
+// an 8-week block still gets recovery weeks spaced correctly, not just one at the front. Matches
+// applyDeloadCadence's own documented semantics (a period whose own length equals or exceeds `every`
+// still fires on its own): a cap reached on a block's own final week DOES flag that week as recovery
+// — a fresh, exactly-cadence-length block still gets its needed recovery week, on its own last day,
+// rather than deferring it into the next block and silently stretching the real cadence by one week.
 export function planRecoveryWeeks(weeksSinceRecovery: number, lengthWeeks: number, tight: boolean): number[] {
   const every = tight ? SEASON_CONSTANTS.deloadTightEveryWeeks : SEASON_CONSTANTS.deloadEveryWeeks;
   const indices: number[] = [];
   let sinceRecovery = weeksSinceRecovery;
-  for (let wk = 0; wk < lengthWeeks - 1; wk++) {
+  for (let wk = 0; wk < lengthWeeks; wk++) {
     sinceRecovery += 1;
     if (sinceRecovery >= every) {
       indices.push(wk);

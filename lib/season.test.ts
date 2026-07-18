@@ -1092,8 +1092,8 @@ describe("realWeeksSinceLastRecovery (season-continuous-focus-selection §5)", (
 });
 
 describe("planRecoveryWeeks", () => {
-  it("places no recovery week when already recently recovered and the block is short", () => {
-    expect(planRecoveryWeeks(0, 4, false)).toEqual([]);
+  it("places a recovery week on the block's own last day when a fresh block exactly reaches the cadence cap", () => {
+    expect(planRecoveryWeeks(0, 4, false)).toEqual([3]); // 0+1+1+1+1=4 at index 3 — the block's own final week
   });
   it("forces week 1 (index 0) when already at/over the hard cap", () => {
     expect(planRecoveryWeeks(4, 4, false)).toEqual([0]);
@@ -1102,8 +1102,8 @@ describe("planRecoveryWeeks", () => {
   it("places a recovery week exactly when the cumulative count reaches the cap, then repeats every `every` weeks", () => {
     expect(planRecoveryWeeks(2, 8, false)).toEqual([1, 5]); // 2+1+1=4 at index 1; resets; +4 more at index 5
   });
-  it("uses the tighter 3-week cadence under heavy fatigue", () => {
-    expect(planRecoveryWeeks(0, 6, true)).toEqual([2]); // 0+1+1+1=3 at index 2
+  it("uses the tighter 3-week cadence under heavy fatigue, repeating within a single longer block", () => {
+    expect(planRecoveryWeeks(0, 6, true)).toEqual([2, 5]); // 0+1+1+1=3 at index 2; resets; +1+1+1=3 more at index 5
   });
 });
 
