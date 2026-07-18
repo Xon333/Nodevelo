@@ -252,7 +252,18 @@ describe("POST /api/generate — seasonFocus stamping (chooseNextFocus wiring)",
       periods: [],
       updatedAt: "",
     } as never);
-    const json = await (await gen("Build FTP")).json();
+    // Pin today explicitly (matches the "season wiring" describe block's convention above) — this
+    // test's A-event lookup (findUpcomingAEvent) depends on today being before 2026-10-01. Without
+    // this, `gen`'s request body omits `today` and resolveToday falls back to the real system clock,
+    // so the test would silently start failing once the real calendar date passes 2026-10-01.
+    const json = await (
+      await POST(
+        new Request("http://t/api/generate", {
+          method: "POST",
+          body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+        })
+      )
+    ).json();
     expect(json.plan.seasonFocus).toBeUndefined();
     expect(json.plan.seasonFocusRationale).toBeUndefined();
   });

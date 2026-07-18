@@ -133,4 +133,36 @@ describe("POST /api/generate — season wiring with SEASON_SHAPES_GENERATION=tru
     expect(fit[0]).toContain("2026-06-15");
     expect(fit[0]).toContain("riding time");
   });
+
+  // Hostile-review finding (CFS-7 task-7 review): every test above has an upcoming A-event, so
+  // aEventForBlock is always truthy and only the (unchanged) replanEventArc/formatSeasonContext
+  // branch ever ran under this file's SEASON_SHAPES_GENERATION=true mock. formatFocusContext,
+  // formatRecoveryWeeks and validateBlockFocus — all new in this task — had never been exercised
+  // with the flag on. This is the rolling-mode (no upcoming A-event) counterpart.
+  it("injects BLOCK FOCUS + RECOVERY context for a rolling-mode block (no upcoming A-event)", async () => {
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "" } as never);
+    // Force realWeeksSinceLastRecovery to return 3 (lib/season.ts): with a 350 weekly baseline
+    // (avgTss90d 50 * 7) the 50%-of-baseline "light week" cutoff is 175. The real calendar weeks
+    // ending 06-15, 06-08 and 06-01 (relative to today 2026-06-15) each carry 300 TSS — loading,
+    // not light — while the week ending 05-25 has zero logged TSS, so the backward walk stops
+    // there and returns 3 (same pattern lib/season.test.ts's own "counts real calendar weeks back"
+    // case uses). planRecoveryWeeks(3, lengthWeeks=2, tight=false): 3+1=4 hits the 4-week hard cap
+    // on the block's own week index 0, so recovery is forced onto this block's first week.
+    vi.mocked(store.readRollingBaselines).mockResolvedValue({ avgTss90d: 50 } as never);
+    vi.mocked(store.readScoreLog).mockResolvedValue({
+      entries: [
+        { date: "2026-06-12", tss: 300, executionScore: 80, plannedType: null, inferredType: "Z2", planned: false, legacy: false, compliancePct: null, intensityFactor: null, ftpUsed: 280, durationMin: 180 },
+        { date: "2026-06-05", tss: 300, executionScore: 80, plannedType: null, inferredType: "Z2", planned: false, legacy: false, compliancePct: null, intensityFactor: null, ftpUsed: 280, durationMin: 180 },
+        { date: "2026-05-29", tss: 300, executionScore: 80, plannedType: null, inferredType: "Z2", planned: false, legacy: false, compliancePct: null, intensityFactor: null, ftpUsed: 280, durationMin: 180 },
+      ],
+      updatedAt: "",
+    } as never);
+    const json = await (await genWithSeason()).json();
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(dynamic).toContain("BLOCK FOCUS:"); // formatFocusContext reached the prompt
+    expect(dynamic).toContain("RECOVERY:"); // formatRecoveryWeeks reached the prompt
+    expect(json.plan.seasonFocus).toBeDefined();
+    expect(typeof json.plan.seasonFocusRationale).toBe("string");
+    expect(json.plan.seasonFocusRationale.length).toBeGreaterThan(0);
+  });
 });
