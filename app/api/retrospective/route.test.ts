@@ -185,6 +185,20 @@ describe("/api/retrospective POST", () => {
     expect(entry.days.map((d: { date: string }) => d.date)).toEqual(block.days.map((d) => d.date));
   });
 
+  it("carries block.seasonFocus forward onto the archived BlockHistoryEntry (CFS-8)", async () => {
+    h.readCurrentBlock.mockResolvedValueOnce({ ...block, seasonFocus: "threshold", seasonPhase: "build" });
+    await post();
+    const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry.seasonFocus).toBe("threshold");
+  });
+
+  it("omits seasonFocus on the archived entry when the block never had one (pre-upgrade block)", async () => {
+    // Shared `block` fixture carries no seasonFocus at all — the pre-CFS-7 case.
+    await post();
+    const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry.seasonFocus).toBeUndefined();
+  });
+
   it("appends history before clearing the current block, and never clears if the append fails", async () => {
     h.appendBlockHistory.mockRejectedValueOnce(new Error("disk full"));
     await expect(post()).rejects.toThrow("disk full");

@@ -168,6 +168,36 @@ describe("/api/write season stamp (MACRO)", () => {
     expect(json.currentBlock.seasonFocus).toBeUndefined();
     expect(json.currentBlock.seasonPhase).toBeUndefined();
   });
+
+  // CFS-8: a rolling-mode plan already carries the focus chooseNextFocus picked at GENERATION time
+  // (plan.seasonFocus) — /api/write must stamp CurrentBlock directly from that, never re-derive via
+  // currentPeriod (which could disagree, having consulted the season plan as it stands at WRITE time).
+  it("stamps seasonFocus/seasonPhase straight from plan.seasonFocus when present (threshold -> build), without consulting the season plan at all", async () => {
+    h.createEvent.mockResolvedValue(200);
+    const json = await (
+      await post({ plan: { ...plan, seasonFocus: "threshold", seasonFocusRationale: "rotation: threshold next" } })
+    ).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.seasonFocus).toBe("threshold");
+    expect(json.currentBlock.seasonPhase).toBe("build");
+    // The short-circuited `plan.seasonFocus ? null : currentPeriod(await readSeasonPlan(), ...)` must
+    // never touch readSeasonPlan when the stamp is already present on the plan.
+    expect(store.readSeasonPlan).not.toHaveBeenCalled();
+  });
+
+  it("maps plan.seasonFocus 'aerobic-base' to seasonPhase 'base' (the one focus outside the build-phase default)", async () => {
+    h.createEvent.mockResolvedValue(200);
+    const json = await (await post({ plan: { ...plan, seasonFocus: "aerobic-base" } })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.seasonFocus).toBe("aerobic-base");
+    expect(json.currentBlock.seasonPhase).toBe("base");
+  });
+
+  // The two tests above ("stamps the period covering the block's startDate..." / "omits the stamp...")
+  // already exercise the OLD fallback path end-to-end: this file's shared `plan` fixture carries no
+  // `seasonFocus`, so `plan.seasonFocus ? null : currentPeriod(...)` takes the `currentPeriod` branch —
+  // proving the period lookup still applies for event-anchored/pre-upgrade plans without a new,
+  // duplicate test.
 });
 
 describe("/api/write intervention recording (learning loop, first-ever write)", () => {

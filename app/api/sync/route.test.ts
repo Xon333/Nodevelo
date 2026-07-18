@@ -1129,6 +1129,32 @@ describe("DELETE /api/sync — discard block", () => {
     expect(json).toMatchObject({ ok: true, eventsRemoved: 3, eventsFailed: [] });
   });
 
+  it("carries block.seasonFocus forward onto the archived BlockHistoryEntry (CFS-8)", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        seasonFocus: "threshold",
+        seasonPhase: "build",
+        days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 75, eventId: 11 }],
+      })
+    );
+    vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11], failed: [] });
+    await DELETE();
+    const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
+    expect(archived.seasonFocus).toBe("threshold");
+  });
+
+  it("omits seasonFocus on the archived entry when the block never had one (pre-upgrade block)", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 75, eventId: 11 }],
+      })
+    );
+    vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11], failed: [] });
+    await DELETE();
+    const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
+    expect(archived.seasonFocus).toBeUndefined();
+  });
+
   it("does not archive a same-day discard with no lived days (SUB-1 noise guard)", async () => {
     vi.mocked(store.readCurrentBlock).mockResolvedValue(
       mkBlock({

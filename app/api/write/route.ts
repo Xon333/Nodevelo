@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
 import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, writeInterventionLog } from "@/lib/data-store";
-import { currentPeriod } from "@/lib/season";
+import { currentPeriod, isSeasonFocus } from "@/lib/season";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { buildInterventions, mergeInterventions } from "@/lib/intervention";
 import { planDayToEvent } from "@/lib/plan-parser";
@@ -108,6 +108,7 @@ export async function POST(req: Request) {
       model: existing.model,
       promptVersion: existing.promptVersion,
       durabilityTemplate: existing.durabilityTemplate,
+      ...(existing.seasonFocus && isSeasonFocus(existing.seasonFocus) ? { seasonFocus: existing.seasonFocus } : {}),
       // SUB-1: archive only the lived portion — the days the superseded block actually covered while
       // live, not the un-lived future the new block is about to overwrite.
       days: truncateBlockDays(existing.days, utcToday()),
@@ -122,7 +123,12 @@ export async function POST(req: Request) {
   // wall-clock "today" — a block that starts a few days out can fall in a different period than the one
   // live at generation time. Best-effort by construction — currentPeriod is a pure lookup over the plan
   // already on disk.
-  const seasonPeriod = currentPeriod(await readSeasonPlan(), dates[0]);
+  // Season-architecture-redesign §4/§8: a rolling-mode plan already carries the focus chooseNextFocus
+  // picked at GENERATION time (plan.seasonFocus) — use it directly rather than re-deriving via a period
+  // lookup, which would consult different "as of" data at write time and could disagree. An event-
+  // anchored plan (or one generated before this field existed) carries no seasonFocus, so it falls back
+  // to the original period lookup by the block's own startDate.
+  const seasonPeriod = plan.seasonFocus ? null : currentPeriod(await readSeasonPlan(), dates[0]);
   // The event id each day was written as, so the block's events can be pruned on a later discard/replace.
   const eventIdByDate = new Map(results.map((r) => [r.date, r.eventId]));
   const currentBlock: CurrentBlock = {
@@ -135,7 +141,11 @@ export async function POST(req: Request) {
     model: plan.model,
     promptVersion: plan.promptVersion,
     durabilityTemplate: plan.durabilityTemplate,
-    ...(seasonPeriod ? { seasonFocus: seasonPeriod.focus, seasonPhase: seasonPeriod.phase } : {}),
+    ...(plan.seasonFocus
+      ? { seasonFocus: plan.seasonFocus, seasonPhase: plan.seasonFocus === "aerobic-base" ? "base" : "build" }
+      : seasonPeriod
+        ? { seasonFocus: seasonPeriod.focus, seasonPhase: seasonPeriod.phase }
+        : {}),
     // Track B: stamp the template on the week's long Z2 ride(s) — a Z2 day at/near the block's longest Z2
     // duration — so scoring can grade that ride against the template's expected signal. Short easy Z2 days
     // (well below the long-ride duration) aren't durability rides and stay unstamped.

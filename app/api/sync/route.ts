@@ -57,6 +57,7 @@ import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { timeAboveAerobicHrFraction } from "@/lib/execution-score";
 import { resolveToday, utcToday } from "@/lib/date";
 import { deriveFuelPrompt } from "@/lib/fuel-prompt";
+import { isSeasonFocus } from "@/lib/season";
 import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
 
 // A sync fires several sequential Intervals.icu requests (each network-bounded to 20s in the API
@@ -852,6 +853,7 @@ export async function DELETE() {
         model: block.model,
         promptVersion: block.promptVersion,
         durabilityTemplate: block.durabilityTemplate,
+        ...(block.seasonFocus && isSeasonFocus(block.seasonFocus) ? { seasonFocus: block.seasonFocus } : {}),
         days: livedDays,
       });
     }

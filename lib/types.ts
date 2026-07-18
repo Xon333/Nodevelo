@@ -466,6 +466,11 @@ export interface BlockHistoryEntry {
   model?: string;
   promptVersion?: number;
   durabilityTemplate?: string; // Track B: durability template (A–E) used — for rotation + scoring
+  // Season-architecture-redesign §8: carries forward whatever focus the archived block itself was
+  // stamped with (CurrentBlock.seasonFocus) — a self-contained record for the selector's exposure
+  // signal and future scorer weighting, without a separate cross-reference. Absent on entries archived
+  // before this field existed, or when the block predates season-focus stamping entirely.
+  seasonFocus?: SeasonFocus;
   // SUB-1: the block's per-day prescriptions, truncated to dates on/before the archive date (its "lived"
   // portion — a superseded/discarded block's un-lived future was never a real plan). Verbatim CurrentBlockDay
   // reuse — buildRideScores applies the same durationMin > 0 filter it already applies to the live block.
