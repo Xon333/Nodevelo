@@ -55,6 +55,7 @@ vi.mock("@/lib/data-store", () => ({
   readTodayAnalysis: vi.fn(),
   updateScoreLog: vi.fn(),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
+  updateBlockHistory: vi.fn(),
   mergeCurrentBlockDays: vi.fn(),
   writeCalibration: vi.fn(),
   writeInterventionLog: vi.fn(),
@@ -351,6 +352,37 @@ describe("POST /api/sync — ledger wiring", () => {
     expect(json.scores.map((e: RideScoreEntry) => e.date)).not.toContain("2026-06-21");
     expect(json.compromisedDates).toContain("2026-06-21");
   });
+
+  it("backfills the fresh execution outcome onto the matching current-block day (§8 block-history enrichment)", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-07-01", executionScore: 9, compliancePct: 100 })];
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-07-01", name: "Threshold", type: "Threshold", durationMin: 60 }] })
+    );
+    await postSync();
+    expect(store.mergeCurrentBlockDays).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([expect.objectContaining({ date: "2026-07-01", execution: { score: 9, compliancePct: 100 } })])
+    );
+  });
+
+  it("does not call the block-day patch when no day's execution stamp actually changed (§8 block-history enrichment)", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-07-01", executionScore: 9, compliancePct: 100 })];
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({
+        days: [
+          {
+            date: "2026-07-01",
+            name: "Threshold",
+            type: "Threshold",
+            durationMin: 60,
+            execution: { score: 9, compliancePct: 100 },
+          },
+        ],
+      })
+    );
+    await postSync();
+    expect(store.mergeCurrentBlockDays).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/sync — ledger rebuild one-shot (LEDGER-3)", () => {
@@ -419,9 +451,11 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
   });
 
   it("surfaces an intervention-validation failure as a warning without failing the sync", async () => {
-    // readScoreLog is now also called once earlier, at birth-adherence candidate-gating time (SUB-3
-    // birth-time fetch) — queue that first call to resolve normally so only the SECOND call (the one
-    // this test actually exercises, feeding buildAthleteModel for intervention validation) rejects.
+    // readScoreLog is now also called twice earlier: once at birth-adherence candidate-gating time
+    // (SUB-3 birth-time fetch), once more by Task 3's execution-outcome backfill (right after the
+    // ledger update) — queue both of those to resolve normally so only the THIRD call (the one this
+    // test actually exercises, feeding buildAthleteModel for intervention validation) rejects.
+    vi.mocked(store.readScoreLog).mockResolvedValueOnce({ entries: scoreEntries, updatedAt: "" });
     vi.mocked(store.readScoreLog).mockResolvedValueOnce({ entries: scoreEntries, updatedAt: "" });
     vi.mocked(store.readScoreLog).mockRejectedValueOnce(new Error("corrupt log"));
     const res = await postSync();
@@ -466,8 +500,11 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
 
-    // (a) block persisted with the day relocated
-    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls.at(-1)![0] as CurrentBlock;
+    // (a) block persisted with the day relocated. Index 0, not the last call: with Task 3's
+    // execution-outcome backfill now running right after this section, a matching score-log entry
+    // for TODAY can trigger its own (later) mergeCurrentBlockDays call — the move-persistence call
+    // this assertion cares about is always the FIRST one the calendar-reconcile section makes.
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[0][0] as CurrentBlock;
     expect(written.days.find((d) => d.date === TODAY)).toMatchObject({
       name: "Threshold 3x12",
       type: "Threshold",
@@ -530,7 +567,10 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     expect(api.deleteEvents).toHaveBeenCalledWith([41]);
 
     // The block day's eventId is re-stamped to the newly-created event's id — the old id is gone.
-    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls.at(-1)![0] as CurrentBlock;
+    // Index 1 (the second mergeCurrentBlockDays call): index 0 is the move-persistence call, and a
+    // later Task 3 execution-outcome backfill call (triggered by a matching score-log entry for TODAY)
+    // can follow this one, so the re-stamp call is never reliably the LAST one either.
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[1][0] as CurrentBlock;
     expect(written.days.find((d) => d.date === TODAY)?.eventId).toBe(777);
   });
 

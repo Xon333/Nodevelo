@@ -31,6 +31,7 @@ import {
   writeQuirks,
   writeTodayAnalysis,
   updateCurrentBlock,
+  updateBlockHistory,
   mergeCurrentBlockDays,
   writeLastSync,
   writeRollingBaselines,
@@ -47,7 +48,7 @@ import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
-import { buildRideScores, calStampFor, easyStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
+import { backfillExecutionOntoDays, buildRideScores, calStampFor, easyStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, trustedCalibration } from "@/lib/calibration";
@@ -527,6 +528,34 @@ export async function POST(req: Request) {
       if (doRebuild) {
         await writeLedgerRebuild(new Date().toISOString());
         warnings.push("Ledger rebuilt: past entries re-scored from corrected activity data (NP/decoupling).");
+      }
+
+      // §8 (season-architecture-redesign): now that the ledger reflects this sync's fresh scores,
+      // backfill the real execution outcome onto the matching day — current block first (the common
+      // case: a sync usually lands while the block that prescribed the ride is still live), then any
+      // block-history entry that still carries the same date (a late sync after the block was already
+      // archived/replaced). Best-effort: never fail the sync over a provenance stamp.
+      try {
+        const freshLog = await readScoreLog();
+        const blockForBackfill = await readCurrentBlock();
+        if (blockForBackfill) {
+          const patchedDays = backfillExecutionOntoDays(blockForBackfill.days, freshLog.entries);
+          if (patchedDays !== blockForBackfill.days) {
+            const changedDates = new Set(
+              patchedDays.filter((d, i) => d !== blockForBackfill.days[i]).map((d) => d.date)
+            );
+            await mergeCurrentBlockDays(blockForBackfill, patchedDays.filter((d) => changedDates.has(d.date)));
+          }
+        }
+        const history = await readBlockHistory();
+        const historyNeedsPatch = history.some((h) => h.days && backfillExecutionOntoDays(h.days, freshLog.entries) !== h.days);
+        if (historyNeedsPatch) {
+          await updateBlockHistory((entries) =>
+            entries.map((h) => (h.days ? { ...h, days: backfillExecutionOntoDays(h.days, freshLog.entries) } : h))
+          );
+        }
+      } catch (e) {
+        logWarn("/api/sync", "execution-backfill", e instanceof Error ? e.message : String(e));
       }
     }
 
