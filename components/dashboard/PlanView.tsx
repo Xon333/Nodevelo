@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, nextMonday } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks, FOCUS_LABELS, SEASON_SHAPES_GENERATION } from "@/lib/season";
+import { currentPeriod, filterGoalsByFocus, formatSeasonContext, suggestedBlockWeeks, FOCUS_LABELS, type SeasonOutlookSlot } from "@/lib/season";
 import { mergeGoalsFromBlockText, parseWeakpointLines } from "@/lib/profile-goals";
 import type { BlockHistoryEntry, CurrentBlock, GeneratedPlan, SeasonPlan, WriteResult } from "@/lib/types";
 import { useSync } from "../SyncProvider";
@@ -114,16 +114,29 @@ export default function PlanView() {
   // changes what gets generated.
   const loadSeasonCtx = useCallback(async () => {
     try {
-      const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
       const today = localToday();
+      const { plan, outlook } = await api<{ plan: SeasonPlan; outlook: SeasonOutlookSlot[] | null }>(`/api/season?today=${today}`);
+      // The block-length suggestion still comes from a real committed period when one exists (event
+      // mode's persisted arc) — harmless and self-resolving if rolling mode briefly still has a
+      // straddling settled period left over from before this redesign.
       const period = currentPeriod(plan, today);
-      // HR-21: season is temporarily disabled from shaping generation (SEASON_SHAPES_GENERATION,
-      // lib/season.ts) — the block-length suggestion is still a harmless UI convenience, but the
-      // phase readout / "Targeting: X" pill / goal-narrowing-by-focus all claim the generator will
-      // target this period, which is no longer true. Treat this exactly like "no current period"
-      // for everything except the length suggestion, so the UI never promises what it can't deliver.
-      if (period && SEASON_SHAPES_GENERATION) {
-        setLengthWeeks(suggestedBlockWeeks(period, today));
+      if (period) setLengthWeeks(suggestedBlockWeeks(period, today));
+
+      const next = outlook?.[0] ?? null;
+      if (next) {
+        // Rolling mode, SEASON_SHAPES_GENERATION on: the server already ran chooseNextFocus for this
+        // exact "next block" decision — show it directly instead of re-deriving anything client-side.
+        setSeasonReadout(`${FOCUS_LABELS[next.focus]} — ${next.rationale}`);
+        setFocusLabel(FOCUS_LABELS[next.focus]);
+        if (rawGoals.length > 0) {
+          const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, next.focus);
+          setGoalCount(filtered.length);
+          setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
+          setShownGoals(filtered);
+        }
+      } else if (period) {
+        // Event mode: the server never projects an outlook while a real committed arc exists — use the
+        // period directly, exactly as before this redesign.
         setSeasonReadout(formatSeasonContext(plan, today));
         setFocusLabel(FOCUS_LABELS[period.focus]);
         if (rawGoals.length > 0) {
@@ -133,10 +146,7 @@ export default function PlanView() {
           setShownGoals(filtered);
         }
       } else {
-        // No current period, or season is disabled from shaping generation — nothing to target,
-        // so the generator's context line stays hidden and every stated goal shows (none dropped
-        // by a focus filter that no longer reflects what the generator will actually do).
-        if (period) setLengthWeeks(suggestedBlockWeeks(period, today));
+        // Nothing to target — no current period, no outlook (season disabled or a brand-new season).
         setSeasonReadout(null);
         setFocusLabel(null);
         if (rawGoals.length > 0) {
@@ -146,7 +156,6 @@ export default function PlanView() {
       }
       setSeasonCtxFailed(false);
     } catch {
-      // Failed fetch — same as "no season": don't show a stale target from a prior successful load.
       setSeasonReadout(null);
       setFocusLabel(null);
       setSeasonCtxFailed(true);
