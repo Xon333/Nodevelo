@@ -135,6 +135,8 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
     expect(dynamic).not.toContain("spans 2 season periods");
     expect(dynamic).not.toContain("focus aerobic-base");
     expect(dynamic).not.toContain("focus threshold");
+    expect(dynamic).not.toContain("BLOCK FOCUS:");
+    expect(dynamic).not.toContain("RECOVERY:");
     // Season state must still be tracked underneath even though it's not shown to the model.
     expect(store.writeSeasonPlan).toHaveBeenCalled();
   });
