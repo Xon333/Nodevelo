@@ -270,6 +270,61 @@ export function findUpcomingAEvent(events: SeasonEvent[], today: string): Season
   return events.find((e) => e.priority === "A" && Date.parse(e.date) > Date.parse(today)) ?? null;
 }
 
+export interface SeasonOutlookSlot {
+  focus: SeasonFocus;
+  rationale: string;
+  startDate: string; // hypothetical
+  weeks: number; // nominal display length (SEASON_CONSTANTS.weeks[focus])
+}
+
+const DEFAULT_OUTLOOK_SLOTS = 4;
+
+// Stateless forward projection for the roadmap UI (season-roadmap-preview §6) — never persisted, never
+// gates real generation, recomputed fresh every time it's shown. Re-runs chooseNextFocus forward a
+// handful of hypothetical slots, extrapolating real exposure forward: a not-yet-projected focus's real
+// staleness is advanced by how far the projection has already run, and once a focus IS projected this
+// call, its clock RESETS to that point and grows forward from there (ordinary staleness growth) —
+// deliberately NOT dropped to undefined. Dropping it (an earlier draft of this function did) falls
+// through to chooseNextFocus's own lastFocus-only fallback (labelExposureWeeks), which only ever sees a
+// single prior focus — so anything that isn't the literal immediate predecessor reads as "never seen"
+// (maximal urgency) the very next slot, and whichever focus IS momentarily the predecessor also resets
+// to "just trained". The two leapfrog each other's score every slot and starve out every other focus for
+// the WHOLE projection — the exact bug the two REGRESSION tests below pin (caught by hand-tracing the
+// drop-based draft against its own test expectations before running them; the drop version reproduces
+// the forbidden ["anaerobic","threshold","anaerobic","threshold"] sequence and never surfaces vo2max).
+export function projectSeasonOutlook(
+  input: ChooseNextFocusInput,
+  today: string,
+  slots: number = DEFAULT_OUTLOOK_SLOTS
+): SeasonOutlookSlot[] {
+  const out: SeasonOutlookSlot[] = [];
+  const chosenAtWeeks = new Map<SeasonFocus, number>(); // weeksIntoProjection when a focus was chosen this call
+  let cursor = today;
+  let lastFocus = input.lastFocus;
+  for (let i = 0; i < slots; i++) {
+    const weeksIntoProjection = weeksBetween(today, cursor);
+    const adjustedSignals: FocusSignals = input.signals.exposure
+      ? {
+          ...input.signals,
+          exposure: Object.fromEntries(
+            Object.entries(input.signals.exposure).map(([f, wk]) => {
+              const chosenAt = chosenAtWeeks.get(f as SeasonFocus);
+              const adjusted = chosenAt === undefined ? (wk as number) + weeksIntoProjection : weeksIntoProjection - chosenAt;
+              return [f, adjusted];
+            })
+          ) as Partial<Record<SeasonFocus, number>>,
+        }
+      : input.signals;
+    const choice = chooseNextFocus({ limiter: input.limiter, lastFocus, signals: adjustedSignals });
+    const weeks = SEASON_CONSTANTS.weeks[choice.focus];
+    out.push({ focus: choice.focus, rationale: choice.rationale, startDate: cursor, weeks });
+    chosenAtWeeks.set(choice.focus, weeksIntoProjection);
+    lastFocus = choice.focus;
+    cursor = addWeeks(cursor, weeks);
+  }
+  return out;
+}
+
 // Type guard for a persisted-but-untyped focus string (CurrentBlock.seasonFocus is `string`, not
 // SeasonFocus, so a block written before this field existed — or corrupted by hand-editing JSON —
 // can't be trusted without a runtime check before feeding it into chooseNextFocus's lastFocus).

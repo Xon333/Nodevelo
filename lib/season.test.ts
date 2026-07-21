@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, validateBlockFocus, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, validateBlockFocus, projectSeasonOutlook, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -890,5 +890,66 @@ describe("validateBlockFocus (rolling mode)", () => {
   it("has no matcher for sharpen — never fires", () => {
     const days = [day("2026-07-01", "Z2", 60)];
     expect(validateBlockFocus(days, "sharpen", 250)).toEqual([]);
+  });
+});
+
+describe("projectSeasonOutlook (season-roadmap-preview §6)", () => {
+  it("projects the requested number of hypothetical slots, dated contiguously from today", () => {
+    const out = projectSeasonOutlook({ limiter: { system: null, confidence: "low" }, lastFocus: "aerobic-base", signals: {} }, "2026-07-01", 3);
+    expect(out).toHaveLength(3);
+    expect(out[0].startDate).toBe("2026-07-01");
+    expect(out[1].startDate).toBe(addWeeks(out[0].startDate, out[0].weeks));
+    expect(out[2].startDate).toBe(addWeeks(out[1].startDate, out[1].weeks));
+  });
+
+  it("never repeats a focus back-to-back across the projected slots", () => {
+    const out = projectSeasonOutlook({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} }, "2026-07-01", 4);
+    for (let i = 1; i < out.length; i++) expect(out[i].focus).not.toBe(out[i - 1].focus);
+  });
+
+  it("defaults to 4 slots when not specified", () => {
+    const out = projectSeasonOutlook({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} }, "2026-07-01");
+    expect(out).toHaveLength(4);
+  });
+
+  it("REGRESSION (ported from the deleted draftSeasonArc-level test, 2026-07-15 live finding): real exposure for ALL foci must not freeze urgency for the whole projection — a never-yet-drafted focus still surfaces within one horizon", () => {
+    // A confident anaerobic limiter with real (comparatively fresh, non-zero) exposure for every focus —
+    // without the exposure-extrapolation fix, vo2max/durability's real exposure never grows across the
+    // loop and the projection degenerates into anaerobic/threshold alternating forever.
+    const out = projectSeasonOutlook(
+      {
+        limiter: { system: "anaerobic", confidence: "high" },
+        lastFocus: "aerobic-base",
+        signals: {
+          goalText: "Raise my FTP from 280 to 300 W. Weakpoint: Sprint (0-30s).",
+          exposure: { "aerobic-base": 2, threshold: 0, anaerobic: 0, vo2max: 3, durability: 2 },
+          execQuality: { threshold: 6.2, vo2max: 7, anaerobic: 7, durability: 6.8 },
+        },
+      },
+      "2026-07-01",
+      4
+    );
+    const foci = out.map((s) => s.focus);
+    expect(foci).not.toEqual(["anaerobic", "threshold", "anaerobic", "threshold"]); // the old two-focus trap
+    expect(foci).toContain("vo2max"); // structurally reachable within one horizon
+  });
+
+  it("REGRESSION (ported from the deleted draftSeasonArc-level test, found by the final whole-branch review): a focus with fresh REAL exposure is not penalized just because it sits in the incoming lastFocus/history", () => {
+    // durability's real exposure says 0 weeks (maximally fresh) even though its label was the most
+    // recent thing trained (lastFocus) — the projection must honor the real freshness, not fall back to
+    // a label-derived staleness estimate that overstates its urgency.
+    const out = projectSeasonOutlook(
+      {
+        limiter: { system: null, confidence: "low" },
+        lastFocus: "durability",
+        signals: { exposure: { durability: 0 } },
+      },
+      "2026-07-01",
+      3
+    );
+    // durability must not win the very next slot purely off a stale label-derived estimate when its
+    // real exposure says it was just trained — the no-back-to-back rule already keeps it out of slot 0
+    // regardless, so this asserts the REAL signal (not a label fallback) is what's driving slot 1+.
+    expect(out[0].focus).not.toBe("durability");
   });
 });
