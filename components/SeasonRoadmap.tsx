@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { roadmapView, SEASON_SHAPES_GENERATION } from "@/lib/season";
+import { roadmapView, SEASON_SHAPES_GENERATION, FOCUS_LABELS, type SeasonOutlookSlot } from "@/lib/season";
 import type { SeasonFocus, SeasonPlan } from "@/lib/types";
 import { LoadFailed, useMountLoad } from "./ui";
 
@@ -11,28 +11,34 @@ const FOCUS_COLOR: Record<SeasonFocus, string> = {
   "aerobic-base": "#00d4ff", threshold: "#f5a623", vo2max: "#ff49c8", anaerobic: "#a06bff", durability: "#38d39f", sharpen: "#7fd8ea",
 };
 
-// Season roadmap stepper for /plan (MACRO-UI, Task 10): a compact strip of done/current/upcoming
-// focus-period cards plus a flag for the next upcoming event. Shows a 3-step teaching stub when
-// there's no season plan yet or it has zero periods; a fetch failure renders visibly (LoadFailed).
+// Season roadmap stepper for /plan (MACRO-UI): done/current cards from settled history + event mode's
+// real committed arc, plus (season-roadmap-preview §6) a dashed, lower-opacity "if you kept going"
+// projection for the rolling case — computed fresh server-side every load, never a promise about what a
+// future block will actually contain. Shows a 3-step teaching stub when there's nothing to show yet; a
+// fetch failure renders visibly (LoadFailed).
 export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
   const [plan, setPlan] = useState<SeasonPlan | null>(null);
+  const [outlook, setOutlook] = useState<SeasonOutlookSlot[] | null>(null);
   const [failed, setFailed] = useState(false);
   const load = useCallback(async () => {
     try {
-      const { plan } = await api<{ plan: SeasonPlan }>("/api/season");
+      const today = localToday();
+      const { plan, outlook } = await api<{ plan: SeasonPlan; outlook: SeasonOutlookSlot[] | null }>(`/api/season?today=${today}`);
       setPlan(plan);
+      setOutlook(outlook);
       setFailed(false);
     } catch {
       setFailed(true);
     }
   }, []);
-  // useMountLoad's refreshKey re-runs the fetch after a Season save bumps it, not just on mount.
   useMountLoad(load, refreshKey);
 
   if (failed) return <LoadFailed what="the season roadmap" retry={() => void load()} />;
-  // No season yet: instead of vanishing, teach the model in three steps (structure over prose). This is
-  // the answer to "what changes once I generate a season?" — shown, not explained in a paragraph.
-  if (!plan || plan.periods.length === 0) {
+
+  const hasHistory = plan !== null && plan.periods.length > 0;
+  const hasOutlook = outlook !== null && outlook.length > 0;
+
+  if (!hasHistory && !hasOutlook) {
     return (
       <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-3 dark:border-zinc-600 dark:bg-zinc-800">
         <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -56,21 +62,18 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
       </section>
     );
   }
+
   const today = localToday();
-  const view = roadmapView(plan, today);
-  const nextEvent = plan.events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
-  // The A-priority event the engine is backward-scheduling toward — strict `>` mirrors
-  // backwardScheduleFromEvent's routing (on race day itself the countdown framing is stale).
-  const nextA = plan.events.filter((e) => e.priority === "A" && e.date > today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
-  // Distinguishes an auto-drafted roadmap from one the athlete fully hand-edited — periods can be
-  // "derived" (engine-drafted), "override" (athlete-edited), or frozen past periods either way.
-  const hasDerived = plan.periods.some((p) => p.source === "derived");
+  const view = plan ? roadmapView(plan, today) : [];
+  const nextEvent = plan?.events.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  const nextA = plan?.events.filter((e) => e.priority === "A" && e.date > today).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  const hasDerived = plan?.periods.some((p) => p.source === "derived") ?? false;
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Season</h2>
-        <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{plan.objective || "get faster"}</span>
+        <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{plan?.objective || "get faster"}</span>
       </div>
       <div className="flex gap-2 overflow-x-auto">
         {view.map((p) => (
@@ -84,6 +87,13 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
             </p>
           </div>
         ))}
+        {outlook?.map((slot, i) => (
+          <div key={`outlook-${slot.focus}-${slot.startDate}-${i}`} className="min-w-0 flex-1 rounded-md border border-dashed border-zinc-300 px-2.5 py-2 opacity-70 dark:border-zinc-600">
+            <p className="text-[8px] font-bold uppercase tracking-wide" style={{ color: FOCUS_COLOR[slot.focus] }}>○ projected</p>
+            <p className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-100">{FOCUS_LABELS[slot.focus]}</p>
+            <p className="text-[10px] text-zinc-500 dark:text-zinc-400">{slot.weeks} wk</p>
+          </div>
+        ))}
         {nextEvent && (
           <div className="flex min-w-[64px] flex-col items-center justify-center rounded-md border border-[#ffcf4d] bg-[#ffcf4d]/10 px-2 py-2 text-center">
             <span className="text-base leading-none">🏁</span>
@@ -92,13 +102,15 @@ export default function SeasonRoadmap({ refreshKey }: { refreshKey?: number }) {
           </div>
         )}
       </div>
-      {hasDerived && (
+      {(hasDerived || hasOutlook) && (
         <p className="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
           {nextA ? (
             <>
               Counting down to <span className="font-medium">{nextA.name}</span> ({nextA.date}): build blocks first, then a
               peak (race-specific sharpening), then a taper ending on race week. It refreshes when you generate a block.
             </>
+          ) : hasOutlook ? (
+            <>If you kept going from today, roughly this — not a promise, recomputed fresh every time you generate a block.</>
           ) : (
             "Auto-drafted from your objective, events, fitness/load, and current limiter. It refreshes when you generate a block."
           )}
