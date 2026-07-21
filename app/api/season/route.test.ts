@@ -7,6 +7,12 @@ vi.mock("@/lib/data-store", () => ({
   readSeasonPlan: vi.fn(),
   writeSeasonPlan: vi.fn(),
 }));
+// GET's roadmap-outlook projection (season-roadmap-preview §6) calls gatherFocusInputs — mocked here
+// the way app/api/generate/route.test.ts mocks its other collaborators, since this file's data-store
+// mock only stubs readSeasonPlan/writeSeasonPlan, not the fuller read* set gatherFocusInputs needs.
+vi.mock("@/lib/season-signals", () => ({
+  gatherFocusInputs: vi.fn(async () => ({ limiter: { system: null, confidence: "low" as const }, lastFocus: null, signals: {} })),
+}));
 
 import * as store from "@/lib/data-store";
 import { GET, PUT } from "@/app/api/season/route";
@@ -35,6 +41,7 @@ const base = (): SeasonPlan => ({
 const readMock = () => store.readSeasonPlan as ReturnType<typeof vi.fn>;
 const writeMock = () => store.writeSeasonPlan as ReturnType<typeof vi.fn>;
 const put = (body: unknown) => PUT(new Request("http://x/api/season", { method: "PUT", body: JSON.stringify(body) }));
+const get = (query = "") => GET(new Request(`http://x/api/season${query}`));
 
 let stored: SeasonPlan;
 beforeEach(() => {
@@ -79,8 +86,34 @@ describe("PUT /api/season", () => {
 
 describe("GET /api/season", () => {
   it("returns the stored plan", async () => {
-    const res = await GET();
+    const res = await get();
     const json = await res.json();
     expect(json.plan.objective).toBe("Century in September");
+  });
+});
+
+// season-roadmap-preview §6: GET now also returns a stateless `outlook` projection alongside `plan`.
+// It's null whenever there's a committed arc to show instead (an upcoming A-event) and, independent of
+// that, gated behind SEASON_SHAPES_GENERATION — false as of this task (flips in a later task of this
+// plan), so the rolling case is expected to assert null too, not a populated array, until then.
+describe("GET /api/season — outlook", () => {
+  it("returns a null outlook when there is an upcoming A-event (event mode keeps its committed arc)", async () => {
+    stored = { ...base(), events: [{ name: "Gran Fondo", date: "2026-10-01", priority: "A" }] };
+    const res = await get("?today=2026-07-01");
+    const json = await res.json();
+    expect(json.outlook).toBeNull();
+  });
+
+  it("returns a null outlook for the rolling case (no upcoming A-event) while SEASON_SHAPES_GENERATION is off", async () => {
+    stored = { ...base(), events: [] };
+    const res = await get("?today=2026-07-01");
+    const json = await res.json();
+    expect(json.outlook).toBeNull();
+  });
+
+  it("still returns plan unchanged (existing contract)", async () => {
+    const res = await get("?today=2026-07-01");
+    const json = await res.json();
+    expect(json.plan.objective).toBe(base().objective);
   });
 });
