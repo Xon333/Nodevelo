@@ -292,6 +292,20 @@ const DEFAULT_OUTLOOK_SLOTS = 4;
 // the WHOLE projection — the exact bug the two REGRESSION tests below pin (caught by hand-tracing the
 // drop-based draft against its own test expectations before running them; the drop version reproduces
 // the forbidden ["anaerobic","threshold","anaerobic","threshold"] sequence and never surfaces vo2max).
+//
+// The pick-time Map alone isn't sufficient: a focus can be CHOSEN via chooseNextFocus's own label-
+// fallback path (labelExposureWeeks) while having NO entry in input.signals.exposure at all —
+// exposureFromSessions's documented contract is that a focus with no qualifying session is ABSENT from
+// its result, the realistic common case for a real athlete profile, not a corner case. Recomputing
+// staleness only for foci that were already keys of the original exposure object (the first fix) still
+// drops such a focus the moment it stops being the literal lastFocus: it falls through to
+// labelExposureWeeks again with a one-element history that no longer contains it → null →
+// NEVER_SEEN_URGENCY — the exact same artificial spike, just triggered from "never had real exposure"
+// instead of "had real exposure, then got dropped". So the adjusted exposure object is built from the
+// UNION of every key in the original exposure object AND every focus recorded in the pick-time Map, and
+// this adjustment runs even when input.signals.exposure starts entirely undefined/empty — once ANY
+// focus is picked in the projection, its clock is real and growing from its OWN pick point in every
+// later slot, regardless of whether it ever had a real exposure entry to begin with.
 export function projectSeasonOutlook(
   input: ChooseNextFocusInput,
   today: string,
@@ -303,18 +317,22 @@ export function projectSeasonOutlook(
   let lastFocus = input.lastFocus;
   for (let i = 0; i < slots; i++) {
     const weeksIntoProjection = weeksBetween(today, cursor);
-    const adjustedSignals: FocusSignals = input.signals.exposure
-      ? {
-          ...input.signals,
-          exposure: Object.fromEntries(
-            Object.entries(input.signals.exposure).map(([f, wk]) => {
-              const chosenAt = chosenAtWeeks.get(f as SeasonFocus);
-              const adjusted = chosenAt === undefined ? (wk as number) + weeksIntoProjection : weeksIntoProjection - chosenAt;
-              return [f, adjusted];
-            })
-          ) as Partial<Record<SeasonFocus, number>>,
-        }
-      : input.signals;
+    const originalExposure = input.signals.exposure;
+    const adjustedSignals: FocusSignals =
+      originalExposure || chosenAtWeeks.size > 0
+        ? {
+            ...input.signals,
+            exposure: Object.fromEntries(
+              Array.from(
+                new Set<SeasonFocus>([...(originalExposure ? (Object.keys(originalExposure) as SeasonFocus[]) : []), ...chosenAtWeeks.keys()])
+              ).map((f) => {
+                const chosenAt = chosenAtWeeks.get(f);
+                const adjusted = chosenAt !== undefined ? weeksIntoProjection - chosenAt : (originalExposure![f] as number) + weeksIntoProjection;
+                return [f, adjusted];
+              })
+            ) as Partial<Record<SeasonFocus, number>>,
+          }
+        : input.signals;
     const choice = chooseNextFocus({ limiter: input.limiter, lastFocus, signals: adjustedSignals });
     const weeks = SEASON_CONSTANTS.weeks[choice.focus];
     out.push({ focus: choice.focus, rationale: choice.rationale, startDate: cursor, weeks });

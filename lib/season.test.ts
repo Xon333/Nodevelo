@@ -952,4 +952,54 @@ describe("projectSeasonOutlook (season-roadmap-preview §6)", () => {
     // regardless, so this asserts the REAL signal (not a label fallback) is what's driving slot 1+.
     expect(out[0].focus).not.toBe("durability");
   });
+
+  it("REGRESSION: a focus with NO original exposure entry at all (picked only via label fallback) must not re-spike to NEVER_SEEN urgency the second time it's chosen", () => {
+    // vo2max has no key whatsoever in signals.exposure — exposureFromSessions's documented contract is
+    // that a focus with no qualifying session is ABSENT from its result, the realistic common case, not
+    // a corner case. vo2max can therefore only be picked via chooseNextFocus's labelExposureWeeks
+    // fallback. The already-fixed drop bug only recomputed staleness for foci that started as keys of
+    // the original exposure object — vo2max never was one, so on the first slot after it stops being the
+    // literal lastFocus it falls straight back to labelExposureWeeks(recentFocuses, "vo2max") with a
+    // one-element history that no longer contains it → null → NEVER_SEEN_URGENCY (1.3) again, exactly
+    // the artificial spike the first fix was supposed to eliminate.
+    //
+    // Hand-traced against the FIXED code (goal=0.5 and execution=0.5 are uniform across all foci here —
+    // no goalText/execQuality — so only urgency + trainability differentiate scores; limiter is null so
+    // contributes 0 everywhere):
+    //   slot 0 (weeksIntoProjection=0, lastFocus="aerobic-base"): vo2max is absent from exposure and not
+    //     in recentFocuses=["aerobic-base"] → labelExposureWeeks→null→urgency 1.3, score 0.82 — dominates
+    //     every other candidate (next highest, threshold, scores 0.475) → vo2max wins. This part is
+    //     IDENTICAL pre- and post-fix (vo2max has no data yet either way; NEVER_SEEN_URGENCY on a truly
+    //     first-ever pick is correct, not the bug).
+    //   slot 1 (weeksIntoProjection=4, lastFocus="vo2max"): vo2max is excluded (no-back-to-back) so its
+    //     score doesn't matter; among the rest, threshold's exposure grows to 1+4=5 (urgency 0.417,
+    //     trainability 1.0) beating aerobic-base (same urgency, trainability 0.9), durability (0.6) and
+    //     anaerobic (0.3) → threshold wins (score 0.575 vs aerobic-base's 0.555).
+    //   slot 2 (weeksIntoProjection=8, lastFocus="threshold") — the crux slot:
+    //     FIXED: vo2max is in the pick-time Map (chosenAt=0) → adjusted exposure = 8-0=8 → urgency
+    //       8/12=0.667 → score 0.175+0.2+0.18+0.075=0.63.
+    //     aerobic-base was never picked via the loop → adjusted exposure = 1(original)+8=9 → urgency
+    //       9/12=0.75 → score 0.175+0.225+0.18+0.075=0.655 — narrowly beats vo2max's 0.63 and wins.
+    //     BUGGY (pre-fix): vo2max has no original exposure key, so it's never written into the adjusted
+    //       exposure object at all regardless of the pick-time Map → falls back to
+    //       labelExposureWeeks(["threshold"], "vo2max") = null → urgency 1.3 → score 0.82 → vo2max wins
+    //       AGAIN, reproducing the exact spike this fix closes.
+    const out = projectSeasonOutlook(
+      {
+        limiter: { system: null, confidence: "low" },
+        lastFocus: "aerobic-base",
+        signals: {
+          exposure: { "aerobic-base": 1, threshold: 1, anaerobic: 1, durability: 1 }, // vo2max: absent
+        },
+      },
+      "2026-07-01",
+      4
+    );
+    const foci = out.map((s) => s.focus);
+    expect(foci[0]).toBe("vo2max");
+    expect(foci[1]).toBe("threshold");
+    // The crux assertion: without the fix, vo2max wins slot 2 again purely off the 1.3 urgency ceiling.
+    expect(foci[2]).not.toBe("vo2max");
+    expect(foci[2]).toBe("aerobic-base");
+  });
 });
