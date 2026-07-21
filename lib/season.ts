@@ -195,7 +195,7 @@ export interface FocusScore {
   parts: { goal: number; urgency: number; trainability: number; execution: number; limiter: number }; // weighted; sums to score
 }
 
-// Score all four build foci, best first. Each part is its WEIGHTED contribution so a caller (or a
+// Score all five build foci, best first. Each part is its WEIGHTED contribution so a caller (or a
 // debug log) can read exactly why a focus won. Deterministic: ties break by BUILD_FOCI order.
 export function scoreFocusCandidates(
   limiter: SeasonDraftInput["limiter"],

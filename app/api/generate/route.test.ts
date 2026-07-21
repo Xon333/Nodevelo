@@ -113,7 +113,7 @@ describe("POST /api/generate — Track B wiring", () => {
 });
 
 describe("POST /api/generate — season wiring (multi-period blocks)", () => {
-  // Base 2026-06-08 → 06-22 (straddles today → preserved verbatim by replanSeasonArc), then an
+  // Base 2026-06-08 → 06-22 (straddles today → preserved verbatim by settleSeasonHistory), then an
   // athlete-owned build override 06-22 → 07-13 (preserved verbatim too). A 2-week block starting
   // 06-15 crosses the base→build boundary on 06-22.
   const seasonPlan = {

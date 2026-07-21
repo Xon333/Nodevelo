@@ -115,37 +115,23 @@ season breaks, FTP retest nudge) are fully shipped → [ARCHIVE.md](ARCHIVE.md);
 `docs/superpowers/`. The old "anaerobic unreachable via the default fallback" debt item is resolved
 (the scored selector replaced that fallback entirely) and removed.
 
-**Season is currently NOT shaping or gating block generation (2026-07-16 athlete decision, `←` a
-future dedicated research session on the fixed phase-sequence model itself — e.g. whether always
-prescribing an aerobic-base phase regardless of a rider's existing base fitness is even right).**
-`SEASON_SHAPES_GENERATION` (`lib/season.ts`, default `false`) gates `formatSeasonContext`'s phase
-text, `formatRetestNote`'s retest nudge, and the `validateSeasonFit`/`validateFocusMatch` warnings out
-of every `/api/generate` call. Season state keeps being tracked underneath regardless — `season-
-plan.json` still updates every call, B/C-priority event surfacing stays on (a calendar fact, not a
-phase opinion) — so nothing here atrophies while the model question is open. Flip the flag back once
-that research session lands; until then, treat every debt item below through that lens (most only
-matter again once phase text reaches generation again).
+**Season is currently NOT shaping or gating block generation (2026-07-16 athlete decision) —
+architecturally resolved by the 2026-07-17 continuous-focus-selection redesign**
+(`docs/superpowers/specs/2026-07-17-season-architecture-redesign-design.md` + its implementation
+plans). The fixed phase-sequence model is replaced by `chooseNextFocus` — a fresh, real-data-scored
+decision made every `/api/generate` call — for the rolling (no-upcoming-A-event) case; event-anchored
+mode keeps its existing persisted, backward-scheduled arc, largely unchanged. `SEASON_SHAPES_GENERATION`
+(`lib/season.ts`, default `false`) still gates `formatFocusContext`/`formatRecoveryWeeks`'s prompt text
+(rolling) and `formatSeasonContext`/`formatRetestNote`'s (event) out of every `/api/generate` call, plus
+`validateBlockFocus`/`validateSeasonFit`/`validateFocusMatch`'s warnings. Season state keeps being
+tracked underneath regardless — `season-plan.json` still updates every call, `chooseNextFocus`'s result
+still stamps `GeneratedPlan.seasonFocus` and carries into `CurrentBlock`/`BlockHistoryEntry` — so
+nothing here atrophies while the flag is off. The flag flips back on as the final step of the
+season-roadmap-preview-and-rollout plan, once the roadmap UI can honestly represent the new model.
 
 Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currently worth a dedicated pass:
-- **Event-anchored path bypasses the whole macro layer, not just deload cadence.** A future A-event
-  routes `draftSeasonArc` to `backwardScheduleFromEvent`, which gets the scored selector
-  (`pickBuildFocus`) but none of the rest: no arc caps, no base re-touches (the fill loop only ever
-  emits `phase: "build"`), no transitions, no deload flags (already documented as deliberate), and no
-  load targets (`targetWeeklyTss` stays null throughout). For a long runway (the athlete's real Alpe
-  KOM case is ~21 weeks) that's 15+ consecutive loading weeks with zero base touches — exactly the
-  Foster load×monotony pattern the arc cap exists to prevent, structurally unreachable on this path.
-  Cheap fix if it's ever worth doing: insert an aerobic-base touch into the backward fill every
-  `~arcWeeks` of runway, or event-anchor only the final peak+taper+one-arc window and let the rolling
-  path (caps and all) fill the earlier weeks.
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label; only the
   phase caption distinguishes them. Cosmetic; visible only once event mode activates.
-- `formatRetestNote`'s "best slot" label is misleading on the event path: its earliest `sharpen`
-  period is the **peak**, which the engine elsewhere insists must hold near-race load, yet the note
-  would call it lighter. Prompt-only impact. (The rolling-path half of this note — cadence math
-  flagging nearly every 3–4wk period, making "the lighter deload period" meaningless — is resolved:
-  the 2026-07-16 block-generation-fidelity fixes corrected `applyDeloadCadence`'s threshold math to a
-  genuine ~4wk rolling count → ARCHIVE.md. Moot either way right now: `formatRetestNote`'s prompt
-  injection is currently switched off entirely, see the note below.)
 - `exposureFromSessions` measures generated (prescribed) sessions, not ridden ones — a planned-but-
   skipped VO2max day still counts as real exposure. `execQualityByFocus` only partially compensates.
   Worth a join against the score log if this ever mis-steers the selector in practice.
@@ -156,8 +142,9 @@ Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currentl
   athlete types between the two independent fetches resolving — narrow single-user timing window,
   not observed in practice.
 - B/C-priority event surfacing (`formatUpcomingEventsForBlock`) and `formatSeasonContext`'s call
-  currently share one `try`/`catch` in `app/api/generate/route.ts` — if `replanSeasonArc` itself ever
-  throws, the (currently-disabled anyway) phase text AND the always-on event line are silently dropped
+  currently share one `try`/`catch` in `app/api/generate/route.ts` — if
+  `chooseNextFocus`/`replanEventArc`/`settleSeasonHistory` itself ever throws, the (currently-disabled
+  anyway) phase text AND the always-on event line are silently dropped
   together. Found during the 2026-07-16 block-generation-fidelity plan's task review; pre-existing
   fragility inherited from the original event-surfacing plan's own "best-effort" design, not introduced
   that session. Worth unwinding (pull the event-line computation out of the replan's try/catch) if

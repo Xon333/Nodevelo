@@ -770,7 +770,7 @@ describe("formatUpcomingEventsForBlock — B/C-priority events inside the block'
   it("returns null for an empty events array", () => {
     expect(formatUpcomingEventsForBlock([], { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
   });
-  it("ignores A-priority events entirely — those already redirect the whole season via draftSeasonArc, not this line", () => {
+  it("ignores A-priority events entirely — those already redirect the whole season via findUpcomingAEvent's event-anchored routing, not this line", () => {
     const events: import("./types").SeasonEvent[] = [{ name: "A-Race", date: "2026-07-22", priority: "A" }];
     expect(formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
   });
