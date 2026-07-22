@@ -190,18 +190,26 @@ export default function TodayView() {
               />
             ) : (
               // Degraded read: no fused state yet (thin/no data). S1-4: when Intervals.icu is
-              // connected, the remedy is one click — a real action, not a dead end.
+              // connected, the remedy is one click — a real action, not a dead end. When it isn't
+              // connected yet, name that and the one fix instead (UXA-2) — this was previously a
+              // silent dead end with no message and no action.
               <div>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  {state.readiness?.reason ?? "Sync to compute today's readiness."}
+                  {state.configured
+                    ? (state.readiness?.reason ?? "Sync to compute today's readiness.")
+                    : "Intervals.icu isn't connected yet, so there's nothing to read your readiness from."}
                 </p>
-                {state.configured && (
+                {state.configured ? (
                   <button
                     onClick={() => void doSync()}
                     className="mt-1 text-sm text-cyan-700 hover:underline dark:text-[#00d4ff]"
                   >
                     Sync now →
                   </button>
+                ) : (
+                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    Add your Intervals.icu key to NodeVelo&apos;s local config and restart it to connect.
+                  </p>
                 )}
               </div>
             )}
