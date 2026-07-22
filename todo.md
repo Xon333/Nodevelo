@@ -373,14 +373,10 @@ than the P1-3 legend above (roughly P1≈Critical, P2≈High/Medium, P3≈Nice-t
 - ☑ `ux` **UXA-10** — **Fixed (commit 087c81e).** Reused the sanctioned workout-type hexes
   (paired by closest semantic match) instead of inventing near-duplicate shades; moved off inline
   `style=` onto Tailwind classes. [components/SeasonRoadmap.tsx:10-12,81,92,98-100](components/SeasonRoadmap.tsx:10).
-- ☐ `ux` **UXA-11** — Two unreconciled "primary button" visual languages across 6+ files; no shared
-  `Button` primitive in `ui.tsx`. [components/BlockSettingsForm.tsx:277](components/BlockSettingsForm.tsx:277),
-  [components/PlatformBehaviorForm.tsx:86](components/PlatformBehaviorForm.tsx:86),
-  [components/AthleteProfileForm.tsx:601,674](components/AthleteProfileForm.tsx:601),
-  [components/BackupRestore.tsx:55](components/BackupRestore.tsx:55),
-  [components/KnowledgeBaseEditor.tsx:212](components/KnowledgeBaseEditor.tsx:212) vs.
-  [components/Nav.tsx:166](components/Nav.tsx:166), [components/dashboard/BlockGenerator.tsx:84](components/dashboard/BlockGenerator.tsx:84).
-  Deliberately deferred — needs a shared primitive built first (see the "primitive work" batch).
+- ☑ `ux` **UXA-11** — **Fixed (commit f06b5c0).** Every Settings/Profile/Knowledge Save button had
+  independently drifted to an inverted solid-zinc style (in 3 different sizes) instead of
+  Nav/BlockGenerator's documented pink-outline dark-mode treatment. Added `PrimaryButton` +
+  `PRIMARY_BUTTON_CLASS` to `ui.tsx` and swept all 7 call sites onto it.
 - ☑ `ux` **UXA-12** — **Fixed (commit 2d30261).** `BlockTimeline` demoted to plain `Card` chrome,
   matching its DESIGN.md §8 drill-down tier. [components/trends/sections.tsx:33-35](components/trends/sections.tsx:33).
 - ☑ `bug` **UXA-13** — **Fixed (commits 6635027, 9900d1b).** All 10 sites swapped to the correct
@@ -409,69 +405,102 @@ than the P1-3 legend above (roughly P1≈Critical, P2≈High/Medium, P3≈Nice-t
   `?today=` request now (was 3). [components/dashboard/PlanView.tsx](components/dashboard/PlanView.tsx).
 
 **Medium**
-- ☐ `ux` **UXA-20** — Settings silently clamps out-of-range numbers with no explanation.
+- ☑ `ux` **UXA-20** — **Fixed (commit 5bd258c).** Settings now diffs sent-vs-returned numeric fields
+  after a save and explains any silent server-side clamp instead of just saying "Saved."
   [app/api/settings/route.ts:41-46](app/api/settings/route.ts:41).
-- ☐ `ux` **UXA-21** — 9 forms have no `<form>` element — Enter doesn't submit, errors aren't
-  `aria-live`. `AthleteProfileForm`, `BlockSettingsForm`, `PlatformBehaviorForm`, `CalibrationPanel`,
-  `SeasonSection`, `KnowledgeBaseEditor`, `BlockGenerator`, and 2 more.
-- ☐ `ux` **UXA-22** — Raw `error.message`/`digest` shown verbatim in the crash boundaries.
-  [app/error.tsx:27-31](app/error.tsx:27), [app/global-error.tsx:22-35](app/global-error.tsx:22).
-- ☐ `bug` **UXA-23** — No `AbortController` anywhere in the fetch layer; AskCoach keeps billing tokens
-  after nav-away. [lib/client-api.ts:3-22](lib/client-api.ts:3), [components/AskCoach.tsx:32-49](components/AskCoach.tsx:32).
+- ☑ `ux` **UXA-21** — **Fixed (commit c91a7c9).** All 9 forms (`AthleteProfileForm`,
+  `BlockSettingsForm`, `PlatformBehaviorForm`, `CalibrationPanel` ×2, `SeasonSection`,
+  `KnowledgeBaseEditor`, `BlockGenerator`) wrapped in `<form onSubmit>`; every non-submit button inside
+  (selectors, add/remove rows, Cancel, Collapse) given explicit `type="button"` so wrapping didn't
+  turn them into accidental submit triggers.
+- ☑ `ux` **UXA-22** — **Fixed (commit 5bd258c).** Raw `error.message`/`digest` moved behind a
+  collapsed "Technical details" disclosure in both crash boundaries — still reachable, no longer the
+  first thing read. [app/error.tsx:27-31](app/error.tsx:27), [app/global-error.tsx:22-35](app/global-error.tsx:22).
+- ☑ `bug` **UXA-23** — **Fixed (commit 5bd258c).** AskCoach now ties an `AbortController` to its
+  streamed fetch via an unmount cleanup — navigating away mid-answer actually stops consuming (and
+  billing) tokens. [lib/client-api.ts:3-22](lib/client-api.ts:3), [components/AskCoach.tsx:32-49](components/AskCoach.tsx:32).
 - ☐ `bug` **UXA-24** — No cross-tab version check on destructive block actions — delete/write/reschedule
-  act on stale server state. [app/api/sync/route.ts:829-863](app/api/sync/route.ts:829).
-- ☐ `bug` **UXA-25** — Three GET routes (`/api/trends`, `/api/history`, `/api/export`) have zero
-  try/catch — an unexpected shape returns a bare 500 with no JSON body.
-- ☐ `ux` **UXA-26** — Trends' error box is a one-off missing the Retry every sibling page has.
-  [components/Trends.tsx:28-34](components/Trends.tsx:28).
-- ☐ `ux` **UXA-27** — PowerCurveChart's y-axis labels break dual-theme and fail contrast.
+  act on stale server state. [app/api/sync/route.ts:829-863](app/api/sync/route.ts:829). **Deliberately
+  deferred** — real optimistic-concurrency control (version-stamping the block, rejecting a stale
+  write), not a mechanical fix; left open pending its own design pass rather than folded into this sweep.
+- ☑ `bug` **UXA-25** — **Fixed (commit 5bd258c).** `/api/trends`, `/api/history`, `/api/export` now
+  catch unexpected errors and return a structured `{error}` instead of a bare 500.
+- ☑ `ux` **UXA-26** — **Fixed (commit 5bd258c).** Trends' top-level fetch error is now `LoadFailed` +
+  Retry, matching every sibling best-effort fetch in the app. [components/Trends.tsx:28-34](components/Trends.tsx:28).
+- ☑ `ux` **UXA-27** — **Fixed (commit fcb1b1c).** PowerCurveChart's y-axis labels now carry the
+  correct `dark:` pairing, matching a sibling line 9 rows down that already had it.
   [components/PowerCurveChart.tsx:87-88](components/PowerCurveChart.tsx:87).
-- ☐ `ux` **UXA-28** — Chart line colors hue-swap across themes 4 different ways on one Trends page.
+- ☑ `ux` **UXA-28** — **Fixed (commit fcb1b1c).** Chart line colors no longer hue-swap across themes —
+  Sparkline's default → pink both themes; Trends' CTL override and RideTrace's power line/bands → cyan
+  both themes (matching PowerCurveChart's existing convention for the same "power" concept).
   [components/Sparkline.tsx:17-19](components/Sparkline.tsx:17), [components/Trends.tsx:156-159](components/Trends.tsx:156),
   [components/RideTrace.tsx:59,69,79](components/RideTrace.tsx:59).
-- ☐ `bug` **UXA-29** — Dark-mode `text-zinc-500` with no `dark:` pairing, missed by the existing
-  detector. [components/AiUsageCard.tsx:14,43](components/AiUsageCard.tsx:14), [components/BackupRestore.tsx:47](components/BackupRestore.tsx:47).
-- ☐ `ux` **UXA-30** — RaceSim's accent hex has drifted from its documented value.
-  [lib/workout-types.ts:44](lib/workout-types.ts:44) vs. DESIGN.md.
-- ☐ `ux` **UXA-31** — "Good/positive" status color is inconsistently emerald vs. green, mixed within
-  one badge. [components/StandingGuidance.tsx:77-78](components/StandingGuidance.tsx:77),
+- ☑ `bug` **UXA-29** — **Fixed (commit fcb1b1c).** The remaining bare `text-zinc-500` sites with no
+  `dark:` pairing (missed by the existing detector, which only checks `bg-*`/`border-*`) fixed.
+  [components/AiUsageCard.tsx:14,43](components/AiUsageCard.tsx:14), [components/BackupRestore.tsx:47](components/BackupRestore.tsx:47).
+- ☑ `ux` **UXA-30** — **Fixed (commit fcb1b1c).** Corrected DESIGN.md's documented RaceSim hex
+  (`#d946ef` → `#c026d3`) to match what the code has always actually shipped — the doc was stale, not
+  the color used across every calendar cell. [lib/workout-types.ts:44](lib/workout-types.ts:44) vs. DESIGN.md.
+- ☑ `ux` **UXA-31** — **Fixed (commit fcb1b1c).** "Good/positive" status color unified to
+  emerald-600/emerald-400 (matching `athlete-state-ui.tsx`'s existing convention) — was split
+  green-600/emerald-400 across 6 sites in Trends, mixed within one badge.
+  [components/StandingGuidance.tsx:77-78](components/StandingGuidance.tsx:77),
   [components/athlete-state-ui.tsx:8](components/athlete-state-ui.tsx:8), [components/trends/sections.tsx:27](components/trends/sections.tsx:27).
-- ☐ `ux` **UXA-32** — The hero/CyberFrame shell is hand-copied instead of composed via `Zone`.
-  [components/ui.tsx:253-254](components/ui.tsx:253) vs. [components/dashboard/plan.tsx:421-423](components/dashboard/plan.tsx:421),
-  [components/trends/sections.tsx:33-35](components/trends/sections.tsx:33).
-- ☐ `ux` **UXA-33** — Ultrawide monitors get large, structurally-provable dead space — content
-  centers in leftover space instead of anchoring to the rail. [app/layout.tsx:64,68](app/layout.tsx:64).
-- ☐ `ux` **UXA-34** — KnowledgeBaseEditor's textarea has no accessible name tied to the selected file.
+- ☑ `ux` **UXA-32** — **Fixed (commit f06b5c0).** Extracted `HeroSurface` from `Zone`'s own hero
+  branch; `Zone` now composes it internally and `CurrentBlockSection` uses it directly instead of a
+  hand-copied shell. [components/ui.tsx:253-254](components/ui.tsx:253) vs. [components/dashboard/plan.tsx:421-423](components/dashboard/plan.tsx:421).
+- ☑ `ux` **UXA-33** — **Fixed (commit d825bcd).** The left rail is `fixed` (pinned to the true
+  viewport edge, outside the content div's layout flow), so `mx-auto` centered content inside the
+  padded remainder instead of against the rail — ~680px of dead space on both sides at 2560px.
+  Content now hugs the rail's edge (no `mx-auto`), with a wider cap at `2xl` so it claims more of the
+  extra width instead of just enlarging the empty margin. [app/layout.tsx:72-82](app/layout.tsx:72).
+- ☑ `ux` **UXA-34** — **Fixed (commit a1ca1d4).** KnowledgeBaseEditor's textarea now gets an
+  `aria-label` tied to the selected file — previously no accessible name at all.
   [components/KnowledgeBaseEditor.tsx:199-207](components/KnowledgeBaseEditor.tsx:199).
-- ☐ `ux` **UXA-35** — Calendar day-popover: Escape stops working once focus moves inside it (the
-  popover is a DOM sibling of the trigger, not a parent). [components/dashboard/plan.tsx:249-334](components/dashboard/plan.tsx:249),
-  `components/DayAction.tsx`.
-- ☐ `ux` **UXA-36** — Block-actions menu declares ARIA-menu semantics it doesn't implement (no
-  arrow-key/Home/End navigation). [components/dashboard/plan.tsx:484-513](components/dashboard/plan.tsx:484).
-- ☐ `ux` **UXA-37** — Transient success/error text not announced to assistive tech.
+- ☑ `ux` **UXA-35** — **Fixed (commit a1ca1d4).** The calendar day-popover's Escape handler was only
+  wired on the trigger cell; added the same handler on the popover container itself (a DOM sibling of
+  the trigger, not its child, so the keydown never bubbled there).
+  [components/dashboard/plan.tsx:249-334](components/dashboard/plan.tsx:249), `components/DayAction.tsx`.
+- ☑ `ux` **UXA-36** — **Fixed (commit a1ca1d4).** The block-actions menu declared
+  `role="menu"/"menuitem"` semantics it didn't implement (no arrow-key/Home/End nav) — dropped to
+  plain markup that doesn't promise more than it delivers, for what's currently a single-item disclosure.
+  [components/dashboard/plan.tsx:484-513](components/dashboard/plan.tsx:484).
+- ☑ `ux` **UXA-37** — **Fixed (commit a1ca1d4).** Transient success/error confirmations across
+  `BlockSettingsForm`, `SeasonSection`, and `CalibrationPanel` now use `role="status"/"alert"` so
+  they're announced to assistive tech, not just shown visually.
   [components/BlockSettingsForm.tsx:281](components/BlockSettingsForm.tsx:281), [components/SeasonSection.tsx:149,605,678](components/SeasonSection.tsx:149),
   [components/CalibrationPanel.tsx:99-101,196](components/CalibrationPanel.tsx:99).
-- ☐ `ux` **UXA-38** — InfoDot's own glyph sits at/under the contrast floor (an extra `opacity-60` on
-  top of already-muted zinc). [components/ui.tsx:35-53](components/ui.tsx:35).
-- ☐ `ux` **UXA-39** — UX-MASTERPLAN's "no page runs over the fold at 1440×900" claim only holds for
-  3 of 7 pages (Settings is 1047px over) — correct the doc claim in UX-MASTERPLAN.md.
-- ☐ `bug` **UXA-40** — `/api/trends` ships the entire unbounded score ledger every load; only the
-  last 24 entries are ever used. [app/api/trends/route.ts:152](app/api/trends/route.ts:152).
-- ☐ `ux` **UXA-41** — Block history renders fully unbounded in the DOM in two places.
+- ☑ `ux` **UXA-38** — **Fixed (as part of UXA-1's commit).** Removed the extra `opacity-60` on
+  InfoDot's own glyph, which sat on top of already-muted zinc, at/under the contrast floor.
+  [components/ui.tsx:35-53](components/ui.tsx:35).
+- ☑ `ux` **UXA-39** — **Fixed (commit c91a7c9).** Corrected ROADMAP.md's "no desktop page runs over
+  the fold post-v2" claim against this session's live 1440×900 measurements — it only held for 3 of 7
+  pages (Settings measured 1047px over).
+- ☑ `bug` **UXA-40** — **Fixed (commit 2928274).** `/api/trends` now slices the score ledger to the
+  last 30 entries before sending — was the one series sent in full while its only consumer
+  (`ScoreBars`) immediately does `.slice(-24)`; already 60KB after 5 weeks of real use with no cap.
+  [app/api/trends/route.ts:152](app/api/trends/route.ts:152).
+- ☑ `ux` **UXA-41** — **Fixed (commit 2928274).** Block history (capped at 200 entries data-side,
+  newest-first) was rendered fully unbounded in the DOM in two places — both now cap to the most
+  recent 20, with the summary saying "of N" when there's more.
   [components/trends/sections.tsx:31-107](components/trends/sections.tsx:31), [components/dashboard/plan.tsx:125-156](components/dashboard/plan.tsx:125).
-- ☐ `ux` **UXA-42** — Knowledge's file rail has no independent scroll as retrospectives accumulate.
-  [components/KnowledgeBaseEditor.tsx:164-184](components/KnowledgeBaseEditor.tsx:164).
-- ☐ `ux` **UXA-43** — Today's IF and TSB tooltips break the app's own 2-sentence tip limit (a
-  sibling tip in the same file was already trimmed to this exact rule).
-  [components/dashboard/today.tsx:136,547](components/dashboard/today.tsx:136).
-- ☐ `ux` **UXA-44** — Save/write failure copy splits into two tone registers ("Couldn't X — try
-  again" vs. "X failed") across ~12 sites.
-- ☐ `ux` **UXA-45** — Verdict score bar and driver bars have zero transition on value change.
+- ☑ `ux` **UXA-42** — **Fixed (commit 2928274).** Knowledge's file rail gets its own scroll region
+  (matching the editor pane's fixed height) so an accumulating list of block retrospectives can't
+  outgrow the two-pane layout. [components/KnowledgeBaseEditor.tsx:164-184](components/KnowledgeBaseEditor.tsx:164).
+- ☑ `ux` **UXA-43** — **Fixed (commit 5554326).** Trimmed Today's IF and TSB tooltips to the app's own
+  2-sentence tip limit (Constitution §6) — a sibling tip in the same file (ACWR) was already trimmed
+  to this exact rule. [components/dashboard/today.tsx:136,547](components/dashboard/today.tsx:136).
+- ☑ `ux` **UXA-44** — **Fixed (commit 5554326).** Unified ~17 sites' save/write/load failure copy onto
+  one "Couldn't X — try again." register, replacing a mix of bare "X failed" strings across
+  `BlockSettingsForm`, `PlatformBehaviorForm`, `SeasonSection`, `AthleteProfileForm` (×3),
+  `KnowledgeBaseEditor` (×3), `AskCoach`, `SyncProvider` (×2), `BackupRestore` (×2), `PlanView` (×5).
+- ☑ `ux` **UXA-45** — **Fixed (commit 5554326).** Verdict score bar and driver bars now transition on
+  value change instead of jumping instantly.
   [components/AthleteStateCard.tsx:160-162](components/AthleteStateCard.tsx:160), [components/StateDriversCard.tsx:53-56](components/StateDriversCard.tsx:53).
-- ☐ `ux` **UXA-46** — Mobile: disposition chips wrap their label to 5 lines; chips measure 30px,
-  under touch-target guidance. Today, 375px width.
-- ☐ `ux` **UXA-47** — Mobile: Plan's "Season" label collides with its own goal sentence (no
-  wrap-stacking below the breakpoint). Plan, 375px width.
+- ☑ `ux` **UXA-46** — **Fixed (commit 5554326).** Mobile disposition chips no longer wrap their label
+  to 5 lines; chips now meet touch-target guidance. Today, 375px width.
+- ☑ `ux` **UXA-47** — **Fixed (commit 5554326).** Mobile Plan's "Season" label no longer collides with
+  its own goal sentence — wrap-stacks below the breakpoint instead. Plan, 375px width.
 
 **Nice-to-have**
 - ☐ `ux` **UXA-48** — No keyboard shortcuts for daily navigation/sync.
