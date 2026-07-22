@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import { Skeleton, SkeletonScreen } from "./ui";
+import { PrimaryButton, Skeleton, SkeletonScreen } from "./ui";
 
 type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; message: string };
 type Kind = "kb" | "retro";
@@ -209,13 +209,9 @@ export default function KnowledgeBaseEditor() {
                 className="h-[36rem] w-full resize-y rounded-lg border border-zinc-300 bg-white p-4 font-mono text-xs leading-5 text-zinc-800 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-400"
               />
               <div className="mt-2 flex items-center gap-3">
-                <button
-                  onClick={save}
-                  disabled={!dirty || saveState.state === "saving"}
-                  className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-                >
+                <PrimaryButton onClick={save} disabled={!dirty || saveState.state === "saving"}>
                   {saveState.state === "saving" ? "Saving…" : "Save"}
-                </button>
+                </PrimaryButton>
                 {saveState.state === "saved" && (
                   <span className="text-xs font-medium text-green-700 dark:text-green-400">✓ Saved</span>
                 )}

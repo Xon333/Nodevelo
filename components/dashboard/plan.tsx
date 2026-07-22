@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { localToday as todayIso } from "@/lib/date";
-import { Card, StatTile, CyberFrame, InfoDot } from "../ui";
+import { Card, StatTile, HeroSurface, InfoDot } from "../ui";
 import { weekCharacters } from "@/lib/plan-week-character";
 import DayAction from "../DayAction";
 
@@ -418,9 +418,7 @@ export function CurrentBlockSection({
   const weekLoad = weekActs.reduce((s, a) => s + (a.trainingLoad ?? 0), 0);
   const weekTop = [...weekActs].sort((a, b) => (b.trainingLoad ?? 0) - (a.trainingLoad ?? 0))[0];
   return (
-    <section className="relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:border-[#00d4ff]/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]">
-      <CyberFrame accent="cyan" />
-      <div className="relative z-10">
+    <HeroSurface accent="cyan">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <div className="flex items-center gap-2">
@@ -544,7 +542,6 @@ export function CurrentBlockSection({
           </div>
         )}
         {block.overview && <BlockOverview text={block.overview} />}
-      </div>
-    </section>
+    </HeroSurface>
   );
 }

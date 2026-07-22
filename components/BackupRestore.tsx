@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Card } from "./ui";
+import { Card, PRIMARY_BUTTON_CLASS } from "./ui";
 
 // Disaster-recovery UI: export the whole local store (data/ + knowledge-base/) as one JSON file,
 // or restore from one. Restore is destructive, so it's gated behind a confirm and a reload.
@@ -56,11 +56,7 @@ export default function BackupRestore() {
         re-import after a reset or a move to a new machine.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <a
-          href="/api/export"
-          download
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-        >
+        <a href="/api/export" download className={PRIMARY_BUTTON_CLASS}>
           Export backup
         </a>
         <button

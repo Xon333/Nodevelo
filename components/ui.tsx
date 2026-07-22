@@ -3,7 +3,7 @@
 // Shared presentational primitives so cards, stat tiles, and dividers look
 // identical across the dashboard, trends, and profile pages.
 
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 // One-line explanation shown on hover/focus over a metric/title. `align` flips the tooltip to the
 // right edge so it doesn't clip when the anchor sits near a container's right. Wrap the trigger
@@ -160,6 +160,21 @@ export function Card({
   );
 }
 
+// UXA-11: DESIGN.md §2 documents primary actions as pink-outline in dark mode (Nav's Sync,
+// BlockGenerator's Generate) — but every Settings/Profile/Knowledge Save button independently
+// drifted to an inverted solid-zinc treatment instead, in three different sizes. This is the one
+// documented convention; sweep remaining call sites onto it as they're touched. Exported as a class
+// string too, for the one call site (BackupRestore's Export, an `<a download>`) that isn't a `<button>`.
+export const PRIMARY_BUTTON_CLASS =
+  "rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:border dark:border-[#ff49c8]/50 dark:bg-transparent dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/10 dark:disabled:border-zinc-600 dark:disabled:text-zinc-500 dark:disabled:bg-transparent";
+
+export function PrimaryButton({
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button {...props} className={`${PRIMARY_BUTTON_CLASS} ${className ?? ""}`} />;
+}
+
 // Compact metric chip: muted label, mono value, optional trend arrow.
 // accent controls the value colour in dark mode: plain (white), pink (primary
 // highlight), or cyan (synced/secondary). Trend arrows are always cyan.
@@ -226,6 +241,33 @@ export function CyberFrame({ accent = "pink" }: { accent?: "pink" | "cyan" }) {
   );
 }
 
+// UXA-32: the neon hero shell (border + glow + CyberFrame corner/scanline decoration) — DESIGN.md §4
+// reserves this for the one emphasized surface per view. Extracted out of Zone's `hero` branch so it
+// can be composed directly by surfaces that need the shell without Zone's own rank+title header (e.g.
+// CurrentBlockSection in dashboard/plan.tsx) — previously hand-copied instead, which is how
+// BlockTimeline ended up wearing it incorrectly (UXA-12: a hero shell copy-pasted into a section that
+// was never meant to have one).
+export function HeroSurface({
+  accent = "cyan",
+  className,
+  children,
+}: {
+  accent?: "cyan" | "pink";
+  className?: string;
+  children: ReactNode;
+}) {
+  const heroAccent =
+    accent === "pink"
+      ? "dark:border-[#ff49c8]/55 dark:shadow-[0_0_28px_-8px_rgba(255,73,200,0.45)]"
+      : "dark:border-[#00d4ff]/55 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]";
+  return (
+    <section className={`relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent} ${className ?? ""}`}>
+      <CyberFrame accent={accent} />
+      <div className="relative z-10">{children}</div>
+    </section>
+  );
+}
+
 // Ranked section wrapper for the command-center layout. A numbered badge + eyebrow
 // title establishes the priority path (visual hierarchy); `hero` promotes it to a
 // cyber-framed card (cyan by default, pink via `accent`) for the most important zones.
@@ -246,28 +288,29 @@ export function Zone({
   className?: string;
   children: ReactNode;
 }) {
-  const heroAccent =
-    accent === "pink"
-      ? "dark:border-[#ff49c8]/55 dark:shadow-[0_0_28px_-8px_rgba(255,73,200,0.45)]"
-      : "dark:border-[#00d4ff]/55 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]";
-  const shell = hero
-    ? `relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:bg-zinc-900 ${heroAccent}`
-    : "rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800";
-  return (
-    <section className={`${shell} ${className ?? ""}`}>
-      {hero && <CyberFrame accent={accent} />}
-      <div className={hero ? "relative z-10" : undefined}>
-        <div className="mb-2 flex items-center gap-2">
-          {rank != null && (
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-600 dark:bg-synced/15 dark:text-synced">
-              {rank}
-            </span>
-          )}
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
-          {hint && <span className="ml-auto text-[10px] text-zinc-500 dark:text-zinc-400">{hint}</span>}
-        </div>
+  const header = (
+    <div className="mb-2 flex items-center gap-2">
+      {rank != null && (
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-600 dark:bg-synced/15 dark:text-synced">
+          {rank}
+        </span>
+      )}
+      <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
+      {hint && <span className="ml-auto text-[10px] text-zinc-500 dark:text-zinc-400">{hint}</span>}
+    </div>
+  );
+  if (hero) {
+    return (
+      <HeroSurface accent={accent} className={className}>
+        {header}
         {children}
-      </div>
+      </HeroSurface>
+    );
+  }
+  return (
+    <section className={`rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800 ${className ?? ""}`}>
+      {header}
+      {children}
     </section>
   );
 }

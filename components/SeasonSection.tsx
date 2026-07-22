@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
 import { validateSeasonPlanInput } from "@/lib/season";
 import type { SeasonEvent, SeasonPlan } from "@/lib/types";
-import { Card, LoadFailed, useMountLoad } from "./ui";
+import { Card, LoadFailed, PrimaryButton, useMountLoad } from "./ui";
 
 type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; message: string };
 
@@ -139,13 +139,9 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
       </button>
 
       <div className="mt-3 flex items-center gap-3">
-        <button
-          onClick={saveSeason}
-          disabled={seasonSaveState.state === "saving"}
-          className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-        >
+        <PrimaryButton onClick={saveSeason} disabled={seasonSaveState.state === "saving"}>
           {seasonSaveState.state === "saving" ? "Saving…" : "Save"}
-        </button>
+        </PrimaryButton>
         {seasonSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
         {seasonSaveState.state === "error" && <span className="text-xs text-red-600">{seasonSaveState.message}</span>}
       </div>

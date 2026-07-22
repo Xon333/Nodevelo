@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { Card, SectionDivider, Skeleton, SkeletonScreen } from "./ui";
+import { Card, PrimaryButton, SectionDivider, Skeleton, SkeletonScreen } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
@@ -595,13 +595,9 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             </button>
 
             <div className="mt-3 flex items-center gap-3">
-              <button
-                onClick={saveGoals}
-                disabled={goalsSaveState.state === "saving"}
-                className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-              >
+              <PrimaryButton onClick={saveGoals} disabled={goalsSaveState.state === "saving"}>
                 {goalsSaveState.state === "saving" ? "Saving…" : "Save"}
-              </button>
+              </PrimaryButton>
               {goalsSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
               {goalsSaveState.state === "error" && <span className="text-xs text-red-600">{goalsSaveState.message}</span>}
             </div>
@@ -668,13 +664,9 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             </div>
 
             <div className="mt-3 flex items-center gap-3">
-              <button
-                onClick={saveNutrition}
-                disabled={saveState.state === "saving"}
-                className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-              >
+              <PrimaryButton onClick={saveNutrition} disabled={saveState.state === "saving"}>
                 {saveState.state === "saving" ? "Saving…" : "Save"}
-              </button>
+              </PrimaryButton>
               {saveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
               {saveState.state === "error" && <span className="text-xs text-red-600">{saveState.message}</span>}
             </div>

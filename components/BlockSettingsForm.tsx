@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import { Card, Skeleton, SkeletonScreen } from "./ui";
+import { Card, PrimaryButton, Skeleton, SkeletonScreen } from "./ui";
 import type { BlockSettings } from "@/lib/types";
 
 // UXA-15: the label was a DOM sibling of the input wrapper, not its parent and not htmlFor-linked —
@@ -282,13 +282,9 @@ export default function BlockSettingsForm() {
 
       {/* Save */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving || hoursInvalid}
-          className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-        >
+        <PrimaryButton onClick={save} disabled={saving || hoursInvalid}>
           {saving ? "Saving…" : "Save settings"}
-        </button>
+        </PrimaryButton>
         {saved && <span className="text-sm text-green-700 dark:text-green-400">Saved — next generation will use these values.</span>}
         {error && <span className="text-sm text-red-600">{error}</span>}
       </div>

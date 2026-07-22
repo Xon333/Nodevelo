@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
-import { Card, LoadFailed, Skeleton, SkeletonScreen, useMountLoad } from "./ui";
+import { Card, LoadFailed, PrimaryButton, Skeleton, SkeletonScreen, useMountLoad } from "./ui";
 import { ToggleRow } from "./BlockSettingsForm";
 import type { BlockSettings } from "@/lib/types";
 
@@ -80,13 +80,9 @@ export default function PlatformBehaviorForm() {
         />
       </div>
       <div className="mt-4 flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-        >
+        <PrimaryButton onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save"}
-        </button>
+        </PrimaryButton>
         {saved && <span className="text-sm text-green-700 dark:text-green-400">Saved.</span>}
         {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
