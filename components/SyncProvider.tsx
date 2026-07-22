@@ -86,7 +86,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { data, error } = useQuery({ queryKey: SYNC_QUERY_KEY, queryFn: () => api<AppState>(`/api/sync?today=${localToday()}`) });
   const state = data ?? null;
-  const loadError = error ? (error instanceof Error ? error.message : "Failed to load") : null;
+  const loadError = error ? (error instanceof Error ? error.message : "Couldn't load — try again.") : null;
 
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -184,7 +184,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       if (result.warnings?.length) setSyncWarnings(result.warnings);
       analysisPending = result.analysisPending;
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : "Sync failed");
+      setSyncError(err instanceof Error ? err.message : "Couldn't sync — try again.");
       setSyncing(false);
       return;
     }

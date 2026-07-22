@@ -133,7 +133,10 @@ export function TodayRideCard({
       label: "IF",
       value: IF.toFixed(2),
       sub: `${band} · ${npBased ? "NP" : "avg"}`,
-      tip: `Intensity Factor = ${npBased ? "normalized power" : "average power (NP unavailable)"} ÷ FTP — how hard the whole ride was relative to your threshold. The effort band (recovery / endurance / tempo / threshold / VO2max / anaerobic) is read from your Intervals.icu power zones, so it tracks your own zone defs and FTP. It's a whole-ride average — check the time-in-zone bars for how the effort was actually distributed.${npBased ? "" : " Avg-based: understates short/variable efforts vs a true NP read."}`,
+      // UXA-43: trimmed to Constitution §6's 2-sentence tip limit (matching the ACWR tip's own S2-6
+      // precedent 12 lines below) — the NP/avg caveat this used to spell out is already visible in
+      // the sub label right below ("· NP" / "· avg"), so dropping it here loses nothing.
+      tip: `Intensity Factor = ${npBased ? "normalized power" : "average power"} ÷ FTP — how hard the whole ride was relative to your threshold. The effort band reads from your own Intervals.icu power zones; check the time-in-zone bars below for how it was actually distributed.`,
     });
   }
   // NP and avg power as distinct tiles — NP (the variability-aware figure that IF/execution read
@@ -545,7 +548,10 @@ export function RecentDataSummary({
       <div tabIndex={0} aria-describedby={`${tipId}-tsb`} className="group relative rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
         <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           <span className="underline decoration-dotted underline-offset-2">TSB (form)</span>
-          <MetricTip id={`${tipId}-tsb`} text="Training Stress Balance = fitness (CTL, 42-day load) minus fatigue (ATL, 7-day load) — your 'form'. Negative means you're carrying training fatigue; positive means you're fresh/tapered. Rough guide: −10 to −30 is productive overload, around 0 is balanced, +5 to +25 is race-ready freshness, below −30 risks digging a hole." />
+          {/* UXA-43: trimmed to Constitution §6's 2-sentence tip limit, matching the ACWR tip's own
+              S2-6 precedent — the banding guide stays (nowhere else on the page states it), compacted
+              into one sentence. */}
+          <MetricTip id={`${tipId}-tsb`} text="Training Stress Balance = fitness (CTL) minus fatigue (ATL) — your 'form'; negative means you're carrying fatigue, positive means you're fresh. Rough guide: −10 to −30 is productive overload, around 0 is balanced, above +5 is fresh/tapered, below −30 risks digging a hole." />
         </p>
         <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-[#ff49c8]">
           {sync.fitness.tsb?.toFixed(1) ?? "—"}

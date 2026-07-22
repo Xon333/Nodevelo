@@ -57,7 +57,7 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
       setEvents(fresh.plan.events);
       onSaved?.();
     } catch (err) {
-      setSeasonSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
+      setSeasonSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
     }
   };
 

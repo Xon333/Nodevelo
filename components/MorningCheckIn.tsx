@@ -228,23 +228,32 @@ export default function MorningCheckIn() {
 
   // ---- Collapsed prompt: one-tap flags (all three, on any ride day) ----
   const quality = data.isQualityDay;
+  // UXA-46: py-1.5 measured ~30px on a real mobile viewport, under the ~40px touch-target guidance —
+  // bumped a step, matching this codebase's own established S2-2 pattern for the same fix elsewhere.
   const btn =
-    "shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:border-zinc-500";
+    "shrink-0 rounded-md border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-400 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:border-zinc-500";
   return (
-    <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 ${shell}`}>
-      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-[#00d4ff]" />
-      <p className="min-w-0 flex-1 text-xs text-zinc-700 dark:text-zinc-300">
-        <span className="font-semibold">{quality ? "Quality session today" : "Ride planned today"}</span> — not feeling it?
+    // UXA-46: was one flat flex-wrap row where the label (flex-1) and 3 shrink-0 buttons competed for
+    // space — on a 375px viewport the label got squeezed into a narrow column and wrapped 5 lines.
+    // Stacks label above the button group below sm:; unchanged single-row layout from sm: up.
+    <div className={`flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1.5 ${shell}`}>
+      <p className="flex items-center gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+        <span className="h-2 w-2 shrink-0 rounded-full bg-[#00d4ff]" />
+        <span>
+          <span className="font-semibold">{quality ? "Quality session today" : "Ride planned today"}</span> — not feeling it?
+        </span>
       </p>
-      <button onClick={() => submit("ill")} disabled={busy} className={btn}>
-        Feeling ill
-      </button>
-      <button onClick={() => submit("extreme-fatigue")} disabled={busy} className={btn}>
-        Extreme fatigue
-      </button>
-      <button onClick={() => submit("injury")} disabled={busy} className={btn}>
-        Injured
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => submit("ill")} disabled={busy} className={btn}>
+          Feeling ill
+        </button>
+        <button onClick={() => submit("extreme-fatigue")} disabled={busy} className={btn}>
+          Extreme fatigue
+        </button>
+        <button onClick={() => submit("injury")} disabled={busy} className={btn}>
+          Injured
+        </button>
+      </div>
       {actionError && <p className="w-full text-[11px] text-red-600 dark:text-red-400">{actionError}</p>}
     </div>
   );

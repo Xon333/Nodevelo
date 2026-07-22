@@ -143,7 +143,7 @@ export default function BlockSettingsForm() {
       setSaved(true);
       setAdjusted(changed.length > 0 ? changed.map((k) => FIELD_LABELS[k]!) : null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
+      setError(err instanceof Error ? err.message : "Couldn't save — try again.");
     } finally {
       setSaving(false);
     }

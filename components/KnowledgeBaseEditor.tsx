@@ -47,7 +47,7 @@ export default function KnowledgeBaseEditor() {
       setOriginal(data.content);
       setSaveState({ state: "idle" });
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to read file");
+      setLoadError(err instanceof Error ? err.message : "Couldn't read that file — try again.");
     }
   };
 
@@ -61,7 +61,7 @@ export default function KnowledgeBaseEditor() {
         setRetros(retrospectives ?? []);
         if (files.length > 0) void open({ name: files[0], kind: "kb" }, true);
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Failed to list files");
+        setLoadError(err instanceof Error ? err.message : "Couldn't list your knowledge files — try again.");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,7 +76,7 @@ export default function KnowledgeBaseEditor() {
       setOriginal(content);
       setSaveState({ state: "saved" });
     } catch (err) {
-      setSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
+      setSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
     }
   };
 

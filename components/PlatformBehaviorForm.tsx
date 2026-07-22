@@ -45,7 +45,7 @@ export default function PlatformBehaviorForm() {
       });
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
+      setError(err instanceof Error ? err.message : "Couldn't save — try again.");
     } finally {
       setSaving(false);
     }

@@ -158,7 +158,14 @@ export default function AthleteStateCard({
       </div>
 
       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
-        <div className={`h-full rounded-full ${BAND_BAR[state.band]}`} style={{ width: `${state.score}%` }} />
+        {/* UXA-45: the app's single most important glance-surface had zero motion feedback when the
+            score changed (post-sync, or the pre/post-ride mode swap) — a transition on width/color
+            stays within the house "subtle and functional" motion rule (DESIGN.md §9), same category
+            as a progress-bar fill. */}
+        <div
+          className={`h-full rounded-full transition-[width,background-color] duration-300 ${BAND_BAR[state.band]}`}
+          style={{ width: `${state.score}%` }}
+        />
       </div>
 
       {/* Coach's read (folded in from the old CoachSnapshotCard): how today's form shapes executing

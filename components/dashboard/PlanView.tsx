@@ -224,7 +224,7 @@ export default function PlanView() {
       });
       setPlan(plan);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Generation failed");
+      setGenerateError(err instanceof Error ? err.message : "Couldn't generate — try again.");
     } finally {
       setGenerating(false);
     }
@@ -248,7 +248,7 @@ export default function PlanView() {
       setProfileSaveState({ state: "saved" });
       void loadPrefill(); // re-fetch from the server (mirrors AthleteProfileForm's save) rather than trusting the client-side merge as final
     } catch (err) {
-      setProfileSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
+      setProfileSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
     }
   };
 
@@ -266,7 +266,7 @@ export default function PlanView() {
         void loadBlockHistory();
       }
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Write failed");
+      setGenerateError(err instanceof Error ? err.message : "Couldn't write to Intervals.icu — try again.");
     } finally {
       setWriting(false);
     }
@@ -281,7 +281,7 @@ export default function PlanView() {
       setPlan(null);
       setWriteResults(null);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Delete failed");
+      setGenerateError(err instanceof Error ? err.message : "Couldn't delete — try again.");
     }
   };
 
@@ -298,7 +298,7 @@ export default function PlanView() {
       setState((s) => (s ? { ...s, currentBlock: null } : s));
       void loadBlockHistory();
     } catch (err) {
-      setRetroError(err instanceof Error ? err.message : "Retrospective failed");
+      setRetroError(err instanceof Error ? err.message : "Couldn't generate the retrospective — try again.");
     } finally {
       setRetroGenerating(false);
     }

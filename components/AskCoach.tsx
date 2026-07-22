@@ -59,7 +59,7 @@ export default function AskCoach({ bare }: { bare?: boolean }) {
       if (!acc.trim()) throw new Error("No response — try again.");
     } catch (err) {
       if (controller.signal.aborted) return; // unmounted mid-stream — not a real failure to report
-      setError(err instanceof Error ? err.message : "Ask failed");
+      setError(err instanceof Error ? err.message : "Couldn't get an answer — try again.");
       setAnswer(null);
     } finally {
       if (!controller.signal.aborted) setLoading(false);

@@ -56,9 +56,11 @@ export default function StateDriversCard() {
                       {DIR[d.dir]} {d.note}
                     </span>
                     <span aria-hidden className="flex h-2 items-center overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+                      {/* UXA-45: same fix as AthleteStateCard's score bar — a width transition when
+                          drivers re-rank/resize after a sync. */}
                       {d.effect !== 0 && (
                         <span
-                          className={`h-full rounded-full ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-red-500/80 dark:bg-red-400/70"}`}
+                          className={`h-full rounded-full transition-[width] duration-300 ${positive ? "bg-emerald-500/80 dark:bg-emerald-400/70" : "bg-red-500/80 dark:bg-red-400/70"}`}
                           style={{ width: `${pct}%` }}
                         />
                       )}

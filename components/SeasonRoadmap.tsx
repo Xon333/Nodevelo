@@ -78,7 +78,9 @@ export default function SeasonRoadmap({
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
-      <div className="mb-2 flex items-center justify-between">
+      {/* UXA-47: was one unwrapped flex row — on a 375px viewport the long objective sentence
+          wrapped back under the "SEASON" label mid-paragraph instead of flowing below it. */}
+      <div className="mb-2 flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Season</h2>
         <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{plan?.objective || "get faster"}</span>
       </div>

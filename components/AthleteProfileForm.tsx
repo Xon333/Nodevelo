@@ -154,7 +154,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           targetWeightKg: String(n.targetWeightKg),
         });
       } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load profile");
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load your profile — try again.");
       }
     })();
     return () => {
@@ -179,7 +179,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       const fresh = await api<ProfileResponse>("/api/profile");
       setData(fresh);
     } catch (err) {
-      setSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
+      setSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
     }
   };
 
@@ -222,7 +222,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       setGoals(fresh.goals);
       setWeakpoints(fresh.weakpoints);
     } catch (err) {
-      setGoalsSaveState({ state: "error", message: err instanceof Error ? err.message : "Save failed" });
+      setGoalsSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
     }
   };
 
