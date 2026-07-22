@@ -11,7 +11,7 @@ const fmtUsd = (n: number) => (n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`)
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-1">
-      <span className="text-sm text-zinc-500">{label}</span>
+      <span className="text-sm text-zinc-500 dark:text-zinc-400">{label}</span>
       <span className="font-mono text-sm text-zinc-800 dark:text-zinc-200">{value}</span>
     </div>
   );
@@ -40,7 +40,7 @@ export default function AiUsageCard({ usage }: { usage: AiUsageStore }) {
           {fmtUsd(usage.total.costUsd)}
         </span>
       </div>
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
         Estimated running Anthropic spend across all generation, ride-analysis, and ask-coach calls.
       </p>
 

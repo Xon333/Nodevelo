@@ -52,7 +52,9 @@ never shows two severity colours for one signal.
 
 **Workout-type accents** (`lib/workout-types.ts` — the only other allowed hard hexes):
 `#10b981` Z2 · `#06b6d4` Recovery · `#f59e0b` Threshold · `#f97316` VO2max · `#f43f5e` SIT ·
-`#d946ef` RaceSim · `#8b5cf6` Strength.
+`#c026d3` RaceSim (UXA-30: corrected from `#d946ef` — the code has always shipped fuchsia-600, not
+fuchsia-500; this doc was the one out of sync, not the color used across every calendar cell) ·
+`#8b5cf6` Strength.
 
 **Allowed literal hexes** (anything else in a className is drift → token or zinc/status class):
 `#ff49c8`, `#00d4ff`, `#7fe7ff`, and the seven workout-type hexes above.

@@ -84,8 +84,8 @@ export default function PowerCurveChart({ points, weightKg }: { points: PowerCur
       {/* y-axis: max-watts top, 0 baseline */}
       <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={PAD_T + plotH} className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth={1} />
       <line x1={PAD_L} y1={PAD_T + plotH} x2={W - PAD_R} y2={PAD_T + plotH} className="stroke-zinc-200 dark:stroke-zinc-700" strokeWidth={1} />
-      <text x={PAD_L - 4} y={PAD_T + 4} textAnchor="end" className="fill-zinc-400 text-[8px]">{maxW}W</text>
-      <text x={PAD_L - 4} y={PAD_T + plotH} textAnchor="end" className="fill-zinc-400 text-[8px]">0</text>
+      <text x={PAD_L - 4} y={PAD_T + 4} textAnchor="end" className="fill-zinc-500 dark:fill-zinc-400 text-[8px]">{maxW}W</text>
+      <text x={PAD_L - 4} y={PAD_T + plotH} textAnchor="end" className="fill-zinc-500 dark:fill-zinc-400 text-[8px]">0</text>
 
       <path d={area} className="fill-cyan-500/10 dark:fill-[#00d4ff]/10" stroke="none" />
       <path d={line} fill="none" strokeWidth={1.5} strokeLinejoin="round" className="stroke-cyan-600 dark:stroke-[#00d4ff]" />

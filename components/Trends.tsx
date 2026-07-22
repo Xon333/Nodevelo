@@ -148,11 +148,12 @@ export default function Trends() {
                         now {data.ctl[data.ctl.length - 1].value.toFixed(1)}
                       </span>
                     </div>
+                    {/* UXA-28: was purple in light mode, cyan in dark — same hue (cyan) in both now. */}
                     <Sparkline
                       points={data.ctl}
                       format={(v) => v.toFixed(1)}
-                      strokeClass="stroke-purple-400 dark:stroke-[#00d4ff]/70"
-                      dotClass="fill-purple-500 dark:fill-[#00d4ff]"
+                      strokeClass="stroke-cyan-500 dark:stroke-[#00d4ff]/70"
+                      dotClass="fill-cyan-600 dark:fill-[#00d4ff]"
                       tipTextClass="fill-zinc-800 dark:fill-[#00d4ff]"
                       tipAccentClass="stroke-zinc-300 dark:stroke-[#00d4ff]/40"
                     />

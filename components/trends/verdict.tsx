@@ -11,13 +11,13 @@ import type { TrendsData } from "./types";
 // with their validation marks: top 3 visible, the rest (and the track record) one disclosure away.
 
 const DIR_CLS: Record<string, string> = {
-  up: "text-green-600 dark:text-emerald-400",
+  up: "text-emerald-600 dark:text-emerald-400",
   steady: "text-zinc-600 dark:text-zinc-300",
   down: "text-red-600 dark:text-red-400",
 };
 
 const WORD_CLS: Record<string, string> = {
-  Improving: "text-green-600 dark:text-emerald-400",
+  Improving: "text-emerald-600 dark:text-emerald-400",
   Holding: "text-zinc-800 dark:text-zinc-100",
   Mixed: "text-amber-600 dark:text-amber-400",
   Slipping: "text-red-600 dark:text-red-400",
@@ -100,7 +100,7 @@ export function InsightsFold({
             {m && (
               <span
                 title={`How often acting on matured ${ins.dimension} insights proved right (${m.validated} validated of ${m.validated + m.refuted + m.inconclusive} evaluated).`}
-                className="ml-1.5 font-mono text-[10px] font-normal text-green-700 dark:text-emerald-400"
+                className="ml-1.5 font-mono text-[10px] font-normal text-emerald-600 dark:text-emerald-400"
               >
                 ✓ {Math.round(m.hitRate! * 100)}%
               </span>

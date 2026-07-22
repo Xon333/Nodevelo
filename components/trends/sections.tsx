@@ -24,7 +24,7 @@ export function trendDir(points: Point[], higherIsBetter = true): { label: strin
   if (!held) return { label: "→ stable", cls: "text-zinc-500 dark:text-zinc-400" };
   const improving = higherIsBetter ? delta > 0 : delta < 0;
   return improving
-    ? { label: delta > 0 ? "↑ improving" : "↓ improving", cls: "text-green-600 dark:text-emerald-400" }
+    ? { label: delta > 0 ? "↑ improving" : "↓ improving", cls: "text-emerald-600 dark:text-emerald-400" }
     : { label: delta > 0 ? "↑ declining" : "↓ declining", cls: "text-red-500" };
 }
 
@@ -60,7 +60,7 @@ export function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
                   {b.ctlGain != null && (
                     <span
                       className={`font-mono text-xs font-semibold ${
-                        b.ctlGain > 0 ? "text-green-600 dark:text-emerald-400" : b.ctlGain < 0 ? "text-red-500" : "text-zinc-500 dark:text-zinc-400"
+                        b.ctlGain > 0 ? "text-emerald-600 dark:text-emerald-400" : b.ctlGain < 0 ? "text-red-500" : "text-zinc-500 dark:text-zinc-400"
                       }`}
                     >
                       CTL {b.ctlGain > 0 ? "+" : ""}{b.ctlGain}

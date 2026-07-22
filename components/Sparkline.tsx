@@ -14,8 +14,11 @@ export default function Sparkline({
   points,
   chartHeight = 46,
   format = (v: number) => v.toFixed(2),
-  strokeClass = "stroke-blue-400 dark:stroke-[#ff49c8]/70",
-  dotClass = "fill-blue-500 dark:fill-[#ff49c8]",
+  // UXA-28: was blue in light mode, pink in dark — a hue swap, not the shade-only shift every other
+  // dual-theme pairing in the app uses, so the same series looked like unrelated data across a theme
+  // toggle. Same hue (pink) in both themes now.
+  strokeClass = "stroke-pink-400 dark:stroke-[#ff49c8]/70",
+  dotClass = "fill-pink-500 dark:fill-[#ff49c8]",
   tipTextClass = "fill-zinc-800 dark:fill-[#ff49c8]",
   // Hover guide-line + tooltip border. Defaults to the pink accent; pass the chart's own
   // accent (e.g. cyan for CTL) so the border matches the tooltip text instead of clashing.

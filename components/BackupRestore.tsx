@@ -51,7 +51,7 @@ export default function BackupRestore() {
 
   return (
     <Card title="Backup & restore">
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
         Your training data and knowledge base live only on this machine. Export a snapshot you can
         re-import after a reset or a move to a new machine.
       </p>

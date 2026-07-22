@@ -72,7 +72,9 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
               y={0}
               width={w}
               height={H}
-              className="fill-amber-300/40 stroke-amber-400/50 dark:fill-[#00d4ff]/25 dark:stroke-[#00d4ff]/40"
+              // UXA-28: was amber in light mode, cyan in dark — same hue (cyan, matching the power
+              // line below) in both now.
+              className="fill-cyan-300/40 stroke-cyan-400/50 dark:fill-[#00d4ff]/25 dark:stroke-[#00d4ff]/40"
               strokeWidth={0.75}
               vectorEffect="non-scaling-stroke"
             />
@@ -82,7 +84,9 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
           <line x1={0} y1={targetY} x2={W} y2={targetY} strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" className="stroke-pink-500/70 dark:stroke-[#ff49c8]/70" />
         )}
         {hrPath && <path d={hrPath} fill="none" strokeWidth={1} vectorEffect="non-scaling-stroke" className="stroke-zinc-400 dark:stroke-zinc-500" />}
-        <path d={powerPath} fill="none" strokeWidth={1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" className="stroke-blue-500 dark:stroke-[#00d4ff]" />
+        {/* UXA-28: was blue in light mode, cyan in dark — matches PowerCurveChart's own
+            stroke-cyan-600 dark:stroke-[#00d4ff] convention for the same "power" concept. */}
+        <path d={powerPath} fill="none" strokeWidth={1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" className="stroke-cyan-600 dark:stroke-[#00d4ff]" />
         {idx !== null && (
           <line x1={toX(idx)} y1={0} x2={toX(idx)} y2={H} strokeWidth={1} strokeDasharray="2 2" vectorEffect="non-scaling-stroke" className="stroke-zinc-300 dark:stroke-zinc-600" />
         )}
@@ -92,7 +96,7 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
           className="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded border border-zinc-200 bg-white px-2 py-1 shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
           style={{ left: `${tipPct}%` }}
         >
-          <p className="font-mono text-[10px] font-semibold text-blue-600 dark:text-[#00d4ff]">{power[idx]} W</p>
+          <p className="font-mono text-[10px] font-semibold text-cyan-700 dark:text-[#00d4ff]">{power[idx]} W</p>
           {hasHr && <p className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400">{hr[idx]} bpm</p>}
         </div>
       )}

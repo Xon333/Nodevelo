@@ -77,7 +77,7 @@ export default function StandingGuidance() {
                 {t?.hitRate != null && !demoted && (
                   <span
                     title={`Acting on matured ${dimension} nudges proved right ${Math.round(t.hitRate * 100)}% of the time (${decisive} decisive).`}
-                    className="font-mono font-normal normal-case text-green-700 dark:text-emerald-400"
+                    className="font-mono font-normal normal-case text-emerald-600 dark:text-emerald-400"
                   >
                     ✓ {Math.round(t.hitRate * 100)}%
                   </span>
