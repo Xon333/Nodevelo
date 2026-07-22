@@ -116,7 +116,10 @@ export default function KnowledgeBaseEditor() {
         onClick={() => void open(sel)}
         className={`w-full truncate rounded px-3 py-2 text-left text-xs font-medium transition-colors ${
           active
-            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+            ? // UXA-18: matches Nav.tsx's own active-link treatment — was a solid white-block
+              // inversion in dark mode, a second vocabulary for "selected" next to the accent
+              // language used everywhere else.
+              "bg-zinc-900 text-white dark:bg-[#ff49c8]/10 dark:text-[#ff49c8] dark:ring-1 dark:ring-[#ff49c8]/40"
             : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
         }`}
         title={label}

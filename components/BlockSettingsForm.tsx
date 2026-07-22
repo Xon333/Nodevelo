@@ -5,6 +5,10 @@ import { api } from "@/lib/client-api";
 import { Card, Skeleton, SkeletonScreen } from "./ui";
 import type { BlockSettings } from "@/lib/types";
 
+// UXA-15: the label was a DOM sibling of the input wrapper, not its parent and not htmlFor-linked —
+// no programmatic association at all, so a screen reader heard "number, edit text" with no name for
+// any of the 7 fields this wraps. Nesting the whole field inside <label> gives implicit association,
+// matching the pattern SeasonSection.tsx/AthleteProfileForm.tsx already use correctly.
 function Field({
   label,
   hint,
@@ -15,11 +19,11 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">{label}</label>
+    <label className="block">
+      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{label}</span>
       {hint && <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>}
       <div className="mt-1.5">{children}</div>
-    </div>
+    </label>
   );
 }
 
@@ -257,13 +261,16 @@ export default function BlockSettingsForm() {
                 onClick={() => set("polarisedApproach", opt.value)}
                 className={`flex-1 rounded-md border px-4 py-3 text-left text-sm transition-colors ${
                   settings.polarisedApproach === opt.value
-                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                    ? // UXA-18: dark mode previously inverted to a solid white block — a second,
+                      // unrelated vocabulary for "selected" next to the accent language used
+                      // everywhere else (active nav item, hero-card border, threshold pill).
+                      "border-zinc-900 bg-zinc-900 text-white dark:border-[#ff49c8] dark:bg-[#ff49c8]/10 dark:text-[#ff49c8]"
                     : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-zinc-400"
                 }`}
               >
                 <span className="block font-semibold">{opt.label}</span>
                 <span
-                  className={`block text-xs ${settings.polarisedApproach === opt.value ? "text-zinc-300 dark:text-zinc-600" : "text-zinc-500 dark:text-zinc-400"}`}
+                  className={`block text-xs ${settings.polarisedApproach === opt.value ? "text-zinc-300 dark:text-[#ff49c8]/70" : "text-zinc-500 dark:text-zinc-400"}`}
                 >
                   {opt.description}
                 </span>
