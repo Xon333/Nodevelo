@@ -23,6 +23,7 @@ export interface BlockGeneratorProps {
   generateError: string | null;
   elapsed: number;
   anthropicConfigured: boolean;
+  intervalsConfigured: boolean; // UXA-4: surfaced before Generate, not just at the Write step
   showSyncTip: boolean; // no cached sync yet but Intervals is configured → nudge to sync first
   seasonReadout: string | null;
   focusLabel: string | null; // current season phase this block targets (display label), or null (no season)
@@ -48,6 +49,7 @@ export default function BlockGenerator({
   generateError,
   elapsed,
   anthropicConfigured,
+  intervalsConfigured,
   showSyncTip,
   seasonReadout,
   focusLabel,
@@ -99,6 +101,14 @@ export default function BlockGenerator({
             {showSyncTip && (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 Tip: sync first so the plan reflects your recent training.
+              </p>
+            )}
+            {/* UXA-4: previously the Intervals.icu check only fired at the final Write step, after a
+                full paid generation. Surfaced here so the athlete knows before spending it — generation
+                itself still works either way, since only writing requires the connection. */}
+            {!intervalsConfigured && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Heads up: Intervals.icu isn&apos;t connected — you can review this plan, but not write it there yet.
               </p>
             )}
           </div>

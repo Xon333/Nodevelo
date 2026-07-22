@@ -8,6 +8,7 @@ interface Props {
   writing: boolean;
   results: WriteResult[] | null;
   intervalsConfigured: boolean;
+  hasActiveBlock: boolean; // UXA-8: states the consequence before Write replaces it
   onWrite: () => void;
   onDismiss: () => void;
 }
@@ -68,6 +69,7 @@ export default function PlanPreview({
   writing,
   results,
   intervalsConfigured,
+  hasActiveBlock,
   onWrite,
   onDismiss,
 }: Props) {
@@ -163,6 +165,14 @@ export default function PlanPreview({
         >
           {writing ? `Writing ${plan.days.length} events…` : written ? "✓ Written to Intervals.icu" : "Write to Intervals.icu"}
         </button>
+        {/* UXA-8: states the consequence before the click, matching the in-product-confirm
+            convention Delete-block and Restore already use — Write is equally destructive
+            (archives the active block, prunes its future events) but previously said nothing. */}
+        {hasActiveBlock && !written && intervalsConfigured && (
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+            Replaces your active block — remaining days archived, ridden history kept.
+          </p>
+        )}
         {!intervalsConfigured && (
           <p className="text-xs text-red-600">Intervals.icu not configured.</p>
         )}

@@ -16,7 +16,7 @@ const base: GeneratedPlan = {
 
 const render = (plan: GeneratedPlan) =>
   renderToStaticMarkup(
-    <PlanPreview plan={plan} writing={false} results={null} intervalsConfigured={true} onWrite={() => {}} onDismiss={() => {}} />
+    <PlanPreview plan={plan} writing={false} results={null} intervalsConfigured={true} hasActiveBlock={false} onWrite={() => {}} onDismiss={() => {}} />
   );
 
 test("renders protocol violations as a distinct red category above the amber warnings", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, nextMonday } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
@@ -38,9 +39,6 @@ export default function PlanView() {
     { state: "idle" | "saving" | "saved" } | { state: "error"; message: string }
   >({ state: "idle" });
   const [startDate, setStartDate] = useState(nextMonday());
-  const [seasonReadout, setSeasonReadout] = useState<string | null>(null);
-  const [focusLabel, setFocusLabel] = useState<string | null>(null);
-  const [goalCount, setGoalCount] = useState(0);
   // Bumped after a successful Season save so the roadmap strip and generator context re-fetch
   // instead of going stale until reload (UX v2 W1 review, Finding 1).
   const [seasonVersion, setSeasonVersion] = useState(0);
@@ -71,7 +69,6 @@ export default function PlanView() {
   // slot with a retry — instead of the section silently not existing.
   const [historyFailed, setHistoryFailed] = useState(false);
   const [prefillFailed, setPrefillFailed] = useState(false);
-  const [seasonCtxFailed, setSeasonCtxFailed] = useState(false);
 
   const loadBlockHistory = useCallback(async () => {
     // Flags only touched after the await, so the mount effect never setStates synchronously.
@@ -109,61 +106,75 @@ export default function PlanView() {
 
   // Season context for the generator: pre-fills length + narrows the goal pre-fill to what's relevant
   // this focus period, and surfaces a readout so the athlete can see why (Season/Block hierarchy).
-  // Independent fetch from the profile prefill above; on failure the form falls back to today's
-  // defaults — but the failure itself is shown (S1-3), since a silently missing season context
+  // UXA-19: this query key is deliberately identical to SeasonRoadmap's own — same page, same params —
+  // so react-query dedupes the two into one network request instead of two independent fetches
+  // (confirmed live as 3x redundant /api/season calls per Plan load).
+  const today = localToday();
+  const seasonQuery = useQuery({
+    queryKey: ["season", today, seasonVersion],
+    queryFn: () => api<{ plan: SeasonPlan; outlook: SeasonOutlookSlot[] | null }>(`/api/season?today=${today}`),
+  });
+  const seasonCtxFailed = seasonQuery.isError;
+
+  // Pure derivations from the query result — recomputed every render, no state of their own (avoids
+  // react-hooks/set-state-in-effect entirely for these). On failure the form falls back to today's
+  // defaults — but the failure itself is shown above (S1-3), since a silently missing season context
   // changes what gets generated.
-  const loadSeasonCtx = useCallback(async () => {
-    try {
-      const today = localToday();
-      const { plan, outlook } = await api<{ plan: SeasonPlan; outlook: SeasonOutlookSlot[] | null }>(`/api/season?today=${today}`);
-      // The block-length suggestion still comes from a real committed period when one exists (event
-      // mode's persisted arc) — harmless and self-resolving if rolling mode briefly still has a
-      // straddling settled period left over from before this redesign.
-      const period = currentPeriod(plan, today);
-      if (period) setLengthWeeks(suggestedBlockWeeks(period, today));
+  let seasonReadout: string | null = null;
+  let focusLabel: string | null = null;
+  let goalCount = 0;
+  let suggestedLengthWeeks: (2 | 4 | 6 | 8) | null = null;
+  let goalPrefill: { text: string; shown: Array<{ goal: string; target: string; focus: string }> } | null = null;
+  if (seasonQuery.data) {
+    const { plan, outlook } = seasonQuery.data;
+    // The block-length suggestion still comes from a real committed period when one exists (event
+    // mode's persisted arc) — harmless and self-resolving if rolling mode briefly still has a
+    // straddling settled period left over from before this redesign.
+    const period = currentPeriod(plan, today);
+    if (period) suggestedLengthWeeks = suggestedBlockWeeks(period, today);
 
-      const next = outlook?.[0] ?? null;
-      if (next) {
-        // Rolling mode, SEASON_SHAPES_GENERATION on: the server already ran chooseNextFocus for this
-        // exact "next block" decision — show it directly instead of re-deriving anything client-side.
-        setSeasonReadout(`${FOCUS_LABELS[next.focus]} — ${next.rationale}`);
-        setFocusLabel(FOCUS_LABELS[next.focus]);
-        if (rawGoals.length > 0) {
-          const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, next.focus);
-          setGoalCount(filtered.length);
-          setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
-          setShownGoals(filtered);
-        }
-      } else if (period) {
-        // Event mode: the server never projects an outlook while a real committed arc exists — use the
-        // period directly, exactly as before this redesign.
-        setSeasonReadout(formatSeasonContext(plan, today));
-        setFocusLabel(FOCUS_LABELS[period.focus]);
-        if (rawGoals.length > 0) {
-          const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, period.focus);
-          setGoalCount(filtered.length);
-          setGoal(filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
-          setShownGoals(filtered);
-        }
-      } else {
-        // Nothing to target — no current period, no outlook (season disabled or a brand-new season).
-        setSeasonReadout(null);
-        setFocusLabel(null);
-        if (rawGoals.length > 0) {
-          setGoal(rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"));
-          setShownGoals(rawGoals);
-        }
+    const next = outlook?.[0] ?? null;
+    if (next) {
+      // Rolling mode, SEASON_SHAPES_GENERATION on: the server already ran chooseNextFocus for this
+      // exact "next block" decision — show it directly instead of re-deriving anything client-side.
+      seasonReadout = `${FOCUS_LABELS[next.focus]} — ${next.rationale}`;
+      focusLabel = FOCUS_LABELS[next.focus];
+      if (rawGoals.length > 0) {
+        const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, next.focus);
+        goalCount = filtered.length;
+        goalPrefill = { text: filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"), shown: filtered };
       }
-      setSeasonCtxFailed(false);
-    } catch {
-      setSeasonReadout(null);
-      setFocusLabel(null);
-      setSeasonCtxFailed(true);
+    } else if (period) {
+      // Event mode: the server never projects an outlook while a real committed arc exists — use the
+      // period directly, exactly as before this redesign.
+      seasonReadout = formatSeasonContext(plan, today);
+      focusLabel = FOCUS_LABELS[period.focus];
+      if (rawGoals.length > 0) {
+        const filtered = filterGoalsByFocus(rawGoals as Array<{ goal: string; target: string; focus: import("@/lib/types").SeasonFocus | "general" }>, period.focus);
+        goalCount = filtered.length;
+        goalPrefill = { text: filtered.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"), shown: filtered };
+      }
+    } else if (rawGoals.length > 0) {
+      // Nothing to target — no current period, no outlook (season disabled or a brand-new season).
+      goalPrefill = { text: rawGoals.map((g) => g.goal + (g.target ? ` → ${g.target}` : "")).join("\n"), shown: rawGoals };
     }
-  }, [rawGoals]);
+  }
 
-  // Re-runs when rawGoals lands (the callback's dep), matching the old effect's behaviour.
-  useMountLoad(loadSeasonCtx);
+  // lengthWeeks/goal/shownGoals are pre-filled from the season context above but stay independently
+  // user-editable afterward (the length buttons, the goal textarea), so they can't be pure
+  // derivations like the rest of this block. React's "adjusting state when props change" pattern —
+  // direct setState during render, guarded by a snapshot of what's already been synced — applies the
+  // prefill exactly once per new season/goals snapshot with no effect, matching this codebase's own
+  // react-hooks/set-state-in-effect convention (see TodayView.tsx's armedForNote/flipRideDate).
+  const [syncedFor, setSyncedFor] = useState<{ data: typeof seasonQuery.data; goals: typeof rawGoals } | null>(null);
+  if (seasonQuery.data && (syncedFor === null || syncedFor.data !== seasonQuery.data || syncedFor.goals !== rawGoals)) {
+    setSyncedFor({ data: seasonQuery.data, goals: rawGoals });
+    if (suggestedLengthWeeks) setLengthWeeks(suggestedLengthWeeks);
+    if (goalPrefill) {
+      setGoal(goalPrefill.text);
+      setShownGoals(goalPrefill.shown);
+    }
+  }
 
   // Elapsed counter ticks while a generation is in flight. The reset to 0 lives in generate()
   // (where the run starts) rather than in this effect, so no setState fires synchronously here.
@@ -172,6 +183,19 @@ export default function PlanView() {
     const timer = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(timer);
   }, [generating]);
+
+  // UXA-5: an already-generated, not-yet-written plan represents a real (1-2 min) LLM spend — warn
+  // before a refresh/close silently discards it. beforeunload only covers browser-level navigation
+  // (refresh, close tab, typing a new URL), not in-app Link clicks, which don't unload the page.
+  useEffect(() => {
+    if (!plan || writeResults) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [plan, writeResults]);
 
   if (!state) return null; // Dashboard already guards loadError / loading; this narrows the type.
 
@@ -284,7 +308,13 @@ export default function PlanView() {
 
   return (
     <div className="space-y-3">
-      <SeasonRoadmap refreshKey={seasonVersion} />
+      <h1 className="sr-only">Plan</h1>
+      <SeasonRoadmap
+        plan={seasonQuery.data?.plan ?? null}
+        outlook={seasonQuery.data?.outlook ?? null}
+        failed={seasonCtxFailed}
+        onRetry={() => void seasonQuery.refetch()}
+      />
       <RescheduleBanner />
       <RetroSection
         block={state.currentBlock}
@@ -299,7 +329,7 @@ export default function PlanView() {
       {/* Degraded prefill notices — the generator still works, but the athlete should know the
           fields aren't reflecting their profile/season right now. */}
       {prefillFailed && <LoadFailed what="your profile prefill (goals & weakpoints)" retry={() => void loadPrefill()} />}
-      {seasonCtxFailed && <LoadFailed what="the season context for the generator" retry={() => void loadSeasonCtx()} />}
+      {seasonCtxFailed && <LoadFailed what="the season context for the generator" retry={() => void seasonQuery.refetch()} />}
 
       {/* Block generation — collapses to a thin bar when a block is active so it no longer
           cuts the page in half; always open when there's no block to generate against. */}
@@ -320,6 +350,7 @@ export default function PlanView() {
         generateError={generateError}
         elapsed={elapsed}
         anthropicConfigured={state.anthropicConfigured}
+        intervalsConfigured={state.configured}
         showSyncTip={!state.lastSync && state.configured}
         seasonReadout={seasonReadout}
         focusLabel={focusLabel}
@@ -334,6 +365,7 @@ export default function PlanView() {
           writing={writing}
           results={writeResults}
           intervalsConfigured={state.configured}
+          hasActiveBlock={hasActiveBlock}
           onWrite={write}
           onDismiss={() => {
             setPlan(null);
@@ -343,10 +375,7 @@ export default function PlanView() {
       )}
 
       <SeasonSection
-        onSaved={() => {
-          setSeasonVersion((v) => v + 1);
-          void loadSeasonCtx();
-        }}
+        onSaved={() => setSeasonVersion((v) => v + 1)}
       />
 
       {historyFailed ? (

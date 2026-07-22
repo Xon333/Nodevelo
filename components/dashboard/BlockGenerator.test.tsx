@@ -21,6 +21,7 @@ test("keeps the generator fields at two columns until the xl breakpoint", () => 
       generateError={null}
       elapsed={0}
       anthropicConfigured={true}
+      intervalsConfigured={true}
       showSyncTip={false}
       seasonReadout={null}
       focusLabel={null}
