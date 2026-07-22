@@ -493,7 +493,12 @@ export function CurrentBlockSection({
                   …
                 </button>
                 {menuOpen && (
-                  <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-40 rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+                  // No margin-top: top-full already sits flush against the trigger's bottom edge.
+                  // A gap here (e.g. mt-1) is real empty space neither element's box covers, so the
+                  // mouse crossing it on the way to a menu item fires this wrapper's onMouseLeave and
+                  // closes the menu before the click lands — reported live as "the delete button
+                  // disappears after I try to click it."
+                  <div role="menu" className="absolute right-0 top-full z-30 w-40 rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
                     <button
                       role="menuitem"
                       onClick={() => {
