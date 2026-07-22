@@ -256,10 +256,15 @@ export default function PlanView() {
     if (!plan) return;
     setWriting(true);
     try {
+      // UXA-24: tells the server what block (if any) this tab believes is active, so a stale tab
+      // can't silently overwrite one another tab already replaced.
       const { results, currentBlock } = await api<{
         results: WriteResult[];
         currentBlock: CurrentBlock | null;
-      }>("/api/write", { method: "POST", body: JSON.stringify({ plan }) });
+      }>("/api/write", {
+        method: "POST",
+        body: JSON.stringify({ plan, expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null }),
+      });
       setWriteResults(results);
       if (currentBlock) {
         setState((s) => (s ? { ...s, currentBlock } : s));
@@ -276,7 +281,9 @@ export default function PlanView() {
   // fires — window.confirm's generic browser dialog never stated that ridden history/scores survive.
   const deleteBlock = async () => {
     try {
-      await api("/api/sync", { method: "DELETE" });
+      const expected = state?.currentBlock?.createdAt;
+      const qs = expected ? `?expectedBlockCreatedAt=${encodeURIComponent(expected)}` : "";
+      await api(`/api/sync${qs}`, { method: "DELETE" });
       setState((s) => (s ? { ...s, currentBlock: null } : s));
       setPlan(null);
       setWriteResults(null);

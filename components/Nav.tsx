@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { timeAgo } from "@/lib/client-api";
 import { useSync } from "./SyncProvider";
@@ -180,12 +180,97 @@ function SyncControl({ compact }: { compact?: boolean }) {
   );
 }
 
+// UXA-48: global shortcuts for the two things done every day — jump between pages, kick off a
+// sync. Digit keys match LINKS' own order below, so the legend below is generated, not hand-kept
+// in sync. Ignored entirely with a modifier held (so Cmd/Ctrl-driven browser shortcuts still work)
+// or while focus is in anything that accepts typed text, so ordinary form input is never hijacked.
+function useKeyboardShortcuts() {
+  const router = useRouter();
+  const { state, syncing, doSync } = useSync();
+  const [showLegend, setShowLegend] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const editable =
+        !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (editable) return;
+
+      if (e.key === "?") {
+        e.preventDefault();
+        setShowLegend((v) => !v);
+        return;
+      }
+      if (showLegend) {
+        if (e.key === "Escape") setShowLegend(false);
+        return;
+      }
+      const idx = Number(e.key) - 1;
+      if (Number.isInteger(idx) && idx >= 0 && idx < LINKS.length) {
+        router.push(LINKS[idx].href);
+        return;
+      }
+      if (e.key === "s" && state?.configured && !syncing) {
+        void doSync();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [router, state?.configured, syncing, doSync, showLegend]);
+
+  return { showLegend, setShowLegend };
+}
+
+function ShortcutsLegend({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Keyboard shortcuts"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-xs rounded-lg border border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      >
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Keyboard shortcuts</h2>
+        <ul className="mt-2 space-y-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+          {LINKS.map((l, i) => (
+            <li key={l.href} className="flex items-center justify-between gap-3">
+              <span>{l.label}</span>
+              <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] dark:border-zinc-600 dark:bg-zinc-800">
+                {i + 1}
+              </kbd>
+            </li>
+          ))}
+          <li className="flex items-center justify-between gap-3 border-t border-zinc-100 pt-1.5 dark:border-zinc-700">
+            <span>Sync</span>
+            <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] dark:border-zinc-600 dark:bg-zinc-800">
+              s
+            </kbd>
+          </li>
+          <li className="flex items-center justify-between gap-3">
+            <span>This legend</span>
+            <kbd className="rounded border border-zinc-300 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] dark:border-zinc-600 dark:bg-zinc-800">
+              ?
+            </kbd>
+          </li>
+        </ul>
+        <p className="mt-3 text-[10px] text-zinc-500 dark:text-zinc-400">Ignored while typing in a field.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function Nav() {
   const pathname = usePathname();
   const isActive = (href: string) => pathname.startsWith(href);
+  const { showLegend, setShowLegend } = useKeyboardShortcuts();
 
   return (
     <>
+      {showLegend && <ShortcutsLegend onClose={() => setShowLegend(false)} />}
       {/* Mobile top bar: brand + toggle only (tabs live in the bottom bar) */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur sm:hidden dark:border-zinc-700 dark:bg-zinc-900/90">
         <div className="flex items-center justify-between px-4 py-3">
@@ -254,7 +339,19 @@ export default function Nav() {
         </nav>
         <div className="space-y-2 border-t border-zinc-200 px-3 py-3 dark:border-zinc-700">
           <SyncControl />
-          <DarkToggle />
+          <div className="flex items-center justify-between">
+            <DarkToggle />
+            {/* UXA-48: the shortcuts themselves are otherwise undiscoverable — clicking this is the
+                same as pressing "?". */}
+            <button
+              onClick={() => setShowLegend(true)}
+              title="Keyboard shortcuts (?)"
+              aria-label="Show keyboard shortcuts"
+              className="rounded-md px-2 py-1.5 font-mono text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              ?
+            </button>
+          </div>
         </div>
       </aside>
 

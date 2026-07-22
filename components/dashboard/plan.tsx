@@ -170,6 +170,7 @@ function BlockCalendar({
   partialDates,
   completedDates,
   blockEndDate,
+  blockCreatedAt,
 }: {
   weeks: CurrentBlock["days"][];
   characters: string[];
@@ -178,6 +179,7 @@ function BlockCalendar({
   partialDates: string[];
   completedDates: string[];
   blockEndDate: string;
+  blockCreatedAt: string;
 }) {
   // S2-1: each day cell's detail was hover-only (the calendar's whole story was mouse-only). One id
   // per cell, tabIndex + aria-describedby + role="tooltip" — same pattern as Wave 1's MetricTip.
@@ -339,8 +341,8 @@ function BlockCalendar({
                         </p>
                         {eligible && pinned && (
                           <div className="mt-2 flex flex-col gap-1 border-t border-zinc-100 pt-2 dark:border-zinc-700">
-                            <DayAction verb="move" date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
-                            <DayAction verb="swap" date={day.date} maxDate={blockEndDate} onMoved={() => setPinnedDate(null)} />
+                            <DayAction verb="move" date={day.date} maxDate={blockEndDate} blockCreatedAt={blockCreatedAt} onMoved={() => setPinnedDate(null)} />
+                            <DayAction verb="swap" date={day.date} maxDate={blockEndDate} blockCreatedAt={blockCreatedAt} onMoved={() => setPinnedDate(null)} />
                           </div>
                         )}
                       </div>
@@ -548,6 +550,7 @@ export function CurrentBlockSection({
           partialDates={partialDates}
           completedDates={completedDates}
           blockEndDate={block.endDate}
+          blockCreatedAt={block.createdAt}
         />
         {daysRemaining > 0 && (
           <div className="mt-3">

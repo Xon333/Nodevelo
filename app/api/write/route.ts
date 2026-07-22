@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
 import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, writeInterventionLog } from "@/lib/data-store";
+import { blockChangedResponse } from "@/lib/block-version";
 import { currentPeriod, isSeasonFocus } from "@/lib/season";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { buildInterventions, mergeInterventions } from "@/lib/intervention";
@@ -58,6 +59,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: plan }, { status: 400 });
   }
 
+  // UXA-24: checked before any Intervals.icu event is created — a stale tab shouldn't burn real
+  // calendar writes on a block the server has already moved past. Read once, reused below for the
+  // archive-the-old-block step instead of re-reading.
+  const existing = await readCurrentBlock();
+  const b = (body ?? {}) as Record<string, unknown>;
+  const versionError = blockChangedResponse(existing, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
+  if (versionError) return versionError;
+
   // Sequential writes so per-day results are deterministic and the API isn't hammered.
   const results: WriteResult[] = [];
   for (const day of plan.days as PlannedDay[]) {
@@ -94,8 +103,8 @@ export async function POST(req: Request) {
     });
   }
 
-  // Archive the old block before replacing it.
-  const existing = await readCurrentBlock();
+  // Archive the old block before replacing it. `existing` was already read above (before any
+  // Intervals.icu write) for the version guard — reused here rather than re-reading.
   if (existing) {
     await appendBlockHistory({
       id: existing.createdAt,

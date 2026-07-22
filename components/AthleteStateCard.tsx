@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId } from "react";
 import type { AthleteState } from "@/lib/types";
 import { BAND_COLOR, DIR, driverEffectClass } from "./athlete-state-ui";
+import { Card } from "./ui";
 
 // The ONE readiness verdict on Today (S1-1): the fused §5 signal-fusion read owns fold-1. Band +
 // recommendation are visible at a glance (the verdict register: primed/ready/steady/strained/depleted),
@@ -72,10 +73,12 @@ export default function AthleteStateCard({
 
   if (compact) {
     return (
-      <div
+      // UXA-54: composed via Card instead of hand-rolled chrome — Card renders no header row since
+      // no title/hint/action is passed, so this is behavior-identical to the old bare div.
+      <Card
         tabIndex={0}
         aria-describedby={detailId}
-        className="group relative flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-700 dark:bg-zinc-800"
+        className="group relative flex flex-wrap items-center gap-x-3 gap-y-1 !py-2.5"
       >
         <span className="flex shrink-0 items-baseline gap-0.5">
           <span className={`font-mono text-xl font-bold leading-none ${BAND_COLOR[state.band]}`}>{state.score}</span>
@@ -107,19 +110,17 @@ export default function AthleteStateCard({
           </p>
         )}
         {driversTip}
-      </div>
+      </Card>
     );
   }
 
   return (
     // tabIndex + group-focus-within: the drivers detail below opens on keyboard focus as well as
     // hover (Constitution §6) — tabbing to the card reveals it visually; aria-describedby hands
-    // the same content to assistive tech regardless of the visual reveal state.
-    <div
-      tabIndex={0}
-      aria-describedby={detailId}
-      className="group relative rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800"
-    >
+    // the same content to assistive tech regardless of the visual reveal state. UXA-54: composed
+    // via Card (no title/hint/action passed, so its header row doesn't render — the custom eyebrow
+    // row below is unaffected) instead of duplicating Card's own default chrome classes by hand.
+    <Card tabIndex={0} aria-describedby={detailId} className="group relative">
       <div className="flex items-baseline justify-between gap-2">
         <p className="min-w-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
           Athlete state
@@ -186,6 +187,6 @@ export default function AthleteStateCard({
       )}
 
       {driversTip}
-    </div>
+    </Card>
   );
 }

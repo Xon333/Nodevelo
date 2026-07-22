@@ -115,6 +115,39 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
   });
 });
 
+describe("/api/write version guard (UXA-24)", () => {
+  it("rejects with 409 and writes nothing when expectedBlockCreatedAt doesn't match the real block", async () => {
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goal: "g", lengthWeeks: 2, startDate: "2026-06-10", endDate: "2026-06-20", overview: "",
+      createdAt: "2026-06-01T00:00:00Z", days: [],
+    });
+    const res = await post({ plan, expectedBlockCreatedAt: "2026-05-01T00:00:00Z" });
+    expect(res.status).toBe(409);
+    expect(h.createEvent).not.toHaveBeenCalled();
+    expect(store.updateCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the client believes no block is active but one now exists", async () => {
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goal: "g", lengthWeeks: 2, startDate: "2026-06-10", endDate: "2026-06-20", overview: "",
+      createdAt: "2026-06-01T00:00:00Z", days: [],
+    });
+    const res = await post({ plan, expectedBlockCreatedAt: null });
+    expect(res.status).toBe(409);
+    expect(h.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when expectedBlockCreatedAt matches the real block", async () => {
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goal: "g", lengthWeeks: 2, startDate: "2026-06-10", endDate: "2026-06-20", overview: "",
+      createdAt: "2026-06-01T00:00:00Z", days: [],
+    });
+    h.createEvent.mockResolvedValue(200);
+    const json = await (await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z" })).json();
+    expect(json.blockSaved).toBe(true);
+  });
+});
+
 describe("/api/write season stamp (MACRO)", () => {
   const focusPeriod = (overrides: Partial<{
     focus: string;

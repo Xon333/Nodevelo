@@ -3,6 +3,7 @@ import { logError, logWarn } from "@/lib/log";
 import { snapshotBackup } from "@/lib/backup";
 import { createEvent, deleteEvents, fetchEvents, fetchHrStream, fetchIntervals, fetchPowerStream, fetchSportSettings, isIntervalsConfigured, isSuspectEmptySync, runFullSync, IntervalsApiError } from "@/lib/intervals-api";
 import { blockEventIds } from "@/lib/block-events";
+import { blockChangedResponse } from "@/lib/block-version";
 import { dayToEventPayload, reconcileInboundMoves } from "@/lib/calendar-mirror";
 import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
@@ -826,8 +827,13 @@ export async function POST(req: Request) {
 // calendar hiccup never blocks the local clear; completed rides are separate activities, untouched.
 // SUB-1: archive the lived portion before clearing — "discard" rejects the block's un-lived future, not
 // the days already ridden against it, which stay real coaching history the matcher can still use.
-export async function DELETE() {
+export async function DELETE(req: Request) {
   const block = await readCurrentBlock();
+  // UXA-24: a stale tab's Delete button shouldn't silently discard a block another tab already
+  // replaced — `expectedBlockCreatedAt` is absent for any older/other caller (check skipped).
+  const expected = new URL(req.url).searchParams.get("expectedBlockCreatedAt");
+  const versionError = blockChangedResponse(block, expected === null ? undefined : expected);
+  if (versionError) return versionError;
   const ids = blockEventIds(block);
   let eventsRemoved = 0;
   let eventsFailed: number[] = [];

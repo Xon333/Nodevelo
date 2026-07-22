@@ -3,7 +3,7 @@
 // Shared presentational primitives so cards, stat tiles, and dividers look
 // identical across the dashboard, trends, and profile pages.
 
-import { useEffect, useId, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 
 // One-line explanation shown on hover/focus over a metric/title. `align` flips the tooltip to the
 // right edge so it doesn't clip when the anchor sits near a container's right. Wrap the trigger
@@ -126,6 +126,7 @@ export function Card({
   accentTop,
   className,
   children,
+  ...rest
 }: {
   title?: string;
   hint?: string;
@@ -134,9 +135,10 @@ export function Card({
   accentTop?: boolean;
   className?: string;
   children: ReactNode;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   return (
     <section
+      {...rest}
       className={`rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800 ${
         accentTop ? "dark:[border-top-color:rgba(255,73,200,0.4)]" : ""
       } ${className ?? ""}`}

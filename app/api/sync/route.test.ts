@@ -1121,7 +1121,7 @@ describe("DELETE /api/sync — discard block", () => {
       })
     );
     vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11, 12, 13], failed: [] });
-    const json = await (await DELETE()).json();
+    const json = await (await DELETE(new Request("http://localhost/api/sync"))).json();
     expect(api.deleteEvents).toHaveBeenCalledWith([11, 12, 13]);
     expect(store.appendBlockHistory).toHaveBeenCalledOnce();
     const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
@@ -1140,7 +1140,7 @@ describe("DELETE /api/sync — discard block", () => {
       })
     );
     vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11], failed: [] });
-    await DELETE();
+    await DELETE(new Request("http://localhost/api/sync"));
     const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
     expect(archived.seasonFocus).toBe("threshold");
   });
@@ -1152,7 +1152,7 @@ describe("DELETE /api/sync — discard block", () => {
       })
     );
     vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11], failed: [] });
-    await DELETE();
+    await DELETE(new Request("http://localhost/api/sync"));
     const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
     expect(archived.seasonFocus).toBeUndefined();
   });
@@ -1164,7 +1164,7 @@ describe("DELETE /api/sync — discard block", () => {
         days: [{ date: "2026-06-23", name: "Threshold", type: "Threshold", durationMin: 75 }],
       })
     );
-    const json = await (await DELETE()).json();
+    const json = await (await DELETE(new Request("http://localhost/api/sync"))).json();
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
     expect(store.updateCurrentBlock).toHaveBeenCalled();
     expect((vi.mocked(store.updateCurrentBlock).mock.calls.at(-1)![0])(null)).toBe(null);
@@ -1172,9 +1172,28 @@ describe("DELETE /api/sync — discard block", () => {
   });
 
   it("handles no active block", async () => {
-    const json = await (await DELETE()).json();
+    const json = await (await DELETE(new Request("http://localhost/api/sync"))).json();
     expect(api.deleteEvents).not.toHaveBeenCalled();
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
     expect(json).toMatchObject({ ok: true, eventsRemoved: 0 });
+  });
+
+  it("UXA-24: rejects with 409 and deletes nothing when expectedBlockCreatedAt is stale", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 75, eventId: 11 }] })
+    );
+    const res = await DELETE(new Request("http://localhost/api/sync?expectedBlockCreatedAt=2020-01-01T00%3A00%3A00.000Z"));
+    expect(res.status).toBe(409);
+    expect(api.deleteEvents).not.toHaveBeenCalled();
+    expect(store.updateCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("UXA-24: proceeds when expectedBlockCreatedAt matches the real block", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 75, eventId: 11 }] })
+    );
+    vi.mocked(api.deleteEvents).mockResolvedValue({ deleted: [11], failed: [] });
+    const res = await DELETE(new Request(`http://localhost/api/sync?expectedBlockCreatedAt=${encodeURIComponent("2026-06-14T10:00:00.000Z")}`));
+    expect(res.status).toBe(200);
   });
 });

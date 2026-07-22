@@ -102,6 +102,24 @@ describe("POST /api/reschedule — make-up move", () => {
   });
 });
 
+describe("version guard (UXA-24) — shared across POST/PUT/PATCH", () => {
+  it("PUT rejects with 409 and doesn't move anything when expectedBlockCreatedAt is stale", async () => {
+    const res = await PUT(putReq({ from: "2026-06-18", to: "2026-06-21", today: TODAY, expectedBlockCreatedAt: "2020-01-01T00:00:00Z" }));
+    expect(res.status).toBe(409);
+    expect(mirror.persistMirroredMove).not.toHaveBeenCalled();
+  });
+
+  it("PUT proceeds when expectedBlockCreatedAt matches the real block", async () => {
+    const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY, expectedBlockCreatedAt: block().createdAt }));
+    expect(res.status).toBe(200);
+  });
+
+  it("PUT skips the check entirely when the caller sends no expectedBlockCreatedAt at all", async () => {
+    const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY }));
+    expect(res.status).toBe(200);
+  });
+});
+
 describe("PUT /api/reschedule — manual move", () => {
   it("vacates `from` to a bare Rest placeholder and moves the full content (incl. eventId) onto `to`", async () => {
     const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY }));

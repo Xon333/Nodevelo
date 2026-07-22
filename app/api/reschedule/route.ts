@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readCurrentBlock, readDispositions, readScoreLog } from "@/lib/data-store";
 import { suggestReschedule, type DispositionByDate } from "@/lib/reschedule";
 import { persistMirroredMove } from "@/lib/calendar-mirror";
+import { blockChangedResponse } from "@/lib/block-version";
 import { resolveToday } from "@/lib/date";
 import type { CurrentBlock, CurrentBlockDay } from "@/lib/types";
 
@@ -41,6 +42,9 @@ async function loadRescheduleContext(
 
   const block = await readCurrentBlock();
   if (!block) return NextResponse.json({ error: "No active block." }, { status: 400 });
+  const b = (body ?? {}) as Record<string, unknown>;
+  const versionError = blockChangedResponse(block, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
+  if (versionError) return versionError;
   const fromDay = block.days.find((d) => d.date === p.from);
   const toDay = block.days.find((d) => d.date === p.to);
   if (!fromDay || !toDay) return NextResponse.json({ error: "from/to not in the current block." }, { status: 400 });

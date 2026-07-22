@@ -18,7 +18,7 @@ interface Suggestion {
 // rest day to make it up on. Athlete-confirmed — "Apply" rewrites the local block plan and mirrors
 // the move to the Intervals.icu calendar (best-effort; a failed mirror never blocks the local move).
 export default function RescheduleBanner() {
-  const { setState } = useSync();
+  const { state, setState } = useSync();
   const [s, setS] = useState<Suggestion | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -68,7 +68,12 @@ export default function RescheduleBanner() {
     try {
       const res = await api<{ ok: boolean; mirrored: string[]; mirrorFailed: string[] }>("/api/reschedule", {
         method: "POST",
-        body: JSON.stringify({ from: s.from, to: s.to, today: localToday() }),
+        body: JSON.stringify({
+          from: s.from,
+          to: s.to,
+          today: localToday(),
+          expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null,
+        }),
       });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);

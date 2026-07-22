@@ -21,11 +21,15 @@ export default function DayAction({
   verb,
   date,
   maxDate,
+  blockCreatedAt,
   onMoved,
 }: {
   verb: "move" | "swap";
   date: string;
   maxDate: string;
+  // UXA-24: this tab's understanding of which block is active, so a stale tab can't silently
+  // move/swap days on a block another tab already replaced.
+  blockCreatedAt: string;
   onMoved?: () => void;
 }) {
   const c = COPY[verb];
@@ -43,7 +47,7 @@ export default function DayAction({
     try {
       const res = await api<{ ok: boolean; mirrorFailed: string[] }>("/api/reschedule", {
         method: c.method,
-        body: JSON.stringify({ from: date, to, today: localToday() }),
+        body: JSON.stringify({ from: date, to, today: localToday(), expectedBlockCreatedAt: blockCreatedAt }),
       });
       setNote(
         res.mirrorFailed.length === 0

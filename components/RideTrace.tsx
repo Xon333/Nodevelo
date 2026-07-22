@@ -83,7 +83,10 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
         {targetY !== null && (
           <line x1={0} y1={targetY} x2={W} y2={targetY} strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" className="stroke-pink-500/70 dark:stroke-[#ff49c8]/70" />
         )}
-        {hrPath && <path d={hrPath} fill="none" strokeWidth={1} vectorEffect="non-scaling-stroke" className="stroke-zinc-400 dark:stroke-zinc-500" />}
+        {/* UXA-57: was stroke-zinc-400 dark:stroke-zinc-500 — the inverse of the app's own
+            text-zinc-500 dark:text-zinc-400 muted convention, leaving light mode under the 3:1
+            floor for a graphical object conveying real data (WCAG 1.4.11). */}
+        {hrPath && <path d={hrPath} fill="none" strokeWidth={1} vectorEffect="non-scaling-stroke" className="stroke-zinc-500 dark:stroke-zinc-400" />}
         {/* UXA-28: was blue in light mode, cyan in dark — matches PowerCurveChart's own
             stroke-cyan-600 dark:stroke-[#00d4ff] convention for the same "power" concept. */}
         <path d={powerPath} fill="none" strokeWidth={1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" className="stroke-cyan-600 dark:stroke-[#00d4ff]" />
