@@ -281,11 +281,20 @@ function BlockCalendar({
                       )}
                     </div>
                     {/* Day detail — opens on hover (mouse) or keyboard focus/tap (S2-1), same
-                        mechanic as ui.tsx's MetricTip. */}
+                        mechanic as ui.tsx's MetricTip. UXA-35: Escape here (not just on the trigger
+                        cell above) closes the pin even when focus has moved into DayAction's own
+                        input/buttons inside — the trigger's own Escape handler never fires for those,
+                        since this popover is a DOM sibling of the trigger, not its child. */}
                     <div
                       id={cellId}
                       role={eligible && pinned ? "dialog" : "tooltip"}
                       aria-label={eligible && pinned ? `Move ${day.name}` : undefined}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setPinnedDate(null);
+                        }
+                      }}
                       className={
                         pinned
                           ? `pointer-events-auto absolute bottom-full mb-2 z-40 opacity-100 w-max max-w-[160px] ${alignClass}`
@@ -482,7 +491,7 @@ export function CurrentBlockSection({
               <div className="relative shrink-0" onMouseLeave={() => setMenuOpen(false)}>
                 <button
                   onClick={() => setMenuOpen((v) => !v)}
-                  aria-haspopup="menu"
+                  aria-haspopup="true"
                   aria-expanded={menuOpen}
                   aria-label="Block actions"
                   onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
@@ -496,9 +505,11 @@ export function CurrentBlockSection({
                   // mouse crossing it on the way to a menu item fires this wrapper's onMouseLeave and
                   // closes the menu before the click lands — reported live as "the delete button
                   // disappears after I try to click it."
-                  <div role="menu" className="absolute right-0 top-full z-30 w-40 rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+                  // UXA-36: role="menu"/"menuitem" imply arrow-key/Home/End navigation per the
+                  // WAI-ARIA menu pattern, which this single-item disclosure never implemented —
+                  // plain markup instead of promising semantics it doesn't deliver.
+                  <div className="absolute right-0 top-full z-30 w-40 rounded-md border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-900">
                     <button
-                      role="menuitem"
                       onClick={() => {
                         setMenuOpen(false);
                         setConfirming(true);

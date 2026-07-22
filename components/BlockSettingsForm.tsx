@@ -304,14 +304,14 @@ export default function BlockSettingsForm() {
         <PrimaryButton onClick={save} disabled={saving || hoursInvalid}>
           {saving ? "Saving…" : "Save settings"}
         </PrimaryButton>
-        {saved && <span className="text-sm text-green-700 dark:text-green-400">Saved — next generation will use these values.</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
+        {saved && <span role="status" className="text-sm text-green-700 dark:text-green-400">Saved — next generation will use these values.</span>}
+        {error && <span role="alert" className="text-sm text-red-600">{error}</span>}
       </div>
       {hoursInvalid && (
-        <p className="text-xs text-red-600">Minimum hours can&apos;t be more than maximum hours — fix the highlighted range above before saving.</p>
+        <p role="alert" className="text-xs text-red-600">Minimum hours can&apos;t be more than maximum hours — fix the highlighted range above before saving.</p>
       )}
       {adjusted && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">
+        <p role="status" className="text-xs text-amber-600 dark:text-amber-400">
           Adjusted {adjusted.join(", ")} to fit the allowed range.
         </p>
       )}

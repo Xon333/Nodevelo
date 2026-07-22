@@ -142,8 +142,8 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
         <PrimaryButton onClick={saveSeason} disabled={seasonSaveState.state === "saving"}>
           {seasonSaveState.state === "saving" ? "Saving…" : "Save"}
         </PrimaryButton>
-        {seasonSaveState.state === "saved" && <span className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
-        {seasonSaveState.state === "error" && <span className="text-xs text-red-600">{seasonSaveState.message}</span>}
+        {seasonSaveState.state === "saved" && <span role="status" className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
+        {seasonSaveState.state === "error" && <span role="alert" className="text-xs text-red-600">{seasonSaveState.message}</span>}
       </div>
         </>
       )}

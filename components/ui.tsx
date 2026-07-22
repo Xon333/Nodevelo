@@ -43,7 +43,11 @@ export function InfoDot({ text, align }: { text: string; align?: "left" | "right
         onKeyDown={(e) => {
           if (e.key === "Escape") e.currentTarget.blur();
         }}
-        className="cursor-help text-[10px] opacity-60"
+        // UXA-38: the wrapper already sets muted zinc-500/zinc-400; opacity-60 on top of that
+        // multiplied it down to ~2.3:1 light / ~3.0:1 dark — right at or under the AA floor for the
+        // app's single most-reused "what is this number?" affordance. Color alone now carries the
+        // muting, matching every other muted-text site in the app.
+        className="cursor-help text-[10px]"
       >
         ⓘ
       </span>

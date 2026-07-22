@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useSync } from "./SyncProvider";
 import { Card, LoadFailed, Skeleton } from "./ui";
 import { api } from "@/lib/client-api";
@@ -62,6 +62,7 @@ function ParamCard({
   const effective = resolveCalibratedValue(param ?? null, row.populationDefault);
   const overridden = param?.manualOverride != null;
 
+  const errId = useId(); // UXA-37: ties the range-validation error to its input for assistive tech
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -153,6 +154,8 @@ function ParamCard({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             aria-label={`${row.label} override`}
+            aria-invalid={!!error}
+            aria-describedby={error ? errId : undefined}
             className="w-20 rounded border border-zinc-300 px-2 py-1 font-mono text-sm focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:focus:border-zinc-400"
           />
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
@@ -193,7 +196,11 @@ function ParamCard({
           )}
         </div>
       )}
-      {error && <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <p id={errId} role="alert" className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
     </Card>
   );
 }

@@ -205,6 +205,7 @@ export default function KnowledgeBaseEditor() {
                   setContent(e.target.value);
                   if (saveState.state === "saved") setSaveState({ state: "idle" });
                 }}
+                aria-label={`Editing ${selected.name}`}
                 spellCheck={false}
                 className="h-[36rem] w-full resize-y rounded-lg border border-zinc-300 bg-white p-4 font-mono text-xs leading-5 text-zinc-800 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-400"
               />
