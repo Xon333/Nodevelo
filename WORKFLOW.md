@@ -40,15 +40,18 @@ this is just the daily-use summary.
 - **Migration flags / "today" dates / LLM-path smoke tests** — the 3 recurring bug classes, now in
   AGENTS.md. Check them on relevant changes.
 
-## First block turnover — runbook
+## Block-turnover runbook
 
-Attended runbook for 2026-07-12 or the first sync after. Run once; after completion, this section can be deleted or kept as reference.
+The first turnover happened and was confirmed clean (2026-07-22 → ARCHIVE.md) — `block-history.json`
+and `intervention-log.json` both exist with real entries. Kept as a reusable reference for any
+future turnover, attended or not.
 
 1. **Backup first:** `GET /api/export` → save the bundle off-machine. The retro clears `current-block.json` — this is the undo.
 2. Sync (`POST /api/sync`) so the final rides are scored into the ledger.
 3. `POST /api/retrospective` — **read the generated retro** (live LLM smoke run per AGENTS.md; judge the narrative + seeds for sanity).
-4. Verify: `data/block-history.json` exists, entry has `days` (28), `nextBlockSeeds` non-empty.
-5. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` (per Task 1) land on the NEW block's `current-block.json` here, not on the retrospective's `block-history.json` entry — and only if a season plan exists on disk (it doesn't yet as of this writing, so don't be alarmed if the stamp is absent).
+4. Verify: `data/block-history.json` has a new entry, `days` non-empty, `nextBlockSeeds` non-empty.
+5. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` land on the NEW
+   block's `current-block.json` here, not on the retrospective's `block-history.json` entry.
 6. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.
 7. Confirm `/today` shows the new block's first session; the block-completion nudge is gone.
    - **If any step fails:** stop, `POST /api/import` the backup, report — do not improvise against live data.

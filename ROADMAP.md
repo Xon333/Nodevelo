@@ -23,28 +23,82 @@ barely turned over, because the trainable corpus is thin:
 - Only rides on/after the **first in-app block (2026-06-15)** match an app prescription; the ~6
   months before are `legacy` — real training, but excluded from execution/adherence learning by
   design ("no plan to be off"). Recovering them was investigated and paused (SUB-2 below).
-- `intervention-log.json` is still empty → **#4 has 0 matured verdicts**; the athlete model runs at
+- **The first loop turnover happened** (SUB-5, below → ARCHIVE.md) — `intervention-log.json` now
+  holds 6 real directives (`outcome: null`, 28-day horizons, oldest fired 2026-07-15) — but **none
+  have matured yet**, so **#4 still has 0 matured verdicts** in practice; the athlete model runs at
   n=1–8 per type, below its ≥3-obs trend gate and the correlation engine's discrimination gates →
-  most calibrated params still return population defaults.
+  most calibrated params still return population defaults. First verdicts mature ~2026-08-12.
 
 **The standing priority is therefore data over features:** every learning mechanism is
 code-complete and dormant — the loop starts paying out only as generate→ride→score→learn cycles
-accrue. The first full turnover is SUB-5, days away.
+accrue. The first turnover has fired (SUB-5); the wait now is for its directives to mature (~4wk
+horizons), not for the mechanism to run at all.
+
+---
+
+## For the athlete — verify + decide (post 2026-07-22 audit)
+
+The full UX/UI audit (61 findings) and the 2026-07-17 hostile review (15 findings) are both fully
+shipped → [ARCHIVE.md](ARCHIVE.md). Everything passed `tsc`/lint/tests and most of it was checked live
+in the browser — but a few things were deliberately never exercised against real data, and a few
+fixes involved a judgment call worth a second pair of eyes. Nothing below is a known bug; it's the
+honest list of what wasn't (or couldn't be) fully verified, plus the calls worth weighing in on.
+
+**Worth trying live:**
+- **Cross-tab guard (UXA-24)** — open Plan in two tabs on the same block, delete/write/move/swap in
+  one, then try any of those in the other. Expect *"This plan changed in another tab — reload to see
+  the latest before continuing."* instead of a silent overwrite. Verified with unit tests (mocked
+  stale `createdAt`), never against two real tabs on your real `current-block.json`.
+- **Keyboard shortcuts (UXA-48)** — `1`–`7` for nav, `s` for sync, `?` for the legend. Verified via
+  synthetic key events and a few live clicks; worth a real run from an actual keyboard, and worth
+  deciding whether they matter enough on mobile/tablet to need a touch equivalent (right now they're
+  simply absent there — no regression, just no shortcut).
+- **Unconfigured-Intervals.icu branch (UXA-2)** — Today's "not connected yet" copy was verified by
+  code inspection + tests, not live, since exercising it on the shared dev server would have meant
+  unsetting your real credentials.
+- **The 9 newly-`<form>`-wrapped forms (UXA-21)** — Enter-to-submit was verified structurally (every
+  non-submit button explicitly typed `type="button"`) but never by actually pressing Enter with real
+  values in the running app, to avoid writing real Settings/Profile data mid-session.
+- **Nutrition range hints (UXA-51)** — worth confirming the numbers in the "Edit" disclosure on
+  Profile read sensibly against your own real values, not just the fixture data checked live.
+
+**Judgment calls worth weighing in on:**
+- **The PlanView goal-textarea race** (Season engine debt list, above) — UXA-19's refactor narrowed
+  the old race but didn't eliminate it: saving the Season form while mid-edit on the goal textarea
+  can still overwrite your typing. Decide whether that's worth a guard or fine to leave (same page,
+  two adjacent actions, low real-world odds).
+- **Nutrition bounds (UXA-51)** — I gave `baseCalories`/`restDayTarget`/`targetWeightKg` a floor of 0
+  and no ceiling (no authoritative one exists in the codebase); a typo like `750` instead of `75` for
+  target weight still passes silently. Worth deciding if any of these deserve a real sanity ceiling.
+- **`Card`'s widened surface (UXA-54)** — I added attribute-spreading (`tabIndex`, `aria-describedby`,
+  etc.) to the shared `Card` primitive so `AthleteStateCard` could compose it — additive and
+  backward-compatible, but it does widen a primitive used by 15+ components for one caller's benefit,
+  the exact kind of drift risk the audit itself flagged elsewhere. Worth a glance if `Card` ever grows
+  a second such consumer.
+- **UXA-24's version token** — reuses `CurrentBlock.createdAt` rather than a dedicated version/etag
+  field. Cheap and shipped, but means a manual edit to `current-block.json` (e.g. via a backup
+  restore) that doesn't touch `createdAt` wouldn't be detected as "changed." Unlikely in practice,
+  worth knowing.
+- **Season-architecture doubt (pre-existing, not resolved by this sweep)** — you'd separately flagged
+  that the season engine's fixed phase-sequence model itself, not just its bugs, might be wrong (e.g.
+  ignoring a rider's existing base before assigning an aerobic-base period) — deliberately deferred to
+  its own research session. Worth noting: `chooseNextFocus` (the rolling-mode redesign, still behind
+  `SEASON_SHAPES_GENERATION=false`) scores focus candidates off the athlete's current limiter rather
+  than marching a fixed calendar sequence, which is a step toward "adapt to current state" — but
+  whether it specifically addresses your original example (skipping aerobic-base when the rider
+  already has a strong one) isn't something this sweep checked. Worth a fresh look at
+  `scoreFocusCandidates` before assuming the redesign already answers the doubt, rather than treating
+  it as still fully open either way.
 
 ---
 
 ## Data substrate — turn the loop over ⭐ (audit P1–3)
 
-SUB-1 (block-history durable corpus), SUB-3 (sync/generate route tests), and SUB-4's off-machine
-backup half all shipped 2026-07-02 → [ARCHIVE.md](ARCHIVE.md).
-
-### SUB-5 · First loop turnover — **run the runbook, ~2026-07-12** (current block's end)
-The build half shipped 2026-07-03 → [ARCHIVE.md](ARCHIVE.md) (`/api/retrospective` route tests, the
-season-stamp fix, the attended runbook). What's left is the *event itself*: the first-ever full
-turnover (retrospective → `block-history.json` born → next block write → `intervention-log.json`
-born) fires around 2026-07-12 and must be run attended per the runbook in
-[WORKFLOW.md](WORKFLOW.md) — backup first; if any step fails, restore and report. If it silently
-fails, audit-P1 loop data slips a full block.
+SUB-1 (block-history durable corpus), SUB-3 (sync/generate route tests), SUB-4's off-machine backup
+half, and SUB-5 (the first loop turnover — retrospective → `block-history.json` born → next block
+write → `intervention-log.json` born, run attended per the WORKFLOW.md runbook) all shipped
+→ [ARCHIVE.md](ARCHIVE.md). The runbook itself stays in [WORKFLOW.md](WORKFLOW.md) as a reusable
+reference for any future turnover, not just the first one.
 
 ### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 A live-API check showed the Intervals.icu calendar recovers only ~22–28% of the 100 legacy rides
@@ -129,6 +183,14 @@ still stamps `GeneratedPlan.seasonFocus` and carries into `CurrentBlock`/`BlockH
 nothing here atrophies while the flag is off. The flag flips back on as the final step of the
 season-roadmap-preview-and-rollout plan, once the roadmap UI can honestly represent the new model.
 
+**Hardened since:** a 2026-07-17 hostile review (prompted by the athlete reporting the 2026-07-16
+fixes didn't resolve their real symptoms) found and fixed 15 more issues in this exact implementation
+— including a genuine regression where the flag never reached the frontend (`PlanView.tsx`/
+`SeasonRoadmap.tsx` kept acting as if season still shaped generation) and a rolling-cadence bug where
+`applyDeloadCadence`'s fix didn't actually persist across calls. All 15 resolved → ARCHIVE.md. Worth
+knowing before trusting this implementation blind: it's been through one real fidelity audit since
+the initial build, not zero.
+
 Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currently worth a dedicated pass:
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label; only the
   phase caption distinguishes them. Cosmetic; visible only once event mode activates.
@@ -138,9 +200,14 @@ Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currentl
 - No re-plan trigger from the Season form itself (the next `POST /api/generate` re-plans and
   activates event mode the moment a future A-event exists); no UI warning about multiple A-events
   or the array-order tie-break.
-- `PlanView`'s season-context fetch can overwrite a manual in-progress goal-textarea edit if the
-  athlete types between the two independent fetches resolving — narrow single-user timing window,
-  not observed in practice.
+- `PlanView`'s season-context sync (UXA-19, 2026-07-22, → ARCHIVE.md) collapsed the old two-independent-
+  fetches race into a narrower one: `seasonQuery`'s render-time sync block re-applies `goalPrefill` onto
+  the goal textarea any time the query result changes reference, with no check for whether the athlete
+  has already started editing. Saving the Season form bumps `seasonVersion` → a real refetch → a real
+  trigger, so an athlete who saves Season while mid-edit on the goal textarea below it can still get
+  overwritten — same shape as before, one specific trigger instead of a timing race. Worth deciding
+  whether the sync should also skip once the textarea has unsaved user edits, or whether this is rare
+  enough (same page, two adjacent actions) to leave as-is.
 - B/C-priority event surfacing (`formatUpcomingEventsForBlock`) and `formatSeasonContext`'s call
   currently share one `try`/`catch` in `app/api/generate/route.ts` — if
   `chooseNextFocus`/`replanEventArc`/`settleSeasonHistory` itself ever throws, the (currently-disabled
@@ -202,14 +269,18 @@ dormant until `carbs_ingested` data accrues, like every calibrated param. What's
   a *personalised* "adequate" line `← Track C` calibration.
 - **Pw:HR × fuel Trends overlay** — carb-intake g/h on the existing `efSeries` chart (build w/ Track C).
 - **Mobile density polish** — UX-MASTERPLAN §3 recorded but deliberately deferred all mobile
-  execution (desktop-first scope decision). UXA-39 (2026-07-22 UX/UI audit): measured live at
-  1440×900, only 3 of 7 pages (Today, Model, Knowledge) actually fit in one viewport — Plan/Trends/
-  Profile/Settings all scroll, Settings by over 1000px. Likely reflects the real intent ("fold-1
-  decision-critical content fits," which does hold — verdicts and prescriptions are above the fold
-  everywhere) rather than "the whole page fits" — worth a defined phrase change here if the ambiguity
-  ever causes a real decision to go wrong, not urgent enough to reopen build work on its own.
+  execution (desktop-first scope decision). Measured live at 1440×900 during the 2026-07-22 UX/UI
+  audit (→ ARCHIVE.md): only 3 of 7 pages (Today, Model, Knowledge) actually fit in one viewport —
+  Plan/Trends/Profile/Settings all scroll, Settings by over 1000px — correcting this doc's prior
+  "no page runs over the fold" claim. Likely reflects the real intent ("fold-1 decision-critical
+  content fits," which does hold — verdicts and prescriptions are above the fold everywhere) rather
+  than "the whole page fits" — worth a defined phrase change here if the ambiguity ever causes a real
+  decision to go wrong, not urgent enough to reopen build work on its own.
 - **Two small UI-polish items surfaced by the UX v2 Wave 5 closing review — both shipped 2026-07-11**
   → [ARCHIVE.md](ARCHIVE.md).
+- **Full-app UX/UI audit — 61 findings across 8 parallel reviews, all shipped 2026-07-22** →
+  [ARCHIVE.md](ARCHIVE.md). Nothing left open; see "For the athlete — verify + decide" below for what
+  to try live and what to weigh in on.
 
 ---
 

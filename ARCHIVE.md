@@ -12,6 +12,22 @@ exact commits.
 
 ---
 
+## First loop turnover — SUB-5 complete (confirmed 2026-07-22)
+
+The event the SUB-5 runbook (`WORKFLOW.md`) was written for has happened: `data/block-history.json`
+(gitignored, local-only — this is a filesystem observation, not a commit) now holds real entries
+starting with the first in-app block (2026-06-15 → 2026-07-12), and `data/intervention-log.json` —
+empty since inception — now holds 6 real directives (`outcome: null`, 28-day horizons, oldest fired
+2026-07-15, most recent 2026-07-17). A second block has since generated and is active
+(`current-block.json`, started 2026-07-20), so the retrospective → next-block-write cycle has
+already turned over more than once. Nothing to verify further — the mechanism was already proven at
+build time (SUB-5's build half, 2026-07-03); this just confirms the live event actually fired
+cleanly. The 6 directives haven't matured yet (28-day horizon from the latest fire date) — first
+verdicts land ~2026-08-12, at which point **#4**'s auto-down-weight loop has its first real data to
+act on.
+
+---
+
 ## Full-app UX/UI audit — 61 findings, all resolved (UXA-2026-07-22)
 
 61 findings from 8 parallel reviews + a live browser walkthrough, athlete-confirmed valid, sorted
