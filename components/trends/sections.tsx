@@ -5,7 +5,7 @@
 // fetch-and-lay-out shell.
 import type { RollingBaselines, WorkoutType } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
-import { Card, CyberFrame } from "../ui";
+import { Card } from "../ui";
 import { useState } from "react";
 import type { Point, ScoreEntry, TrendBlock, TrendsData } from "./types";
 
@@ -28,11 +28,12 @@ export function trendDir(points: Point[], higherIsBetter = true): { label: strin
     : { label: delta > 0 ? "↑ declining" : "↓ declining", cls: "text-red-500" };
 }
 
+// UXA-12: was wearing the app's max-emphasis hero/CyberFrame shell while the page's actual verdict
+// (VerdictStrip) didn't — a direct Constitution §4 hierarchy inversion. DESIGN.md §8 files block
+// history under the page's lowest-priority "collapsed / drill-down" tier; plain Card chrome matches.
 export function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
   return (
-    <section className="relative rounded-none border-2 border-zinc-300 bg-white px-4 py-3 dark:border-[#00d4ff]/55 dark:bg-zinc-900 dark:shadow-[0_0_28px_-8px_rgba(0,212,255,0.45)]">
-      <CyberFrame accent="cyan" />
-      <div className="relative z-10">
+    <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Block history</h2>
       <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
         How each block executed and what it changed — the long view your coach reasons from.
@@ -101,7 +102,6 @@ export function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
           </ol>
         </details>
       )}
-      </div>
     </section>
   );
 }
