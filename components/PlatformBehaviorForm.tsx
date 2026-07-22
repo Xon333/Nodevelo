@@ -65,27 +65,35 @@ export default function PlatformBehaviorForm() {
   return (
     <Card title="Platform behavior">
       <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">How Nodevelo handles syncing and write-back.</p>
-      <div className="space-y-2">
-        <ToggleRow
-          label="Auto-sync on open"
-          hint="When you open Today and the data is stale, pull from Intervals.icu automatically."
-          checked={settings.autoSyncOnOpen}
-          onChange={(v) => set("autoSyncOnOpen", v)}
-        />
-        <ToggleRow
-          label="Auto-post coach note to Intervals.icu"
-          hint="After each analysis, write the coach note back to your Intervals.icu calendar automatically."
-          checked={settings.autoPostCoachNote}
-          onChange={(v) => set("autoPostCoachNote", v)}
-        />
-      </div>
-      <div className="mt-4 flex items-center gap-3">
-        <PrimaryButton onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save"}
-        </PrimaryButton>
-        {saved && <span className="text-sm text-green-700 dark:text-green-400">Saved.</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
-      </div>
+      {/* UXA-21: wrapping in <form> gives Enter-to-submit from any field in this section. */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <div className="space-y-2">
+          <ToggleRow
+            label="Auto-sync on open"
+            hint="When you open Today and the data is stale, pull from Intervals.icu automatically."
+            checked={settings.autoSyncOnOpen}
+            onChange={(v) => set("autoSyncOnOpen", v)}
+          />
+          <ToggleRow
+            label="Auto-post coach note to Intervals.icu"
+            hint="After each analysis, write the coach note back to your Intervals.icu calendar automatically."
+            checked={settings.autoPostCoachNote}
+            onChange={(v) => set("autoPostCoachNote", v)}
+          />
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <PrimaryButton type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </PrimaryButton>
+          {saved && <span role="status" className="text-sm text-green-700 dark:text-green-400">Saved.</span>}
+          {error && <span role="alert" className="text-sm text-red-600">{error}</span>}
+        </div>
+      </form>
     </Card>
   );
 }

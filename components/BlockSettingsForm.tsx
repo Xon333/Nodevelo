@@ -40,6 +40,7 @@ export function ToggleRow({
 }) {
   return (
     <button
+      type="button"
       onClick={() => onChange(!checked)}
       role="switch"
       aria-checked={checked}
@@ -166,7 +167,15 @@ export default function BlockSettingsForm() {
     settings.weeklyHoursMin > settings.weeklyHoursMax || settings.recoveryWeekHoursMin > settings.recoveryWeekHoursMax;
 
   return (
-    <div className="space-y-6">
+    // UXA-21: wrapping in <form> gives Enter-to-submit from any field — previously every save
+    // needed an explicit pointer click on the button.
+    <form
+      className="space-y-6"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
       {/* Weekly volume */}
       <Card title="Weekly volume targets">
         <div className="grid gap-5 sm:grid-cols-2">
@@ -277,6 +286,7 @@ export default function BlockSettingsForm() {
             ).map((opt) => (
               <button
                 key={String(opt.value)}
+                type="button"
                 onClick={() => set("polarisedApproach", opt.value)}
                 className={`flex-1 rounded-md border px-4 py-3 text-left text-sm transition-colors ${
                   settings.polarisedApproach === opt.value
@@ -301,7 +311,7 @@ export default function BlockSettingsForm() {
 
       {/* Save */}
       <div className="flex items-center gap-3">
-        <PrimaryButton onClick={save} disabled={saving || hoursInvalid}>
+        <PrimaryButton type="submit" disabled={saving || hoursInvalid}>
           {saving ? "Saving…" : "Save settings"}
         </PrimaryButton>
         {saved && <span role="status" className="text-sm text-green-700 dark:text-green-400">Saved — next generation will use these values.</span>}
@@ -321,6 +331,6 @@ export default function BlockSettingsForm() {
           Last updated: {new Date(settings.updatedAt).toLocaleString()}
         </p>
       )}
-    </div>
+    </form>
   );
 }

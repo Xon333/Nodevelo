@@ -145,7 +145,14 @@ function ParamCard({
       <p className="mt-0.5 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">{detail(param, effective)}</p>
 
       {editing ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        // UXA-21: <form> gives Enter-to-submit from the input.
+        <form
+          className="mt-2 flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
           <input
             type="number"
             step="0.1"
@@ -162,20 +169,21 @@ function ParamCard({
             {row.unit.trim() || "%"} · {row.bounds.min}–{row.bounds.max}
           </span>
           <button
-            onClick={submit}
+            type="submit"
             disabled={saving}
             className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:border-zinc-400 disabled:opacity-50 dark:border-[#00d4ff]/40 dark:text-[#00d4ff] dark:hover:bg-[#00d4ff]/10"
           >
             {saving ? "Saving…" : "Save"}
           </button>
           <button
+            type="button"
             onClick={() => setEditing(false)}
             disabled={saving}
             className="text-[11px] text-zinc-500 dark:text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
           >
             Cancel
           </button>
-        </div>
+        </form>
       ) : (
         // S2-2: py-1 gives these text-only links a taller click/tap target without changing the type size.
         <div className="mt-1.5 flex flex-wrap items-center gap-3">

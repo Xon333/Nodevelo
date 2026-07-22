@@ -61,6 +61,7 @@ export default function BlockGenerator({
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       {hasActiveBlock && !genOpen ? (
         <button
+          type="button"
           onClick={() => setGenOpen(true)}
           className="flex w-full items-center justify-between gap-3 text-left"
         >
@@ -68,10 +69,18 @@ export default function BlockGenerator({
           <span className="text-xs text-zinc-500 dark:text-zinc-400">Plan the next 2–4 weeks →</span>
         </button>
       ) : (
-        <>
+        // UXA-21: <form> gives Enter-to-submit from the start-date field (the goal/weakpoints
+        // textareas already insert a newline on Enter rather than submitting, unaffected).
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void generate();
+          }}
+        >
           {hasActiveBlock && (
             <div className="mb-3 flex justify-end">
               <button
+                type="button"
                 onClick={() => setGenOpen(false)}
                 className="text-xs text-zinc-500 dark:text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
               >
@@ -81,7 +90,7 @@ export default function BlockGenerator({
           )}
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={generate}
+              type="submit"
               disabled={generating || !anthropicConfigured}
               className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:border dark:border-[#ff49c8]/50 dark:bg-transparent dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/10 dark:disabled:border-zinc-600 dark:disabled:text-zinc-500 dark:disabled:bg-transparent"
             >
@@ -145,6 +154,7 @@ export default function BlockGenerator({
                 {([2, 4, 6, 8] as const).map((w) => (
                   <button
                     key={w}
+                    type="button"
                     onClick={() => setLengthWeeks(w)}
                     className={`rounded-md border px-3 py-2 text-sm transition-colors ${
                       lengthWeeks === w
@@ -201,16 +211,17 @@ export default function BlockGenerator({
               tweak can stay one-off. */}
           <div className="mt-2 flex items-center gap-2">
             <button
+              type="button"
               onClick={onSaveToProfile}
               disabled={profileSaveState.state === "saving"}
               className="text-[11px] font-medium text-cyan-700 hover:underline disabled:cursor-not-allowed disabled:text-zinc-400 dark:text-[#00d4ff] dark:disabled:text-zinc-600"
             >
               {profileSaveState.state === "saving" ? "Saving…" : "↳ Save these goals & weakpoints to your profile"}
             </button>
-            {profileSaveState.state === "saved" && <span className="text-[11px] text-green-700 dark:text-green-400">✓ Saved</span>}
-            {profileSaveState.state === "error" && <span className="text-[11px] text-red-600">{profileSaveState.message}</span>}
+            {profileSaveState.state === "saved" && <span role="status" className="text-[11px] text-green-700 dark:text-green-400">✓ Saved</span>}
+            {profileSaveState.state === "error" && <span role="alert" className="text-[11px] text-red-600">{profileSaveState.message}</span>}
           </div>
-        </>
+        </form>
       )}
     </section>
   );

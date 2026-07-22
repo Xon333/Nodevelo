@@ -70,7 +70,13 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
       {seasonLoadFailed ? (
         <LoadFailed what="your season (objective & events)" retry={() => void loadSeason()} />
       ) : (
-        <>
+        // UXA-21: <form> gives Enter-to-submit from any field here.
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveSeason();
+          }}
+        >
       <label className="block">
         <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
           Objective <span className="font-normal text-zinc-500 dark:text-zinc-400">— the one outcome the whole season serves</span>
@@ -121,6 +127,7 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
               </select>
             </label>
             <button
+              type="button"
               onClick={() => removeEvent(i)}
               title="Remove this event"
               className="rounded-md border border-red-300 px-2 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
@@ -132,6 +139,7 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
       </div>
 
       <button
+        type="button"
         onClick={addEvent}
         className="mt-3 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
       >
@@ -139,13 +147,13 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
       </button>
 
       <div className="mt-3 flex items-center gap-3">
-        <PrimaryButton onClick={saveSeason} disabled={seasonSaveState.state === "saving"}>
+        <PrimaryButton type="submit" disabled={seasonSaveState.state === "saving"}>
           {seasonSaveState.state === "saving" ? "Saving…" : "Save"}
         </PrimaryButton>
         {seasonSaveState.state === "saved" && <span role="status" className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
         {seasonSaveState.state === "error" && <span role="alert" className="text-xs text-red-600">{seasonSaveState.message}</span>}
       </div>
-        </>
+        </form>
       )}
     </Card>
   );

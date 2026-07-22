@@ -202,30 +202,40 @@ export default function KnowledgeBaseEditor() {
                   {FILE_HINTS[selected.name].text}
                 </div>
               )}
-              <textarea
-                value={content}
-                onChange={(e) => {
-                  setContent(e.target.value);
-                  if (saveState.state === "saved") setSaveState({ state: "idle" });
+              {/* UXA-21: <form> wrap for consistency + clean status semantics — Enter itself already
+                  inserts a newline in a textarea rather than submitting, so this doesn't change that
+                  behavior, just gives Save a proper submit lifecycle. */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void save();
                 }}
-                aria-label={`Editing ${selected.name}`}
-                spellCheck={false}
-                className="h-[36rem] w-full resize-y rounded-lg border border-zinc-300 bg-white p-4 font-mono text-xs leading-5 text-zinc-800 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-400"
-              />
-              <div className="mt-2 flex items-center gap-3">
-                <PrimaryButton onClick={save} disabled={!dirty || saveState.state === "saving"}>
-                  {saveState.state === "saving" ? "Saving…" : "Save"}
-                </PrimaryButton>
-                {saveState.state === "saved" && (
-                  <span className="text-xs font-medium text-green-700 dark:text-green-400">✓ Saved</span>
-                )}
-                {saveState.state === "error" && (
-                  <span className="text-xs text-red-600">{saveState.message}</span>
-                )}
-                <span className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">
-                  {content.length.toLocaleString()} chars
-                </span>
-              </div>
+              >
+                <textarea
+                  value={content}
+                  onChange={(e) => {
+                    setContent(e.target.value);
+                    if (saveState.state === "saved") setSaveState({ state: "idle" });
+                  }}
+                  aria-label={`Editing ${selected.name}`}
+                  spellCheck={false}
+                  className="h-[36rem] w-full resize-y rounded-lg border border-zinc-300 bg-white p-4 font-mono text-xs leading-5 text-zinc-800 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-zinc-400"
+                />
+                <div className="mt-2 flex items-center gap-3">
+                  <PrimaryButton type="submit" disabled={!dirty || saveState.state === "saving"}>
+                    {saveState.state === "saving" ? "Saving…" : "Save"}
+                  </PrimaryButton>
+                  {saveState.state === "saved" && (
+                    <span role="status" className="text-xs font-medium text-green-700 dark:text-green-400">✓ Saved</span>
+                  )}
+                  {saveState.state === "error" && (
+                    <span role="alert" className="text-xs text-red-600">{saveState.message}</span>
+                  )}
+                  <span className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">
+                    {content.length.toLocaleString()} chars
+                  </span>
+                </div>
+              </form>
             </>
           ) : (
             <p className="py-12 text-center text-sm text-zinc-500 dark:text-zinc-400">No knowledge base files found.</p>

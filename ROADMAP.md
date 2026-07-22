@@ -202,7 +202,12 @@ dormant until `carbs_ingested` data accrues, like every calibrated param. What's
   a *personalised* "adequate" line `← Track C` calibration.
 - **Pw:HR × fuel Trends overlay** — carb-intake g/h on the existing `efSeries` chart (build w/ Track C).
 - **Mobile density polish** — UX-MASTERPLAN §3 recorded but deliberately deferred all mobile
-  execution (desktop-first scope decision); no desktop page runs over the fold post-v2.
+  execution (desktop-first scope decision). UXA-39 (2026-07-22 UX/UI audit): measured live at
+  1440×900, only 3 of 7 pages (Today, Model, Knowledge) actually fit in one viewport — Plan/Trends/
+  Profile/Settings all scroll, Settings by over 1000px. Likely reflects the real intent ("fold-1
+  decision-critical content fits," which does hold — verdicts and prescriptions are above the fold
+  everywhere) rather than "the whole page fits" — worth a defined phrase change here if the ambiguity
+  ever causes a real decision to go wrong, not urgent enough to reopen build work on its own.
 - **Two small UI-polish items surfaced by the UX v2 Wave 5 closing review — both shipped 2026-07-11**
   → [ARCHIVE.md](ARCHIVE.md).
 
