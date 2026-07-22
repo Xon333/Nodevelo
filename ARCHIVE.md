@@ -12,6 +12,223 @@ exact commits.
 
 ---
 
+## Full-app UX/UI audit — 61 findings, all resolved (UXA-2026-07-22)
+
+61 findings from 8 parallel reviews + a live browser walkthrough, athlete-confirmed valid, sorted
+Critical→Nice-to-have and worked top to bottom across several sessions. All 61 resolved — either
+fixed or, for the handful needing a real design call rather than a mechanical fix, explicitly
+deferred with its own rationale below.
+
+**Critical**
+- `bug` **UXA-1** — **Fixed.** The Constitution's own named example of banned developer jargon shipped
+  live through 5+ paths. Rewrote all offending strings to coach voice: the InfoDot tip
+  (`components/dashboard/BlockGenerator.tsx`); the 3 API routes' thrown error strings
+  (`app/api/generate/route.ts`, `app/api/write/route.ts`, `app/api/sync/route.ts`) now match
+  `BlockGenerator`'s own visible-line tone instead of naming env vars; the backup-failure warning
+  pushed into the global `SyncNotice` banner no longer interpolates the raw error reason (kept in the
+  `logError` call for developers only). Also found and fixed on inspection: two deeper library-level
+  throws carried the same jargon (`lib/anthropic-api.ts`, `lib/intervals-api.ts`). Deleted
+  `components/SyncStatus.tsx` — dead code, unreferenced anywhere in the app, so it carried the jargon
+  string in the bundle for no reason; this also resolves UXA-61. Updated the two existing tests that
+  asserted the old jargon strings to assert the new coach-voice copy and regression-guard against
+  env-var names ever reappearing. Did not build the `client()` allow-list structural hardening (the
+  "prevent future recurrence" half of the original recommendation) — scoped out as a separate, larger
+  change; the ~15-component raw-`err.message` pattern remains.
+- `ux` **UXA-2** — **Fixed.** Today's readiness card — the first thing a new or misconfigured install
+  sees — silently showed "Sync to compute today's readiness" with no button when Intervals.icu wasn't
+  configured. `components/dashboard/TodayView.tsx` now branches on `state.configured`: unconfigured
+  shows a plain-language explanation plus the one fix (no env-var names); configured keeps the
+  existing "Sync now →" button unchanged.
+- `bug` **UXA-3** — **Fixed.** Added a min≤max cross-field check for both weekly-hours pairs. Server
+  (`app/api/settings/route.ts`) rejects with 400 before the calibration-override section runs; client
+  (`components/BlockSettingsForm.tsx`) disables Save and shows an inline warning. 3 regression tests
+  added.
+
+**High**
+- `ux` **UXA-4** — **Fixed.** Block generation could burn a paid LLM call before checking
+  Intervals.icu is connected — now surfaces a non-blocking amber notice next to Generate as soon as
+  `!intervalsConfigured`.
+- `bug` **UXA-5** — **Fixed.** Added a `beforeunload` guard gated on an unwritten, already-generated
+  plan — covers refresh/close-tab/new-URL.
+- `bug` **UXA-6** — **Fixed.** Added the missing `disabled={analyzing}` plus a ref-based re-entrancy
+  guard in `runAnalysis` itself (mirrors AskCoach's own self-guard).
+- `bug` **UXA-7** — **Fixed.** Client now reads and displays the `skipped` array the route already
+  returned (`components/BackupRestore.tsx`).
+- `ux` **UXA-8** — **Fixed.** Added a consequence line next to Write ("Replaces your active block —
+  remaining days archived, ridden history kept") when a block is active.
+- `ux` **UXA-9** — **Fixed.** StateDriversCard/CalibrationPanel now distinguish loading (skeleton)
+  from error (LoadFailed) from genuinely-empty, instead of collapsing the first two into the third.
+- `ux` **UXA-10** — **Fixed.** SeasonRoadmap's palette reuses the sanctioned workout-type hexes
+  instead of inventing near-duplicate shades; moved off inline `style=` onto Tailwind classes.
+- `ux` **UXA-11** — **Fixed.** Every Settings/Profile/Knowledge Save button had independently drifted
+  to an inverted solid-zinc style instead of Nav/BlockGenerator's documented pink-outline dark-mode
+  treatment. Added `PrimaryButton` + `PRIMARY_BUTTON_CLASS` to `ui.tsx` and swept all 7 call sites.
+- `ux` **UXA-12** — **Fixed.** `BlockTimeline` demoted to plain `Card` chrome, matching its DESIGN.md
+  §8 drill-down tier.
+- `bug` **UXA-13** — **Fixed.** All 10 sites with the systemic inverted contrast token swapped to the
+  correct `text-zinc-500 dark:text-zinc-400` pairing.
+- `ux` **UXA-14** — **Fixed, partially.** Added a data-summarizing `aria-label` to Sparkline and
+  RideTrace. Full keyboard scrubbing remains open.
+- `ux` **UXA-15** — **Fixed.** Nested `BlockSettingsForm`'s `Field` children inside `<label>` for
+  implicit association (×7).
+- `ux` **UXA-16** — **Fixed.** Added an `sr-only` `<h1>` to Today and Plan.
+- `ux` **UXA-17** — **Fixed.** Added a visually-hidden-until-focused skip link targeting
+  `#main-content`.
+- `ux` **UXA-18** — **Fixed.** Settings' training-philosophy selected option and Knowledge's selected
+  file both restyled to Nav.tsx's own active-link accent treatment.
+- `bug` **UXA-19** — **Fixed.** `SeasonRoadmap` is now purely presentational — `PlanView` owns the one
+  `/api/season` fetch and passes the result down as props, instead of two components independently
+  fetching the same endpoint (3 requests → 1, confirmed via network trace).
+
+**Medium**
+- `ux` **UXA-20** — **Fixed.** Settings now diffs sent-vs-returned numeric fields after a save and
+  explains any silent server-side clamp instead of just saying "Saved."
+- `ux` **UXA-21** — **Fixed.** All 9 forms wrapped in `<form onSubmit>`; every non-submit button inside
+  given explicit `type="button"` so wrapping didn't turn them into accidental submit triggers.
+- `ux` **UXA-22** — **Fixed.** Raw `error.message`/`digest` moved behind a collapsed "Technical
+  details" disclosure in both crash boundaries.
+- `bug` **UXA-23** — **Fixed.** AskCoach now ties an `AbortController` to its streamed fetch via an
+  unmount cleanup — navigating away mid-answer actually stops consuming (and billing) tokens.
+- `bug` **UXA-24** — **Fixed.** Cross-tab optimistic-concurrency guard on destructive block actions
+  (delete/write/reschedule). Reused `CurrentBlock.createdAt` (no new field) as the version token — the
+  client sends the `createdAt` it believes is active as `expectedBlockCreatedAt`; the server 409s
+  before any mutation (before any Intervals.icu event is even created, for `/api/write`) if it doesn't
+  match. New `lib/block-version.ts` holds the one comparison, wired into `/api/write`, `/api/sync`
+  DELETE, and `/api/reschedule`'s shared `loadRescheduleContext`. A request omitting the field skips
+  the check, so no pre-existing test needed to change.
+- `bug` **UXA-25** — **Fixed.** `/api/trends`, `/api/history`, `/api/export` now catch unexpected
+  errors and return a structured `{error}` instead of a bare 500.
+- `ux` **UXA-26** — **Fixed.** Trends' top-level fetch error is now `LoadFailed` + Retry, matching
+  every sibling best-effort fetch in the app.
+- `ux` **UXA-27** — **Fixed.** PowerCurveChart's y-axis labels now carry the correct `dark:` pairing.
+- `ux` **UXA-28** — **Fixed.** Chart line colors no longer hue-swap across themes — same hue in both
+  themes now (Sparkline → pink, Trends CTL/RideTrace power → cyan).
+- `bug` **UXA-29** — **Fixed.** The remaining bare `text-zinc-500` sites with no `dark:` pairing
+  (AiUsageCard, BackupRestore) fixed.
+- `ux` **UXA-30** — **Fixed.** Corrected DESIGN.md's documented RaceSim hex to match what the code has
+  always actually shipped.
+- `ux` **UXA-31** — **Fixed.** "Good/positive" status color unified to emerald-600/emerald-400 across
+  6 Trends sites.
+- `ux` **UXA-32** — **Fixed.** Extracted `HeroSurface` from `Zone`'s own hero branch; `Zone` composes
+  it internally and `CurrentBlockSection` uses it directly instead of a hand-copied shell.
+- `ux` **UXA-33** — **Fixed.** The left rail is `fixed` (outside the content div's layout flow), so
+  `mx-auto` centered content in the padded remainder instead of against the rail — ~680px of dead
+  space on both sides at 2560px. Content now hugs the rail's edge, with a wider cap at `2xl`.
+- `ux` **UXA-34** — **Fixed.** KnowledgeBaseEditor's textarea gets an `aria-label` tied to the selected
+  file.
+- `ux` **UXA-35** — **Fixed.** The calendar day-popover's Escape handler is now also wired on the
+  popover container itself (a DOM sibling of the trigger, not its child).
+- `ux` **UXA-36** — **Fixed.** The block-actions menu declared `role="menu"/"menuitem"` semantics it
+  didn't implement — dropped to plain markup.
+- `ux` **UXA-37** — **Fixed.** Transient success/error confirmations across 3 forms now use
+  `role="status"/"alert"`.
+- `ux` **UXA-38** — **Fixed.** Removed the extra `opacity-60` on InfoDot's own glyph, which sat on top
+  of already-muted zinc, at/under the contrast floor.
+- `ux` **UXA-39** — **Fixed.** Corrected ROADMAP.md's "no desktop page runs over the fold post-v2"
+  claim against live 1440×900 measurements (Settings measured 1047px over).
+- `bug` **UXA-40** — **Fixed.** `/api/trends` now slices the score ledger to the last 30 entries
+  before sending.
+- `ux` **UXA-41** — **Fixed.** Block history rendered fully unbounded in the DOM in two places — both
+  now cap to the most recent 20.
+- `ux` **UXA-42** — **Fixed.** Knowledge's file rail gets its own scroll region.
+- `ux` **UXA-43** — **Fixed.** Trimmed Today's IF and TSB tooltips to the app's own 2-sentence tip
+  limit.
+- `ux` **UXA-44** — **Fixed.** Unified ~17 sites' save/write/load failure copy onto one "Couldn't X —
+  try again." register.
+- `ux` **UXA-45** — **Fixed.** Verdict score bar and driver bars now transition on value change.
+- `ux` **UXA-46** — **Fixed.** Mobile disposition chips no longer wrap to 5 lines; meet touch-target
+  guidance.
+- `ux` **UXA-47** — **Fixed.** Mobile Plan's "Season" label no longer collides with its own goal
+  sentence.
+
+**Nice-to-have**
+- `ux` **UXA-48** — **Fixed.** Global keyboard shortcuts in `Nav.tsx` — digit keys 1–7 jump to each
+  rail link (generated from the same array the rail renders), `s` syncs, `?` opens a legend (also
+  reachable via a small button). Ignored with any modifier held or while focus is in an editable
+  field.
+- `ux` **UXA-49** — **Fixed.** Added `app/not-found.tsx`, matching error.tsx's tone.
+- `ux` **UXA-50** — **Fixed.** Profile and Model now link to each other.
+- `ux` **UXA-51** — **Fixed.** Nutrition inputs get a visible range hint — buffer shows its real
+  enforced band (now exported from `lib/nutrition.ts`); the other three fields get a defensible floor
+  of 0.
+- `ux` **UXA-52** — **Fixed.** SeasonSection now distinguishes "still loading" from "loaded, nothing
+  set yet."
+- `ux` **UXA-53** — **Fixed.** Season-event and block-generation start-date pickers reject a past date
+  via `min`.
+- `ux` **UXA-54** — **Fixed.** Widened `Card` (ui.tsx) to spread arbitrary HTML attributes onto its
+  root `<section>`, then composed AthleteStateCard through it instead of hand-duplicating Card's chrome.
+- `ux` **UXA-55** — **Fixed.** RescheduleBanner's (and MorningCheckIn's identical, found on inspection)
+  amber CTA gets the same lightened `dark:` shade every other themed CTA uses.
+- `ux` **UXA-56** — **Fixed.** AiUsageCard now composes Card's title/action slots instead of
+  hand-rolling its own header row.
+- `ux` **UXA-57** — **Fixed.** RideTrace's HR overlay was the inverse of the app's own muted-text
+  convention, leaving light mode under the WCAG 1.4.11 3:1 floor. Flipped to match.
+- `ux` **UXA-58** — **Fixed.** Delete-block's "Yes, delete" now awaits the actual DELETE call and
+  shows "Deleting…" instead of closing the confirm bar instantly and discarding the promise.
+- `ux` **UXA-59** — **Fixed.** The Power PRs caption claimed a drag interaction that isn't there when
+  there's only 1 synced point.
+- `ux` **UXA-60** — **Fixed.** Trends' CTL card was the one "Engine" card missing a trailing
+  explanation its two siblings both have.
+- `ux` **UXA-61** — **Fixed, as part of UXA-1.** `SyncStatus.tsx` was dead code shipping the
+  env-var-jargon string live in the bundle — deleted rather than fixed and wired in.
+
+See git log (`3ea28a2..465868d`) for exact commits and file-level detail per item.
+
+---
+
+## Hostile review — block-generation-fidelity commits, round 2 (HR-2026-07-17)
+
+Requested after the athlete reported the shipped fixes from the 2026-07-16 round (below) didn't
+actually resolve their symptoms. 15 findings from an xhigh multi-agent review (10 independent finder
+angles, 32 raw candidates deduped). All 15 resolved: 7 P1s, 8 P2/P3s — 2 (HR-20, HR-22) had genuine
+tradeoffs and were resolved via an explicit `AskUserQuestion` design call rather than a single
+obviously-correct fix; 1 (HR-23) was re-verified before editing and found to be Won't-fix (the
+finding's own premise was wrong).
+
+- **HR-16** — Compound multi-effort workout lines (e.g. "Move 3: Seated climb 2m30s 108%, then
+  standing attack 25s 140%") silently dropped the second effort — `parseStep` used a non-global regex
+  match. Confirmed against the athlete's real already-written RaceSim day: 3 real reps were missing
+  from `prescription`. Now global-matches every clause on a line.
+- **HR-17** — Confirmed root cause of "only template A": `selectDurabilityTemplate`'s `LIMITER_TEMPLATE`
+  mapped a systemic `Overall`/`alert` insight to the safest template unconditionally, with no way to
+  tell genuine systemic fatigue apart from an environmental cause (`deriveInsights` already diagnoses
+  this separately). `overallDeclineIsExplained` now skips the override only when that co-occurring
+  insight is present.
+- **HR-18** — The `goalText` built for `selectDurabilityTemplate` omitted `blockParams.weakpoints`/
+  `profile.goals`/`profile.weakpoints`, unlike the richer, near-identical construction 35 lines later.
+  Hoisted one `combinedGoalText` local, reused at both sites.
+- **HR-19** — The duration-consistency check was warn-only. Added `reconcileDurationMin`
+  (`lib/prescription.ts`): overwrites `durationMin` with the real step-sum, exempting Rest/Strength.
+- **HR-20** — **User's explicit choice: prompt-only reinforcement, not deterministic auto-repair**
+  (given `lib/schedule-validate.ts`'s own "never reorders the coach's plan" contract). Tightened the
+  WEEKLY STRUCTURE prompt rule; known accepted residual gap — this is a probabilistic improvement, not
+  a guarantee.
+- **HR-21** — New regression from this same round's own season-disable Task 6: the flag only gated the
+  backend, never reached `PlanView.tsx`/`SeasonRoadmap.tsx`. Both now import the same flag.
+- **HR-22** — **User's explicit choice to fix now rather than defer.** `applyDeloadCadence`'s rolling
+  count didn't actually persist across `/api/generate` calls since `replanSeasonArc` only redrafts the
+  future tail. New `weeksSinceLastDeload` mirrors `weeksSinceSeasonBreak`'s pattern.
+- **HR-23** — **Won't-fix** — a direct diagnostic proved `SEASON_CONSTANTS`'s deload-cadence comments
+  were already correct; the finding's premise was wrong.
+- **HR-24 + HR-29** — Duration-warning wording fix (self-contradictory "only sum to" on an overshoot)
+  + a test-fixture dedup, one commit.
+- **HR-25** — `GOAL_TEMPLATE_PATTERNS` gained negation-awareness via the shared `tagPresent` primitive
+  — narrower than the originally suggested full reuse of `goalRelevanceForFocus`, which was checked
+  first and would have broken VO2max goal-text detection.
+- **HR-26** — Added `route.season-enabled.test.ts` covering the `SEASON_SHAPES_GENERATION=true` branch,
+  left completely untested after the flag-off tests replaced (not supplemented) the original assertions.
+- **HR-27** — A `"Warmup 2x"`-style repeat header double-counted an excluded section's minutes in
+  `totalPrescribedMinutes` only.
+- **HR-28** — Pure relocation: `carriesEmbeddedIntensity`'s doc comment moved back next to its own
+  function.
+- **HR-30** — Extracted the shared `toleranceBand` helper into `lib/stats.ts`.
+
+A combined live `/api/generate` re-run after the P1s landed confirmed `durabilityTemplate: B` (was
+`A`) and `protocolViolations: null` on the same real fixture. 1190/1190 tests, tsc/eslint clean
+throughout.
+
+---
+
 ## Block-generation fidelity fixes + temporary season-disable (2026-07-16)
 
 Five concrete defects surfaced by the athlete's first real generation on the redesigned
