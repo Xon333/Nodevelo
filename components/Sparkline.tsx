@@ -20,6 +20,10 @@ export default function Sparkline({
   // Hover guide-line + tooltip border. Defaults to the pink accent; pass the chart's own
   // accent (e.g. cyan for CTL) so the border matches the tooltip text instead of clashing.
   tipAccentClass = "stroke-zinc-300 dark:stroke-[#ff49c8]/35",
+  // UXA-14: this is the only place several of these numbers exist in the app, and the chart is
+  // otherwise unreachable to a screen reader — a generic but real summary beats silence. Callers
+  // that know the metric's name can pass a more specific label.
+  ariaLabel,
 }: {
   points: SparkPoint[];
   chartHeight?: number;
@@ -28,6 +32,7 @@ export default function Sparkline({
   dotClass?: string;
   tipTextClass?: string;
   tipAccentClass?: string;
+  ariaLabel?: string;
 }) {
   const [idx, setIdx] = useState<number | null>(null);
   if (points.length < 2) return null;
@@ -50,6 +55,11 @@ export default function Sparkline({
   const TIP_W = 94;
   const tipX = hp ? Math.max(0, Math.min(hx - TIP_W / 2, W - TIP_W)) : 0;
   const colW = (W - PAD * 2) / points.length;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const label =
+    ariaLabel ??
+    `Trend chart, ${points.length} points from ${first.date} to ${last.date}. Latest value ${format(last.value)}.`;
 
   return (
     <svg
@@ -57,6 +67,8 @@ export default function Sparkline({
       className="w-full touch-none"
       style={{ height: TOTAL }}
       onMouseLeave={() => setIdx(null)}
+      role="img"
+      aria-label={label}
     >
       <path d={d} fill="none" strokeWidth="1.5" strokeLinejoin="round" className={strokeClass} />
 

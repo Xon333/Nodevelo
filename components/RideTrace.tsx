@@ -16,6 +16,15 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
   const H = 72;
   const PAD = 4;
   const maxP = Math.max(...power, targetWatts ?? 0) || 1;
+  // UXA-14: this trace is the only place the ride's power/HR shape exists in the app — a screen
+  // reader gets nothing without this. A summary, not full data-point parity (see the todo backlog
+  // item for real keyboard scrubbing).
+  const avgPower = Math.round(power.reduce((s, v) => s + v, 0) / power.length);
+  const peakPower = Math.round(Math.max(...power));
+  const hasHrData = hr.length === power.length && hr.some((v) => v > 0);
+  const traceLabel = `Power trace over the ride: average ${avgPower} watts, peak ${peakPower} watts${
+    targetWatts ? `, target ${targetWatts} watts` : ""
+  }${hasHrData ? ", with heart rate overlaid" : ""}.`;
   const toX = (i: number) => (i / (power.length - 1)) * W;
   const toYp = (v: number) => PAD + (1 - v / maxP) * (H - PAD * 2);
   const powerPath = power.map((v, i) => `${i ? "L" : "M"}${toX(i).toFixed(1)},${toYp(v).toFixed(1)}`).join(" ");
@@ -42,7 +51,14 @@ export default function RideTrace({ trace }: { trace: RideTraceData }) {
 
   return (
     <div className="relative" onMouseMove={onMove} onMouseLeave={() => setIdx(null)}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full touch-none" style={{ height: H }} preserveAspectRatio="none">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full touch-none"
+        style={{ height: H }}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={traceLabel}
+      >
         {bands.map((b, i) => {
           // Short efforts (e.g. 30 s reps on a long ride) span <1% of the width — enforce a
           // minimum so they stay visible, and use a stronger fill + edge than before (UI-5).
