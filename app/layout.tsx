@@ -56,6 +56,14 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full">
+        {/* UXA-17: skip link — the nav (up to 10 focusable stops on desktop) precedes main in DOM
+            order with no bypass; visually hidden until focused. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-zinc-900 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white dark:focus:bg-zinc-100 dark:focus:text-zinc-900"
+        >
+          Skip to content
+        </a>
         <QueryProvider>
           <SyncProvider>
             <Nav />
@@ -65,7 +73,7 @@ export default function RootLayout({
               {/* Mobile: clip horizontal overflow so a hover tooltip near the right edge (not even
                   touch-triggerable) can't create page-wide horizontal scroll. Desktop is unaffected —
                   tooltips show fully in the margin. Vertical (top-full dropdowns) stays visible. */}
-              <main className="mx-auto w-full max-w-5xl px-4 py-5 pb-24 max-sm:overflow-x-clip sm:py-8 sm:pb-8">{children}</main>
+              <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-5 pb-24 max-sm:overflow-x-clip sm:py-8 sm:pb-8">{children}</main>
             </div>
           </SyncProvider>
         </QueryProvider>
