@@ -31,8 +31,9 @@ export interface WorkoutContext {
 }
 
 const BUFFER_STEP_KCAL = 150;
-const BUFFER_MIN_KCAL = 0;
-const BUFFER_MAX_KCAL = 600;
+// Exported for UXA-51 — the profile UI's buffer input shows this as a visible range hint.
+export const BUFFER_MIN_KCAL = 0;
+export const BUFFER_MAX_KCAL = 600;
 const WEIGHT_TREND_THRESHOLD_KG = 0.3;
 
 const HARD_TYPES: ReadonlySet<WorkoutType> = new Set(["Threshold", "VO2max", "SIT", "RaceSim"]);

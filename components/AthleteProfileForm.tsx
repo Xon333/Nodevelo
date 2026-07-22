@@ -11,6 +11,7 @@ import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/
 import type { IfBandOffsetRow } from "@/lib/calibration";
 import { groupGoalsByFocus } from "@/lib/profile-goals";
 import { FOCUS_LABELS } from "@/lib/season";
+import { BUFFER_MAX_KCAL, BUFFER_MIN_KCAL } from "@/lib/nutrition";
 
 interface NutritionSettings {
   baseCalories: number;
@@ -306,7 +307,10 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         {syncedPowerCurve.length > 0 ? (
           <>
             <p className="mb-3 text-[11px] text-zinc-500 dark:text-zinc-400">
-              all-time best efforts · from Intervals.icu · {timeAgo(autoSync.syncedAt)} · drag the curve to read any duration
+              all-time best efforts · from Intervals.icu · {timeAgo(autoSync.syncedAt)}
+              {/* UXA-59: PowerCurveChart draws nothing below 2 points (no line to scrub) — the
+                  caption used to claim a drag interaction that wasn't there with exactly 1 point. */}
+              {syncedPowerCurve.length > 1 ? " · drag the curve to read any duration" : ""}
             </p>
             <div className="mb-3">
               <PowerCurveChart points={syncedPowerCurve} weightKg={latestWeightKg} />
@@ -363,9 +367,16 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Athlete profile</h1>
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">Your durable intent + synced physiology — what the coach plans around.</p>
         </div>
-        <Link href="/knowledge" className="shrink-0 whitespace-nowrap text-xs text-cyan-700 hover:underline dark:text-[#00d4ff]">
-          Edit athlete_profile.md →
-        </Link>
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
+          <Link href="/knowledge" className="whitespace-nowrap text-xs text-cyan-700 hover:underline dark:text-[#00d4ff]">
+            Edit athlete_profile.md →
+          </Link>
+          {/* UXA-50: no reciprocal link existed between this page and /model — AthleteStateCard's
+              "why? →" points here into Profile-adjacent context, but nothing pointed back out. */}
+          <Link href="/model" className="whitespace-nowrap text-xs text-cyan-700 hover:underline dark:text-[#00d4ff]">
+            Your coaching model →
+          </Link>
+        </div>
       </div>
 
       {/* Physiology change note — FTP/zones synced from Intervals.icu */}
@@ -658,18 +669,22 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {(
                 [
-                  { key: "baseCalories", label: "Base calories", unit: "kcal" },
-                  { key: "restDayTarget", label: "Rest day target", unit: "kcal" },
-                  { key: "buffer", label: "Training buffer", unit: "kcal" },
-                  { key: "targetWeightKg", label: "Target weight", unit: "kg" },
+                  { key: "baseCalories", label: "Base calories", unit: "kcal", min: 0, hint: "min 0" },
+                  { key: "restDayTarget", label: "Rest day target", unit: "kcal", min: 0, hint: "min 0" },
+                  // UXA-51: the only field with a real, already-enforced band (adjustBuffer clamps to
+                  // it server-side) — the other three have no authoritative ceiling to show, just a
+                  // sane floor.
+                  { key: "buffer", label: "Training buffer", unit: "kcal", min: BUFFER_MIN_KCAL, hint: `${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}` },
+                  { key: "targetWeightKg", label: "Target weight", unit: "kg", min: 0, hint: "min 0" },
                 ] as const
               ).map((f) => (
                 <label key={f.key}>
                   <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-                    {f.label} <span className="text-zinc-500 dark:text-zinc-400">({f.unit})</span>
+                    {f.label} <span className="text-zinc-500 dark:text-zinc-400">({f.unit}, {f.hint})</span>
                   </span>
                   <input
                     type="number"
+                    min={f.min}
                     value={nut[f.key]}
                     onChange={(e) => {
                       setNut((s) => ({ ...s, [f.key]: e.target.value }));

@@ -33,13 +33,15 @@ export default function AiUsageCard({ usage }: { usage: AiUsageStore }) {
   const hasData = usage.total.calls > 0;
 
   return (
-    <Card>
-      <div className="mb-1 flex items-baseline justify-between gap-4">
-        <h2 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">AI usage &amp; cost</h2>
+    // UXA-56: was a hand-rolled title+value header instead of Card's own title/action slots.
+    <Card
+      title="AI usage & cost"
+      action={
         <span className="font-mono text-lg font-bold text-zinc-900 dark:text-[#ff49c8]">
           {fmtUsd(usage.total.costUsd)}
         </span>
-      </div>
+      }
+    >
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
         Estimated running Anthropic spend across all generation, ride-analysis, and ask-coach calls.
       </p>

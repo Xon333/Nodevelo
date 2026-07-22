@@ -375,7 +375,7 @@ export function CurrentBlockSection({
   sync,
 }: {
   block: CurrentBlock | null;
-  onDelete?: () => void;
+  onDelete?: () => Promise<void>;
   scores: RideScoreEntry[];
   compromisedDates: string[];
   partialDates: string[];
@@ -385,6 +385,9 @@ export function CurrentBlockSection({
   // S2-7: an in-product two-step confirm (state what's kept) replaces window.confirm's generic prompt.
   const [confirming, setConfirming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  // UXA-58: "Yes, delete" used to fire-and-forget onDelete() and close the confirm bar instantly —
+  // no guard while the DELETE request was actually in flight, unlike every other write in the app.
+  const [deleting, setDeleting] = useState(false);
   if (!block) {
     return (
       <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-center dark:border-zinc-600 dark:bg-zinc-800">
@@ -477,17 +480,24 @@ export function CurrentBlockSection({
                   Delete the plan — ridden history and scores are kept.
                 </span>
                 <button
-                  onClick={() => {
-                    setConfirming(false);
-                    onDelete();
+                  onClick={async () => {
+                    setDeleting(true);
+                    try {
+                      await onDelete?.();
+                    } finally {
+                      setDeleting(false);
+                      setConfirming(false);
+                    }
                   }}
-                  className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                  disabled={deleting}
+                  className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                 >
-                  Yes, delete
+                  {deleting ? "Deleting…" : "Yes, delete"}
                 </button>
                 <button
                   onClick={() => setConfirming(false)}
-                  className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  disabled={deleting}
+                  className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-200"
                 >
                   Cancel
                 </button>

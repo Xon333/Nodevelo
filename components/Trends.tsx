@@ -157,6 +157,12 @@ export default function Trends() {
                       tipTextClass="fill-zinc-800 dark:fill-[#00d4ff]"
                       tipAccentClass="stroke-zinc-300 dark:stroke-[#00d4ff]/40"
                     />
+                    {/* UXA-60: sibling cards (Pw:HR, HRRc) both explain their metric in a trailing
+                        caption; this one didn't. */}
+                    <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      Chronic Training Load — a rolling measure of training volume &amp; intensity. Rising
+                      = building fitness; read it alongside TSB so a climb doesn&apos;t outrun recovery.
+                    </p>
                   </Card>
                 )}
                 {data.hrrc.length >= 3 && (

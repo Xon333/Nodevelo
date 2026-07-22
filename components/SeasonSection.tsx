@@ -2,9 +2,10 @@
 
 import { useCallback, useState } from "react";
 import { api } from "@/lib/client-api";
+import { localToday } from "@/lib/date";
 import { validateSeasonPlanInput } from "@/lib/season";
 import type { SeasonEvent, SeasonPlan } from "@/lib/types";
-import { Card, LoadFailed, PrimaryButton, useMountLoad } from "./ui";
+import { Card, LoadFailed, PrimaryButton, Skeleton, useMountLoad } from "./ui";
 
 type SaveState = { state: "idle" | "saving" | "saved" } | { state: "error"; message: string };
 
@@ -17,6 +18,9 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
   const [events, setEvents] = useState<SeasonEvent[]>([]);
   const [seasonSaveState, setSeasonSaveState] = useState<SaveState>({ state: "idle" });
   const [seasonLoadFailed, setSeasonLoadFailed] = useState(false);
+  // UXA-52: previously the form itself (all-blank fields) WAS the loading state — indistinguishable
+  // from a genuinely empty season. Skeleton until the first load settles either way.
+  const [seasonLoaded, setSeasonLoaded] = useState(false);
 
   const loadSeason = useCallback(async () => {
     try {
@@ -26,6 +30,8 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
       setSeasonLoadFailed(false);
     } catch {
       setSeasonLoadFailed(true);
+    } finally {
+      setSeasonLoaded(true);
     }
   }, []);
 
@@ -67,7 +73,9 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
         Your season is the arc the coach periodizes — one line on what you&apos;re chasing, plus any target
         events. Blocks are generated <span className="font-medium">against</span> it.
       </p>
-      {seasonLoadFailed ? (
+      {!seasonLoaded ? (
+        <Skeleton className="h-24" />
+      ) : seasonLoadFailed ? (
         <LoadFailed what="your season (objective & events)" retry={() => void loadSeason()} />
       ) : (
         // UXA-21: <form> gives Enter-to-submit from any field here.
@@ -107,8 +115,11 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
             </label>
             <label>
               <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Date</span>
+              {/* UXA-53: a past event date was silently accepted — min blocks it at the picker
+                  itself instead of only failing later against a plan that already expects it. */}
               <input
                 type="date"
+                min={localToday()}
                 value={ev.date}
                 onChange={(e) => updateEvent(i, { date: e.target.value })}
                 className="mt-1 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"

@@ -1,5 +1,6 @@
 "use client";
 
+import { localToday } from "@/lib/date";
 import { InfoDot } from "../ui";
 
 // The block-generation form on the Plan page. Presentational: PlanView owns the generator state and
@@ -171,9 +172,11 @@ export default function BlockGenerator({
               <label htmlFor="start-date" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                 Start date
               </label>
+              {/* UXA-53: a past start date was silently accepted. */}
               <input
                 id="start-date"
                 type="date"
+                min={localToday()}
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="mt-1.5 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:focus:border-zinc-400"

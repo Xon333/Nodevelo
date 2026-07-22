@@ -1,3 +1,4 @@
+import Link from "next/link";
 import CalibrationPanel from "@/components/CalibrationPanel";
 import StandingGuidance from "@/components/StandingGuidance";
 import StateDriversCard from "@/components/StateDriversCard";
@@ -10,12 +11,18 @@ import { SectionDivider } from "@/components/ui";
 export default function ModelPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Your coaching model</h1>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          What the second brain has learned about you, and why it decides what it does — read it, and
-          correct it where it&apos;s wrong.
-        </p>
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Your coaching model</h1>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            What the second brain has learned about you, and why it decides what it does — read it, and
+            correct it where it&apos;s wrong.
+          </p>
+        </div>
+        {/* UXA-50: reciprocal to AthleteProfileForm's own link back here. */}
+        <Link href="/profile" className="shrink-0 whitespace-nowrap text-xs text-cyan-700 hover:underline dark:text-[#00d4ff]">
+          Athlete profile →
+        </Link>
       </div>
       <section className="space-y-3">
         <SectionDivider label="Now — what drives your state" />

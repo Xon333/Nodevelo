@@ -200,7 +200,8 @@ export default function MorningCheckIn() {
             <button
               onClick={apply}
               disabled={busy}
-              className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+              // UXA-55: same missing dark: pairing as RescheduleBanner's identical CTA, found on inspection.
+              className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-600"
             >
               {busy ? "Applying…" : s?.to ? "Apply downgrade + move" : "Downgrade today"}
             </button>

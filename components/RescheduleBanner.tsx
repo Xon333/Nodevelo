@@ -98,7 +98,9 @@ export default function RescheduleBanner() {
         <button
           onClick={apply}
           disabled={busy}
-          className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+          // UXA-55: no dark: pairing — same brightness in both themes instead of the lighter shade
+          // the app's other amber CTAs use against a dark surface (KnowledgeBaseEditor's discard button).
+          className="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-600"
         >
           {busy ? "Moving…" : "Apply"}
         </button>
