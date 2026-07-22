@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { createContext, useCallback, useContext, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import type {
@@ -107,9 +107,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     [queryClient]
   );
 
+  // UXA-6: a ref-based re-entrancy guard, not just the `analyzing` state — a double-click races two
+  // calls before the first setAnalyzing(true) has re-rendered, and each was a real billed Anthropic
+  // call (the "no note yet" button lacked disabled={analyzing} entirely; see today.tsx). Mirrors
+  // AskCoach's own self-guard, which already gets this right independent of its button's disabled prop.
+  const analyzingRef = useRef(false);
+
   // The deferred AI coach-note step. Shared by the post-sync auto-run (force=false, idempotent) and
   // the manual re-analyse action (force=true, regenerates).
   const runAnalysis = useCallback(async (force: boolean) => {
+    if (analyzingRef.current) return;
+    analyzingRef.current = true;
     setAnalyzing(true);
     try {
       const a = await api<{ todayAnalysis: TodayAnalysis | null; warnings: string[] }>(
@@ -122,6 +130,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setSyncWarnings((w) => [...w, `Coach analysis failed: ${e instanceof Error ? e.message : "error"}`]);
     } finally {
       setAnalyzing(false);
+      analyzingRef.current = false;
     }
   }, [setState]);
 

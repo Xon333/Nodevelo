@@ -128,6 +128,7 @@ export default function TodayView() {
 
   return (
     <div className="flex flex-col gap-3">
+      <h1 className="sr-only">Today</h1>
       {/* Triggered alarms outrank both moments (aviation rule, Constitution §4). */}
       <ReadinessAlerts fatigueAlert={state.fatigueAlert} loadRamp={state.loadRamp} />
 

@@ -217,7 +217,7 @@ export function TodayRideCard({
         ) : (
           <span className="text-zinc-500 dark:text-zinc-400">no session planned</span>
         )}
-        <span aria-hidden className="text-zinc-400 dark:text-zinc-500">→</span>
+        <span aria-hidden className="text-zinc-500 dark:text-zinc-400">→</span>
         <span className="font-medium text-zinc-800 dark:text-zinc-200">{analysis.activityName}</span>
         <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityDurationMin} min</span>
         {analysis.activityAvgHr !== null && (
@@ -289,9 +289,10 @@ export function TodayRideCard({
             <p className="mt-0.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">No coach note yet.</p>
             <button
               onClick={onReAnalyse}
-              className="mt-2 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+              disabled={analyzing}
+              className="mt-2 rounded border border-zinc-200 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
             >
-              ↻ Generate coach note
+              {analyzing ? "Generating…" : "↻ Generate coach note"}
             </button>
           </>
         ) : (
@@ -501,7 +502,7 @@ export function EatToday({ analysis }: { analysis: TodayAnalysis }) {
               <span className="font-mono font-semibold text-cyan-700 dark:text-[#00d4ff]">
                 {analysis.fuelPrompt.optimumGPerH} g/h
               </span>{" "}
-              <span className="text-zinc-400 dark:text-zinc-500">(from your own rides)</span>.
+              <span className="text-zinc-500 dark:text-zinc-400">(from your own rides)</span>.
             </p>
           )}
         </div>
