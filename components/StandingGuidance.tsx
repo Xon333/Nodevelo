@@ -40,7 +40,10 @@ export default function StandingGuidance() {
   if (error) {
     body = <LoadFailed what="the standing guidance" retry={() => void refetch()} />;
   } else if (!data) {
-    body = <Skeleton className="h-24" />;
+    // UXA-9: bumped from h-24 — the live-rendered card grows to ~450px once a few dimensions of
+    // directives land, so the small skeleton was itself a source of layout jump (a skeleton was
+    // already shown, just undersized relative to the real content it stands in for).
+    body = <Skeleton className="h-48" />;
   } else if (data.insights.length === 0) {
     body = (
       <p className="text-xs text-zinc-500 dark:text-zinc-400">

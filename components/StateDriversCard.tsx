@@ -1,7 +1,7 @@
 "use client";
 
 import { useSync } from "./SyncProvider";
-import { Card } from "./ui";
+import { Card, LoadFailed, Skeleton } from "./ui";
 import { BAND_COLOR, DIR, driverEffectClass } from "./athlete-state-ui";
 
 // "Why is my state what it is?" — the fused 0–100 readiness score plus the ranked signals that moved
@@ -10,7 +10,7 @@ import { BAND_COLOR, DIR, driverEffectClass } from "./athlete-state-ui";
 // AthleteStateCard via athlete-state-ui so the two can't drift.
 
 export default function StateDriversCard() {
-  const { state } = useSync();
+  const { state, loadError } = useSync();
   const s = state?.athleteState ?? null;
 
   // Bars scale to the biggest mover so relative magnitude reads at a glance (masterplan §6 NOW:
@@ -24,7 +24,14 @@ export default function StateDriversCard() {
       title="What drives your state"
       tip="The fused 0–100 readiness score and the signals that moved it, largest first — the same read the coach acts on."
     >
-      {!s ? (
+      {/* UXA-9: distinguishes "still loading" (state itself is null) from "loaded but genuinely no
+          data yet" (state exists, athleteState doesn't) — previously both read as the same
+          "Sync to compute" line, with no page-level skeleton guard like Dashboard.tsx uses. */}
+      {state === null && !loadError ? (
+        <Skeleton className="h-20" />
+      ) : loadError ? (
+        <LoadFailed what="your state" />
+      ) : !s ? (
         <p className="text-xs text-zinc-500 dark:text-zinc-400">Sync to compute your state.</p>
       ) : (
         <>

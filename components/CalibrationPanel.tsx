@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSync } from "./SyncProvider";
-import { Card } from "./ui";
+import { Card, LoadFailed, Skeleton } from "./ui";
 import { api } from "@/lib/client-api";
 import { CARBS_OPTIMUM_BOUNDS, DECOUPLING_GOOD_BOUNDS, DEFAULT_CARBS_OPTIMUM, resolveCalibratedValue } from "@/lib/calibration";
 import { DEFAULT_DECOUPLING_GOOD } from "@/lib/execution-score";
@@ -201,10 +201,26 @@ function ParamCard({
 // LEARNED (UX v2 §6 Model): one card per learned value — number, provenance, confidence tier,
 // contest/correct inline. The group intro sentence lives on the page under the LEARNED divider.
 export default function CalibrationPanel() {
-  const { state, setState } = useSync();
+  const { state, setState, loadError } = useSync();
   const cal = state?.calibration ?? null;
   const onSaved = (calibration: CalibrationStore) => setState((s) => (s ? { ...s, calibration } : s));
 
+  // UXA-9: distinguishes "still loading" from "loaded but nothing calibrated yet" — previously both
+  // read as the same "Sync to compute" line, with no page-level skeleton guard like Dashboard.tsx uses.
+  if (state === null && !loadError) {
+    return (
+      <Card title="Per-athlete calibration">
+        <Skeleton className="h-24" />
+      </Card>
+    );
+  }
+  if (loadError) {
+    return (
+      <Card title="Per-athlete calibration">
+        <LoadFailed what="your calibration" />
+      </Card>
+    );
+  }
   if (!cal) {
     return (
       <Card title="Per-athlete calibration">
