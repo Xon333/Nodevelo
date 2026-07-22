@@ -7,12 +7,16 @@ import { buildBackupBundle } from "@/lib/backup";
 // snapshots (lib/backup.ts's snapshotBackup, wired into /api/sync) share this same bundle shape.
 
 export async function GET() {
-  const bundle = await buildBackupBundle();
-  const filename = `nodevelo-backup-${bundle.exportedAt.slice(0, 10)}.json`;
-  return new NextResponse(JSON.stringify(bundle, null, 2), {
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-    },
-  });
+  try {
+    const bundle = await buildBackupBundle();
+    const filename = `nodevelo-backup-${bundle.exportedAt.slice(0, 10)}.json`;
+    return new NextResponse(JSON.stringify(bundle, null, 2), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: "Couldn't build the backup." }, { status: 502 });
+  }
 }

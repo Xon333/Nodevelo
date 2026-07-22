@@ -15,10 +15,22 @@ import { efSeries, hrrcSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
 import { resolveToday } from "@/lib/date";
 import { aggregatePlanVsActual, detectFtpRetest } from "@/lib/plan-vs-actual";
 
+// UXA-25: the real work was unguarded — an unexpected data shape anywhere in this long assembly
+// threw straight into a bare 500 with no JSON body, which the client degrades to a generic
+// "Request failed (500)". Wrapping as a thin try/catch around the renamed handler avoids
+// re-indenting the whole body.
+export async function GET(req: Request) {
+  try {
+    return await assembleTrends(req);
+  } catch {
+    return NextResponse.json({ error: "Couldn't assemble trends." }, { status: 502 });
+  }
+}
+
 // GET assembles the long-term, second-brain-derived trends. It deliberately does
 // NOT reproduce intervals.icu's raw PMC/power-curve charts — only signals that
 // tie training execution to the athlete's own blocks and adaptation.
-export async function GET(req: Request) {
+async function assembleTrends(req: Request): Promise<Response> {
   const [sync, profile, history, baselines, scoreLog, interventionLog, physiology] = await Promise.all([
     readLastSync(),
     readAthleteProfile(),

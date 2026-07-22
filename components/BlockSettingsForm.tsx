@@ -91,10 +91,24 @@ function NumberInput({
   );
 }
 
+// UXA-20: the route clamps an out-of-range number to its floor/ceiling rather than rejecting it —
+// unlike the min>max pair (UXA-3, a real 400), a single out-of-range field saves "successfully" with
+// no indication anything changed. Diffing the sent vs. returned numeric fields catches that silently.
+const FIELD_LABELS = {
+  weeklyHoursMin: "loading week minimum hours",
+  weeklyHoursMax: "loading week maximum hours",
+  recoveryWeekHoursMin: "recovery week minimum hours",
+  recoveryWeekHoursMax: "recovery week maximum hours",
+  qualitySessionsPerLoadingWeek: "quality sessions per loading week",
+  longRideDurationMinutes: "long ride minimum duration",
+  restDaysPerWeek: "rest days per week",
+} satisfies Partial<Record<keyof BlockSettings, string>>;
+
 export default function BlockSettingsForm() {
   const [settings, setSettings] = useState<BlockSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [adjusted, setAdjusted] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,6 +118,7 @@ export default function BlockSettingsForm() {
   const set = useCallback(<K extends keyof BlockSettings>(key: K, value: BlockSettings[K]) => {
     setSettings((s) => (s ? { ...s, [key]: value } : s));
     setSaved(false);
+    setAdjusted(null);
   }, []);
 
   const save = async () => {
@@ -121,8 +136,12 @@ export default function BlockSettingsForm() {
         method: "PUT",
         body: JSON.stringify(body),
       });
+      const changed = (Object.keys(FIELD_LABELS) as Array<keyof typeof FIELD_LABELS>).filter(
+        (k) => body[k] !== updated[k]
+      );
       setSettings(updated);
       setSaved(true);
+      setAdjusted(changed.length > 0 ? changed.map((k) => FIELD_LABELS[k]!) : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed.");
     } finally {
@@ -290,6 +309,11 @@ export default function BlockSettingsForm() {
       </div>
       {hoursInvalid && (
         <p className="text-xs text-red-600">Minimum hours can&apos;t be more than maximum hours — fix the highlighted range above before saving.</p>
+      )}
+      {adjusted && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Adjusted {adjusted.join(", ")} to fit the allowed range.
+        </p>
       )}
 
       {settings.updatedAt !== new Date(0).toISOString() && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { localToday } from "@/lib/date";
 import { Zone } from "./ui";
 
@@ -18,6 +18,12 @@ export default function AskCoach({ bare }: { bare?: boolean }) {
   const [answer, setAnswer] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // UXA-23: without this, navigating away mid-stream left the reader loop running — still pulling
+  // (and billing for) tokens from Anthropic with nothing on screen to show for it. Aborting the fetch
+  // drops the connection, which /api/ask's own route already handles correctly server-side
+  // (cancel() → gen.return(undefined)) — that half just had no client-side trigger before this.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const ask = async (q: string) => {
     const question = q.trim();
@@ -26,6 +32,8 @@ export default function AskCoach({ bare }: { bare?: boolean }) {
     setError(null);
     setAsked(question);
     setAnswer(null);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       // Stream the reply so tokens render as they arrive (snappier than waiting for the full
       // message). Errors come back before the stream as JSON; a mid-stream failure throws on read.
@@ -33,6 +41,7 @@ export default function AskCoach({ bare }: { bare?: boolean }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: question, today: localToday() }),
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -49,10 +58,11 @@ export default function AskCoach({ bare }: { bare?: boolean }) {
       }
       if (!acc.trim()) throw new Error("No response — try again.");
     } catch (err) {
+      if (controller.signal.aborted) return; // unmounted mid-stream — not a real failure to report
       setError(err instanceof Error ? err.message : "Ask failed");
       setAnswer(null);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 

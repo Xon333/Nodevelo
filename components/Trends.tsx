@@ -5,7 +5,7 @@ import { api, timeAgo } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
 import Sparkline from "./Sparkline";
 import MultiSparkline, { type MultiSeries } from "./MultiSparkline";
-import { Card, SectionDivider, Skeleton, SkeletonScreen, StatTile } from "./ui";
+import { Card, LoadFailed, SectionDivider, Skeleton, SkeletonScreen, StatTile } from "./ui";
 import { useSync } from "./SyncProvider";
 import type { TrendsData } from "./trends/types";
 import { BlockTimeline, DeliveryCard, WeeklyVolumeBars, baselineCards, trendDir } from "./trends/sections";
@@ -20,17 +20,15 @@ export default function Trends() {
   // refetches on tab focus / reconnect and dedups/retries — same data layer as the main sync state.
   const { state } = useSync();
   const syncedAt = state?.lastSync?.syncedAt ?? null;
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     queryKey: ["trends", syncedAt],
     queryFn: () => api<TrendsData>(`/api/trends?today=${localToday()}`),
   });
 
+  // UXA-26: was a bespoke red box with no retry — every sibling best-effort fetch in the app uses
+  // LoadFailed instead.
   if (error) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-        {error instanceof Error ? error.message : "Failed to load trends"}
-      </div>
-    );
+    return <LoadFailed what="your trends" retry={() => void refetch()} />;
   }
   if (!data) {
     // S3-1: mirrors the loaded scaffold (title → verdict strip → insights → grouped chart cards).

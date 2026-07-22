@@ -24,11 +24,19 @@ export default function Error({
         This view hit an unexpected error. Your data is safe — nothing was written. Try again, or
         switch to another page.
       </p>
+      {/* UXA-22: the raw message stays reachable (anti-black-box, Constitution §6) but no longer
+          shouts — this is the app's one true last-resort screen, so it can't route through the
+          coach-voice translation every other error path uses. */}
       {error.message && (
-        <pre className="mt-3 overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-xs text-red-700 dark:bg-zinc-900 dark:text-red-400">
-          {error.message}
-          {error.digest ? `\n(digest ${error.digest})` : ""}
-        </pre>
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            Technical details
+          </summary>
+          <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-xs text-red-700 dark:bg-zinc-900 dark:text-red-400">
+            {error.message}
+            {error.digest ? `\n(digest ${error.digest})` : ""}
+          </pre>
+        </details>
       )}
       <button
         onClick={() => unstable_retry()}
