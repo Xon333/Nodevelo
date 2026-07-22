@@ -161,7 +161,11 @@ async function assembleTrends(req: Request): Promise<Response> {
     baselines,
     // Execution-quality metric excludes legacy (pre-first-block) + compromised
     // (equipment/sickness) rides — kept in the ledger as history, just not counted in the metric.
-    scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised),
+    // UXA-40: every other series in this route is capped; this was the one exception, sent in full
+    // while its only consumer (ScoreBars) immediately does .slice(-24) — a growing, unbounded
+    // re-send on every Trends load with no rendering purpose beyond the last 24. A small buffer over
+    // that keeps room for a minor future UI tweak without reopening the same gap.
+    scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised).slice(-30),
     insights,
     recent,
     validation,

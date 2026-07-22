@@ -165,7 +165,10 @@ export default function KnowledgeBaseEditor() {
         </div>
       )}
       <div className="mt-4 flex gap-3">
-        <aside className="w-52 shrink-0">
+        {/* UXA-42: the 4 reference files are fixed in count, but retrospectives accumulate one per
+            completed block with no cap — an independent scroll region (matching the editor pane's
+            own fixed height) keeps a long rail from outgrowing the two-pane layout. */}
+        <aside className="w-52 shrink-0 max-h-[36rem] overflow-y-auto">
           <ul className="space-y-0.5">
             {files.map((file) => (
               <li key={file}>{navButton({ name: file, kind: "kb" }, file)}</li>

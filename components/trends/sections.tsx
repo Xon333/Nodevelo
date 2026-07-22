@@ -31,7 +31,12 @@ export function trendDir(points: Point[], higherIsBetter = true): { label: strin
 // UXA-12: was wearing the app's max-emphasis hero/CyberFrame shell while the page's actual verdict
 // (VerdictStrip) didn't — a direct Constitution §4 hierarchy inversion. DESIGN.md §8 files block
 // history under the page's lowest-priority "collapsed / drill-down" tier; plain Card chrome matches.
+// UXA-41: block-history.json is capped at 200 entries data-side (newest-first, data-store.ts), which
+// still rendered fully unbounded in the DOM here — no windowing, unlike every other list on this page.
+const MAX_SHOWN = 20;
+
 export function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
+  const shown = blocks.slice(0, MAX_SHOWN);
   return (
     <section className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Block history</h2>
@@ -45,10 +50,10 @@ export function BlockTimeline({ blocks }: { blocks: TrendBlock[] }) {
       ) : (
         <details className="mt-3">
           <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-            Show {blocks.length} block{blocks.length === 1 ? "" : "s"}
+            Show {shown.length}{blocks.length > shown.length ? ` most recent (of ${blocks.length})` : ""} block{shown.length === 1 ? "" : "s"}
           </summary>
           <ol className="mt-3 space-y-2.5">
-            {blocks.map((b, i) => (
+            {shown.map((b, i) => (
               <li key={i} className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <div className="flex items-center gap-2">

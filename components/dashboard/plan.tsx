@@ -122,15 +122,20 @@ export function RetroSection({
 
 // ---------- Block history ----------
 
+// UXA-41: same unbounded-DOM gap as Trends' BlockTimeline, reading the same underlying (200-cap,
+// newest-first) block-history.json — capped to the most recent 20 here too.
+const MAX_HISTORY_SHOWN = 20;
+
 export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
   if (!history.length) return null;
+  const shown = history.slice(0, MAX_HISTORY_SHOWN);
   return (
     <details className="rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <summary className="cursor-pointer text-sm font-semibold text-zinc-700 select-none dark:text-zinc-300">
-        Block history ({history.length})
+        Block history ({shown.length}{history.length > shown.length ? ` of ${history.length}` : ""})
       </summary>
       <div className="mt-3 space-y-2">
-        {history.map((entry) => (
+        {shown.map((entry) => (
           <div
             key={entry.id}
             className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
