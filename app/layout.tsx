@@ -72,8 +72,14 @@ export default function RootLayout({
             <div className="sm:pl-44">
               {/* Mobile: clip horizontal overflow so a hover tooltip near the right edge (not even
                   touch-triggerable) can't create page-wide horizontal scroll. Desktop is unaffected —
-                  tooltips show fully in the margin. Vertical (top-full dropdowns) stays visible. */}
-              <main id="main-content" className="mx-auto w-full max-w-5xl px-4 py-5 pb-24 max-sm:overflow-x-clip sm:py-8 sm:pb-8">{children}</main>
+                  tooltips show fully in the margin. Vertical (top-full dropdowns) stays visible.
+                  UXA-33: no mx-auto — the rail is `fixed` (pinned to the true viewport edge, outside
+                  this div's layout flow), so centering content within this div's padded remainder
+                  left it floating detached from the rail on wide screens (~680px of dead space on
+                  each side at 2560px). Content now hugs the rail's edge instead, with a wider cap on
+                  very large screens so it claims more of the extra width rather than just sitting in
+                  a bigger empty margin. */}
+              <main id="main-content" className="w-full max-w-5xl px-4 py-5 pb-24 max-sm:overflow-x-clip sm:py-8 sm:pb-8 2xl:max-w-[1400px]">{children}</main>
             </div>
           </SyncProvider>
         </QueryProvider>
