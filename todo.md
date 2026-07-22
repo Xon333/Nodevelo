@@ -305,26 +305,45 @@ step.
 than the P1-3 legend above (roughly P1≈Critical, P2≈High/Medium, P3≈Nice-to-have). Work top to bottom.
 
 **Critical**
-- ☐ `bug` **UXA-1** — The Constitution's own named example of banned developer jargon ships live through
-  5 paths: an always-reachable InfoDot tip, a dead-but-shipped component, 3 API routes throwing raw
-  env-var strings into the global sync banner, and a raw filesystem errno via a backup warning.
-  [components/dashboard/BlockGenerator.tsx:96](components/dashboard/BlockGenerator.tsx:96),
-  [components/SyncStatus.tsx:20](components/SyncStatus.tsx:20),
-  [app/api/generate/route.ts:68](app/api/generate/route.ts:68),
+- ☑ `bug` **UXA-1** — **Fixed.** The Constitution's own named example of banned developer jargon shipped
+  live through 5+ paths. Rewrote all offending strings to coach voice: the InfoDot tip
+  ([components/dashboard/BlockGenerator.tsx:96](components/dashboard/BlockGenerator.tsx:96)); the 3 API
+  routes' thrown error strings ([app/api/generate/route.ts:68](app/api/generate/route.ts:68),
   [app/api/write/route.ts:45](app/api/write/route.ts:45),
-  [app/api/sync/route.ts:171](app/api/sync/route.ts:171),
-  [lib/client-api.ts:16](lib/client-api.ts:16), [lib/backup.ts:81](lib/backup.ts:81). Fix: rewrite the 5
-  known strings to coach voice; add an allow-list in `api()` so only explicitly-safe route errors pass
-  through raw.
-- ☐ `ux` **UXA-2** — No in-app path to connect Intervals.icu; total silence everywhere gated on
-  `configured` (nav sync control just vanishes, Today's readiness card shows no button).
-  [app/page.tsx:1-5](app/page.tsx:1), [components/Nav.tsx:131](components/Nav.tsx:131),
-  [components/dashboard/TodayView.tsx:194-206](components/dashboard/TodayView.tsx:194).
-- ☐ `bug` **UXA-3** — `BlockSettingsForm` has no min≤max guard on the weekly-hours pairs; a corrupted
-  range saves successfully and ships silently into the generation prompt.
-  [components/BlockSettingsForm.tsx:150-194](components/BlockSettingsForm.tsx:150),
-  [app/api/settings/route.ts:41-46](app/api/settings/route.ts:41),
-  [lib/anthropic-prompts.ts:123,310](lib/anthropic-prompts.ts:123).
+  [app/api/sync/route.ts:171](app/api/sync/route.ts:171)) now match `BlockGenerator`'s own visible-line
+  tone instead of naming env vars; the backup-failure warning pushed into the global `SyncNotice` banner
+  ([app/api/sync/route.ts:811](app/api/sync/route.ts:811)) no longer interpolates the raw error reason
+  (kept in the `logError` call for developers only). Also found and fixed on inspection (not in the
+  original audit list): two deeper library-level throws carried the same jargon
+  ([lib/anthropic-api.ts:162](lib/anthropic-api.ts:162), now matches its 5 sibling throws in the same
+  file; [lib/intervals-api.ts:49](lib/intervals-api.ts:49)). Deleted `components/SyncStatus.tsx` — dead
+  code, unreferenced anywhere in the app (confirmed by grep), so it carried the jargon string in the
+  bundle for no reason; this also resolves UXA-61. Updated the two existing tests that asserted the old
+  jargon strings ([app/api/generate/route.test.ts](app/api/generate/route.test.ts),
+  [app/api/sync/route.test.ts](app/api/sync/route.test.ts)) to assert the new coach-voice copy and to
+  regression-guard against env-var names ever reappearing. Did not build the `client()` allow-list
+  structural hardening (the "prevent future recurrence" half of the original recommendation) — scoped
+  out as a separate, larger change; the ~15-component raw-`err.message` pattern remains, tracked
+  separately under "unnecessarily complex" in the audit. `npm run check` clean (1230/1230 tests).
+- ☑ `ux` **UXA-2** — **Fixed.** Today's readiness card — the first thing a new or misconfigured
+  install sees — silently showed "Sync to compute today's readiness" with no button when Intervals.icu
+  wasn't configured. [components/dashboard/TodayView.tsx:191-213](components/dashboard/TodayView.tsx:191)
+  now branches on `state.configured`: unconfigured shows "Intervals.icu isn't connected yet, so there's
+  nothing to read your readiness from" plus the one fix in plain language (no env-var names), configured
+  keeps the existing "Sync now →" button unchanged. Scoped to this one surface (the landing page) rather
+  than also touching `Nav.tsx`'s sync control, which stays hidden when unconfigured — adding a
+  persistent nav-wide warning was judged out of scope for the Critical pass. Live-verified in the browser
+  (configured-state screenshot, no regression); the unconfigured branch itself wasn't exercised live to
+  avoid unsetting real credentials on the shared dev server — verified by code inspection + the passing
+  test suite instead.
+- ☑ `bug` **UXA-3** — **Fixed.** Added a min≤max cross-field check for both weekly-hours pairs.
+  Server: [app/api/settings/route.ts:59-70](app/api/settings/route.ts:59) rejects with 400 (plain-language
+  error, no write) before the calibration-override section runs. Client:
+  [components/BlockSettingsForm.tsx](components/BlockSettingsForm.tsx) computes `hoursInvalid`, disables
+  Save, and shows an inline warning. Added 3 regression tests to
+  [app/api/settings/route.test.ts](app/api/settings/route.test.ts) (reject loading-week inversion, reject
+  recovery-week inversion, accept a valid range) — all pass. Live-verified: set max below min in the
+  running app, confirmed Save disabled + warning shown, reloaded to confirm nothing was persisted.
 
 **High**
 - ☐ `ux` **UXA-4** — Block generation can burn a paid LLM call before checking Intervals.icu is
@@ -472,8 +491,9 @@ than the P1-3 legend above (roughly P1≈Critical, P2≈High/Medium, P3≈Nice-t
 - ☐ `ux` **UXA-59** — PowerCurveChart's caption and chart disagree at exactly 1 synced data point.
   [components/PowerCurveChart.tsx:36](components/PowerCurveChart.tsx:36), [components/AthleteProfileForm.tsx:304-313](components/AthleteProfileForm.tsx:304).
 - ☐ `ux` **UXA-60** — Trends' "Fitness trajectory — CTL" card is missing the caption its siblings have.
-- ☐ `ux` **UXA-61** — `SyncStatus.tsx` is dead code shipping the env-var-jargon string live in the
-  bundle — delete it, or fix and wire it in. [components/SyncStatus.tsx](components/SyncStatus.tsx).
+- ☑ `ux` **UXA-61** — **Fixed, as part of UXA-1.** `SyncStatus.tsx` was dead code (confirmed unreferenced
+  anywhere via grep) shipping the env-var-jargon string live in the bundle — deleted rather than fixed
+  and wired in, since nothing used it.
 
 ---
 
