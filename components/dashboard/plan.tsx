@@ -221,7 +221,7 @@ function BlockCalendar({
             <span className="flex w-14 shrink-0 flex-col items-end leading-tight">
               <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">{label}</span>
               {characters[i] && (
-                <span className="text-[9px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{characters[i]}</span>
+                <span className="text-[9px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{characters[i]}</span>
               )}
             </span>
             <div className="flex flex-1 gap-1.5 overflow-visible">
@@ -488,7 +488,7 @@ export function CurrentBlockSection({
                   aria-expanded={menuOpen}
                   aria-label="Block actions"
                   onKeyDown={(e) => e.key === "Escape" && setMenuOpen(false)}
-                  className="rounded-md px-2.5 py-1.5 text-sm font-semibold text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  className="rounded-md px-2.5 py-1.5 text-sm font-semibold text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 >
                   …
                 </button>

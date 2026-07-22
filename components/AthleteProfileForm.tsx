@@ -292,7 +292,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
                 >
                   {pct > 0 ? "+" : ""}{pct}%
                 </p>
-                <p className="text-[10px] text-zinc-400 dark:text-zinc-500">vs expected</p>
+                <p className="text-[10px] text-zinc-500 dark:text-zinc-400">vs expected</p>
               </div>
             );
           })}
@@ -465,7 +465,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             <div className="space-y-2.5">
               {groupGoalsByFocus(goals).map((grp) => (
                 <div key={grp.focus}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                     {FOCUS_LABELS[grp.focus]}
                   </p>
                   <ul className="mt-1 space-y-1">
@@ -474,7 +474,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
                         <span className="font-medium text-zinc-800 dark:text-zinc-200">{g.goal || "—"}</span>
                         {g.target && (
                           <>
-                            <span aria-hidden className="text-zinc-400 dark:text-zinc-500">→</span>
+                            <span aria-hidden className="text-zinc-500 dark:text-zinc-400">→</span>
                             <span className="text-zinc-600 dark:text-zinc-300">{g.target}</span>
                           </>
                         )}

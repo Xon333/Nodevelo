@@ -44,7 +44,7 @@ export function VerdictStrip({ data }: { data: TrendsData }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
       <span className={`text-xl font-bold ${WORD_CLS[verdict.word]}`}>{verdict.word}</span>
-      <span aria-hidden className="text-zinc-400 dark:text-zinc-500">—</span>
+      <span aria-hidden className="text-zinc-500 dark:text-zinc-400">—</span>
       {verdict.axes.map((axis, i) => (
         <span key={axis.key} className="flex items-baseline gap-1 text-sm">
           {axis.dir ? (

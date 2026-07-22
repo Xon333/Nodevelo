@@ -73,7 +73,7 @@ export default function SeasonSection({ onSaved }: { onSaved?: () => void }) {
         <>
       <label className="block">
         <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
-          Objective <span className="font-normal text-zinc-400 dark:text-zinc-500">— the one outcome the whole season serves</span>
+          Objective <span className="font-normal text-zinc-500 dark:text-zinc-400">— the one outcome the whole season serves</span>
         </span>
         <input
           type="text"

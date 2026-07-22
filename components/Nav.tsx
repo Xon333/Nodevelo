@@ -226,7 +226,7 @@ export default function Nav() {
           {(["primary", "coach", "system"] as const).map((tier) => (
             <div key={tier} className="flex flex-col gap-1">
               {tier !== "primary" && (
-                <p className="px-3 pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                <p className="px-3 pb-0.5 pt-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                   {TIER_LABELS[tier]}
                 </p>
               )}
