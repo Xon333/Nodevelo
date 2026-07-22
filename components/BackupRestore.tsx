@@ -32,10 +32,17 @@ export default function BackupRestore() {
         headers: { "Content-Type": "application/json" },
         body: text,
       });
-      const json = (await res.json()) as { error?: string; restored?: number };
+      const json = (await res.json()) as { error?: string; restored?: number; skipped?: string[] };
       if (!res.ok) throw new Error(json.error || "Import failed");
-      setStatus({ ok: true, msg: `Restored ${json.restored ?? 0} files. Reloading…` });
-      setTimeout(() => window.location.reload(), 1000);
+      // UXA-7: the route already reports exactly which files it couldn't restore — the client
+      // previously discarded that and reported a partial restore as a full success.
+      const skipped = json.skipped ?? [];
+      const msg =
+        skipped.length > 0
+          ? `Restored ${json.restored ?? 0} files — ${skipped.length} couldn't be restored: ${skipped.join(", ")}. Reloading…`
+          : `Restored ${json.restored ?? 0} files. Reloading…`;
+      setStatus({ ok: skipped.length === 0, msg });
+      setTimeout(() => window.location.reload(), skipped.length > 0 ? 4000 : 1000);
     } catch (err) {
       setStatus({ ok: false, msg: err instanceof Error ? err.message : "Import failed" });
       setBusy(false);
