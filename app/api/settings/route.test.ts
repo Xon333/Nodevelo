@@ -64,3 +64,28 @@ describe("PUT /api/settings — calibration override persistence (SET-1)", () =>
     expect(out.athleteStateWeights).toBeUndefined();
   });
 });
+
+describe("PUT /api/settings — weekly-hours min<=max guard (UXA-3)", () => {
+  it("rejects a loading-week min greater than max, without writing", async () => {
+    readMock().mockResolvedValue(base());
+    const res = await put({ weeklyHoursMin: 20, weeklyHoursMax: 6 });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/minimum hours can't be more than maximum/i);
+    expect(writeMock()).not.toHaveBeenCalled();
+  });
+
+  it("rejects a recovery-week min greater than max, without writing", async () => {
+    readMock().mockResolvedValue(base());
+    const res = await put({ recoveryWeekHoursMin: 10, recoveryWeekHoursMax: 3 });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/minimum hours can't be more than maximum/i);
+    expect(writeMock()).not.toHaveBeenCalled();
+  });
+
+  it("accepts a valid range where min <= max", async () => {
+    readMock().mockResolvedValue(base());
+    const res = await put({ weeklyHoursMin: 6, weeklyHoursMax: 20 });
+    expect(res.status).toBe(200);
+    expect(writeMock()).toHaveBeenCalled();
+  });
+});

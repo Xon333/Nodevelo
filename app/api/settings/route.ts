@@ -59,6 +59,22 @@ export async function PUT(req: Request) {
     updatedAt: new Date().toISOString(),
   };
 
+  // UXA-3: each bound is clamped to its own floor/ceiling above, but nothing compared the pair —
+  // a min > max range saved silently and shipped straight into the generation prompt as a
+  // self-contradictory instruction.
+  if (updated.weeklyHoursMin > updated.weeklyHoursMax) {
+    return NextResponse.json(
+      { error: "Loading week: minimum hours can't be more than maximum hours." },
+      { status: 400 }
+    );
+  }
+  if (updated.recoveryWeekHoursMin > updated.recoveryWeekHoursMax) {
+    return NextResponse.json(
+      { error: "Recovery week: minimum hours can't be more than maximum hours." },
+      { status: 400 }
+    );
+  }
+
   // ACWR band override (the manual half of calibration): validate + clamp via the calibration
   // resolver when present, otherwise preserve the existing override, otherwise leave it off.
   if (isAcwrBandsOverridden(b.acwrBands as Partial<AcwrBands> | null)) {

@@ -138,6 +138,10 @@ export default function BlockSettingsForm() {
     );
   }
 
+  // UXA-3: catch a min > max range before it ever reaches the server (which now rejects it too).
+  const hoursInvalid =
+    settings.weeklyHoursMin > settings.weeklyHoursMax || settings.recoveryWeekHoursMin > settings.recoveryWeekHoursMax;
+
   return (
     <div className="space-y-6">
       {/* Weekly volume */}
@@ -273,7 +277,7 @@ export default function BlockSettingsForm() {
       <div className="flex items-center gap-3">
         <button
           onClick={save}
-          disabled={saving}
+          disabled={saving || hoursInvalid}
           className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
         >
           {saving ? "Saving…" : "Save settings"}
@@ -281,6 +285,9 @@ export default function BlockSettingsForm() {
         {saved && <span className="text-sm text-green-700 dark:text-green-400">Saved — next generation will use these values.</span>}
         {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
+      {hoursInvalid && (
+        <p className="text-xs text-red-600">Minimum hours can&apos;t be more than maximum hours — fix the highlighted range above before saving.</p>
+      )}
 
       {settings.updatedAt !== new Date(0).toISOString() && (
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
