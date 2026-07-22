@@ -159,7 +159,7 @@ export async function generateTrainingBlock(
   lengthWeeks: 2 | 4 | 6 | 8
 ): Promise<GenerationResult> {
   if (!isAnthropicConfigured()) {
-    throw new Error("Anthropic API is not configured. Set ANTHROPIC_API_KEY in .env.local.");
+    throw new Error("Anthropic API is not configured.");
   }
   const client = getClient();
   const response = await client.messages.create({

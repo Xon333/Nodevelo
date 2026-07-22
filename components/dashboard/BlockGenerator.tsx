@@ -93,7 +93,7 @@ export default function BlockGenerator({
             {!anthropicConfigured && (
               <p className="flex items-center gap-1 text-xs text-red-600">
                 Connect the AI coach to generate blocks.
-                <InfoDot text="Set ANTHROPIC_API_KEY in the server's environment config, then restart." />
+                <InfoDot text="Ask whoever set up NodeVelo to connect the AI coach — it needs an API key added to the server." />
               </p>
             )}
             {showSyncTip && (

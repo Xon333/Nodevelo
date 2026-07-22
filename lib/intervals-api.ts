@@ -45,9 +45,7 @@ export function isIntervalsConfigured(): boolean {
 async function icuFetch(pathname: string, init?: RequestInit): Promise<unknown> {
   const config = getConfig();
   if (!config) {
-    throw new IntervalsApiError(
-      "Intervals.icu is not configured. Set INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in .env.local."
-    );
+    throw new IntervalsApiError("Intervals.icu is not configured.");
   }
   const auth = Buffer.from(`API_KEY:${config.apiKey}`).toString("base64");
   let res: Response;

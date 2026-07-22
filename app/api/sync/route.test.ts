@@ -267,7 +267,9 @@ describe("POST /api/sync — guards + error mapping", () => {
     vi.mocked(api.isIntervalsConfigured).mockReturnValue(false);
     const res = await postSync();
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/INTERVALS_API_KEY/);
+    const { error } = await res.json();
+    expect(error).toMatch(/connect intervals\.icu/i);
+    expect(error).not.toMatch(/INTERVALS_API_KEY|INTERVALS_ATHLETE_ID|\.env/i); // athlete-facing copy must never name env vars
     expect(api.runFullSync).not.toHaveBeenCalled();
   });
 

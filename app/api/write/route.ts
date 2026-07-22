@@ -42,7 +42,7 @@ function validatePlan(body: unknown): GeneratedPlan | string {
 export async function POST(req: Request) {
   if (!isIntervalsConfigured()) {
     return NextResponse.json(
-      { error: "Intervals.icu is not configured. Set INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in .env.local." },
+      { error: "Connect Intervals.icu to write this block." },
       { status: 400 }
     );
   }

@@ -168,7 +168,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!isIntervalsConfigured()) {
     return NextResponse.json(
-      { error: "Intervals.icu is not configured. Set INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in .env.local." },
+      { error: "Connect Intervals.icu to sync." },
       { status: 400 }
     );
   }
@@ -808,7 +808,7 @@ export async function POST(req: Request) {
       logWarn("/api/sync", "backup-snapshot", "NODEVELO_BACKUP_DIR not set — off-machine backup disabled");
     } else if (!backup.ok) {
       logError("/api/sync", "backup-snapshot", backup.reason);
-      warnings.push(`Off-machine backup failed: ${backup.reason}`);
+      warnings.push("A background backup didn't complete — your training data itself is unaffected.");
     }
 
     return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date), athleteState, coachSnapshot, calibration });

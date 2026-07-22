@@ -65,7 +65,7 @@ function parseBlockParams(body: unknown): BlockParams | string {
 export async function POST(req: Request) {
   if (!isAnthropicConfigured()) {
     return NextResponse.json(
-      { error: "Anthropic API is not configured. Set ANTHROPIC_API_KEY in .env.local." },
+      { error: "Connect the AI coach to generate blocks." },
       { status: 400 }
     );
   }

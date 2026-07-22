@@ -162,7 +162,9 @@ describe("POST /api/generate — request validation", () => {
     vi.mocked(anthropic.isAnthropicConfigured).mockReturnValueOnce(false);
     const res = await gen("Build FTP");
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/ANTHROPIC_API_KEY/);
+    const { error } = await res.json();
+    expect(error).toMatch(/connect the ai coach/i);
+    expect(error).not.toMatch(/ANTHROPIC_API_KEY|\.env/i); // athlete-facing copy must never name env vars
     expect(anthropic.generateTrainingBlock).not.toHaveBeenCalled();
   });
 
