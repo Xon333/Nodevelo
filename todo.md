@@ -299,4 +299,182 @@ step.
 
 ---
 
+## UXA-2026-07-22 — full-app UX/UI audit (8 parallel reviews + a live browser walkthrough)
+
+61 findings, athlete-confirmed valid. Severity below is Critical/High/Medium/Nice-to-have — finer-grained
+than the P1-3 legend above (roughly P1≈Critical, P2≈High/Medium, P3≈Nice-to-have). Work top to bottom.
+
+**Critical**
+- ☐ `bug` **UXA-1** — The Constitution's own named example of banned developer jargon ships live through
+  5 paths: an always-reachable InfoDot tip, a dead-but-shipped component, 3 API routes throwing raw
+  env-var strings into the global sync banner, and a raw filesystem errno via a backup warning.
+  [components/dashboard/BlockGenerator.tsx:96](components/dashboard/BlockGenerator.tsx:96),
+  [components/SyncStatus.tsx:20](components/SyncStatus.tsx:20),
+  [app/api/generate/route.ts:68](app/api/generate/route.ts:68),
+  [app/api/write/route.ts:45](app/api/write/route.ts:45),
+  [app/api/sync/route.ts:171](app/api/sync/route.ts:171),
+  [lib/client-api.ts:16](lib/client-api.ts:16), [lib/backup.ts:81](lib/backup.ts:81). Fix: rewrite the 5
+  known strings to coach voice; add an allow-list in `api()` so only explicitly-safe route errors pass
+  through raw.
+- ☐ `ux` **UXA-2** — No in-app path to connect Intervals.icu; total silence everywhere gated on
+  `configured` (nav sync control just vanishes, Today's readiness card shows no button).
+  [app/page.tsx:1-5](app/page.tsx:1), [components/Nav.tsx:131](components/Nav.tsx:131),
+  [components/dashboard/TodayView.tsx:194-206](components/dashboard/TodayView.tsx:194).
+- ☐ `bug` **UXA-3** — `BlockSettingsForm` has no min≤max guard on the weekly-hours pairs; a corrupted
+  range saves successfully and ships silently into the generation prompt.
+  [components/BlockSettingsForm.tsx:150-194](components/BlockSettingsForm.tsx:150),
+  [app/api/settings/route.ts:41-46](app/api/settings/route.ts:41),
+  [lib/anthropic-prompts.ts:123,310](lib/anthropic-prompts.ts:123).
+
+**High**
+- ☐ `ux` **UXA-4** — Block generation can burn a paid LLM call before checking Intervals.icu is
+  connected — the check only fires at the final Write step.
+  [components/dashboard/BlockGenerator.tsx:81-83](components/dashboard/BlockGenerator.tsx:81).
+- ☐ `bug` **UXA-5** — Generated plan preview vanishes on refresh/nav-away (no `beforeunload` guard, no
+  `AbortController`); real double-billing risk if the athlete retries.
+  [components/dashboard/PlanView.tsx:178-207](components/dashboard/PlanView.tsx:178),
+  [lib/generate-cache.ts:15,36-60](lib/generate-cache.ts:15).
+- ☐ `bug` **UXA-6** — "Generate coach note" button is missing `disabled={analyzing}` (its sibling
+  button 15 lines up has it) — can double-fire duplicate paid Anthropic calls.
+  [components/dashboard/today.tsx:290-295](components/dashboard/today.tsx:290).
+- ☐ `bug` **UXA-7** — BackupRestore drops the server's own `skipped` file list on a partial restore —
+  reports a partial restore as a full success.
+  [components/BackupRestore.tsx:35](components/BackupRestore.tsx:35) vs.
+  [app/api/import/route.ts:38,73](app/api/import/route.ts:38).
+- ☐ `ux` **UXA-8** — "Write to Intervals.icu" replaces the active block with no stated consequence,
+  unlike Delete/Restore's in-product confirm pattern.
+  [components/PlanPreview.tsx:159-165](components/PlanPreview.tsx:159),
+  [app/api/write/route.ts:97-116](app/api/write/route.ts:97).
+- ☐ `ux` **UXA-9** — `/model`'s three cards disagree on loading vs. empty-state signaling; the
+  directives card pops in and jumps ~300px with no skeleton.
+  [components/StateDriversCard.tsx:13-28](components/StateDriversCard.tsx:13),
+  [components/CalibrationPanel.tsx:203-214](components/CalibrationPanel.tsx:203),
+  [components/StandingGuidance.tsx:39-43](components/StandingGuidance.tsx:39).
+- ☐ `ux` **UXA-10** — `SeasonRoadmap` ships an undocumented 6-color palette via inline styles,
+  near-duplicating existing tokens — unreviewed, shipped in the last few commits.
+  [components/SeasonRoadmap.tsx:10-12,81,92,98-100](components/SeasonRoadmap.tsx:10).
+- ☐ `ux` **UXA-11** — Two unreconciled "primary button" visual languages across 6+ files; no shared
+  `Button` primitive in `ui.tsx`. [components/BlockSettingsForm.tsx:277](components/BlockSettingsForm.tsx:277),
+  [components/PlatformBehaviorForm.tsx:86](components/PlatformBehaviorForm.tsx:86),
+  [components/AthleteProfileForm.tsx:601,674](components/AthleteProfileForm.tsx:601),
+  [components/BackupRestore.tsx:55](components/BackupRestore.tsx:55),
+  [components/KnowledgeBaseEditor.tsx:212](components/KnowledgeBaseEditor.tsx:212) vs.
+  [components/Nav.tsx:166](components/Nav.tsx:166), [components/dashboard/BlockGenerator.tsx:84](components/dashboard/BlockGenerator.tsx:84).
+- ☐ `ux` **UXA-12** — Trends' `BlockTimeline` wears the hero/CyberFrame treatment while the page's
+  actual `VerdictStrip` doesn't — a Constitution §4 hierarchy inversion.
+  [components/trends/sections.tsx:33-35](components/trends/sections.tsx:33) vs.
+  [components/trends/verdict.tsx:44-45](components/trends/verdict.tsx:44).
+- ☐ `bug` **UXA-13** — Systemic inverted muted-text contrast token, 10 sites / 6 files, fails AA —
+  reopens the gap DESIGN.md's own audit ("A11Y-1") claims is fixed.
+  [components/Nav.tsx:229](components/Nav.tsx:229), [components/dashboard/today.tsx:220,504](components/dashboard/today.tsx:220),
+  [components/dashboard/plan.tsx:224,491](components/dashboard/plan.tsx:224),
+  [components/AthleteProfileForm.tsx:295,468,477](components/AthleteProfileForm.tsx:295),
+  [components/SeasonSection.tsx:76](components/SeasonSection.tsx:76), [components/trends/verdict.tsx:47](components/trends/verdict.tsx:47).
+- ☐ `ux` **UXA-14** — Charts (PowerCurveChart, Sparkline, RideTrace) have no keyboard path and mostly
+  no text alternative — the only place several numbers exist in the app.
+  [components/PowerCurveChart.tsx:74-83](components/PowerCurveChart.tsx:74),
+  [components/Sparkline.tsx:54-60](components/Sparkline.tsx:54), [components/RideTrace.tsx:44-45](components/RideTrace.tsx:44).
+- ☐ `ux` **UXA-15** — 7 numeric inputs in `BlockSettingsForm` have no accessible name — label isn't
+  associated with its input. [components/BlockSettingsForm.tsx:8-24](components/BlockSettingsForm.tsx:8) (`Field`, ×7 at 146-234).
+- ☐ `ux` **UXA-16** — Today and Plan have no page-level `<h1>`, unlike every other page.
+  `components/dashboard/TodayView.tsx`/`today.tsx`, `PlanView.tsx`/`plan.tsx`.
+- ☐ `ux` **UXA-17** — No skip-to-content link. [app/layout.tsx:58-72](app/layout.tsx:58).
+- ☐ `ux` **UXA-18** — Dark mode's "selected" state inverts to a solid white block instead of the
+  accent language used everywhere else. Settings training-philosophy selected option; Knowledge
+  selected file in the rail.
+- ☐ `bug` **UXA-19** — Plan independently re-fetches season context 3× per page load; no shared
+  cache, confirmed by a live network trace.
+  [components/dashboard/PlanView.tsx:76-166](components/dashboard/PlanView.tsx:76) (`loadPrefill`/`loadBlockHistory`/`loadSeasonCtx`).
+
+**Medium**
+- ☐ `ux` **UXA-20** — Settings silently clamps out-of-range numbers with no explanation.
+  [app/api/settings/route.ts:41-46](app/api/settings/route.ts:41).
+- ☐ `ux` **UXA-21** — 9 forms have no `<form>` element — Enter doesn't submit, errors aren't
+  `aria-live`. `AthleteProfileForm`, `BlockSettingsForm`, `PlatformBehaviorForm`, `CalibrationPanel`,
+  `SeasonSection`, `KnowledgeBaseEditor`, `BlockGenerator`, and 2 more.
+- ☐ `ux` **UXA-22** — Raw `error.message`/`digest` shown verbatim in the crash boundaries.
+  [app/error.tsx:27-31](app/error.tsx:27), [app/global-error.tsx:22-35](app/global-error.tsx:22).
+- ☐ `bug` **UXA-23** — No `AbortController` anywhere in the fetch layer; AskCoach keeps billing tokens
+  after nav-away. [lib/client-api.ts:3-22](lib/client-api.ts:3), [components/AskCoach.tsx:32-49](components/AskCoach.tsx:32).
+- ☐ `bug` **UXA-24** — No cross-tab version check on destructive block actions — delete/write/reschedule
+  act on stale server state. [app/api/sync/route.ts:829-863](app/api/sync/route.ts:829).
+- ☐ `bug` **UXA-25** — Three GET routes (`/api/trends`, `/api/history`, `/api/export`) have zero
+  try/catch — an unexpected shape returns a bare 500 with no JSON body.
+- ☐ `ux` **UXA-26** — Trends' error box is a one-off missing the Retry every sibling page has.
+  [components/Trends.tsx:28-34](components/Trends.tsx:28).
+- ☐ `ux` **UXA-27** — PowerCurveChart's y-axis labels break dual-theme and fail contrast.
+  [components/PowerCurveChart.tsx:87-88](components/PowerCurveChart.tsx:87).
+- ☐ `ux` **UXA-28** — Chart line colors hue-swap across themes 4 different ways on one Trends page.
+  [components/Sparkline.tsx:17-19](components/Sparkline.tsx:17), [components/Trends.tsx:156-159](components/Trends.tsx:156),
+  [components/RideTrace.tsx:59,69,79](components/RideTrace.tsx:59).
+- ☐ `bug` **UXA-29** — Dark-mode `text-zinc-500` with no `dark:` pairing, missed by the existing
+  detector. [components/AiUsageCard.tsx:14,43](components/AiUsageCard.tsx:14), [components/BackupRestore.tsx:47](components/BackupRestore.tsx:47).
+- ☐ `ux` **UXA-30** — RaceSim's accent hex has drifted from its documented value.
+  [lib/workout-types.ts:44](lib/workout-types.ts:44) vs. DESIGN.md.
+- ☐ `ux` **UXA-31** — "Good/positive" status color is inconsistently emerald vs. green, mixed within
+  one badge. [components/StandingGuidance.tsx:77-78](components/StandingGuidance.tsx:77),
+  [components/athlete-state-ui.tsx:8](components/athlete-state-ui.tsx:8), [components/trends/sections.tsx:27](components/trends/sections.tsx:27).
+- ☐ `ux` **UXA-32** — The hero/CyberFrame shell is hand-copied instead of composed via `Zone`.
+  [components/ui.tsx:253-254](components/ui.tsx:253) vs. [components/dashboard/plan.tsx:421-423](components/dashboard/plan.tsx:421),
+  [components/trends/sections.tsx:33-35](components/trends/sections.tsx:33).
+- ☐ `ux` **UXA-33** — Ultrawide monitors get large, structurally-provable dead space — content
+  centers in leftover space instead of anchoring to the rail. [app/layout.tsx:64,68](app/layout.tsx:64).
+- ☐ `ux` **UXA-34** — KnowledgeBaseEditor's textarea has no accessible name tied to the selected file.
+  [components/KnowledgeBaseEditor.tsx:199-207](components/KnowledgeBaseEditor.tsx:199).
+- ☐ `ux` **UXA-35** — Calendar day-popover: Escape stops working once focus moves inside it (the
+  popover is a DOM sibling of the trigger, not a parent). [components/dashboard/plan.tsx:249-334](components/dashboard/plan.tsx:249),
+  `components/DayAction.tsx`.
+- ☐ `ux` **UXA-36** — Block-actions menu declares ARIA-menu semantics it doesn't implement (no
+  arrow-key/Home/End navigation). [components/dashboard/plan.tsx:484-513](components/dashboard/plan.tsx:484).
+- ☐ `ux` **UXA-37** — Transient success/error text not announced to assistive tech.
+  [components/BlockSettingsForm.tsx:281](components/BlockSettingsForm.tsx:281), [components/SeasonSection.tsx:149,605,678](components/SeasonSection.tsx:149),
+  [components/CalibrationPanel.tsx:99-101,196](components/CalibrationPanel.tsx:99).
+- ☐ `ux` **UXA-38** — InfoDot's own glyph sits at/under the contrast floor (an extra `opacity-60` on
+  top of already-muted zinc). [components/ui.tsx:35-53](components/ui.tsx:35).
+- ☐ `ux` **UXA-39** — UX-MASTERPLAN's "no page runs over the fold at 1440×900" claim only holds for
+  3 of 7 pages (Settings is 1047px over) — correct the doc claim in UX-MASTERPLAN.md.
+- ☐ `bug` **UXA-40** — `/api/trends` ships the entire unbounded score ledger every load; only the
+  last 24 entries are ever used. [app/api/trends/route.ts:152](app/api/trends/route.ts:152).
+- ☐ `ux` **UXA-41** — Block history renders fully unbounded in the DOM in two places.
+  [components/trends/sections.tsx:31-107](components/trends/sections.tsx:31), [components/dashboard/plan.tsx:125-156](components/dashboard/plan.tsx:125).
+- ☐ `ux` **UXA-42** — Knowledge's file rail has no independent scroll as retrospectives accumulate.
+  [components/KnowledgeBaseEditor.tsx:164-184](components/KnowledgeBaseEditor.tsx:164).
+- ☐ `ux` **UXA-43** — Today's IF and TSB tooltips break the app's own 2-sentence tip limit (a
+  sibling tip in the same file was already trimmed to this exact rule).
+  [components/dashboard/today.tsx:136,547](components/dashboard/today.tsx:136).
+- ☐ `ux` **UXA-44** — Save/write failure copy splits into two tone registers ("Couldn't X — try
+  again" vs. "X failed") across ~12 sites.
+- ☐ `ux` **UXA-45** — Verdict score bar and driver bars have zero transition on value change.
+  [components/AthleteStateCard.tsx:160-162](components/AthleteStateCard.tsx:160), [components/StateDriversCard.tsx:53-56](components/StateDriversCard.tsx:53).
+- ☐ `ux` **UXA-46** — Mobile: disposition chips wrap their label to 5 lines; chips measure 30px,
+  under touch-target guidance. Today, 375px width.
+- ☐ `ux` **UXA-47** — Mobile: Plan's "Season" label collides with its own goal sentence (no
+  wrap-stacking below the breakpoint). Plan, 375px width.
+
+**Nice-to-have**
+- ☐ `ux` **UXA-48** — No keyboard shortcuts for daily navigation/sync.
+- ☐ `ux` **UXA-49** — No custom `not-found.tsx` — falls through to Next's default.
+- ☐ `ux` **UXA-50** — No reciprocal Profile↔Model cross-link.
+- ☐ `ux` **UXA-51** — Nutrition number inputs have no visible min/range hint.
+  [components/AthleteProfileForm.tsx:657-665](components/AthleteProfileForm.tsx:657).
+- ☐ `ux` **UXA-52** — SeasonSection/CalibrationPanel show no loading skeleton on first paint.
+- ☐ `ux` **UXA-53** — Season-event/block-start dates accept a past date silently.
+- ☐ `ux` **UXA-54** — AthleteStateCard hand-rolls Card's chrome instead of composing it (defensible,
+  still a drift risk). [components/AthleteStateCard.tsx:78,121](components/AthleteStateCard.tsx:78).
+- ☐ `ux` **UXA-55** — RescheduleBanner's amber CTA has zero `dark:` treatment, unlike its sibling
+  banner in `RetroSection`. [components/RescheduleBanner.tsx:101](components/RescheduleBanner.tsx:101).
+- ☐ `ux` **UXA-56** — AiUsageCard hand-rolls a title+value header instead of using Card's
+  title/action slots. [components/AiUsageCard.tsx:37-42](components/AiUsageCard.tsx:37).
+- ☐ `ux` **UXA-57** — RideTrace's HR overlay sits under the 3:1 contrast floor in light mode (likely
+  intentional — needs a conscious sign-off, not necessarily a fix). [components/RideTrace.tsx:68](components/RideTrace.tsx:68).
+- ☐ `ux` **UXA-58** — Delete-block's "Yes, delete" has no explicit pending-state guard (mitigated,
+  still inconsistent with the app's convention). [components/dashboard/plan.tsx:461-482](components/dashboard/plan.tsx:461).
+- ☐ `ux` **UXA-59** — PowerCurveChart's caption and chart disagree at exactly 1 synced data point.
+  [components/PowerCurveChart.tsx:36](components/PowerCurveChart.tsx:36), [components/AthleteProfileForm.tsx:304-313](components/AthleteProfileForm.tsx:304).
+- ☐ `ux` **UXA-60** — Trends' "Fitness trajectory — CTL" card is missing the caption its siblings have.
+- ☐ `ux` **UXA-61** — `SyncStatus.tsx` is dead code shipping the env-var-jargon string live in the
+  bundle — delete it, or fix and wire it in. [components/SyncStatus.tsx](components/SyncStatus.tsx).
+
+---
+
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).
