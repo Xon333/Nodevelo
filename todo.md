@@ -503,26 +503,45 @@ than the P1-3 legend above (roughly P1≈Critical, P2≈High/Medium, P3≈Nice-t
   its own goal sentence — wrap-stacks below the breakpoint instead. Plan, 375px width.
 
 **Nice-to-have**
-- ☐ `ux` **UXA-48** — No keyboard shortcuts for daily navigation/sync.
-- ☐ `ux` **UXA-49** — No custom `not-found.tsx` — falls through to Next's default.
-- ☐ `ux` **UXA-50** — No reciprocal Profile↔Model cross-link.
-- ☐ `ux` **UXA-51** — Nutrition number inputs have no visible min/range hint.
-  [components/AthleteProfileForm.tsx:657-665](components/AthleteProfileForm.tsx:657).
-- ☐ `ux` **UXA-52** — SeasonSection/CalibrationPanel show no loading skeleton on first paint.
-- ☐ `ux` **UXA-53** — Season-event/block-start dates accept a past date silently.
-- ☐ `ux` **UXA-54** — AthleteStateCard hand-rolls Card's chrome instead of composing it (defensible,
-  still a drift risk). [components/AthleteStateCard.tsx:78,121](components/AthleteStateCard.tsx:78).
-- ☐ `ux` **UXA-55** — RescheduleBanner's amber CTA has zero `dark:` treatment, unlike its sibling
-  banner in `RetroSection`. [components/RescheduleBanner.tsx:101](components/RescheduleBanner.tsx:101).
-- ☐ `ux` **UXA-56** — AiUsageCard hand-rolls a title+value header instead of using Card's
-  title/action slots. [components/AiUsageCard.tsx:37-42](components/AiUsageCard.tsx:37).
-- ☐ `ux` **UXA-57** — RideTrace's HR overlay sits under the 3:1 contrast floor in light mode (likely
-  intentional — needs a conscious sign-off, not necessarily a fix). [components/RideTrace.tsx:68](components/RideTrace.tsx:68).
-- ☐ `ux` **UXA-58** — Delete-block's "Yes, delete" has no explicit pending-state guard (mitigated,
-  still inconsistent with the app's convention). [components/dashboard/plan.tsx:461-482](components/dashboard/plan.tsx:461).
-- ☐ `ux` **UXA-59** — PowerCurveChart's caption and chart disagree at exactly 1 synced data point.
+- ☐ `ux` **UXA-48** — No keyboard shortcuts for daily navigation/sync. **Deliberately deferred** — a
+  real feature (key bindings, a discoverability legend, conflict-checking against text inputs), not
+  a mechanical fix; left open pending its own design pass.
+- ☑ `ux` **UXA-49** — **Fixed (commit 34be19f).** Added `app/not-found.tsx`, matching error.tsx's
+  tone, instead of falling through to Next's default blank 404.
+- ☑ `ux` **UXA-50** — **Fixed (commit 34be19f).** Profile and Model now link to each other — neither
+  page linked to the other despite AthleteStateCard's "why? →" pointing Today into Model-adjacent
+  context.
+- ☑ `ux` **UXA-51** — **Fixed (commit 34be19f).** Nutrition inputs get a visible range hint —
+  buffer shows its real enforced band (`BUFFER_MIN_KCAL`–`BUFFER_MAX_KCAL`, now exported from
+  `lib/nutrition.ts`); the other three fields get a defensible floor of 0, since no authoritative
+  ceiling exists for them. [components/AthleteProfileForm.tsx:657-665](components/AthleteProfileForm.tsx:657).
+- ☑ `ux` **UXA-52** — **Fixed (commit 34be19f).** SeasonSection now distinguishes "still loading"
+  (skeleton) from "loaded, nothing set yet" — CalibrationPanel already got this in UXA-9.
+- ☑ `ux` **UXA-53** — **Fixed (commit 34be19f).** Season-event and block-generation start-date
+  pickers reject a past date via `min`, instead of silently accepting one.
+- ☐ `ux` **UXA-54** — AthleteStateCard hand-rolls Card's chrome instead of composing it. **Left
+  open** — the audit's own note calls this "defensible," and `Card` doesn't forward
+  `tabIndex`/`aria-describedby` (needed for the hover/focus drivers reveal), so composing it would
+  mean widening `Card`'s own signature for every consumer over a nice-to-have.
+  [components/AthleteStateCard.tsx:78,121](components/AthleteStateCard.tsx:78).
+- ☑ `ux` **UXA-55** — **Fixed (commit 34be19f).** RescheduleBanner's amber CTA gets the same
+  lightened `dark:` shade every other themed CTA uses. Also found and fixed on inspection:
+  MorningCheckIn's identical Downgrade button had the same gap.
+  [components/RescheduleBanner.tsx:101](components/RescheduleBanner.tsx:101).
+- ☑ `ux` **UXA-56** — **Fixed (commit 34be19f).** AiUsageCard now composes Card's title/action slots
+  instead of hand-rolling its own header row. [components/AiUsageCard.tsx:37-42](components/AiUsageCard.tsx:37).
+- ☐ `ux` **UXA-57** — RideTrace's HR overlay sits under the 3:1 contrast floor in light mode. **Left
+  open** — explicitly flagged as needing a conscious sign-off (it may be intentional), not a
+  mechanical fix. [components/RideTrace.tsx:68](components/RideTrace.tsx:68).
+- ☑ `ux` **UXA-58** — **Fixed (commit 34be19f).** "Yes, delete" now awaits the actual DELETE call
+  and shows "Deleting…" instead of closing the confirm bar instantly and discarding the promise —
+  `onDelete`'s type tightened to `Promise<void>` to match what `PlanView`'s `deleteBlock` already
+  returns. [components/dashboard/plan.tsx:461-482](components/dashboard/plan.tsx:461).
+- ☑ `ux` **UXA-59** — **Fixed (commit 34be19f).** The Power PRs caption claimed a drag interaction
+  that isn't there when there's only 1 synced point (PowerCurveChart draws nothing below 2).
   [components/PowerCurveChart.tsx:36](components/PowerCurveChart.tsx:36), [components/AthleteProfileForm.tsx:304-313](components/AthleteProfileForm.tsx:304).
-- ☐ `ux` **UXA-60** — Trends' "Fitness trajectory — CTL" card is missing the caption its siblings have.
+- ☑ `ux` **UXA-60** — **Fixed (commit 34be19f).** Trends' CTL card was the one "Engine" card missing
+  a trailing explanation its two siblings both have.
 - ☑ `ux` **UXA-61** — **Fixed, as part of UXA-1.** `SyncStatus.tsx` was dead code (confirmed unreferenced
   anywhere via grep) shipping the env-var-jargon string live in the bundle — deleted rather than fixed
   and wired in, since nothing used it.
