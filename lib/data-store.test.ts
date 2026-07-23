@@ -154,6 +154,45 @@ describe("appendBlockHistory", () => {
     expect(history.find((h) => h.id === "new")).toBeTruthy();
     expect(history.find((h) => h.id === "existing")?.retrospective).toBe("done");
   });
+
+  it("HR-37: a bare archive (DELETE/write-replace) landing AFTER a retrospective's rich entry for the same id does not wipe it", async () => {
+    // The real sequence: a retrospective's LLM calls finish and it archives its rich entry (narrative,
+    // structured reflections, compliance, seeds) for this block's id. A DELETE that read the SAME
+    // block earlier (before the retro cleared it) then lands its bare archive — same id — afterward.
+    await appendBlockHistory(
+      entry("shared-id", {
+        retrospective: "Solid block overall.",
+        structuredReflections: [{ dimension: "Threshold", hypothesis: "h", observation: "o", root_cause: "r", adjusted_strategy: "a" }],
+        complianceByType: { Threshold: 90 },
+        actualHours: 10,
+        plannedHours: 11,
+        ctlGain: 5,
+        nextBlockSeeds: ["Progress load"],
+      })
+    );
+    await appendBlockHistory(entry("shared-id", { overview: "bare DELETE archive" })); // no retrospective
+    const history = await readBlockHistory();
+    expect(history.filter((h) => h.id === "shared-id")).toHaveLength(1);
+    const survivor = history.find((h) => h.id === "shared-id")!;
+    expect(survivor.retrospective).toBe("Solid block overall.");
+    expect(survivor.structuredReflections).toHaveLength(1);
+    expect(survivor.complianceByType).toEqual({ Threshold: 90 });
+    expect(survivor.nextBlockSeeds).toEqual(["Progress load"]);
+  });
+
+  it("still replaces normally when the incoming entry ALSO carries a retrospective (both rich — last write wins)", async () => {
+    await appendBlockHistory(entry("shared-id", { retrospective: "First pass." }));
+    await appendBlockHistory(entry("shared-id", { retrospective: "Regenerated retro." }));
+    const history = await readBlockHistory();
+    expect(history.find((h) => h.id === "shared-id")?.retrospective).toBe("Regenerated retro.");
+  });
+
+  it("still replaces normally when the EXISTING entry has no retrospective yet (a bare archive, later completed by a retro)", async () => {
+    await appendBlockHistory(entry("shared-id", { overview: "bare" }));
+    await appendBlockHistory(entry("shared-id", { retrospective: "Now complete." }));
+    const history = await readBlockHistory();
+    expect(history.find((h) => h.id === "shared-id")?.retrospective).toBe("Now complete.");
+  });
 });
 
 describe("mergeCurrentBlockDays", () => {

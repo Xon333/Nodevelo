@@ -151,13 +151,21 @@ export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void
   // outcome backfill, ROADMAP season-architecture-redesign §8) could otherwise hit against this
   // function's previously-unlocked read.
   await updateBlockHistory((history) => {
+    const existing = history.find((h) => h.id === entry.id);
+    // HR-37: field-preserving on id-collision — a DELETE/write-replace's bare archive (no
+    // retrospective) can race a slow retrospective's own archive for the SAME block id (both key off
+    // `block.createdAt`). Whichever landed second used to win wholesale under plain filter+prepend,
+    // silently dropping the retrospective narrative, structured reflections, compliance, and seeds the
+    // instant a bare entry happened to land after the rich one. An entry lacking `retrospective` may
+    // never displace one that has it — keep the richer entry's content, still bumped to the front.
+    const winner = existing?.retrospective && !entry.retrospective ? existing : entry;
     // Deduplicate by id to avoid duplicates on retry.
     const filtered = history.filter((h) => h.id !== entry.id);
     // SUB-1: raised from 20 — discarded/superseded blocks now archive too (not just completed ones), so
     // churn is higher than "one entry per real block"; 20 was evicting real history (compliance, retro,
     // reflections, and now per-day prescriptions) well within a season. 200 gives ample headroom at
     // negligible local-JSON cost.
-    return [entry, ...filtered].slice(0, 200);
+    return [winner, ...filtered].slice(0, 200);
   });
 }
 

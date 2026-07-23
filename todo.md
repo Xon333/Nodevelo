@@ -71,14 +71,11 @@ independently by two agents). Continues the HR- series (append, not renumber).
   `writeInterventionLog` was removed outright (zero remaining callers — leaving it would've been exactly
   the HR-54(a) footgun). New concurrency regression test in `lib/data-store.test.ts` proves both a
   concurrent merge and a concurrent validation pass land together instead of last-writer-wins.
-- ☐ P2 `bug` **HR-37** — `appendBlockHistory`'s dedupe-by-id (`lib/data-store.ts:137`,
-  `history.filter(h => h.id !== entry.id)` then prepend) is wholesale last-writer-wins. Retro and DELETE
-  both archive under `id = block.createdAt`; both have multi-second-to-tens-of-seconds windows between
-  their own read and their own archive call. A DELETE that read the block before a slow retrospective's
-  LLM call finishes can land its bare archive entry *after* the retro's rich one (retrospective text,
-  structured reflections, compliance, seeds) — the filter silently drops the rich entry. The `.md` file
-  survives, but the block-history record of it doesn't. Fix direction: field-preserving merge on
-  id-collision — never let an entry lacking `retrospective` displace one that has it.
+- ☑ P2 `bug` **HR-37** — **Fixed.** `appendBlockHistory` (`lib/data-store.ts`) now checks, inside the
+  same locked critical section, whether the id it's about to displace already carries a `retrospective`
+  that the incoming (bare) entry lacks — if so, the existing richer entry wins outright (still bumped to
+  the front) instead of being wiped by whichever archive call happened to land second. Both directions
+  (rich-then-bare, bare-then-rich, rich-then-rich) covered by new tests in `lib/data-store.test.ts`.
 - ☐ P2 `bug` **HR-38** — Write-route rollback (`app/api/write/route.ts:94-104`) deletes the *old*
   block's live calendar events on shared dates. `createEvent` upserts on a stable `nodevelo-<date>`
   external_id, so for any date the old and new block both cover, the "created" event id returned by a
