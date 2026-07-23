@@ -118,15 +118,15 @@ independently by two agents). Continues the HR- series (append, not renumber).
   `readAthleteProfile` now runs every disk read through it first. New tests cover the merge itself
   (old-format input, already-complete input, empty/null input) and an end-to-end `readAthleteProfile`
   read of an old-format file that previously would have crashed outright.
-- ☐ P2 `bug` **HR-44** — A stale reschedule suggestion can mutate the wrong block, and the UXA-24 guard
-  structurally can't catch it. `RescheduleBanner.tsx:31-41` loads its suggestion once on mount and never
-  reloads it after write/delete/retro/sync; `apply` (lines 64-77) sends `expectedBlockCreatedAt` from
-  `state.currentBlock` *at click time* — the current block, not the block the stale suggestion was
-  actually computed against — so the version check passes even though the premise is dead. If the
-  athlete writes a replacement block covering the same dates while the banner's still showing an old
-  suggestion, Apply copies content from the *new* block onto a date chosen for the *old* one. Fix
-  direction: capture `createdAt` at suggestion-fetch time and send that; reload the suggestion whenever
-  `state.currentBlock?.createdAt` changes.
+- ☑ P2 `bug` **HR-44** — **Fixed.** `GET /api/reschedule` now returns `blockCreatedAt` alongside the
+  suggestion. `RescheduleBanner.tsx` captures it into its own `suggestionBlockCreatedAt` state at fetch
+  time and sends THAT as `expectedBlockCreatedAt` on Apply — not `state.currentBlock?.createdAt` read
+  fresh at click time. It also now reloads the suggestion whenever `state.currentBlock?.createdAt`
+  changes (`useMountLoad`'s `refreshKey`, widened from `number` to `unknown` to accept a createdAt
+  string). New tests in `app/api/reschedule/route.test.ts` and `components/RescheduleBanner.test.tsx`
+  (confirmed RED against the old click-time read before the fix) — this is also the first component
+  interaction test in the repo: added `@testing-library/react` + `jsdom` as dev dependencies (per-file
+  `@vitest-environment jsdom` docblock, so the rest of the suite stays on the faster node environment).
 - ☐ P2 `bug` **HR-45** — `doSync` never updates or invalidates the cached `currentBlock` in
   `SyncProvider.tsx:163-183` — the POST response carries no `currentBlock` field, even though POST
   `/api/sync` can mutate the block itself (inbound calendar-move reconciliation, execution backfill). No

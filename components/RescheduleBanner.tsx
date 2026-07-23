@@ -20,6 +20,11 @@ interface Suggestion {
 export default function RescheduleBanner() {
   const { state, setState } = useSync();
   const [s, setS] = useState<Suggestion | null>(null);
+  // HR-44: captured at the moment THIS suggestion was fetched — not re-read from `state.currentBlock`
+  // at Apply-click time, which may by then point at a different block (the athlete could have
+  // written/deleted a replacement covering the same dates while this stale suggestion was still
+  // showing, in which case the version check would wrongly pass against the NEW block's identity).
+  const [suggestionBlockCreatedAt, setSuggestionBlockCreatedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -30,15 +35,21 @@ export default function RescheduleBanner() {
 
   const load = useCallback(async () => {
     try {
-      const r = await api<{ suggestion: Suggestion | null }>(`/api/reschedule?today=${localToday()}`);
+      const r = await api<{ suggestion: Suggestion | null; blockCreatedAt: string | null }>(
+        `/api/reschedule?today=${localToday()}`
+      );
       setS(r.suggestion);
+      setSuggestionBlockCreatedAt(r.blockCreatedAt);
       setLoadFailed(false);
     } catch {
       setLoadFailed(true); // visible failure (S1-3): no suggestion ≠ couldn't check
     }
   }, []);
 
-  useMountLoad(load);
+  // HR-44: reload whenever the current block itself changes (write/delete/retro/sync all can replace
+  // it) — a suggestion computed against a since-superseded block must never linger and be applied
+  // against the new one.
+  useMountLoad(load, state?.currentBlock?.createdAt ?? null);
 
   if (dismissed) return null;
   if (loadFailed) return <LoadFailed what="the reschedule check" retry={() => void load()} />;
@@ -72,7 +83,10 @@ export default function RescheduleBanner() {
           from: s.from,
           to: s.to,
           today: localToday(),
-          expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null,
+          // HR-44: the createdAt THIS suggestion was computed against, captured at fetch time —
+          // not `state.currentBlock?.createdAt` read fresh here, which could by now point at a
+          // different (newer) block that happens to cover the same dates.
+          expectedBlockCreatedAt: suggestionBlockCreatedAt,
         }),
       });
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move

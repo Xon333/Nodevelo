@@ -60,8 +60,10 @@ export function InfoDot({ text, align }: { text: string; align?: "left" | "right
 // LoadFailed convention below. `load` must be a stable useCallback that touches state only after
 // its first await (post-microtask), so the effect never sets state synchronously; the same `load`
 // doubles as LoadFailed's retry. An optional `refreshKey` re-runs the fetch when it changes (e.g.
-// a parent bumps it after a save) — same rules, not just the initial mount.
-export function useMountLoad(load: () => Promise<void>, refreshKey?: number) {
+// a parent bumps it after a save, or a block's createdAt changes) — same rules, not just the initial
+// mount. `unknown` (not just `number`) since a stable primitive of any type — a string createdAt, a
+// counter — works fine as a React dependency-array entry.
+export function useMountLoad(load: () => Promise<void>, refreshKey?: unknown) {
   useEffect(() => {
     void load();
   }, [load, refreshKey]);

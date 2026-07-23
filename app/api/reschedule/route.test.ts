@@ -16,7 +16,7 @@ vi.mock("@/lib/calendar-mirror", () => ({
 
 import * as store from "@/lib/data-store";
 import * as mirror from "@/lib/calendar-mirror";
-import { PATCH, POST, PUT } from "@/app/api/reschedule/route";
+import { GET, PATCH, POST, PUT } from "@/app/api/reschedule/route";
 import type { CurrentBlock } from "@/lib/types";
 
 const TODAY = "2026-06-20";
@@ -49,10 +49,13 @@ const block = (): CurrentBlock => ({
 const postReq = (body: unknown) => new Request("http://t/api/reschedule", { method: "POST", body: JSON.stringify(body) });
 const putReq = (body: unknown) => new Request("http://t/api/reschedule", { method: "PUT", body: JSON.stringify(body) });
 const patchReq = (body: unknown) => new Request("http://t/api/reschedule", { method: "PATCH", body: JSON.stringify(body) });
+const getReq = () => new Request(`http://t/api/reschedule?today=${TODAY}`);
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(store.readCurrentBlock).mockResolvedValue(block());
+  vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
+  vi.mocked(store.readDispositions).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.writeCurrentBlock).mockResolvedValue(undefined);
   // Default: a no-op mirror (as if Intervals.icu isn't configured) that still persists the local
   // move, mirroring persistMirroredMove's real contract — writeCurrentBlock, then report {[], []}.
@@ -60,6 +63,20 @@ beforeEach(() => {
     const updatedBlock = { ...b, days };
     await store.writeCurrentBlock(updatedBlock);
     return { updatedBlock, mirrored: [], failed: [], versionConflict: false };
+  });
+});
+
+describe("GET /api/reschedule", () => {
+  it("HR-44: returns the block's createdAt alongside the suggestion, so the client can capture it at fetch time", async () => {
+    const json = await (await GET(getReq())).json();
+    expect(json.blockCreatedAt).toBe(block().createdAt);
+  });
+
+  it("returns blockCreatedAt: null when there's no active block", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
+    const json = await (await GET(getReq())).json();
+    expect(json.blockCreatedAt).toBeNull();
+    expect(json.suggestion).toBeNull();
   });
 });
 

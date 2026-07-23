@@ -14,7 +14,11 @@ export async function GET(req: Request) {
   const [block, scoreLog, dispositions] = await Promise.all([readCurrentBlock(), readScoreLog(), readDispositions()]);
   const scoredDates = new Set(scoreLog.entries.map((e) => e.date));
   const dispositionByDate: DispositionByDate = Object.fromEntries(dispositions.entries.map((e) => [e.date, e.disposition]));
-  return NextResponse.json({ suggestion: suggestReschedule(block, scoredDates, dispositionByDate, today) });
+  // HR-44: the block's createdAt AS OF this suggestion, so the client can send it back verbatim on
+  // Apply instead of re-reading `state.currentBlock?.createdAt` at click time — which may no longer be
+  // the block this suggestion was actually computed against (the athlete could have written/deleted a
+  // replacement block covering the same dates while a stale suggestion was still showing).
+  return NextResponse.json({ suggestion: suggestReschedule(block, scoredDates, dispositionByDate, today), blockCreatedAt: block?.createdAt ?? null });
 }
 
 function parseBody(body: unknown): { from: string; to: string; today: string } | null {
