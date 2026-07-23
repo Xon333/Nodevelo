@@ -127,14 +127,13 @@ independently by two agents). Continues the HR- series (append, not renumber).
   (confirmed RED against the old click-time read before the fix) — this is also the first component
   interaction test in the repo: added `@testing-library/react` + `jsdom` as dev dependencies (per-file
   `@vitest-environment jsdom` docblock, so the rest of the suite stays on the faster node environment).
-- ☐ P2 `bug` **HR-45** — `doSync` never updates or invalidates the cached `currentBlock` in
-  `SyncProvider.tsx:163-183` — the POST response carries no `currentBlock` field, even though POST
-  `/api/sync` can mutate the block itself (inbound calendar-move reconciliation, execution backfill). No
-  invalidation follows, and every `setQueryData` call re-freshens react-query's 30s `staleTime`. An
-  athlete who moves a session on Intervals.icu and hits Sync sees a success toast while the calendar
-  strip still shows the pre-move layout — and can then act (move/swap) against days that no longer hold
-  what the UI claims. Fix direction: `invalidateQueries(SYNC_QUERY_KEY)` at the end of `doSync`, or
-  return and merge `currentBlock` from the POST response.
+- ☑ P2 `bug` **HR-45** — **Fixed.** `doSync` (`SyncProvider.tsx`) now calls
+  `queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY })` right after its manual field merge —
+  the same idiom `DayAction.tsx` already used for this exact gap (its own comment called out that
+  doSync's POST response has no `currentBlock` field). New test in `components/SyncProvider.test.tsx`
+  (the first `@tanstack/react-query`-backed component test in the repo, using a real `QueryClientProvider`)
+  proves a block mutated server-side by the sync itself is picked up after `doSync` resolves; confirmed
+  RED against the pre-fix code.
 - ☐ P2 `bug` **HR-46** — `RescheduleBanner.apply`'s own post-apply refresh (`RescheduleBanner.tsx:78-79`,
   `api<AppState>("/api/sync")`) omits `?today=`, so the server falls back to UTC — the same recurring
   class as HR-32, here on the client. Worse, `setState(fresh)` replaces the *entire* app-state cache: if

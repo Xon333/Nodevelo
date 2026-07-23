@@ -188,11 +188,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setSyncing(false);
       return;
     }
+    // HR-45: this POST's response carries no `currentBlock` field, even though sync itself can mutate
+    // the block (inbound calendar-move reconciliation, execution-outcome backfill) — the manual merge
+    // above would otherwise leave the cached block stale after a sync that moved something. GET
+    // /api/sync (the query this cache key backs) DOES return `currentBlock`, so invalidate and let the
+    // next read re-fetch fresh state — same idiom DayAction already uses for the same gap.
+    await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
     // Fast path done — surface the data immediately, then fetch the deferred coach note so an
     // Anthropic hiccup never blocks (or fails) the sync itself.
     setSyncing(false);
     if (analysisPending) await runAnalysis(false);
-  }, [runAnalysis, setState]);
+  }, [queryClient, runAnalysis, setState]);
 
   // Manual re-analyse — force a fresh coach note (e.g. after the auto-run failed).
   const reAnalyse = useCallback(() => runAnalysis(true), [runAnalysis]);
