@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { readAthleteProfile, readLastSync, writeAthleteProfile } from "@/lib/data-store";
+import { readAthleteProfile, readLastSync, updateAthleteProfile } from "@/lib/data-store";
 import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
+import type { AthleteProfile } from "@/lib/types";
 import type { Zone } from "@/lib/zones";
 
 // GET returns the parsed athlete_profile.md snapshot plus Intervals.icu auto-sync data.
@@ -118,9 +119,10 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const current = await readAthleteProfile();
-  let updated = { ...current, updatedAt: new Date().toISOString() };
 
+  // HR-50: validate BEFORE the locked update below — a 400 here must never touch the lock, and the
+  // mutator handed to updateAthleteProfile is a pure merge with no failure path of its own.
+  let nutrition: AthleteProfile["nutrition"] | undefined;
   if (b.nutrition !== undefined) {
     const input = b.nutrition as Record<string, unknown>;
     const { baseCalories, restDayTarget, buffer, targetWeightKg } = input;
@@ -131,48 +133,54 @@ export async function PUT(req: Request) {
     if (typeof buffer !== "number" || !Number.isFinite(buffer) || buffer < 0 || buffer > 600) {
       return NextResponse.json({ error: "buffer must be between 0 and 600 kcal." }, { status: 400 });
     }
-    updated = {
-      ...updated,
-      nutrition: {
-        baseCalories: baseCalories as number,
-        restDayTarget: restDayTarget as number,
-        buffer: buffer as number,
-        targetWeightKg: targetWeightKg as number,
-      },
+    nutrition = {
+      baseCalories: baseCalories as number,
+      restDayTarget: restDayTarget as number,
+      buffer: buffer as number,
+      targetWeightKg: targetWeightKg as number,
     };
   }
 
   const VALID_FOCUS = new Set(["aerobic-base", "threshold", "vo2max", "anaerobic", "durability", "sharpen", "general"]);
 
+  let goals: AthleteProfile["goals"] | undefined;
   if (b.goals !== undefined) {
     if (!Array.isArray(b.goals)) return NextResponse.json({ error: "goals must be an array." }, { status: 400 });
-    const goals: typeof updated.goals = [];
+    goals = [];
     for (const g of b.goals) {
       if (!g || typeof g !== "object") return NextResponse.json({ error: "Each goal must be an object." }, { status: 400 });
       const rec = g as Record<string, unknown>;
-      const goal = typeof rec.goal === "string" ? rec.goal.trim() : "";
+      const goalText = typeof rec.goal === "string" ? rec.goal.trim() : "";
       const target = typeof rec.target === "string" ? rec.target.trim() : "";
-      const focus = typeof rec.focus === "string" && VALID_FOCUS.has(rec.focus) ? (rec.focus as typeof goals[number]["focus"]) : "general";
-      if (!goal) return NextResponse.json({ error: "Goal text is required." }, { status: 400 });
-      goals.push({ goal, target, focus });
+      const focus = typeof rec.focus === "string" && VALID_FOCUS.has(rec.focus) ? (rec.focus as AthleteProfile["goals"][number]["focus"]) : "general";
+      if (!goalText) return NextResponse.json({ error: "Goal text is required." }, { status: 400 });
+      goals.push({ goal: goalText, target, focus });
     }
-    updated = { ...updated, goals };
   }
 
+  let weakpoints: AthleteProfile["weakpoints"] | undefined;
   if (b.weakpoints !== undefined) {
     if (!Array.isArray(b.weakpoints)) return NextResponse.json({ error: "weakpoints must be an array." }, { status: 400 });
-    const weakpoints: typeof updated.weakpoints = [];
+    weakpoints = [];
     for (const w of b.weakpoints) {
       if (!w || typeof w !== "object") return NextResponse.json({ error: "Each weakpoint must be an object." }, { status: 400 });
       const rec = w as Record<string, unknown>;
-      const weakpoint = typeof rec.weakpoint === "string" ? rec.weakpoint.trim() : "";
+      const weakpointText = typeof rec.weakpoint === "string" ? rec.weakpoint.trim() : "";
       const detail = typeof rec.detail === "string" ? rec.detail.trim() : "";
-      if (!weakpoint) return NextResponse.json({ error: "Weakpoint text is required." }, { status: 400 });
-      weakpoints.push({ weakpoint, detail });
+      if (!weakpointText) return NextResponse.json({ error: "Weakpoint text is required." }, { status: 400 });
+      weakpoints.push({ weakpoint: weakpointText, detail });
     }
-    updated = { ...updated, weakpoints };
   }
 
-  await writeAthleteProfile(updated);
+  // HR-50: mutates the RAW stored profile, never the live-overlaid one readAthleteProfile returns —
+  // baking physiology-sync-derived FTP/HR back into athlete.json as if it were saved user input was
+  // the actual bug. Locked, so a concurrent PUT (or the goals-migration self-heal write) can't
+  // clobber this one.
+  const updated = await updateAthleteProfile((profile) => ({
+    ...profile,
+    ...(nutrition !== undefined ? { nutrition } : {}),
+    ...(goals !== undefined ? { goals } : {}),
+    ...(weakpoints !== undefined ? { weakpoints } : {}),
+  }));
   return NextResponse.json({ nutrition: updated.nutrition, goals: updated.goals, weakpoints: updated.weakpoints });
 }

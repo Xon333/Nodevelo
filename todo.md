@@ -166,10 +166,15 @@ independently by two agents). Continues the HR- series (append, not renumber).
   (contradicting `shapeMergeProfile`'s own doc comment) — now cloned (`[...p.goals]`) too. New tests in
   `lib/data-store.test.ts` confirm no field of a fallback-derived profile shares a reference with
   `DEFAULT_PROFILE`; confirmed RED on the array-sharing case before the clone.
-- ☐ P3 `bug` **HR-50** — Profile PUT (`app/api/profile/route.ts:121-176`) persists the *read-time*
-  FTP/HR overlay back into the base store — baking derived values into `athlete.json` — and is an
-  unlocked read-modify-write against a concurrent PUT or the goals migration. Fix direction: an
-  `updateAthleteProfile` transactional helper operating on the raw, un-overlaid file.
+- ☑ P3 `bug` **HR-50** — **Fixed.** Added `updateAthleteProfile` (`lib/data-store.ts`) — a locked
+  read-modify-write on athlete.json's RAW shape (shape-merged over `DEFAULT_PROFILE`, never the
+  live-overlaid one `readAthleteProfile` returns). `app/api/profile/route.ts` PUT now validates
+  nutrition/goals/weakpoints up front (before the lock — a 400 never touches it), then applies a pure
+  merge inside `updateAthleteProfile`, so physiology-sync-derived FTP/HR values can no longer get baked
+  into `athlete.json` as if they were saved input, and a concurrent PUT/goals-migration write can't be
+  clobbered. New tests in `lib/data-store.test.ts` (persist, concurrency, old-format shape-merge) and
+  `app/api/profile/route.test.ts` (rewritten to mock `updateAthleteProfile`; confirmed RED against the
+  old `readAthleteProfile`/`writeAthleteProfile` pair).
 - ☐ P3 `bug` **HR-51** — Sync's calibration re-derive is one-sided: it reads unlocked
   (`app/api/sync/route.ts:244`) and writes with a plain `writeCalibration` (:260), while the Model page's
   manual-override POST correctly uses `updateCalibration`. A manual override landing in that narrow

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeAthleteProfile, writeCurrentBlock } from "./data-store";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -445,5 +445,40 @@ describe("readAthleteProfile", () => {
     // the first call's overlay happened to leave behind — proving there's no cross-call pollution.
     await readAthleteProfile();
     expect(DEFAULT_PROFILE.performance.ftp).toBe(200);
+  });
+});
+
+describe("updateAthleteProfile", () => {
+  it("HR-50: mutates and persists onto athlete.json's RAW stored shape, not a live-overlaid read", async () => {
+    await writeAthleteProfile(baseProfile({ nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75 } }));
+    const result = await updateAthleteProfile((profile) => ({
+      ...profile,
+      nutrition: { ...profile.nutrition, baseCalories: 2500 },
+    }));
+    expect(result.nutrition.baseCalories).toBe(2500);
+    const onDisk = await readAthleteProfile();
+    expect(onDisk.nutrition.baseCalories).toBe(2500);
+  });
+
+  it("does not lose a concurrent update — two mutates against the same file both land", async () => {
+    await writeAthleteProfile(baseProfile());
+    await Promise.all([
+      updateAthleteProfile((profile) => ({ ...profile, nutrition: { ...profile.nutrition, baseCalories: 2400 } })),
+      updateAthleteProfile((profile) => ({ ...profile, goals: [{ goal: "New goal", target: "", focus: "general" }] })),
+    ]);
+    const onDisk = await readAthleteProfile();
+    expect(onDisk.nutrition.baseCalories).toBe(2400);
+    expect(onDisk.goals).toEqual([{ goal: "New goal", target: "", focus: "general" }]);
+  });
+
+  it("shape-merges an old-format on-disk file before handing it to mutate, so an old file doesn't crash the caller", async () => {
+    await fs.writeFile(
+      p("athlete.json"),
+      JSON.stringify({ performance: { ftp: 240, maxHr: 190, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10 }, updatedAt: "2025-01-01T00:00:00.000Z" }),
+      "utf-8"
+    );
+    const result = await updateAthleteProfile((profile) => ({ ...profile, goals: [...profile.goals, { goal: "g", target: "", focus: "general" as const }] }));
+    expect(result.goals).toEqual([{ goal: "g", target: "", focus: "general" }]);
+    expect(result.performance.ftp).toBe(240); // real data preserved through the shape-merge
   });
 });

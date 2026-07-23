@@ -108,6 +108,23 @@ export async function writeAthleteProfile(profile: AthleteProfile): Promise<void
   await writeJson("athlete.json", profile);
 }
 
+// HR-50: transactional read-modify-write on athlete.json's RAW (un-overlaid) shape — unlike
+// readAthleteProfile, which layers live md/physiology FTP/HR data on top for display/scoring. A
+// caller persisting a profile edit (nutrition, goals, weakpoints) must mutate the raw stored value,
+// never the overlaid one — baking transient physiology-sync data back into athlete.json as if it were
+// saved user input. The read happens inside the per-file lock (mirrors updateScoreLog/updateCalibration),
+// so a concurrent PUT or the goals-migration self-heal write can't clobber each other. Shape-merges
+// over DEFAULT_PROFILE first (HR-43) so an old-format file can't crash `mutate`; stamps `updatedAt`
+// centrally so callers can't forget it.
+export async function updateAthleteProfile(
+  mutate: (profile: AthleteProfile) => AthleteProfile
+): Promise<AthleteProfile> {
+  return updateJson<AthleteProfile>("athlete.json", DEFAULT_PROFILE, (current) => ({
+    ...mutate(shapeMergeProfile(current)),
+    updatedAt: new Date().toISOString(),
+  }));
+}
+
 export async function readLastSync(): Promise<SyncData | null> {
   return readJson<SyncData | null>("last-sync.json", null);
 }
