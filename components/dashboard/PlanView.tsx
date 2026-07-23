@@ -279,17 +279,18 @@ export default function PlanView() {
 
   // S2-7: the confirm now happens in-product, inline in CurrentBlockSection (plan.tsx) before this
   // fires — window.confirm's generic browser dialog never stated that ridden history/scores survive.
+  // Deliberately lets a failure throw instead of catching it here: CurrentBlockSection's own "Yes,
+  // delete" click handler catches it and shows it locally, next to the confirm bar. Catching it here
+  // and routing it through generateError was the actual bug — that state only ever renders inside
+  // BlockGenerator's expanded form, which is collapsed by default whenever a block is active (i.e.
+  // always, at the exact moment Delete is used) — a failed delete gave zero visible feedback.
   const deleteBlock = async () => {
-    try {
-      const expected = state?.currentBlock?.createdAt;
-      const qs = expected ? `?expectedBlockCreatedAt=${encodeURIComponent(expected)}` : "";
-      await api(`/api/sync${qs}`, { method: "DELETE" });
-      setState((s) => (s ? { ...s, currentBlock: null } : s));
-      setPlan(null);
-      setWriteResults(null);
-    } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Couldn't delete — try again.");
-    }
+    const expected = state?.currentBlock?.createdAt;
+    const qs = expected ? `?expectedBlockCreatedAt=${encodeURIComponent(expected)}` : "";
+    await api(`/api/sync${qs}`, { method: "DELETE" });
+    setState((s) => (s ? { ...s, currentBlock: null } : s));
+    setPlan(null);
+    setWriteResults(null);
   };
 
   const generateRetro = async () => {

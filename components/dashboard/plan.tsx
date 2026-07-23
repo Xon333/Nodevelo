@@ -390,6 +390,7 @@ export function CurrentBlockSection({
   // UXA-58: "Yes, delete" used to fire-and-forget onDelete() and close the confirm bar instantly —
   // no guard while the DELETE request was actually in flight, unlike every other write in the app.
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   if (!block) {
     return (
       <section className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-center dark:border-zinc-600 dark:bg-zinc-800">
@@ -477,32 +478,53 @@ export function CurrentBlockSection({
           </div>
           {onDelete && (
             confirming ? (
-              <div className="flex shrink-0 items-center gap-2">
-                <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Delete the plan — ridden history and scores are kept.
-                </span>
-                <button
-                  onClick={async () => {
-                    setDeleting(true);
-                    try {
-                      await onDelete?.();
-                    } finally {
-                      setDeleting(false);
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Delete the plan — ridden history and scores are kept.
+                  </span>
+                  <button
+                    onClick={async () => {
+                      setDeleting(true);
+                      setDeleteError(null);
+                      try {
+                        await onDelete?.();
+                        setConfirming(false);
+                      } catch (err) {
+                        // Bug report: "the delete button doesn't work" — reproduced live. The old
+                        // code routed this through PlanView's generateError, which only renders
+                        // inside BlockGenerator's expanded form (collapsed by default whenever a
+                        // block is active, i.e. always, right when Delete is used) — a failed
+                        // delete gave zero visible feedback. Shown here instead, next to the
+                        // action that failed, matching RescheduleBanner/DayAction's own pattern.
+                        // The confirm bar also now stays open on failure instead of closing
+                        // unconditionally, so the athlete can read the error and retry or cancel.
+                        setDeleteError(err instanceof Error ? err.message : "Couldn't delete — try again.");
+                      } finally {
+                        setDeleting(false);
+                      }
+                    }}
+                    disabled={deleting}
+                    className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleting ? "Deleting…" : "Yes, delete"}
+                  </button>
+                  <button
+                    onClick={() => {
                       setConfirming(false);
-                    }
-                  }}
-                  disabled={deleting}
-                  className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deleting ? "Deleting…" : "Yes, delete"}
-                </button>
-                <button
-                  onClick={() => setConfirming(false)}
-                  disabled={deleting}
-                  className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-200"
-                >
-                  Cancel
-                </button>
+                      setDeleteError(null);
+                    }}
+                    disabled={deleting}
+                    className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {deleteError && (
+                  <span role="alert" className="text-[11px] text-red-600 dark:text-red-400">
+                    {deleteError}
+                  </span>
+                )}
               </div>
             ) : (
               <div className="relative shrink-0" onMouseLeave={() => setMenuOpen(false)}>
