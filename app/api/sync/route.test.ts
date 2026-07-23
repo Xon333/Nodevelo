@@ -517,6 +517,17 @@ describe("POST /api/sync — ledger rebuild one-shot (LEDGER-3)", () => {
     expect(scoreEntries.find((e) => e.date === "2026-06-20")?.ftpUsed).toBe(200);
     expect(store.writeLedgerRebuild).toHaveBeenCalledOnce();
   });
+
+  it("HR-53: a marker file missing rebuiltAt entirely (hand-edited/partial import, parses back as undefined) does not falsely read as already-rebuilt", async () => {
+    seedRebuildScenario();
+    // Real on-disk shape for a `{}` file or one predating this field — `rebuiltAt` is `undefined`,
+    // not `null`. A strict `!== null` check wrongly treats that as "already rebuilt".
+    vi.mocked(store.readLedgerRebuild).mockResolvedValue({} as { rebuiltAt: string | null });
+    const json = await (await postSync({ today: TODAY, rebuildLedger: true })).json();
+    expect(scoreEntries.find((e) => e.date === "2026-06-20")?.ftpUsed).toBe(200); // rebuild actually ran
+    expect(store.writeLedgerRebuild).toHaveBeenCalledOnce();
+    expect(json.warnings.some((w: string) => /already rebuilt/.test(w))).toBe(false);
+  });
 });
 
 describe("POST /api/sync — physiology reconcile + best-effort warnings", () => {

@@ -194,10 +194,12 @@ independently by two agents). Continues the HR- series (append, not renumber).
   `app/api/settings/route.test.ts` (rewritten to mock `updateBlockSettings`), and `app/api/sync/route.test.ts`
   cover persistence, concurrency, and validation-error propagation; confirmed RED against the pre-fix code
   across all four files.
-- ☐ P3 `bug` **HR-53** — The ledger-rebuild marker still checks `rebuiltAt !== null`
-  (`app/api/sync/route.ts:514`) instead of a truthy check — the exact AGENTS.md-documented migration-flag
-  anti-pattern. A hand-edited or partially-imported marker file (`{}` on disk, parsing back as
-  `undefined`) reads as "already rebuilt" and silently refuses a requested rebuild.
+- ☑ P3 `bug` **HR-53** — **Fixed.** The ledger-rebuild marker check in `app/api/sync/route.ts` now uses
+  `Boolean(rebuildMarker.rebuiltAt)` instead of `rebuiltAt !== null` — the exact
+  AGENTS.md-documented migration-flag anti-pattern. New regression test in `app/api/sync/route.test.ts`
+  seeds a marker missing the field entirely (`{}`, the real on-disk shape for a hand-edited or
+  partially-imported file) and confirms a requested rebuild still runs; confirmed RED against the old
+  `!== null` check.
 - ☐ P3 `bug` **HR-54** — Assorted data-store hygiene, all low-risk: (a) `writeScoreLog`/`writeDispositions`
   are exported but have zero callers — standing footguns inviting exactly HR-36's unlocked-write pattern
   if someone reaches for them later; consider removing. (b) `writeJsonFile(file, undefined)` would

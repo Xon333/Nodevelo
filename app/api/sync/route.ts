@@ -513,8 +513,12 @@ export async function POST(req: Request) {
       );
       // One-shot guard (LEDGER-3): the rebuild runs at most once. A normal sync never requests it; a
       // repeat request after the persisted marker is refused unless `force` is set.
+      // HR-53: truthy check, not `!== null` — the AGENTS.md-documented migration-flag anti-pattern. A
+      // hand-edited or partially-imported marker file (`{}` on disk) parses back with `rebuiltAt`
+      // entirely absent (`undefined`, not `null`), which a strict null-check would wrongly read as
+      // "already rebuilt" and silently refuse a genuinely-requested rebuild forever.
       const rebuildMarker = await readLedgerRebuild();
-      const doRebuild = shouldRebuildLedger(rebuildRequested, rebuildMarker.rebuiltAt !== null, rebuildForce);
+      const doRebuild = shouldRebuildLedger(rebuildRequested, Boolean(rebuildMarker.rebuiltAt), rebuildForce);
       if (rebuildRequested && !doRebuild) {
         warnings.push(`Ledger rebuild skipped — already rebuilt ${rebuildMarker.rebuiltAt} (one-time migration; pass force to re-run).`);
       }
