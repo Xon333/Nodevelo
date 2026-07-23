@@ -163,3 +163,49 @@ describe("RescheduleBanner — HR-46 (post-apply refresh)", () => {
     expect(h.api.mock.calls.some(([url]) => url === "/api/sync")).toBe(false);
   });
 });
+
+describe("RescheduleBanner — HR-59 (move-failure vs. refresh-failure)", () => {
+  it("surfaces the real 409 message from a failed move instead of a generic string", async () => {
+    mockSync("createdAt-A");
+    h.api.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.startsWith("/api/reschedule?today=")) {
+        return { suggestion, blockCreatedAt: "createdAt-A" };
+      }
+      if (url === "/api/reschedule" && init?.method === "POST") {
+        throw new Error("This plan changed in another tab — reload to see the latest.");
+      }
+      throw new Error(`unexpected api call: ${url}`);
+    });
+
+    render(<RescheduleBanner />);
+    await waitFor(() => expect(screen.getByText("Apply")).toBeTruthy());
+    fireEvent.click(screen.getByText("Apply"));
+
+    await waitFor(() => expect(screen.getByText("This plan changed in another tab — reload to see the latest.")).toBeTruthy());
+    // The suggestion must still be showing — the move never went through, so Apply stays available.
+    expect(screen.getByText("Apply")).toBeTruthy();
+    expect(h.invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it("does not show a false 'couldn't apply' error when only the post-move cache refresh fails", async () => {
+    mockSync("createdAt-A");
+    h.api.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.startsWith("/api/reschedule?today=")) {
+        return { suggestion, blockCreatedAt: "createdAt-A" };
+      }
+      if (url === "/api/reschedule" && init?.method === "POST") {
+        return { ok: true, mirrored: [], mirrorFailed: [] };
+      }
+      throw new Error(`unexpected api call: ${url}`);
+    });
+    h.invalidateQueries.mockRejectedValueOnce(new Error("network blip"));
+
+    render(<RescheduleBanner />);
+    await waitFor(() => expect(screen.getByText("Apply")).toBeTruthy());
+    fireEvent.click(screen.getByText("Apply"));
+
+    // The move succeeded — the suggestion clears, exactly as the all-succeeded path does.
+    await waitFor(() => expect(screen.queryByText("Apply")).toBeNull());
+    expect(screen.queryByText(/couldn't apply the move/i)).toBeNull();
+  });
+});

@@ -78,8 +78,9 @@ export default function RescheduleBanner() {
     if (!s.to || busy) return;
     setBusy(true);
     setApplyError(null);
+    let res: { ok: boolean; mirrored: string[]; mirrorFailed: string[] };
     try {
-      const res = await api<{ ok: boolean; mirrored: string[]; mirrorFailed: string[] }>("/api/reschedule", {
+      res = await api<{ ok: boolean; mirrored: string[]; mirrorFailed: string[] }>("/api/reschedule", {
         method: "POST",
         body: JSON.stringify({
           from: s.from,
@@ -91,19 +92,28 @@ export default function RescheduleBanner() {
           expectedBlockCreatedAt: suggestionBlockCreatedAt,
         }),
       });
+    } catch (e) {
+      // HR-59: the move itself failed — preserve the real message (e.g. a 409 "this plan changed in
+      // another tab" conflict) instead of a generic string, matching DayAction.tsx's equivalent path.
+      setApplyError(e instanceof Error ? e.message : "Couldn't apply the move — try again.");
+      setBusy(false);
+      return;
+    }
+    // HR-59: the move already succeeded server-side at this point — a failure below is only the
+    // post-move cache refresh, and must never be reported as "couldn't apply the move" (it wasn't).
+    setS(null);
+    setMirrorFailed(res.mirrorFailed);
+    try {
       // HR-46: was a bare GET with no ?today= (fell back to the server's UTC date) plus a manual
       // setState(fresh) that replaced the ENTIRE app-state cache — if a Sync was also in flight, whichever
       // response landed second won outright, with no error surfaced either way. invalidateQueries is the
       // same idiom DayAction.tsx already uses for this exact refresh-after-move need: it merges through
       // react-query's own cache instead of a competing raw overwrite, and needs no `today` at all.
       await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
-      setS(null);
-      setMirrorFailed(res.mirrorFailed);
     } catch {
-      setApplyError("Couldn't apply the move — try again.");
-    } finally {
-      setBusy(false);
+      // Best-effort — the cache will catch up on the next natural refetch/sync.
     }
+    setBusy(false);
   };
 
   const verb = s.reason === "compromised" ? "couldn't complete" : "missed";

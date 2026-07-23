@@ -243,10 +243,16 @@ independently by two agents). Continues the HR- series (append, not renumber).
   (never persists on generation failure; CAS-guards against a concurrent Season-form save), and
   `app/api/season/route.test.ts` (routes through the locked update) — confirmed RED against the old code
   (persisted unconditionally before generation, ignored any concurrent edit).
-- ☐ P3 `bug` **HR-59** — `RescheduleBanner.apply`'s single catch block
-  (`RescheduleBanner.tsx:82-83`) conflates "the move itself failed" with "the post-move refresh failed" —
-  a failed refresh (move actually succeeded) shows "Couldn't apply the move," which is wrong and also
-  hides the real, actionable 409 message that `DayAction.tsx` correctly preserves in the equivalent path.
+- ☑ P3 `bug` **HR-59** — **Fixed.** `RescheduleBanner.apply` now has two separate failure boundaries: the
+  `/api/reschedule` POST's own try/catch preserves the real thrown message (`e.message`, e.g. a 409
+  "this plan changed in another tab" conflict) instead of a generic string — matching `DayAction.tsx`'s
+  equivalent path — and leaves the suggestion showing so Apply can be retried. Once that call succeeds,
+  the move is treated as done (`setS(null)`/`setMirrorFailed`) *before* the separate, best-effort
+  `invalidateQueries` call, so a refresh failure (the move already succeeded) never surfaces the
+  misleading "Couldn't apply the move" text. New tests in `components/RescheduleBanner.test.tsx` cover
+  both: the real 409 message is shown and the suggestion stays visible on a move failure; no false error
+  appears when only the post-move cache refresh rejects. Confirmed RED against the old code (single
+  catch showed the generic string in both cases).
 
 ---
 
