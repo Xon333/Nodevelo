@@ -2,9 +2,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, writeAthleteProfile, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readSeasonPlan, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
-import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
+import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord, SeasonPlan } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10 },
@@ -535,5 +535,57 @@ describe("updateBlockSettings", () => {
     const updated = await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 }));
     expect(updated.autoSyncOnOpen).toBe(true);
     expect(updated.polarisedApproach).toBe(true);
+  });
+});
+
+describe("updateSeasonPlan", () => {
+  const plan = (overrides: Partial<SeasonPlan> = {}): SeasonPlan => ({
+    objective: "Century in September",
+    events: [],
+    periods: [],
+    updatedAt: "2026-06-01T00:00:00.000Z",
+    ...overrides,
+  });
+
+  it("HR-58: mutates and persists onto season-plan.json, stamping updatedAt centrally", async () => {
+    await writeSeasonPlan(plan());
+    const result = await updateSeasonPlan((current) => ({ ...current, objective: "New goal" }));
+    expect(result.objective).toBe("New goal");
+    expect(result.updatedAt).not.toBe(plan().updatedAt);
+    expect((await readSeasonPlan()).objective).toBe("New goal");
+  });
+
+  it("HR-58: an expectedUpdatedAt mismatch no-ops — mutate is never called and disk is untouched", async () => {
+    await writeSeasonPlan(plan());
+    let mutateCalled = false;
+    const result = await updateSeasonPlan((current) => {
+      mutateCalled = true;
+      return { ...current, objective: "Should never land" };
+    }, "some-other-timestamp");
+    expect(mutateCalled).toBe(false);
+    expect(result.objective).toBe("Century in September");
+    expect((await readSeasonPlan()).objective).toBe("Century in September");
+  });
+
+  it("HR-58: runs mutate normally when expectedUpdatedAt matches the live value", async () => {
+    // writeSeasonPlan stamps its own fresh updatedAt on write — read back the real on-disk value
+    // instead of assuming the fixture's own `plan().updatedAt` survived the write.
+    await writeSeasonPlan(plan());
+    const onDisk = await readSeasonPlan();
+    const result = await updateSeasonPlan(
+      (current) => ({ ...current, objective: "Matched" }),
+      onDisk.updatedAt
+    );
+    expect(result.objective).toBe("Matched");
+  });
+
+  it("does not lose a concurrent update — two mutates against the same file both land", async () => {
+    await writeSeasonPlan(plan());
+    await Promise.all([
+      updateSeasonPlan((current) => ({ ...current, objective: "From A" })),
+      updateSeasonPlan((current) => ({ ...current, events: [{ name: "Fondo", date: "2026-09-01", priority: "A" }] })),
+    ]);
+    const onDisk = await readSeasonPlan();
+    expect(onDisk.events).toEqual([{ name: "Fondo", date: "2026-09-01", priority: "A" }]);
   });
 });

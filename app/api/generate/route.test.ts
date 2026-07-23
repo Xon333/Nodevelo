@@ -55,7 +55,7 @@ vi.mock("@/lib/data-store", () => ({
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
   readSeasonPlan: vi.fn(),
-  writeSeasonPlan: vi.fn(),
+  updateSeasonPlan: vi.fn(),
 }));
 
 import * as store from "@/lib/data-store";
@@ -83,7 +83,9 @@ beforeEach(() => {
   vi.mocked(store.readRollingBaselines).mockResolvedValue({} as never);
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "" });
-  vi.mocked(store.writeSeasonPlan).mockResolvedValue(undefined);
+  vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) =>
+    mutate({ objective: "", events: [], periods: [], updatedAt: "" })
+  );
 });
 
 const gen = (goal: string) =>
@@ -138,7 +140,7 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
     expect(dynamic).not.toContain("BLOCK FOCUS:");
     expect(dynamic).not.toContain("RECOVERY:");
     // Season state must still be tracked underneath even though it's not shown to the model.
-    expect(store.writeSeasonPlan).toHaveBeenCalled();
+    expect(store.updateSeasonPlan).toHaveBeenCalled();
   });
 
   it("does NOT push Season fit / focus-match warnings while SEASON_SHAPES_GENERATION is off", async () => {
@@ -228,10 +230,33 @@ describe("POST /api/generate — generation outcomes", () => {
   });
 
   it("a season-replan persistence failure never blocks generation (best-effort)", async () => {
-    vi.mocked(store.writeSeasonPlan).mockRejectedValueOnce(new Error("disk full"));
+    vi.mocked(store.updateSeasonPlan).mockRejectedValueOnce(new Error("disk full"));
     const res = await gen("Build FTP");
     expect(res.status).toBe(200);
     expect((await res.json()).plan).toBeDefined();
+  });
+
+  it("HR-58: never persists the season plan when generation itself fails", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockRejectedValueOnce(new Error("Anthropic 500"));
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(502);
+    expect(store.updateSeasonPlan).not.toHaveBeenCalled();
+  });
+
+  it("HR-58: CAS-guards the deferred persist against a concurrent Season-form save", async () => {
+    // existingSeason (the early read) carries updatedAt "v1" — simulate a concurrent PUT /api/season
+    // landing mid-generation by having the live store return "v2" when updateSeasonPlan's own mutate
+    // runs. The route's expectedUpdatedAt guard should refuse to apply the stale mutation.
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "v1" });
+    let sawExpected: string | undefined;
+    vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate, expected) => {
+      sawExpected = expected;
+      const live = { objective: "athlete edit", events: [], periods: [], updatedAt: "v2" };
+      return expected !== undefined && live.updatedAt !== expected ? live : mutate(live);
+    });
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(200);
+    expect(sawExpected).toBe("v1");
   });
 });
 

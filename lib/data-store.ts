@@ -400,3 +400,20 @@ export async function readSeasonPlan(): Promise<SeasonPlan> {
 export async function writeSeasonPlan(plan: SeasonPlan): Promise<void> {
   await writeJson("season-plan.json", { ...plan, updatedAt: new Date().toISOString() });
 }
+
+// HR-58: transactional read-modify-write on season-plan.json, with an optional CAS guard. The read
+// happens inside the per-file lock, so /api/generate's post-success persist and /api/season's PUT
+// (the "Season form" save) can't each compute their own `next` from the same stale `current` and
+// silently clobber one another. `expectedUpdatedAt`, when passed, additionally rejects the mutate
+// (returns `current` unchanged) if the live `updatedAt` no longer matches what the caller's own
+// upstream read saw — the caller's `mutate` was itself derived from that earlier snapshot, so a
+// mismatch means someone else wrote in between and this mutation is now based on stale state.
+export async function updateSeasonPlan(
+  mutate: (current: SeasonPlan) => SeasonPlan,
+  expectedUpdatedAt?: string
+): Promise<SeasonPlan> {
+  return updateJson<SeasonPlan>("season-plan.json", DEFAULT_SEASON_PLAN, (current) => {
+    if (expectedUpdatedAt !== undefined && current.updatedAt !== expectedUpdatedAt) return current;
+    return { ...mutate(current), updatedAt: new Date().toISOString() };
+  });
+}

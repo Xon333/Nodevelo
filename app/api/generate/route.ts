@@ -11,7 +11,7 @@ import {
   isAnthropicConfigured,
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, writeSeasonPlan } from "@/lib/data-store";
+import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { formatReflectionsForPrompt } from "@/lib/retrospective-schema";
 import { formatQuirksForPrompt } from "@/lib/quirks";
@@ -268,7 +268,10 @@ export async function POST(req: Request) {
         // both stay live regardless of the flag.
         rollingFocusChoice = chooseNextFocus(focusInputs);
       }
-      await writeSeasonPlan(replannedSeason);
+      // HR-58: persistence is deferred until generation actually succeeds (see the updateSeasonPlan
+      // call near the final return) — this used to write here unconditionally, so a generation that
+      // then failed (or whose proposal the athlete never accepted) still left a phantom future-arc
+      // redraft on season-plan.json.
 
       const blockEnd = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
       const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEnd });
@@ -408,6 +411,21 @@ export async function POST(req: Request) {
       durabilityTemplate: durability.id, // Track B: stamp the template for rotation + future scoring
       ...(rollingFocusChoice ? { seasonFocus: rollingFocusChoice.focus, seasonFocusRationale: rollingFocusChoice.rationale } : {}),
     };
+
+    // HR-58: persist the season re-plan/settle only now that generation actually succeeded — never
+    // for a proposal that failed or was discarded. CAS-guarded on the `updatedAt` this route's own
+    // `existingSeason` read saw: if a concurrent Season-form save (PUT /api/season) landed since, the
+    // live value has moved on and this stale-derived mutation is skipped rather than silently
+    // clobbering it. Best-effort, same as the re-plan computation above — never fails the response.
+    const seasonToPersist = replannedSeason;
+    if (seasonToPersist) {
+      try {
+        await updateSeasonPlan(() => seasonToPersist, existingSeason.updatedAt);
+      } catch (err) {
+        logWarn("/api/generate", "season-persist", err instanceof Error ? err.message : String(err));
+      }
+    }
+
     return NextResponse.json({ plan });
   } catch (err) {
     logError("/api/generate", "generate", err);

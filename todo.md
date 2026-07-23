@@ -231,11 +231,18 @@ independently by two agents). Continues the HR- series (append, not renumber).
   `app/api/retrospective/route.test.ts` assert the 502 `{error}` body and that neither
   `appendBlockHistory` nor `updateCurrentBlock` are called when the call fails; confirmed RED against
   the old code (the rejection propagated instead of a handled 502).
-- ☐ P3 `bug` **HR-58** — `/api/generate` persists `writeSeasonPlan` mid-proposal
-  (`app/api/generate/route.ts:271`) even if generation then fails or the plan is never written, via an
-  unlocked blind write after an unlocked read — a concurrent season-plan edit (e.g. saving the Season
-  form) in that window can be silently clobbered. Fix direction: defer persistence to the accept/write
-  step, or route through a locked update.
+- ☑ P3 `bug` **HR-58** — **Fixed.** New CAS-guarded `updateSeasonPlan(mutate, expectedUpdatedAt?)` in
+  `lib/data-store.ts` (read-modify-write inside the per-file lock, mirroring `updateCalibration`/
+  `updateBlockSettings`; a mismatched `expectedUpdatedAt` no-ops rather than clobbering). `/api/generate`
+  no longer calls `writeSeasonPlan` speculatively before the LLM call — the season replan/settle is still
+  *computed* early (it feeds the prompt context), but persistence is deferred to right before the final
+  `return`, only once generation has actually succeeded, and CAS-guarded against the `updatedAt` its own
+  early `existingSeason` read saw. `/api/season`'s PUT (the "Season form" save — the other party in the
+  race) now routes through the same `updateSeasonPlan` instead of a separate read-then-write. New tests
+  in `lib/data-store.test.ts` (`updateSeasonPlan` describe block), `app/api/generate/route.test.ts`
+  (never persists on generation failure; CAS-guards against a concurrent Season-form save), and
+  `app/api/season/route.test.ts` (routes through the locked update) — confirmed RED against the old code
+  (persisted unconditionally before generation, ignored any concurrent edit).
 - ☐ P3 `bug` **HR-59** — `RescheduleBanner.apply`'s single catch block
   (`RescheduleBanner.tsx:82-83`) conflates "the move itself failed" with "the post-move refresh failed" —
   a failed refresh (move actually succeeded) shows "Couldn't apply the move," which is wrong and also

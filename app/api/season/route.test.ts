@@ -5,11 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // that rebuilds the plan from the body instead of merging onto `current` would silently wipe them.
 vi.mock("@/lib/data-store", () => ({
   readSeasonPlan: vi.fn(),
-  writeSeasonPlan: vi.fn(),
+  updateSeasonPlan: vi.fn(),
 }));
 // GET's roadmap-outlook projection (season-roadmap-preview §6) calls gatherFocusInputs — mocked here
 // the way app/api/generate/route.test.ts mocks its other collaborators, since this file's data-store
-// mock only stubs readSeasonPlan/writeSeasonPlan, not the fuller read* set gatherFocusInputs needs.
+// mock only stubs readSeasonPlan/updateSeasonPlan, not the fuller read* set gatherFocusInputs needs.
 vi.mock("@/lib/season-signals", () => ({
   gatherFocusInputs: vi.fn(async () => ({ limiter: { system: null, confidence: "low" as const }, lastFocus: null, signals: {} })),
 }));
@@ -39,7 +39,7 @@ const base = (): SeasonPlan => ({
 });
 
 const readMock = () => store.readSeasonPlan as ReturnType<typeof vi.fn>;
-const writeMock = () => store.writeSeasonPlan as ReturnType<typeof vi.fn>;
+const updateMock = () => store.updateSeasonPlan as ReturnType<typeof vi.fn>;
 const put = (body: unknown) => PUT(new Request("http://x/api/season", { method: "PUT", body: JSON.stringify(body) }));
 const get = (query = "") => GET(new Request(`http://x/api/season${query}`));
 
@@ -48,8 +48,9 @@ beforeEach(() => {
   stored = base();
   vi.clearAllMocks();
   readMock().mockImplementation(async () => stored);
-  writeMock().mockImplementation(async (plan: SeasonPlan) => {
-    stored = plan;
+  updateMock().mockImplementation(async (mutate: (current: SeasonPlan) => SeasonPlan) => {
+    stored = mutate(stored);
+    return stored;
   });
 });
 
@@ -57,7 +58,7 @@ describe("PUT /api/season", () => {
   it("rejects a non-object body without writing", async () => {
     const res = await PUT(new Request("http://x/api/season", { method: "PUT", body: JSON.stringify(null) }));
     expect(res.status).toBe(400);
-    expect(writeMock()).not.toHaveBeenCalled();
+    expect(updateMock()).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid JSON body", async () => {
@@ -68,11 +69,17 @@ describe("PUT /api/season", () => {
   it("rejects an event with a bad date or priority without writing", async () => {
     const res = await put({ objective: "x", events: [{ name: "Fondo", date: "not-a-date", priority: "A" }] });
     expect(res.status).toBe(400);
-    expect(writeMock()).not.toHaveBeenCalled();
+    expect(updateMock()).not.toHaveBeenCalled();
 
     const res2 = await put({ objective: "x", events: [{ name: "Fondo", date: "2026-09-01", priority: "Z" }] });
     expect(res2.status).toBe(400);
-    expect(writeMock()).not.toHaveBeenCalled();
+    expect(updateMock()).not.toHaveBeenCalled();
+  });
+
+  it("HR-58: routes through the locked updateSeasonPlan instead of a separate read-then-write", async () => {
+    await put({ objective: "New goal", events: [] });
+    expect(updateMock()).toHaveBeenCalledTimes(1);
+    expect(readMock()).not.toHaveBeenCalled(); // PUT no longer does its own separate read
   });
 
   it("updates objective/events but preserves engine-drafted periods", async () => {

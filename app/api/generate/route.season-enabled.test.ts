@@ -63,7 +63,7 @@ vi.mock("@/lib/data-store", () => ({
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
   readSeasonPlan: vi.fn(),
-  writeSeasonPlan: vi.fn(),
+  updateSeasonPlan: vi.fn(),
 }));
 
 import * as store from "@/lib/data-store";
@@ -90,7 +90,9 @@ beforeEach(() => {
   vi.mocked(store.readRollingBaselines).mockResolvedValue({} as never);
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "" });
-  vi.mocked(store.writeSeasonPlan).mockResolvedValue(undefined);
+  vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) =>
+    mutate({ objective: "", events: [], periods: [], updatedAt: "" })
+  );
 });
 
 // Same fixture route.test.ts's "season wiring" describe block uses, so this file's assertions are

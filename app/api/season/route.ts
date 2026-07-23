@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readSeasonPlan, writeSeasonPlan } from "@/lib/data-store";
+import { readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
 import { findUpcomingAEvent, projectSeasonOutlook, SEASON_SHAPES_GENERATION, validateSeasonPlanInput } from "@/lib/season";
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { resolveToday } from "@/lib/date";
@@ -27,8 +27,10 @@ export async function PUT(req: Request) {
   }
   const parsed = validateSeasonPlanInput(body);
   if (typeof parsed === "string") return NextResponse.json({ error: parsed }, { status: 400 });
-  const current = await readSeasonPlan();
-  // Owned fields come from the athlete; engine-drafted periods are preserved (re-drafted on generate).
-  await writeSeasonPlan({ ...current, objective: parsed.objective, events: parsed.events });
-  return NextResponse.json({ plan: await readSeasonPlan() });
+  // HR-58: read-modify-write inside the lock (updateSeasonPlan) instead of a separate read then a
+  // separate write — closes the same lost-update race /api/generate's own season persistence had:
+  // this save and a concurrent /api/generate call could otherwise each read the same stale base and
+  // clobber one another's periods/objective+events.
+  const plan = await updateSeasonPlan((current) => ({ ...current, objective: parsed.objective, events: parsed.events }));
+  return NextResponse.json({ plan });
 }
