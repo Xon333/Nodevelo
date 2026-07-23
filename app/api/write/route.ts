@@ -147,22 +147,29 @@ export async function POST(req: Request) {
   // Archive the old block before replacing it. `existing` was already read above (before any
   // Intervals.icu write) for the version guard — reused here rather than re-reading.
   if (existing) {
-    await appendBlockHistory({
-      id: existing.createdAt,
-      goal: existing.goal,
-      startDate: existing.startDate,
-      endDate: existing.endDate,
-      lengthWeeks: existing.lengthWeeks,
-      overview: existing.overview,
-      createdAt: existing.createdAt,
-      model: existing.model,
-      promptVersion: existing.promptVersion,
-      durabilityTemplate: existing.durabilityTemplate,
-      ...(existing.seasonFocus && isSeasonFocus(existing.seasonFocus) ? { seasonFocus: existing.seasonFocus } : {}),
-      // SUB-1: archive only the lived portion — the days the superseded block actually covered while
-      // live, not the un-lived future the new block is about to overwrite.
-      days: truncateBlockDays(existing.days, today),
-    });
+    // SUB-1: archive only the lived portion — the days the superseded block actually covered while
+    // live, not the un-lived future the new block is about to overwrite.
+    const livedDays = truncateBlockDays(existing.days, today);
+    // HR-55: only archive when something was actually lived — mirrors DELETE's own guard
+    // (app/api/sync/route.ts). Without it, a generate-then-regenerate-without-delete cycle on a
+    // future-start block (nothing lived yet) archived a zero-content noise entry onto the
+    // athlete-visible Plan history / Trends block timeline.
+    if (livedDays.length > 0) {
+      await appendBlockHistory({
+        id: existing.createdAt,
+        goal: existing.goal,
+        startDate: existing.startDate,
+        endDate: existing.endDate,
+        lengthWeeks: existing.lengthWeeks,
+        overview: existing.overview,
+        createdAt: existing.createdAt,
+        model: existing.model,
+        promptVersion: existing.promptVersion,
+        durabilityTemplate: existing.durabilityTemplate,
+        ...(existing.seasonFocus && isSeasonFocus(existing.seasonFocus) ? { seasonFocus: existing.seasonFocus } : {}),
+        days: livedDays,
+      });
+    }
   }
 
   const dates = plan.days.map((d) => d.date).sort();

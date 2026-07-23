@@ -209,11 +209,12 @@ independently by two agents). Continues the HR- series (append, not renumber).
   field) back to their documented `true` default instead of leaving `undefined` to read as falsy. New
   tests for (b)/(c)/(d) in `lib/json-store.test.ts`, `app/api/disposition/route.test.ts`, and
   `lib/data-store.test.ts`; confirmed RED against the pre-fix code for all three.
-- ☐ P3 `bug` **HR-55** — Write-replace archives unconditionally (`app/api/write/route.ts:108-125`, no
-  guard), unlike DELETE which only archives when `livedDays.length > 0`
-  (`app/api/sync/route.ts:846-850`). A generate-then-regenerate-without-delete cycle on a future-start
-  block archives a zero-content noise entry onto the athlete-visible Plan history / Trends timeline. Fix
-  direction: apply the same "any lived days" guard in the write route (shared helper).
+- ☑ P3 `bug` **HR-55** — **Fixed.** `app/api/write/route.ts`'s archive-the-old-block step now guards on
+  `livedDays.length > 0`, mirroring DELETE's own check (`app/api/sync/route.ts`) — a
+  generate-then-regenerate-without-delete cycle on a future-start block no longer archives a
+  zero-content noise entry onto the athlete-visible Plan history / Trends timeline. New regression test
+  in `app/api/write/route.test.ts` confirms `appendBlockHistory` is never called when the old block
+  hasn't lived any days yet; confirmed RED against the old unconditional archive.
 - ☐ P3 `bug` **HR-56** — `deleteBlock` (`PlanView.tsx:287-294`) discards the DELETE response body
   entirely — `eventsRemoved`/`eventsFailed` are computed server-side but never reach the UI, so a
   partially-failed calendar cleanup is invisible — and, unlike `write`/`generateRetro`, never calls

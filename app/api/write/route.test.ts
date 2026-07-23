@@ -234,6 +234,17 @@ describe("/api/write archive-truncation uses the client's local today (HR-32)", 
     const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
     expect(archived.days?.map((d: { date: string }) => d.date)).toEqual(["2026-06-16"]); // not silently dropped
   });
+
+  it("HR-55: does not archive a zero-content noise entry when the old block hasn't lived any days yet (generate-then-regenerate on a future-start block)", async () => {
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goal: "old", lengthWeeks: 2, startDate: "2026-06-20", endDate: "2026-07-03", overview: "",
+      createdAt: "2026-06-01T00:00:00Z",
+      days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 60 }], // all in the future
+    });
+    h.createEvent.mockResolvedValue(200);
+    await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z", today: "2026-06-16" }); // before the block even starts
+    expect(store.appendBlockHistory).not.toHaveBeenCalled();
+  });
 });
 
 describe("/api/write season stamp (MACRO)", () => {
