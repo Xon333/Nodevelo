@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -368,6 +368,17 @@ describe("shapeMergeProfile", () => {
     const merged = shapeMergeProfile({});
     expect(merged.performance).toEqual(baseProfile().performance);
   });
+
+  it("HR-49: never returns DEFAULT_PROFILE's own performance/nutrition/goals/weakpoints references — every field is a fresh object/array, even when merging the fallback itself", () => {
+    const merged = shapeMergeProfile(DEFAULT_PROFILE);
+    expect(merged.performance).not.toBe(DEFAULT_PROFILE.performance);
+    expect(merged.nutrition).not.toBe(DEFAULT_PROFILE.nutrition);
+    expect(merged.goals).not.toBe(DEFAULT_PROFILE.goals);
+    expect(merged.weakpoints).not.toBe(DEFAULT_PROFILE.weakpoints);
+    // Mutating the result must never reach the shared module-level default.
+    merged.performance.ftp = 999;
+    expect(DEFAULT_PROFILE.performance.ftp).toBe(200);
+  });
 });
 
 describe("readAthleteProfile", () => {
@@ -400,5 +411,39 @@ describe("readAthleteProfile", () => {
     expect(profile.goalsMigratedAt).not.toBeNull();
     const onDisk = JSON.parse(await fs.readFile(p("athlete.json"), "utf-8"));
     expect(onDisk.goalsMigratedAt).not.toBeNull(); // persisted this time — ENOENT isn't corruption
+  });
+
+  it("HR-49: overlaying physiology FTP data onto a fallback read never mutates the shared module-level DEFAULT_PROFILE", async () => {
+    // No athlete.json at all → readAthleteProfile's internal read hits the DEFAULT_PROFILE fallback.
+    await fs.writeFile(
+      p("physiology.json"),
+      JSON.stringify({
+        current: {
+          effectiveFrom: "2026-01-01",
+          capturedAt: "2026-01-01T00:00:00.000Z",
+          source: "intervals",
+          ftp: 333,
+          lthr: 180,
+          maxHr: 195,
+          powerZonePct: [],
+          hrZones: [],
+          hrZonesAreBpm: true,
+          powerZoneNames: [],
+          hrZoneNames: [],
+        },
+        history: [],
+      }),
+      "utf-8"
+    );
+    const profile = await readAthleteProfile();
+    expect(profile.performance.ftp).toBe(333); // the overlay applied to THIS call's result...
+    expect(DEFAULT_PROFILE.performance.ftp).toBe(200); // ...but never touched the shared module-level default
+    expect(DEFAULT_PROFILE.performance.thresholdHr).toBe(170);
+    expect(DEFAULT_PROFILE.performance.maxHr).toBe(190);
+
+    // A second call (also hitting the fallback) must see the SAME untouched defaults, not whatever
+    // the first call's overlay happened to leave behind — proving there's no cross-call pollution.
+    await readAthleteProfile();
+    expect(DEFAULT_PROFILE.performance.ftp).toBe(200);
   });
 });

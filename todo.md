@@ -158,10 +158,14 @@ independently by two agents). Continues the HR- series (append, not renumber).
 
 ### P3 — polish / smaller correctness (2026-07-23 round)
 
-- ☐ P3 `bug` **HR-49** — `readAthleteProfile` mutates the shared, module-level `DEFAULT_PROFILE.performance`
-  object in place (`lib/data-store.ts:61-69`) when overlaying md/physiology FTP data onto a fallback
-  read — polluting the process-wide default for every later fallback read in the same process. Fix
-  direction: deep-clone the fallback (or build the overlay immutably) before mutating.
+- ☑ P3 `bug` **HR-49** — **Fixed** (mostly incidentally, by HR-43). `shapeMergeProfile` already
+  rebuilds `performance`/`nutrition` as fresh objects via spread, so the FTP/HR overlay's in-place
+  mutation (`profile.performance.ftp = ...`) no longer reaches `DEFAULT_PROFILE` — verified with a new
+  regression test rather than left as an assumption. The one residual gap: `goals`/`weakpoints` were
+  still returned as the literal `DEFAULT_PROFILE.goals`/`.weakpoints` array references on a fallback read
+  (contradicting `shapeMergeProfile`'s own doc comment) — now cloned (`[...p.goals]`) too. New tests in
+  `lib/data-store.test.ts` confirm no field of a fallback-derived profile shares a reference with
+  `DEFAULT_PROFILE`; confirmed RED on the array-sharing case before the clone.
 - ☐ P3 `bug` **HR-50** — Profile PUT (`app/api/profile/route.ts:121-176`) persists the *read-time*
   FTP/HR overlay back into the base store — baking derived values into `athlete.json` — and is an
   unlocked read-modify-write against a concurrent PUT or the goals migration. Fix direction: an

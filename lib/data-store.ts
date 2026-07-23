@@ -46,8 +46,13 @@ export function shapeMergeProfile(parsed: unknown): AthleteProfile {
     ...p,
     performance: { ...DEFAULT_PROFILE.performance, ...p.performance },
     nutrition: { ...DEFAULT_PROFILE.nutrition, ...p.nutrition },
-    goals: Array.isArray(p.goals) ? p.goals : [],
-    weakpoints: Array.isArray(p.weakpoints) ? p.weakpoints : [],
+    // HR-49: cloned, not reused as-is — when `parsed` IS the DEFAULT_PROFILE fallback itself (the
+    // no-file-yet case), `p.goals`/`p.weakpoints` are literally `DEFAULT_PROFILE.goals`/`.weakpoints`;
+    // returning that reference directly would still leave the shared module-level arrays reachable
+    // through every fallback read's result, one `.push()` away from the exact cross-request pollution
+    // this function exists to prevent for `performance`/`nutrition`.
+    goals: Array.isArray(p.goals) ? [...p.goals] : [],
+    weakpoints: Array.isArray(p.weakpoints) ? [...p.weakpoints] : [],
   };
 }
 
