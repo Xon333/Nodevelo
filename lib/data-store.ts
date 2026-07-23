@@ -259,10 +259,6 @@ export async function readCalibration(): Promise<CalibrationStore> {
   return readJson<CalibrationStore>("calibration.json", emptyCalibration());
 }
 
-export async function writeCalibration(calibration: CalibrationStore): Promise<void> {
-  await writeJson("calibration.json", calibration);
-}
-
 // Transactional read-modify-write on the calibration store — guards the Model page's contest/correct
 // override POST from racing a concurrent sync's re-derive (which preserves manualOverride).
 export async function updateCalibration(

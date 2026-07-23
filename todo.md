@@ -175,11 +175,15 @@ independently by two agents). Continues the HR- series (append, not renumber).
   clobbered. New tests in `lib/data-store.test.ts` (persist, concurrency, old-format shape-merge) and
   `app/api/profile/route.test.ts` (rewritten to mock `updateAthleteProfile`; confirmed RED against the
   old `readAthleteProfile`/`writeAthleteProfile` pair).
-- ☐ P3 `bug` **HR-51** — Sync's calibration re-derive is one-sided: it reads unlocked
-  (`app/api/sync/route.ts:244`) and writes with a plain `writeCalibration` (:260), while the Model page's
-  manual-override POST correctly uses `updateCalibration`. A manual override landing in that narrow
-  window is lost — `manualOverride` is real user input, not re-derivable. Fix direction: route sync's
-  write through `updateCalibration` too.
+- ☑ P3 `bug` **HR-51** — **Fixed.** `app/api/sync/route.ts`'s calibration re-derive now routes through
+  `updateCalibration` (already used by the Model page's manual-override POST) instead of an unlocked
+  `readCalibration()` + plain `writeCalibration()` pair — the prior calibration `deriveDecouplingGood`/
+  `deriveCarbsOptimum` read is now captured INSIDE the lock, immediately before the write, so a manual
+  override landing in that window survives instead of being silently discarded. The now-orphaned
+  unlocked `writeCalibration` was removed (zero remaining callers — same HR-54(a) footgun HR-36 already
+  closed for `writeInterventionLog`). New regression test in `app/api/sync/route.test.ts` simulates the
+  exact race (a stale `readCalibration()` snapshot vs. the lock's own fresh read) and confirms the
+  override survives; confirmed RED against the old unlocked code.
 - ☐ P3 `bug` **HR-52** — Remaining unlocked read-modify-writes on two more CRITICAL stores, both narrow
   concurrent-tab windows: `block-settings.json` (`app/api/settings/route.ts:39→110`, two concurrent
   PUTs) and `physiology.json` (`app/api/sync/route.ts:220-224`, two concurrent syncs). Same fix shape as

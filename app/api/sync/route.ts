@@ -27,8 +27,8 @@ import {
   readScoreLog,
   updateScoreLog,
   updateInterventionLog,
+  updateCalibration,
   writeLedgerRebuild,
-  writeCalibration,
   writeQuirks,
   writeTodayAnalysis,
   updateCurrentBlock,
@@ -241,8 +241,12 @@ export async function POST(req: Request) {
     const steadyDecoupMean = steadyDecoup.length
       ? Math.round((steadyDecoup.reduce((s, a) => s + (a.decoupling as number), 0) / steadyDecoup.length) * 10) / 10
       : null;
-    const priorCal = await readCalibration();
-    const calibration = {
+    // HR-51: read-modify-write inside one locked critical section — the Model page's manual-override
+    // POST (`app/api/calibration/route.ts`) already routes through `updateCalibration`; this re-derive
+    // was the one-sided half, reading unlocked and writing with a plain `writeCalibration`. A manual
+    // override landing in that window was real user input, not re-derivable, and would be silently
+    // lost the moment this write landed.
+    const calibration = await updateCalibration((priorCal) => ({
       decouplingGood: deriveDecouplingGood(priorCal.decouplingGood, steadyDecoupMean, steadyDecoup.length),
       // Track C: carbs optimum from the same steady-endurance candidate pool, classified against the
       // athlete's own trailing Z2 Pw:HR baseline (lib/aerobic.ts) — not decoupling, which this app
@@ -256,8 +260,7 @@ export async function POST(req: Request) {
         }))
       ),
       updatedAt: new Date().toISOString(),
-    };
-    await writeCalibration(calibration);
+    }));
     // The only value the scorer still needs: the per-type IF-band offsets from the athlete's power zones
     // (decoupling left execution scoring). Default zones → empty offsets → identical scoring.
     const resolvedCal = {

@@ -59,8 +59,8 @@ vi.mock("@/lib/data-store", () => ({
   updateInterventionLog: vi.fn(async (mutate: (log: { records: unknown[]; updatedAt: string }) => unknown) =>
     mutate({ records: [], updatedAt: "" })
   ),
+  updateCalibration: vi.fn(),
   mergeCurrentBlockDays: vi.fn(),
-  writeCalibration: vi.fn(),
   writeLastSync: vi.fn(),
   writeLedgerRebuild: vi.fn(),
   writeQuirks: vi.fn(),
@@ -74,7 +74,7 @@ import * as phys from "@/lib/physiology";
 import * as store from "@/lib/data-store";
 import { DELETE, GET, POST, resolveCarbsOptimumForPrompt } from "@/app/api/sync/route";
 import { buildRideScores } from "@/lib/score-log";
-import type { CalibratedParameter } from "@/lib/types";
+import type { CalibratedParameter, CalibrationStore } from "@/lib/types";
 
 const TODAY = "2026-06-22";
 
@@ -178,10 +178,16 @@ const mkCalParam = (over: Partial<CalibratedParameter> = {}): CalibratedParamete
 // In-memory score-log the transactional mutators run against (disposition-route pattern), so the
 // merge/patch effects are observable after the handler returns.
 let scoreEntries: RideScoreEntry[];
+// Same pattern for calibration (HR-51: updateCalibration now reads inside its own lock).
+let calibration: CalibrationStore;
 
 beforeEach(() => {
   vi.clearAllMocks();
   scoreEntries = [];
+  calibration = {
+    decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
+    updatedAt: "",
+  };
   vi.mocked(api.isIntervalsConfigured).mockReturnValue(true);
   vi.mocked(api.runFullSync).mockResolvedValue(mkSync());
   vi.mocked(api.fetchSportSettings).mockResolvedValue(null);
@@ -201,9 +207,12 @@ beforeEach(() => {
   vi.mocked(store.readBlockSettings).mockResolvedValue(DEFAULT_BLOCK_SETTINGS);
   vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
   vi.mocked(store.readDispositions).mockResolvedValue({ entries: [], updatedAt: "" });
-  vi.mocked(store.readCalibration).mockResolvedValue({
-    decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
-    updatedAt: "",
+  vi.mocked(store.readCalibration).mockImplementation(async () => calibration);
+  // HR-51: updateCalibration reads inside its own lock now — mirror that by reassigning the shared
+  // in-memory `calibration` so post-request assertions can inspect what was actually persisted.
+  vi.mocked(store.updateCalibration).mockImplementation(async (mutate) => {
+    calibration = await mutate(calibration);
+    return calibration;
   });
   vi.mocked(store.readInterventionLog).mockResolvedValue({ records: [], updatedAt: "" });
   vi.mocked(store.readLastSync).mockResolvedValue(null);
@@ -308,7 +317,7 @@ describe("POST /api/sync — ledger wiring", () => {
     expect(res.status).toBe(200);
     expect(store.writeLastSync).toHaveBeenCalledWith(fresh);
     expect(store.writeRollingBaselines).toHaveBeenCalledOnce();
-    expect(store.writeCalibration).toHaveBeenCalledOnce();
+    expect(store.updateCalibration).toHaveBeenCalledOnce();
     expect(store.writeQuirks).toHaveBeenCalledOnce();
     const json = await res.json();
     expect(json.warnings).toEqual([]);
@@ -319,9 +328,27 @@ describe("POST /api/sync — ledger wiring", () => {
   it("writes a carbsOptimum calibration parameter on sync (Track C wiring)", async () => {
     vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21" })] }));
     await postSync();
-    const written = vi.mocked(store.writeCalibration).mock.calls.at(-1)![0];
-    expect(written.carbsOptimum).toBeDefined();
-    expect(written.carbsOptimum!.source).toBe("default"); // fixture rides carry no carbs_ingested
+    expect(calibration.carbsOptimum).toBeDefined();
+    expect(calibration.carbsOptimum!.source).toBe("default"); // fixture rides carry no carbs_ingested
+  });
+
+  it("HR-51: re-derives calibration from whatever updateCalibration's lock actually hands it, not a stale earlier readCalibration() snapshot — a manual override landing in that window survives", async () => {
+    // Simulates the real race: readCalibration() (still used elsewhere, e.g. GET) captured a snapshot
+    // with no override; a manual-override POST (app/api/calibration/route.ts) then lands, updating the
+    // REAL on-disk calibration — reflected here in the shared `calibration` var, which updateCalibration's
+    // own lock-held read now sees. The old code used the stale `readCalibration()` snapshot for its
+    // re-derive input instead, silently discarding the override the instant its write landed.
+    vi.mocked(store.readCalibration).mockResolvedValueOnce({
+      decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
+      updatedAt: "",
+    });
+    calibration = {
+      ...calibration,
+      decouplingGood: { ...calibration.decouplingGood, manualOverride: 3.5 },
+    };
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21", decoupling: 4 })] }));
+    await postSync();
+    expect(calibration.decouplingGood.manualOverride).toBe(3.5);
   });
 
   it("keeps existing ledger entries immutable per date and scores only new dates", async () => {
@@ -917,11 +944,13 @@ describe("POST /api/sync — today-ride analysis path", () => {
     vi.mocked(api.runFullSync).mockResolvedValue(
       mkSync({ activities: [mkActivity({ carbsIngestedG: 65, movingTimeSec: 4500 })] }) // 65g / 1.25h = 52 g/h
     );
-    vi.mocked(store.readCalibration).mockResolvedValue({
+    // HR-51: the prior calibration updateCalibration's lock hands the re-derive — not a separate
+    // readCalibration() read, which no longer feeds the sync's own re-derive at all.
+    calibration = {
       decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
       carbsOptimum: mkCalParam({ source: "derived", confidence: "medium", value: 90 }), // 52 < 90 - 20
       updatedAt: "",
-    });
+    };
     const res = await postSync();
     const json = await res.json();
     expect(json.todayAnalysis.fuelPrompt).toEqual({ kind: "gap", loggedGPerH: 52, optimumGPerH: 90, deltaGPerH: -38 });
