@@ -215,11 +215,14 @@ independently by two agents). Continues the HR- series (append, not renumber).
   zero-content noise entry onto the athlete-visible Plan history / Trends timeline. New regression test
   in `app/api/write/route.test.ts` confirms `appendBlockHistory` is never called when the old block
   hasn't lived any days yet; confirmed RED against the old unconditional archive.
-- ☐ P3 `bug` **HR-56** — `deleteBlock` (`PlanView.tsx:287-294`) discards the DELETE response body
-  entirely — `eventsRemoved`/`eventsFailed` are computed server-side but never reach the UI, so a
-  partially-failed calendar cleanup is invisible — and, unlike `write`/`generateRetro`, never calls
-  `loadBlockHistory()` even though the server just archived lived days; the Plan history section stays
-  stale until an unrelated reload.
+- ☑ P3 `bug` **HR-56** — **Fixed.** `deleteBlock` in `PlanView.tsx` now captures the DELETE response's
+  `eventsFailed` array into new `deleteEventsFailed` state and renders a notice ("Deleted — but N
+  calendar event(s) couldn't be removed...") when non-empty, and calls `void loadBlockHistory()` after
+  every successful delete so the Plan history section reflects the just-archived block without an
+  unrelated reload. New `components/dashboard/PlanView.test.tsx` (jsdom) drives the real
+  `CurrentBlockSection` delete-confirm UI (Block actions → Delete block… → Yes, delete) and asserts both
+  that the partial-failure notice appears and that `/api/history` is refetched; confirmed RED against
+  the old code (notice never appeared).
 - ☐ P3 `bug` **HR-57** — `/api/retrospective` POST has no try/catch around its live Anthropic call
   (`app/api/retrospective/route.ts:124`) — every other AI-backed route wraps this. A network blip or a
   429/overload produces an unhandled rejection and a bare framework 500 with no `{error}` body, instead

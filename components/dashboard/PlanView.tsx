@@ -58,6 +58,9 @@ export default function PlanView() {
   const [writeRollback, setWriteRollback] = useState<{ rolledBack: number; rollbackFailed: number[] } | null>(null);
 
   const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
+  // HR-56: surfaces a partially-failed calendar cleanup after Delete — the server computes
+  // eventsRemoved/eventsFailed but deleteBlock previously discarded the response body entirely.
+  const [deleteEventsFailed, setDeleteEventsFailed] = useState<number[] | null>(null);
 
   const [retroGenerating, setRetroGenerating] = useState(false);
   const [retroResult, setRetroResult] = useState<{
@@ -306,10 +309,15 @@ export default function PlanView() {
     // HR-32: the route's archive-truncation step needs the athlete's real local date, not the
     // server's UTC one.
     params.set("today", localToday());
-    await api(`/api/sync?${params}`, { method: "DELETE" });
+    // HR-56: capture the response instead of discarding it — eventsFailed (a partially-failed
+    // calendar cleanup) previously never reached the UI, and the server just archived any lived days
+    // into block history, which this view otherwise wouldn't reflect until an unrelated reload.
+    const { eventsFailed } = await api<{ eventsRemoved: number; eventsFailed: number[] }>(`/api/sync?${params}`, { method: "DELETE" });
     setState((s) => (s ? { ...s, currentBlock: null } : s));
     setPlan(null);
     setWriteResults(null);
+    setDeleteEventsFailed(eventsFailed.length > 0 ? eventsFailed : null);
+    void loadBlockHistory();
   };
 
   const generateRetro = async () => {
@@ -358,6 +366,15 @@ export default function PlanView() {
       />
 
       {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} completedDates={state.completedDates} sync={state.lastSync ?? null} />}
+      {/* HR-56: eventsFailed previously never reached the UI — a partially-failed calendar cleanup
+          was invisible. Block is already gone from state.currentBlock by the time this shows, so it
+          lives here rather than inside CurrentBlockSection's own (now-unmounted) confirm bar. */}
+      {deleteEventsFailed && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          Deleted — but {deleteEventsFailed.length} calendar event{deleteEventsFailed.length === 1 ? "" : "s"} couldn&apos;t
+          be removed on Intervals.icu; re-sync later or remove them there manually.
+        </p>
+      )}
 
       {/* Degraded prefill notices — the generator still works, but the athlete should know the
           fields aren't reflecting their profile/season right now. */}
