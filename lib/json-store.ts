@@ -33,8 +33,16 @@ const CRITICAL = new Set([
   "dispositions.json",
 ]);
 
-export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
+// HR-42: like readJsonFile, but also signals WHY the fallback fired — specifically, whether at least
+// one candidate (live or `.bak`) actually existed but was unreadable/unparseable (`corruptFallback:
+// true`), as opposed to neither ever having been written at all (plain ENOENT on both — the ordinary
+// first-write case, not corruption). Callers that might self-heal by writing the fallback/derived value
+// back to disk need this distinction: persisting a fallback born from a genuine double-corruption would
+// permanently enshrine that data loss as the new on-disk truth, whereas persisting one born from "this
+// store has simply never existed yet" is exactly the normal, desired first-write behavior.
+export async function readJsonFileWithStatus<T>(file: string, fallback: T): Promise<{ value: T; corruptFallback: boolean }> {
   const full = path.join(dataDir(), file);
+  let corruptFallback = false;
   for (const candidate of [full, `${full}.bak`]) {
     try {
       const raw = await fs.readFile(candidate, "utf-8");
@@ -43,12 +51,18 @@ export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
       // delete). Treating a legitimate `null` as a failed read fell through to `.bak`, which
       // always holds the pre-write snapshot — resurrecting the block a delete had just cleared.
       // Only a genuine read/parse failure (missing file, corrupt JSON) should reach `.bak`.
-      return JSON.parse(raw) as T;
-    } catch {
-      // missing or unparseable — try the next candidate (.bak), then the default
+      return { value: JSON.parse(raw) as T, corruptFallback: false };
+    } catch (err) {
+      // ENOENT (this candidate was never written) is not corruption; anything else — a parse
+      // failure (SyntaxError) or a real read error (EACCES/EIO) — means something existed but is broken.
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") corruptFallback = true;
     }
   }
-  return fallback;
+  return { value: fallback, corruptFallback };
+}
+
+export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
+  return (await readJsonFileWithStatus(file, fallback)).value;
 }
 
 // Per-file critical section. Two concurrent operations on the same store (e.g. a sync and a
@@ -88,7 +102,19 @@ export function updateJsonFile<T>(
   mutate: (current: T) => T | Promise<T>
 ): Promise<T> {
   return withFileLock(file, async () => {
-    const current = await readJsonFile(file, fallback); // readJsonFile takes no lock — safe to nest
+    // readJsonFileWithStatus takes no lock — safe to nest.
+    const { value: current, corruptFallback } = await readJsonFileWithStatus(file, fallback);
+    // HR-42: refuse to persist a CRITICAL store's fallback born from genuine corruption (both the
+    // live file and its `.bak` unreadable) as though it were real, legitimate content. `mutate`
+    // deriving from a bare fallback (e.g. an empty ledger) and writing that back would silently
+    // enshrine the data loss as the new on-disk truth — a routine sync would then treat "no history"
+    // as real from that point on. Throwing here surfaces it loudly instead (the caller's own error
+    // handling — e.g. a sync's 502 — reports it rather than a routine operation silently nuking data).
+    if (corruptFallback && CRITICAL.has(file)) {
+      throw new Error(
+        `${file}: both the live file and its .bak are corrupt or unreadable — refusing to write a fallback value as truth. Manual recovery required.`
+      );
+    }
     const nextValue = await mutate(current);
     await atomicWrite(file, nextValue);
     return nextValue;

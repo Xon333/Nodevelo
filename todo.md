@@ -100,14 +100,17 @@ independently by two agents). Continues the HR- series (append, not renumber).
   preserving the existing `.bak` instead of overwriting the last known-good snapshot with corrupt bytes.
   New tests in `lib/json-store.test.ts` cover both: a genuine `.bak`-write failure now throws, and a
   corrupt live file no longer clobbers a good `.bak` (the new write still lands on the live file itself).
-- ☐ P2 `bug` **HR-42** — A bad/fallback value can get silently written back as real data for CRITICAL
-  stores. `readAthleteProfile` "writes on read" (`lib/data-store.ts:52-56`): if both `athlete.json` and
-  its `.bak` are corrupt, the migration branch fires on `DEFAULT_PROFILE` and persists factory-default
-  goals/nutrition to disk, permanently overwriting whatever was recoverable. `updateScoreLog`
-  (`app/api/sync/route.ts:521`) has the same shape — a double-corrupt ledger silently becomes a
-  near-empty one that sync then treats as real. Fix direction: have `readJsonFile` signal "this was the
-  fallback, not a real read" and make write-back paths refuse (or at least warn) before persisting a
-  fallback as truth for a CRITICAL store.
+- ☑ P2 `bug` **HR-42** — **Fixed.** Added `readJsonFileWithStatus` (`lib/json-store.ts`), which signals
+  `corruptFallback: true` when at least one candidate (live or `.bak`) existed but failed to read/parse —
+  as opposed to plain ENOENT on both (an ordinary first-write, not corruption). `updateJsonFile` now
+  refuses (throws) when a CRITICAL store's read is a corrupt fallback, instead of letting `mutate` derive
+  and persist a value from bare defaults — this alone covers every CRITICAL-store transactional updater
+  (`updateScoreLog`, `updateCurrentBlock`, `updateBlockHistory`, `updateDispositions`,
+  `updateInterventionLog`). `readAthleteProfile`'s bespoke write-on-read migration path (not routed
+  through `updateJsonFile`) got its own explicit check: the self-heal write is skipped on a genuinely
+  corrupt double-read, though the in-memory migrated profile still returns so the response isn't broken.
+  New tests in `lib/json-store.test.ts` and `lib/data-store.test.ts` cover the refusal, the
+  still-normal-on-real-first-write case, and non-CRITICAL stores staying unaffected.
 - ☐ P2 `bug` **HR-43** — An old-format `athlete.json` (reachable via restoring an old backup through
   `app/api/import/route.ts:48`) crashes `readAthleteProfile` outright — it dereferences fields
   (`profile.goals.length` at `lib/data-store.ts:44`, `profile.performance.ftp` at :61-69) that the type

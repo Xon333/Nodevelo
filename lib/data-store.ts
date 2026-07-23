@@ -6,7 +6,7 @@ import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
 import { readPhysiology } from "./physiology";
-import { readJsonFile as readJson, updateJsonFile as updateJson, writeJsonFile as writeJson } from "./json-store";
+import { readJsonFile as readJson, readJsonFileWithStatus, updateJsonFile as updateJson, writeJsonFile as writeJson } from "./json-store";
 
 export const DEFAULT_PROFILE: AthleteProfile = {
   performance: {
@@ -49,10 +49,16 @@ export async function applyGoalsMigration(
 }
 
 export async function readAthleteProfile(): Promise<AthleteProfile> {
-  let profile = await readJson<AthleteProfile>("athlete.json", DEFAULT_PROFILE);
+  const { value: fromDisk, corruptFallback } = await readJsonFileWithStatus<AthleteProfile>("athlete.json", DEFAULT_PROFILE);
+  let profile = fromDisk;
   if (!profile.goalsMigratedAt) {
     profile = await applyGoalsMigration(profile, parseGoalsWeakpointsForMigration);
-    await writeAthleteProfile(profile);
+    // HR-42: never self-heal-write a migration derived from a genuinely corrupt double-read (both
+    // athlete.json and its .bak unreadable) — that would permanently overwrite whatever was
+    // recoverable with factory defaults the instant this route runs. Still return the in-memory
+    // migrated profile so this response isn't broken; just don't persist it until the underlying
+    // corruption is actually fixed (a legitimate future read then self-heals normally).
+    if (!corruptFallback) await writeAthleteProfile(profile);
   }
   // Overlay FTP/HR so IF/execution scoring, trends and generation all agree on the same
   // numbers. Precedence: athlete.json defaults < athlete_profile.md (fallback) < the

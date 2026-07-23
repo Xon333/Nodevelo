@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readBlockHistory, readCurrentBlock, readInterventionLog, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -342,5 +342,25 @@ describe("updateCurrentBlock", () => {
     await writeCurrentBlock(block());
     const result = await updateCurrentBlock(() => null);
     expect(result).toBeNull();
+  });
+});
+
+describe("readAthleteProfile", () => {
+  it("HR-42: does not self-heal-write when athlete.json is corrupt with no .bak to recover from — returns a usable in-memory profile but leaves the corrupt file untouched", async () => {
+    await fs.writeFile(p("athlete.json"), "{ not valid json at all", "utf-8");
+    const profile = await readAthleteProfile();
+    // Still usable in-memory (the migration ran against the DEFAULT_PROFILE fallback)...
+    expect(profile.goalsMigratedAt).not.toBeNull();
+    // ...but NOT persisted — the corrupt file on disk is untouched, not silently overwritten with
+    // factory defaults (which would permanently discard whatever was actually recoverable).
+    const onDisk = await fs.readFile(p("athlete.json"), "utf-8");
+    expect(onDisk).toBe("{ not valid json at all");
+  });
+
+  it("still self-heals normally (persists the migration) on a legitimate first-ever read — no file is not corruption", async () => {
+    const profile = await readAthleteProfile();
+    expect(profile.goalsMigratedAt).not.toBeNull();
+    const onDisk = JSON.parse(await fs.readFile(p("athlete.json"), "utf-8"));
+    expect(onDisk.goalsMigratedAt).not.toBeNull(); // persisted this time — ENOENT isn't corruption
   });
 });

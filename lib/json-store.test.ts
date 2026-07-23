@@ -150,4 +150,27 @@ describe("json-store transactional update (read-modify-write under the lock)", (
     await updateJsonFile<{ v: string }>("guard.json", { v: "intact" }, () => ({ v: "next" }));
     expect(await readJsonFile("guard.json", null)).toEqual({ v: "next" }); // chain not poisoned
   });
+
+  it("HR-42: refuses to write when a CRITICAL store's fallback is born from genuine corruption (both live and .bak unreadable)", async () => {
+    await fs.writeFile(p("score-log.json"), "{ not valid json", "utf-8"); // corrupt, and no .bak exists
+    await expect(
+      updateJsonFile<{ entries: unknown[] }>("score-log.json", { entries: [] }, (cur) => ({ entries: [...cur.entries, "new"] }))
+    ).rejects.toThrow(/corrupt or unreadable/);
+    // Refused before ever calling atomicWrite — the corrupt file is untouched, not overwritten with an
+    // empty-ledger fallback that a later read would then treat as real.
+    expect(await fs.readFile(p("score-log.json"), "utf-8")).toBe("{ not valid json");
+  });
+
+  it("HR-42: still writes normally for a CRITICAL store's legitimate first-ever fallback (file simply doesn't exist yet)", async () => {
+    const next = await updateJsonFile<{ entries: unknown[] }>("score-log.json", { entries: [] }, (cur) => ({
+      entries: [...cur.entries, "first"],
+    }));
+    expect(next).toEqual({ entries: ["first"] });
+  });
+
+  it("HR-42: does not refuse for a non-CRITICAL store even when its fallback is corrupt (no backup guarantee to protect)", async () => {
+    await fs.writeFile(p("not-critical.json"), "{ not valid json", "utf-8");
+    const next = await updateJsonFile<{ n: number }>("not-critical.json", { n: 0 }, (cur) => ({ n: cur.n + 1 }));
+    expect(next).toEqual({ n: 1 });
+  });
 });
