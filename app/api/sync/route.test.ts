@@ -29,10 +29,14 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
 });
 vi.mock("@/lib/physiology", async (orig) => {
   const actual = await orig<typeof import("@/lib/physiology")>();
+  const readPhysiology = vi.fn(async () => null);
   return {
     ...actual, // physiologyAsOf + reconcile (pure) stay real
-    readPhysiology: vi.fn(async () => null),
-    writePhysiology: vi.fn(async () => undefined),
+    readPhysiology,
+    // HR-52: mirrors the real updatePhysiology's contract — mutate is invoked with whatever the
+    // lock-held read currently resolves to. Delegates to the SAME readPhysiology mock reference above,
+    // so a test's `readPhysiology.mockResolvedValue(...)` override also flows into this.
+    updatePhysiology: vi.fn(async (mutate: (cur: unknown) => unknown) => mutate(await readPhysiology())),
     readPowerZones: vi.fn(async () => []),
     readHrZones: vi.fn(async () => []),
   };
@@ -533,7 +537,10 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     vi.mocked(api.fetchSportSettings).mockResolvedValue(snapshot);
     await postSync();
     // First-ever snapshot: reconcile (real) seeds the store with it as current, empty history.
-    expect(phys.writePhysiology).toHaveBeenCalledWith({ current: snapshot, history: [] });
+    // HR-52: updatePhysiology's mutate is invoked with whatever the lock-held read hands it (here,
+    // readPhysiology's mocked null) — mirrors the real reconcile-inside-the-lock call.
+    const mutate = vi.mocked(phys.updatePhysiology).mock.calls.at(-1)![0];
+    expect(await mutate(null)).toEqual({ current: snapshot, history: [] });
   });
 
   it("surfaces a quirk-extraction failure as a warning without failing the sync", async () => {

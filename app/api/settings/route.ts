@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readBlockSettings, writeBlockSettings } from "@/lib/data-store";
+import { readBlockSettings, updateBlockSettings } from "@/lib/data-store";
 import type { BlockSettings } from "@/lib/types";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
 import {
@@ -23,6 +23,10 @@ export async function GET() {
   return NextResponse.json(settings);
 }
 
+// HR-52: signals a validation failure from inside updateBlockSettings' mutate callback (which can't
+// itself return a NextResponse) — caught below and turned into the same 400 the route always gave.
+class SettingsValidationError extends Error {}
+
 export async function PUT(req: Request) {
   let body: unknown;
   try {
@@ -36,77 +40,84 @@ export async function PUT(req: Request) {
   }
 
   const b = body as Record<string, unknown>;
-  const current = await readBlockSettings();
 
-  const num = (key: keyof BlockSettings, min: number, max: number): number => {
-    const v = b[key] ?? current[key] ?? DEFAULT_BLOCK_SETTINGS[key];
-    const n = Number(v);
-    if (!Number.isFinite(n)) return current[key] as number;
-    return Math.max(min, Math.min(max, n));
-  };
+  try {
+    // HR-52: the whole read-validate-merge-write runs as ONE locked critical section — `current` is
+    // read fresh inside updateBlockSettings' lock, so two concurrent PUTs (e.g. two open tabs saving
+    // Settings) can't each compute their own `updated` from the same stale base and clobber one
+    // another's unrelated field changes.
+    const updated = await updateBlockSettings((current) => {
+      const num = (key: keyof BlockSettings, min: number, max: number): number => {
+        const v = b[key] ?? current[key] ?? DEFAULT_BLOCK_SETTINGS[key];
+        const n = Number(v);
+        if (!Number.isFinite(n)) return current[key] as number;
+        return Math.max(min, Math.min(max, n));
+      };
 
-  const updated: BlockSettings = {
-    weeklyHoursMin: num("weeklyHoursMin", 4, 25),
-    weeklyHoursMax: num("weeklyHoursMax", 4, 30),
-    recoveryWeekHoursMin: num("recoveryWeekHoursMin", 2, 15),
-    recoveryWeekHoursMax: num("recoveryWeekHoursMax", 2, 15),
-    qualitySessionsPerLoadingWeek: num("qualitySessionsPerLoadingWeek", 1, 4),
-    longRideDurationMinutes: num("longRideDurationMinutes", 60, 480),
-    restDaysPerWeek: num("restDaysPerWeek", 0, 3),
-    polarisedApproach: typeof b.polarisedApproach === "boolean" ? b.polarisedApproach : current.polarisedApproach,
-    autoSyncOnOpen: typeof b.autoSyncOnOpen === "boolean" ? b.autoSyncOnOpen : current.autoSyncOnOpen,
-    autoPostCoachNote: typeof b.autoPostCoachNote === "boolean" ? b.autoPostCoachNote : current.autoPostCoachNote,
-    updatedAt: new Date().toISOString(),
-  };
+      const next: BlockSettings = {
+        weeklyHoursMin: num("weeklyHoursMin", 4, 25),
+        weeklyHoursMax: num("weeklyHoursMax", 4, 30),
+        recoveryWeekHoursMin: num("recoveryWeekHoursMin", 2, 15),
+        recoveryWeekHoursMax: num("recoveryWeekHoursMax", 2, 15),
+        qualitySessionsPerLoadingWeek: num("qualitySessionsPerLoadingWeek", 1, 4),
+        longRideDurationMinutes: num("longRideDurationMinutes", 60, 480),
+        restDaysPerWeek: num("restDaysPerWeek", 0, 3),
+        polarisedApproach: typeof b.polarisedApproach === "boolean" ? b.polarisedApproach : current.polarisedApproach,
+        autoSyncOnOpen: typeof b.autoSyncOnOpen === "boolean" ? b.autoSyncOnOpen : current.autoSyncOnOpen,
+        autoPostCoachNote: typeof b.autoPostCoachNote === "boolean" ? b.autoPostCoachNote : current.autoPostCoachNote,
+        updatedAt: new Date().toISOString(),
+      };
 
-  // UXA-3: each bound is clamped to its own floor/ceiling above, but nothing compared the pair —
-  // a min > max range saved silently and shipped straight into the generation prompt as a
-  // self-contradictory instruction.
-  if (updated.weeklyHoursMin > updated.weeklyHoursMax) {
-    return NextResponse.json(
-      { error: "Loading week: minimum hours can't be more than maximum hours." },
-      { status: 400 }
-    );
+      // UXA-3: each bound is clamped to its own floor/ceiling above, but nothing compared the pair —
+      // a min > max range saved silently and shipped straight into the generation prompt as a
+      // self-contradictory instruction.
+      if (next.weeklyHoursMin > next.weeklyHoursMax) {
+        throw new SettingsValidationError("Loading week: minimum hours can't be more than maximum hours.");
+      }
+      if (next.recoveryWeekHoursMin > next.recoveryWeekHoursMax) {
+        throw new SettingsValidationError("Recovery week: minimum hours can't be more than maximum hours.");
+      }
+
+      // ACWR band override (the manual half of calibration): validate + clamp via the calibration
+      // resolver when present, otherwise preserve the existing override, otherwise leave it off.
+      if (isAcwrBandsOverridden(b.acwrBands as Partial<AcwrBands> | null)) {
+        next.acwrBands = resolveAcwrBands(b.acwrBands as Partial<AcwrBands>);
+      } else if (current.acwrBands) {
+        next.acwrBands = current.acwrBands;
+      }
+
+      // TSB adaptation-window override (same manual-calibration pattern, ROADMAP #2): clamp + order via
+      // the resolver when present, else preserve the existing override, else leave it on population defaults.
+      if (isTsbModifierEdgesOverridden(b.tsbModifierEdges as Partial<TsbModifierEdges> | null)) {
+        next.tsbModifierEdges = resolveTsbModifierEdges(b.tsbModifierEdges as Partial<TsbModifierEdges>);
+      } else if (current.tsbModifierEdges) {
+        next.tsbModifierEdges = current.tsbModifierEdges;
+      }
+
+      // Durability-insert envelope override (ROADMAP #2): read by the generate route's plan validation.
+      if (isDurabilityInsertEnvelopeOverridden(b.durabilityInsertEnvelope as Partial<DurabilityInsertEnvelope> | null)) {
+        next.durabilityInsertEnvelope = resolveDurabilityInsertEnvelope(b.durabilityInsertEnvelope as Partial<DurabilityInsertEnvelope>);
+      } else if (current.durabilityInsertEnvelope) {
+        next.durabilityInsertEnvelope = current.durabilityInsertEnvelope;
+      }
+
+      // Athlete-state fusion weights (ROADMAP §5 / #2): clamp + order via the resolver when present
+      // (safe now that resolveAthleteStateWeights bounds every leaf — CAL-1), else preserve an existing
+      // override, else leave it on population defaults.
+      if (isAthleteStateWeightsOverridden(b.athleteStateWeights as DeepPartial<AthleteStateWeights> | null)) {
+        next.athleteStateWeights = resolveAthleteStateWeights(b.athleteStateWeights as DeepPartial<AthleteStateWeights>);
+      } else if (current.athleteStateWeights) {
+        next.athleteStateWeights = current.athleteStateWeights;
+      }
+
+      return next;
+    });
+
+    return NextResponse.json(updated);
+  } catch (err) {
+    if (err instanceof SettingsValidationError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    throw err;
   }
-  if (updated.recoveryWeekHoursMin > updated.recoveryWeekHoursMax) {
-    return NextResponse.json(
-      { error: "Recovery week: minimum hours can't be more than maximum hours." },
-      { status: 400 }
-    );
-  }
-
-  // ACWR band override (the manual half of calibration): validate + clamp via the calibration
-  // resolver when present, otherwise preserve the existing override, otherwise leave it off.
-  if (isAcwrBandsOverridden(b.acwrBands as Partial<AcwrBands> | null)) {
-    updated.acwrBands = resolveAcwrBands(b.acwrBands as Partial<AcwrBands>);
-  } else if (current.acwrBands) {
-    updated.acwrBands = current.acwrBands;
-  }
-
-  // TSB adaptation-window override (same manual-calibration pattern, ROADMAP #2): clamp + order via the
-  // resolver when present, else preserve the existing override, else leave it on population defaults.
-  if (isTsbModifierEdgesOverridden(b.tsbModifierEdges as Partial<TsbModifierEdges> | null)) {
-    updated.tsbModifierEdges = resolveTsbModifierEdges(b.tsbModifierEdges as Partial<TsbModifierEdges>);
-  } else if (current.tsbModifierEdges) {
-    updated.tsbModifierEdges = current.tsbModifierEdges;
-  }
-
-  // Durability-insert envelope override (ROADMAP #2): read by the generate route's plan validation.
-  if (isDurabilityInsertEnvelopeOverridden(b.durabilityInsertEnvelope as Partial<DurabilityInsertEnvelope> | null)) {
-    updated.durabilityInsertEnvelope = resolveDurabilityInsertEnvelope(b.durabilityInsertEnvelope as Partial<DurabilityInsertEnvelope>);
-  } else if (current.durabilityInsertEnvelope) {
-    updated.durabilityInsertEnvelope = current.durabilityInsertEnvelope;
-  }
-
-  // Athlete-state fusion weights (ROADMAP §5 / #2): clamp + order via the resolver when present (safe now
-  // that resolveAthleteStateWeights bounds every leaf — CAL-1), else preserve an existing override, else
-  // leave it on population defaults.
-  if (isAthleteStateWeightsOverridden(b.athleteStateWeights as DeepPartial<AthleteStateWeights> | null)) {
-    updated.athleteStateWeights = resolveAthleteStateWeights(b.athleteStateWeights as DeepPartial<AthleteStateWeights>);
-  } else if (current.athleteStateWeights) {
-    updated.athleteStateWeights = current.athleteStateWeights;
-  }
-
-  await writeBlockSettings(updated);
-  return NextResponse.json(updated);
 }

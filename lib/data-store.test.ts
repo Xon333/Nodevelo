@@ -2,7 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeAthleteProfile, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, writeAthleteProfile, writeCurrentBlock } from "./data-store";
+import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -480,5 +481,42 @@ describe("updateAthleteProfile", () => {
     const result = await updateAthleteProfile((profile) => ({ ...profile, goals: [...profile.goals, { goal: "g", target: "", focus: "general" as const }] }));
     expect(result.goals).toEqual([{ goal: "g", target: "", focus: "general" }]);
     expect(result.performance.ftp).toBe(240); // real data preserved through the shape-merge
+  });
+});
+
+describe("updateBlockSettings", () => {
+  it("HR-52: mutates and persists onto block-settings.json, stamping updatedAt centrally", async () => {
+    await updateBlockSettings(() => ({ ...DEFAULT_BLOCK_SETTINGS, restDaysPerWeek: 1 }));
+    // mutate leaves updatedAt at the DEFAULT_BLOCK_SETTINGS epoch placeholder — the wrapper must
+    // overwrite it with a real, fresh timestamp regardless.
+    const result = await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 }));
+    expect(result.restDaysPerWeek).toBe(2);
+    expect(result.updatedAt).not.toBe(DEFAULT_BLOCK_SETTINGS.updatedAt);
+    const onDisk = await readBlockSettings();
+    expect(onDisk.restDaysPerWeek).toBe(2);
+  });
+
+  it("does not lose a concurrent update — two mutates against the same file both land", async () => {
+    await updateBlockSettings(() => ({ ...DEFAULT_BLOCK_SETTINGS }));
+    await Promise.all([
+      updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 })),
+      updateBlockSettings((current) => ({ ...current, autoSyncOnOpen: false })),
+    ]);
+    const onDisk = await readBlockSettings();
+    expect(onDisk.restDaysPerWeek).toBe(2);
+    expect(onDisk.autoSyncOnOpen).toBe(false);
+  });
+
+  it("propagates a thrown validation error without writing (lock still releases for the next caller)", async () => {
+    await updateBlockSettings(() => ({ ...DEFAULT_BLOCK_SETTINGS, restDaysPerWeek: 1 }));
+    await expect(
+      updateBlockSettings(() => {
+        throw new Error("invalid range");
+      })
+    ).rejects.toThrow("invalid range");
+    expect((await readBlockSettings()).restDaysPerWeek).toBe(1); // unchanged
+    // Chain not poisoned — a subsequent update still lands.
+    await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 3 }));
+    expect((await readBlockSettings()).restDaysPerWeek).toBe(3);
   });
 });

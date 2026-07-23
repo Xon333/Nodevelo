@@ -184,10 +184,16 @@ independently by two agents). Continues the HR- series (append, not renumber).
   closed for `writeInterventionLog`). New regression test in `app/api/sync/route.test.ts` simulates the
   exact race (a stale `readCalibration()` snapshot vs. the lock's own fresh read) and confirms the
   override survives; confirmed RED against the old unlocked code.
-- ☐ P3 `bug` **HR-52** — Remaining unlocked read-modify-writes on two more CRITICAL stores, both narrow
-  concurrent-tab windows: `block-settings.json` (`app/api/settings/route.ts:39→110`, two concurrent
-  PUTs) and `physiology.json` (`app/api/sync/route.ts:220-224`, two concurrent syncs). Same fix shape as
-  HR-36/HR-51: a `updateJsonFile`-based helper for each.
+- ☑ P3 `bug` **HR-52** — **Fixed.** Added `updateBlockSettings` (`lib/data-store.ts`) and `updatePhysiology`
+  (`lib/physiology.ts`), both locked `updateJsonFile`-based read-modify-writes. `app/api/settings/route.ts`
+  PUT now runs its whole read-validate-merge-write as one critical section (a thrown
+  `SettingsValidationError` inside the mutate signals a 400 without ever touching the lock's write);
+  `app/api/sync/route.ts`'s physiology reconcile routes through `updatePhysiology`. Removed the now-orphaned
+  unlocked `writeBlockSettings`/`writePhysiology` (zero remaining callers, the same footgun HR-36/HR-51
+  already closed). New tests in `lib/data-store.test.ts`, `lib/physiology.test.ts`,
+  `app/api/settings/route.test.ts` (rewritten to mock `updateBlockSettings`), and `app/api/sync/route.test.ts`
+  cover persistence, concurrency, and validation-error propagation; confirmed RED against the pre-fix code
+  across all four files.
 - ☐ P3 `bug` **HR-53** — The ledger-rebuild marker still checks `rebuiltAt !== null`
   (`app/api/sync/route.ts:514`) instead of a truthy check — the exact AGENTS.md-documented migration-flag
   anti-pattern. A hand-edited or partially-imported marker file (`{}` on disk, parsing back as

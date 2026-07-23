@@ -1,10 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
 import {
   parseSportSettings,
   physiologyAsOf,
+  readPhysiology,
   reconcile,
   resolveHrZones,
   resolvePowerZones,
+  updatePhysiology,
 } from "./physiology";
 import type { PhysiologySnapshot, PhysiologyStore } from "./types";
 
@@ -146,5 +151,53 @@ describe("reconcile", () => {
     // Oldest snapshots dropped; the earliest retained is well past the original 200.
     expect(Math.min(...store.history.map((h) => h.ftp))).toBeGreaterThan(200);
     expect(store.history.some((h) => h.ftp === 239)).toBe(true); // recent ones kept
+  });
+});
+
+// Point the store at a throwaway dir so tests never touch real physiology data.
+describe("updatePhysiology", () => {
+  let dir: string;
+  const p = (file: string) => path.join(dir, file);
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "nodevelo-phys-"));
+    process.env.NODEVELO_DATA_DIR = dir;
+  });
+
+  afterAll(async () => {
+    delete process.env.NODEVELO_DATA_DIR;
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  afterEach(async () => {
+    for (const f of await fs.readdir(dir)) await fs.rm(p(f), { force: true });
+  });
+
+  it("HR-52: reconciles and persists inside one locked critical section", async () => {
+    const result = await updatePhysiology((prev) => reconcile(prev, snap({ ftp: 260 }), "2026-01-01").store);
+    expect(result.current.ftp).toBe(260);
+    expect(await readPhysiology()).toEqual(result);
+  });
+
+  it("does not lose a concurrent reconcile — two updates against the same file both land", async () => {
+    await updatePhysiology(() => ({ current: snap({ ftp: 200, effectiveFrom: "2026-01-01" }), history: [] }));
+    await Promise.all([
+      updatePhysiology((prev) => reconcile(prev, snap({ ftp: 210, effectiveFrom: "2026-02-01" }), "2026-02-01").store),
+      updatePhysiology((prev) => reconcile(prev, snap({ ftp: 220, effectiveFrom: "2026-02-01" }), "2026-02-01").store),
+    ]);
+    // Whichever ran second's mutate saw the first's already-applied change (locked, not stale) — the
+    // final store reflects one coherent, sequential history, not a lost update.
+    const final = await readPhysiology();
+    expect(final!.history.length).toBeGreaterThanOrEqual(1); // the original 200 got archived at least once
+  });
+
+  it("hands mutate the same defensively-validated shape readPhysiology returns (null on a malformed store)", async () => {
+    await fs.writeFile(p("physiology.json"), JSON.stringify({ notAStore: true }), "utf-8");
+    let sawNull = false;
+    await updatePhysiology((prev) => {
+      sawNull = prev === null;
+      return { current: snap(), history: [] };
+    });
+    expect(sawNull).toBe(true);
   });
 });

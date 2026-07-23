@@ -5,7 +5,7 @@ import { createEvent, deleteEvents, fetchEvents, fetchHrStream, fetchIntervals, 
 import { blockEventIds } from "@/lib/block-events";
 import { blockChangedResponse } from "@/lib/block-version";
 import { dayToEventPayload, reconcileInboundMoves } from "@/lib/calendar-mirror";
-import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, writePhysiology } from "@/lib/physiology";
+import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, updatePhysiology } from "@/lib/physiology";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
 import { parsePrescription } from "@/lib/prescription";
@@ -219,8 +219,10 @@ export async function POST(req: Request) {
     // effective date, so historical analyses stay anchored to the FTP that was live then.
     const incomingPhys = await fetchSportSettings(today);
     if (incomingPhys) {
-      const { store } = reconcile(await readPhysiology(), incomingPhys, today);
-      await writePhysiology(store);
+      // HR-52: read-modify-write inside one locked critical section — two concurrent syncs (two open
+      // tabs) previously could each reconcile from the same stale prior store and clobber each other's
+      // FTP/zone change or history entry.
+      await updatePhysiology((prev) => reconcile(prev, incomingPhys, today).store);
     }
     const physStore = await readPhysiology();
 

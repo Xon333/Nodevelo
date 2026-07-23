@@ -8,7 +8,7 @@
 import type { PhysiologySnapshot, PhysiologyStore } from "./types";
 import type { Zone } from "./zones";
 import { readMdHrZones, readMdPowerZones } from "./kb-loader";
-import { readJsonFile, writeJsonFile } from "./json-store";
+import { readJsonFile, updateJsonFile } from "./json-store";
 
 const FILE = "physiology.json";
 
@@ -189,8 +189,18 @@ export async function readPhysiology(): Promise<PhysiologyStore | null> {
   return store && asRecord(store).current ? store : null;
 }
 
-export async function writePhysiology(store: PhysiologyStore): Promise<void> {
-  await writeJsonFile(FILE, store);
+// HR-52: transactional read-modify-write on physiology.json — the read happens inside the per-file
+// lock, so two concurrent syncs (e.g. two open tabs both hitting Sync) can't each `reconcile` from the
+// same stale prior store and have one silently clobber the other's FTP/zone change or history entry.
+// The lock-held read gets the same defensive "has a real .current" check `readPhysiology` applies —
+// `mutate` never sees a store that merely parsed but is actually malformed.
+export async function updatePhysiology(
+  mutate: (current: PhysiologyStore | null) => PhysiologyStore | Promise<PhysiologyStore>
+): Promise<PhysiologyStore> {
+  return updateJsonFile<PhysiologyStore | null>(FILE, null, async (raw) => {
+    const current = raw && asRecord(raw).current ? raw : null;
+    return mutate(current);
+  }) as Promise<PhysiologyStore>;
 }
 
 // ---------- snapshot-first zone reads (md is the fallback) ----------

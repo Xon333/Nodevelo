@@ -187,8 +187,18 @@ export async function readBlockSettings(): Promise<BlockSettings> {
   return readJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS);
 }
 
-export async function writeBlockSettings(settings: BlockSettings): Promise<void> {
-  await writeJson("block-settings.json", { ...settings, updatedAt: new Date().toISOString() });
+// HR-52: transactional read-modify-write on block-settings.json — the read happens inside the
+// per-file lock, so two concurrent PUTs (e.g. two open tabs saving Settings) can't each compute their
+// own `updated` from the same stale `current` and clobber one another's unrelated field changes.
+// `mutate` may throw to signal a validation failure — nothing is written and the lock is released for
+// the next caller, same as `updateJsonFile`'s own throw-on-error contract.
+export async function updateBlockSettings(
+  mutate: (current: BlockSettings) => BlockSettings | Promise<BlockSettings>
+): Promise<BlockSettings> {
+  return updateJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS, async (current) => ({
+    ...(await mutate(current)),
+    updatedAt: new Date().toISOString(),
+  }));
 }
 
 export async function readBlockHistory(): Promise<BlockHistoryEntry[]> {
