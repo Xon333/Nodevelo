@@ -94,14 +94,12 @@ independently by two agents). Continues the HR- series (append, not renumber).
   window can no longer have its stamp un-set by sync's stale snapshot. New regression test in
   `app/api/sync/route.test.ts` asserts (via `invocationCallOrder`) that the dispositions read happens
   after `updateScoreLog` is invoked, not before it; confirmed RED against the old ordering before the fix.
-- ☐ P2 `bug` **HR-41** — `atomicWrite`'s `.bak` rotation (`lib/json-store.ts:105`) swallows every copy
-  error, not just the expected first-write ENOENT — a real EACCES/EIO/ENOSPC during a disk-pressure
-  event silently voids the backup guarantee exactly when it matters. Separately: if the *live* file is
-  corrupt (recovered via `.bak` on read) but not yet fixed, the next write copies those corrupt bytes
-  over the last good `.bak` before writing new content — a crash between that copy and the rename leaves
-  both copies unusable, and the next read silently falls all the way to the fallback. Fix direction:
-  rethrow non-ENOENT copy errors; skip (or gate) the `.bak` rotation when the current live content
-  doesn't parse.
+- ☑ P2 `bug` **HR-41** — **Fixed.** `atomicWrite` (`lib/json-store.ts`) now reads + parses the live file
+  before rotating it into `.bak`: a genuine copy failure (anything but ENOENT) rethrows instead of being
+  silently swallowed, and corrupt live content (a `SyntaxError` on parse) skips rotation entirely —
+  preserving the existing `.bak` instead of overwriting the last known-good snapshot with corrupt bytes.
+  New tests in `lib/json-store.test.ts` cover both: a genuine `.bak`-write failure now throws, and a
+  corrupt live file no longer clobbers a good `.bak` (the new write still lands on the live file itself).
 - ☐ P2 `bug` **HR-42** — A bad/fallback value can get silently written back as real data for CRITICAL
   stores. `readAthleteProfile` "writes on read" (`lib/data-store.ts:52-56`): if both `athlete.json` and
   its `.bak` are corrupt, the migration branch fires on `DEFAULT_PROFILE` and persists factory-default

@@ -101,8 +101,24 @@ async function atomicWrite(file: string, value: unknown): Promise<void> {
   const full = path.join(dir, file);
 
   if (CRITICAL.has(file)) {
-    // Snapshot the previous good version before overwriting (no-op on first write).
-    await fs.copyFile(full, `${full}.bak`).catch(() => {});
+    // Snapshot the previous good version before overwriting. HR-41: two failure modes this used to
+    // swallow silently via a blanket `.catch(() => {})`:
+    //  (a) a real copy failure (EACCES/EIO/ENOSPC during disk pressure) voided the backup guarantee
+    //      exactly when it mattered most — only ENOENT (no live file yet, first write) is actually
+    //      expected here, so anything else now rethrows.
+    //  (b) if the LIVE file is already corrupt (recoverable via `.bak` on read, but not yet fixed on
+    //      disk), blindly copying it would overwrite the last known-good `.bak` with those corrupt
+    //      bytes — a crash between that copy and this write's own rename then leaves both copies
+    //      unusable. Skip rotation (preserve the existing `.bak`) when the live content doesn't parse.
+    try {
+      const liveRaw = await fs.readFile(full, "utf-8");
+      JSON.parse(liveRaw);
+      await fs.writeFile(`${full}.bak`, liveRaw, "utf-8");
+    } catch (err) {
+      const isMissing = (err as NodeJS.ErrnoException).code === "ENOENT";
+      const isCorrupt = err instanceof SyntaxError;
+      if (!isMissing && !isCorrupt) throw err;
+    }
   }
 
   const tmp = `${full}.tmp`;

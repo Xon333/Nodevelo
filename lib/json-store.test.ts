@@ -56,6 +56,29 @@ describe("json-store (atomic + recovery)", () => {
     await writeJsonFile("score-log.json", { v: 2 }); // backs up {v:1}
     expect(JSON.parse(await fs.readFile(p("score-log.json.bak"), "utf-8"))).toEqual({ v: 1 });
   });
+
+  it("HR-41: skips .bak rotation (preserves the existing backup) when the live file is already corrupt, instead of overwriting it with corrupt bytes", async () => {
+    await writeJsonFile("score-log.json", { v: "good" }); // a real .bak snapshot exists after this
+    await writeJsonFile("score-log.json", { v: "good2" }); // .bak now holds {v:"good"}
+    await fs.writeFile(p("score-log.json"), "{ not valid json", "utf-8"); // live file goes corrupt
+    await writeJsonFile("score-log.json", { v: "new" }); // must not blindly rotate the corrupt live file into .bak
+    expect(JSON.parse(await fs.readFile(p("score-log.json.bak"), "utf-8"))).toEqual({ v: "good" });
+    expect(await readJsonFile("score-log.json", null)).toEqual({ v: "new" }); // the new write still lands
+  });
+
+  it("HR-41: rethrows a genuine .bak copy failure instead of silently swallowing it", async () => {
+    await writeJsonFile("score-log.json", { v: "good" }); // a live file now exists to snapshot
+    // Make the .bak PATH itself a directory, so writing to it fails with something other than ENOENT
+    // (simulates a real disk-level failure, e.g. EACCES/ENOSPC, rather than "no prior file yet").
+    await fs.mkdir(p("score-log.json.bak"));
+    try {
+      await expect(writeJsonFile("score-log.json", { v: "new" })).rejects.toThrow();
+    } finally {
+      // afterEach's cleanup uses a plain (non-recursive) rm — remove the directory ourselves so it
+      // doesn't break subsequent tests.
+      await fs.rm(p("score-log.json.bak"), { recursive: true, force: true });
+    }
+  });
 });
 
 describe("json-store concurrent writes (the per-file mutex)", () => {
