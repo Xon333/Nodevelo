@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { logWarn } from "@/lib/log";
+import { logError, logWarn } from "@/lib/log";
 import {
   appendBlockHistory,
   readAthleteProfile,
@@ -141,21 +141,32 @@ export async function POST(req: Request) {
   const powerProfile = analyzePowerProfile(sync.powerCurve, athleteProfile.performance.ftp, latestWeight, "84-day");
   const powerProfileText = formatPowerProfileForPrompt(powerProfile);
 
-  const retrospective = await generateRetrospective({
-    goal: block.goal,
-    lengthWeeks: block.lengthWeeks,
-    startDate: block.startDate,
-    endDate: block.endDate,
-    plannedHours,
-    actualHours,
-    overallCompliancePct,
-    ctlStart,
-    ctlEnd,
-    complianceByType: complianceMap,
-    topSessions,
-    avgDecoupling,
-    powerProfile: powerProfileText,
-  });
+  // HR-57: every other AI-backed route either wraps its live call in a try/catch (generate,
+  // addCoachNote) or catches inside its stream (ask) — this one didn't, so a network blip or a
+  // 429/overload here surfaced as an unhandled rejection and a bare framework 500 with no {error}
+  // body, instead of the coach-voice error every other route gives.
+  let retrospective: string;
+  try {
+    retrospective = await generateRetrospective({
+      goal: block.goal,
+      lengthWeeks: block.lengthWeeks,
+      startDate: block.startDate,
+      endDate: block.endDate,
+      plannedHours,
+      actualHours,
+      overallCompliancePct,
+      ctlStart,
+      ctlEnd,
+      complianceByType: complianceMap,
+      topSessions,
+      avgDecoupling,
+      powerProfile: powerProfileText,
+    });
+  } catch (err) {
+    logError("/api/retrospective", "generate", err);
+    const message = err instanceof Error ? err.message : "Retrospective generation failed.";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 
   // Track D: structured reflections. Feed the model the hypotheses this block acted on (the matured
   // interventions) + their scored outcomes, and let it phrase one clinical reflection each. Additive

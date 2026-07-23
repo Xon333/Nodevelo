@@ -334,6 +334,23 @@ describe("/api/retrospective POST", () => {
     expect(content).toContain('id: "2026-06-15_build-ftp"');
   });
 
+  describe("live Anthropic call failure (HR-57)", () => {
+    it("502s with an {error} body instead of throwing when generateRetrospective rejects", async () => {
+      h.generateRetrospective.mockRejectedValueOnce(new Error("529 overloaded"));
+      const res = await post();
+      expect(res.status).toBe(502);
+      const json = await res.json();
+      expect(json.error).toBe("529 overloaded");
+    });
+
+    it("never archives or clears the block when generateRetrospective fails", async () => {
+      h.generateRetrospective.mockRejectedValueOnce(new Error("network blip"));
+      await post();
+      expect(store.appendBlockHistory).not.toHaveBeenCalled();
+      expect(store.updateCurrentBlock).not.toHaveBeenCalled();
+    });
+  });
+
   it("400s when Anthropic is not configured, without touching the data store", async () => {
     h.isAnthropicConfigured.mockReturnValue(false);
     const res = await post();

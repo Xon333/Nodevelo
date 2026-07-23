@@ -223,10 +223,14 @@ independently by two agents). Continues the HR- series (append, not renumber).
   `CurrentBlockSection` delete-confirm UI (Block actions → Delete block… → Yes, delete) and asserts both
   that the partial-failure notice appears and that `/api/history` is refetched; confirmed RED against
   the old code (notice never appeared).
-- ☐ P3 `bug` **HR-57** — `/api/retrospective` POST has no try/catch around its live Anthropic call
-  (`app/api/retrospective/route.ts:124`) — every other AI-backed route wraps this. A network blip or a
-  429/overload produces an unhandled rejection and a bare framework 500 with no `{error}` body, instead
-  of the coach-voice error every other route gives.
+- ☑ P3 `bug` **HR-57** — **Fixed.** `/api/retrospective`'s `generateRetrospective` call is now wrapped in
+  its own try/catch, matching `/api/generate`'s pattern: on rejection it logs via `logError` and returns
+  `{ error: message }` at 502 instead of letting the rejection propagate uncaught. Scoped narrowly to
+  just the live call (not the whole route) so the existing "never clears if append fails"
+  characterization test for `appendBlockHistory` failures is untouched. New tests in
+  `app/api/retrospective/route.test.ts` assert the 502 `{error}` body and that neither
+  `appendBlockHistory` nor `updateCurrentBlock` are called when the call fails; confirmed RED against
+  the old code (the rejection propagated instead of a handled 502).
 - ☐ P3 `bug` **HR-58** — `/api/generate` persists `writeSeasonPlan` mid-proposal
   (`app/api/generate/route.ts:271`) even if generation then fails or the plan is never written, via an
   unlocked blind write after an unlocked read — a concurrent season-plan edit (e.g. saving the Season
