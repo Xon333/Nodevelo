@@ -52,6 +52,10 @@ export default function PlanView() {
   const [writeResults, setWriteResults] = useState<WriteResult[] | null>(null);
   // HR-34: dedicated state instead of generateError — see PlanPreview's writeError prop comment.
   const [writeError, setWriteError] = useState<string | null>(null);
+  // HR-48: a partial write's auto-rollback info — when set, some `writeResults` entries marked
+  // `ok: true` were actually undone server-side (their events deleted/restored), so PlanPreview must
+  // not render them as "✓ written".
+  const [writeRollback, setWriteRollback] = useState<{ rolledBack: number; rollbackFailed: number[] } | null>(null);
 
   const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
 
@@ -258,12 +262,17 @@ export default function PlanView() {
     if (!plan) return;
     setWriting(true);
     setWriteError(null);
+    setWriteRollback(null);
     try {
       // UXA-24: tells the server what block (if any) this tab believes is active, so a stale tab
       // can't silently overwrite one another tab already replaced.
-      const { results, currentBlock } = await api<{
+      const { results, currentBlock, rolledBack, rollbackFailed } = await api<{
         results: WriteResult[];
         currentBlock: CurrentBlock | null;
+        // HR-48: present on a partial-write auto-rollback (RV-9) — some `results` entries marked
+        // `ok: true` were actually undone server-side; PlanPreview needs this to render them accurately.
+        rolledBack?: number;
+        rollbackFailed?: number[];
       }>("/api/write", {
         method: "POST",
         // HR-32: today, alongside expectedBlockCreatedAt — the route's archive-truncation step needs
@@ -271,6 +280,7 @@ export default function PlanView() {
         body: JSON.stringify({ plan, expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null, today: localToday() }),
       });
       setWriteResults(results);
+      setWriteRollback(typeof rolledBack === "number" ? { rolledBack, rollbackFailed: rollbackFailed ?? [] } : null);
       if (currentBlock) {
         setState((s) => (s ? { ...s, currentBlock } : s));
         void loadBlockHistory();
@@ -388,6 +398,7 @@ export default function PlanView() {
           writing={writing}
           results={writeResults}
           writeError={writeError}
+          rollback={writeRollback}
           intervalsConfigured={state.configured}
           hasActiveBlock={hasActiveBlock}
           onWrite={write}
@@ -395,6 +406,7 @@ export default function PlanView() {
             setPlan(null);
             setWriteResults(null);
             setWriteError(null);
+            setWriteRollback(null);
           }}
         />
       )}

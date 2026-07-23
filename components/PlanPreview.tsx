@@ -13,6 +13,10 @@ interface Props {
   // always, at the exact moment Write is used. The 409's "reload to see the latest" guidance, the
   // whole point of the version guard, was exactly the message most likely lost.
   writeError: string | null;
+  // HR-48: set on a partial-write auto-rollback (RV-9) — some `results` entries marked `ok: true` were
+  // actually undone server-side (their events deleted/restored to the old block's content), so cards
+  // and the summary line must not claim they were written.
+  rollback: { rolledBack: number; rollbackFailed: number[] } | null;
   intervalsConfigured: boolean;
   hasActiveBlock: boolean; // UXA-8: states the consequence before Write replaces it
   onWrite: () => void;
@@ -32,8 +36,22 @@ function fmtHours(days: PlannedDay[]): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-function DayCard({ day, result }: { day: PlannedDay; result: WriteResult | undefined }) {
+function DayCard({
+  day,
+  result,
+  rollback,
+}: {
+  day: PlannedDay;
+  result: WriteResult | undefined;
+  // HR-48: when set, this write failed partway and was rolled back — a `result.ok: true` day's event
+  // was undone (deleted/restored), not left standing, so it must never read "✓ written".
+  rollback: { rolledBack: number; rollbackFailed: number[] } | null;
+}) {
   const style = TYPE_STYLES[day.type];
+  // A rolled-back "success" is only truly clean if its own event was among the ones the rollback
+  // could actually undo — `rollbackFailed` lists ids the cleanup itself couldn't remove/restore,
+  // meaning this specific day's calendar entry may still be sitting there with stale content.
+  const rollbackFailedHere = rollback !== null && result?.eventId !== null && rollback.rollbackFailed.includes(result?.eventId as number);
   return (
     <article
       className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800"
@@ -48,10 +66,16 @@ function DayCard({ day, result }: { day: PlannedDay; result: WriteResult | undef
           {day.durationMin > 0 && (
             <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{day.durationMin} min</span>
           )}
-          {result && (
-            <span className={`ml-auto text-[11px] font-semibold ${result.ok ? "text-green-600" : "text-red-600"}`}>
-              {result.ok ? "✓ written" : `✗ ${result.error ?? "failed"}`}
+          {result && rollback && result.ok ? (
+            <span className={`ml-auto text-[11px] font-semibold ${rollbackFailedHere ? "text-amber-600" : "text-zinc-500 dark:text-zinc-400"}`}>
+              {rollbackFailedHere ? "⚠ rollback failed — check Intervals.icu" : "↺ rolled back — not saved"}
             </span>
+          ) : (
+            result && (
+              <span className={`ml-auto text-[11px] font-semibold ${result.ok ? "text-green-600" : "text-red-600"}`}>
+                {result.ok ? "✓ written" : `✗ ${result.error ?? "failed"}`}
+              </span>
+            )
           )}
         </div>
         <h4 className="mt-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">{day.name}</h4>
@@ -75,6 +99,7 @@ export default function PlanPreview({
   writing,
   results,
   writeError,
+  rollback,
   intervalsConfigured,
   hasActiveBlock,
   onWrite,
@@ -149,7 +174,7 @@ export default function PlanPreview({
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {weekDays.map((day) => (
-                <DayCard key={day.date} day={day} result={resultFor(day)} />
+                <DayCard key={day.date} day={day} result={resultFor(day)} rollback={rollback} />
               ))}
             </div>
           </div>
@@ -185,7 +210,14 @@ export default function PlanPreview({
         )}
         {results !== null && !written && (
           <p className="text-xs text-red-600">
-            {results.filter((r) => !r.ok).length}/{results.length} events failed — see cards above.
+            {rollback
+              ? // HR-48: a rolled-back write saved NOTHING — plainly say so instead of only counting the
+                // days that failed outright, which silently implied the rest actually stuck.
+                `Partial write rolled back — nothing was saved. ${results.filter((r) => !r.ok).length}/${results.length} event(s) failed, ${rollback.rolledBack} undone.` +
+                (rollback.rollbackFailed.length > 0
+                  ? ` ${rollback.rollbackFailed.length} couldn't be cleaned up — check Intervals.icu directly.`
+                  : "")
+              : `${results.filter((r) => !r.ok).length}/${results.length} events failed — see cards above.`}
           </p>
         )}
         {writeError && (

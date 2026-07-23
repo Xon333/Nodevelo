@@ -148,12 +148,13 @@ independently by two agents). Continues the HR- series (append, not renumber).
   click, Escape, or re-toggling the cell). New test in `components/dashboard/plan.test.tsx` (through the
   real `CurrentBlockSection` — pins a day, triggers Move, asserts the popover survives a mirror failure
   but auto-closes on success); confirmed RED against the old unconditional-close behavior.
-- ☐ P2 `bug` **HR-48** — A partial write shows "✓ written" on cards whose events were just rolled back.
-  `app/api/write/route.ts:94-104` correctly rolls back created events on partial failure and returns
-  `rolledBack`/`rollbackFailed`, but `PlanView.tsx:261-267` only destructures `{results, currentBlock}` —
-  `PlanPreview.tsx:45-49` still marks the successful-looking cards as written even though their events
-  were just deleted, and orphaned `rollbackFailed` ids never reach any UI. Fix direction: consume both
-  fields; render an accurate "partial write — rolled back" banner instead of implying partial success.
+- ☑ P2 `bug` **HR-48** — **Fixed.** `PlanView.tsx`'s `write()` now consumes `rolledBack`/`rollbackFailed`
+  from the write response into a new `writeRollback` state, passed to `PlanPreview` as a `rollback` prop.
+  `PlanPreview`'s `DayCard` no longer shows "✓ written" for a rolled-back day — it shows "↺ rolled back —
+  not saved" (or, if that specific event's own cleanup failed per `rollbackFailed`, a distinct "⚠ rollback
+  failed — check Intervals.icu"). The summary line reads "Partial write rolled back — nothing was saved"
+  instead of only counting outright failures. New tests in `components/PlanPreview.test.tsx` cover both
+  card states and the ordinary (non-rollback) case staying unchanged; confirmed RED against the old code.
 
 ### P3 — polish / smaller correctness (2026-07-23 round)
 
