@@ -111,13 +111,13 @@ independently by two agents). Continues the HR- series (append, not renumber).
   corrupt double-read, though the in-memory migrated profile still returns so the response isn't broken.
   New tests in `lib/json-store.test.ts` and `lib/data-store.test.ts` cover the refusal, the
   still-normal-on-real-first-write case, and non-CRITICAL stores staying unaffected.
-- ☐ P2 `bug` **HR-43** — An old-format `athlete.json` (reachable via restoring an old backup through
-  `app/api/import/route.ts:48`) crashes `readAthleteProfile` outright — it dereferences fields
-  (`profile.goals.length` at `lib/data-store.ts:44`, `profile.performance.ftp` at :61-69) that the type
-  declares required but that a pre-goals-migration file never had, with no shape-merge against
-  `DEFAULT_PROFILE` first. Every profile-dependent route 500s persistently, with no self-heal (the
-  migration write that would fix it never gets the chance to run). Fix direction: shape-merge the parsed
-  profile over `DEFAULT_PROFILE` before the migration check runs.
+- ☑ P2 `bug` **HR-43** — **Fixed.** Added `shapeMergeProfile` (`lib/data-store.ts`), which merges the
+  raw parsed `athlete.json` over `DEFAULT_PROFILE` — filling in missing `performance`/`nutrition` fields
+  and defaulting absent `goals`/`weakpoints` to `[]` (fresh arrays, not shared `DEFAULT_PROFILE`
+  references) — before `applyGoalsMigration` or the FTP overlay ever dereference those fields.
+  `readAthleteProfile` now runs every disk read through it first. New tests cover the merge itself
+  (old-format input, already-complete input, empty/null input) and an end-to-end `readAthleteProfile`
+  read of an old-format file that previously would have crashed outright.
 - ☐ P2 `bug` **HR-44** — A stale reschedule suggestion can mutate the wrong block, and the UXA-24 guard
   structurally can't catch it. `RescheduleBanner.tsx:31-41` loads its suggestion once on mount and never
   reloads it after write/delete/retro/sync; `apply` (lines 64-77) sends `expectedBlockCreatedAt` from

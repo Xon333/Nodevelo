@@ -29,6 +29,28 @@ export const DEFAULT_PROFILE: AthleteProfile = {
   updatedAt: new Date(0).toISOString(),
 };
 
+// HR-43: an old-format athlete.json — reachable via restoring a backup predating a later field
+// (app/api/import/route.ts), or any hand-edited/partial file — parses back missing fields this type
+// declares required. Every downstream field access (applyGoalsMigration's `profile.goals.length`, the
+// FTP overlay's `profile.performance.ftp = ...`) then crashes outright, and since the crash happens
+// before the self-healing migration write below ever runs, every profile-dependent route 500s
+// persistently with no way to recover short of hand-editing the file. Shape-merge the parsed value over
+// DEFAULT_PROFILE BEFORE any field is read — missing fields fill in with defaults instead of `undefined`.
+// Deliberately does not reuse DEFAULT_PROFILE's own array/object references for the array fields (a
+// shared mutable reference across every fallback read would be the same class of footgun HR-49 already
+// flags for `DEFAULT_PROFILE.performance`).
+export function shapeMergeProfile(parsed: unknown): AthleteProfile {
+  const p = (parsed && typeof parsed === "object" ? parsed : {}) as Partial<AthleteProfile>;
+  return {
+    ...DEFAULT_PROFILE,
+    ...p,
+    performance: { ...DEFAULT_PROFILE.performance, ...p.performance },
+    nutrition: { ...DEFAULT_PROFILE.nutrition, ...p.nutrition },
+    goals: Array.isArray(p.goals) ? p.goals : [],
+    weakpoints: Array.isArray(p.weakpoints) ? p.weakpoints : [],
+  };
+}
+
 // Pure migration decision, separated from readAthleteProfile's file IO so the flag-gating logic (the
 // trickiest part — never re-import after the flag is set, never overwrite already-non-empty data) is
 // testable without mocking the filesystem. `parseMd` is injected so the test can supply a fake.
@@ -49,8 +71,8 @@ export async function applyGoalsMigration(
 }
 
 export async function readAthleteProfile(): Promise<AthleteProfile> {
-  const { value: fromDisk, corruptFallback } = await readJsonFileWithStatus<AthleteProfile>("athlete.json", DEFAULT_PROFILE);
-  let profile = fromDisk;
+  const { value: fromDisk, corruptFallback } = await readJsonFileWithStatus<unknown>("athlete.json", DEFAULT_PROFILE);
+  let profile = shapeMergeProfile(fromDisk);
   if (!profile.goalsMigratedAt) {
     profile = await applyGoalsMigration(profile, parseGoalsWeakpointsForMigration);
     // HR-42: never self-heal-write a migration derived from a genuinely corrupt double-read (both

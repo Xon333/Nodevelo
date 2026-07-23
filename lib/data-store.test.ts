@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readCurrentBlock, readInterventionLog, shapeMergeProfile, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -345,7 +345,45 @@ describe("updateCurrentBlock", () => {
   });
 });
 
+describe("shapeMergeProfile", () => {
+  it("HR-43: fills in missing fields from an old-format profile (predating goals/weakpoints/nutrition) instead of leaving them undefined", () => {
+    const oldFormat = { performance: { ftp: 250, maxHr: 195, thresholdHr: 175, weightKg: 70, weeklyHoursMin: 5, weeklyHoursMax: 9 }, updatedAt: "2025-01-01T00:00:00.000Z" };
+    const merged = shapeMergeProfile(oldFormat);
+    expect(merged.goals).toEqual([]);
+    expect(merged.weakpoints).toEqual([]);
+    expect(merged.nutrition).toEqual(baseProfile().nutrition);
+    expect(merged.goalsMigratedAt).toBeNull(); // still gates the migration to run
+    expect(merged.performance.ftp).toBe(250); // real data preserved, not clobbered by defaults
+  });
+
+  it("preserves already-present fields untouched", () => {
+    const current = baseProfile({ goals: [{ goal: "FTP", target: "300W", focus: "general" }], goalsMigratedAt: "2026-01-01T00:00:00.000Z" });
+    const merged = shapeMergeProfile(current);
+    expect(merged).toEqual(current);
+  });
+
+  it("handles a totally empty/malformed object without crashing", () => {
+    expect(() => shapeMergeProfile({})).not.toThrow();
+    expect(() => shapeMergeProfile(null)).not.toThrow();
+    const merged = shapeMergeProfile({});
+    expect(merged.performance).toEqual(baseProfile().performance);
+  });
+});
+
 describe("readAthleteProfile", () => {
+  it("HR-43: reads an old-format athlete.json (predating goals/weakpoints) without crashing, and self-heals the migration", async () => {
+    await fs.writeFile(
+      p("athlete.json"),
+      JSON.stringify({ performance: { ftp: 260, maxHr: 192, thresholdHr: 172, weightKg: 72, weeklyHoursMin: 6, weeklyHoursMax: 10 }, updatedAt: "2025-01-01T00:00:00.000Z" }),
+      "utf-8"
+    );
+    const profile = await readAthleteProfile();
+    expect(profile.performance.ftp).toBe(260); // real data survives the shape-merge
+    expect(profile.goalsMigratedAt).not.toBeNull(); // migration ran instead of crashing on profile.goals.length
+    const onDisk = JSON.parse(await fs.readFile(p("athlete.json"), "utf-8"));
+    expect(onDisk.goalsMigratedAt).not.toBeNull(); // self-healed — persisted, not just in-memory
+  });
+
   it("HR-42: does not self-heal-write when athlete.json is corrupt with no .bak to recover from — returns a usable in-memory profile but leaves the corrupt file untouched", async () => {
     await fs.writeFile(p("athlete.json"), "{ not valid json at all", "utf-8");
     const profile = await readAthleteProfile();
