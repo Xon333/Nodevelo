@@ -75,11 +75,15 @@ export default function RootLayout({
                   tooltips show fully in the margin. Vertical (top-full dropdowns) stays visible.
                   UXA-33: no mx-auto — the rail is `fixed` (pinned to the true viewport edge, outside
                   this div's layout flow), so centering content within this div's padded remainder
-                  left it floating detached from the rail on wide screens (~680px of dead space on
-                  each side at 2560px). Content now hugs the rail's edge instead, with a wider cap on
-                  very large screens so it claims more of the extra width rather than just sitting in
-                  a bigger empty margin. */}
-              <main id="main-content" className="w-full max-w-5xl px-4 py-5 pb-24 max-sm:overflow-x-clip sm:py-8 sm:pb-8 2xl:max-w-[1400px]">{children}</main>
+                  left it floating detached from the rail. A first fix (fixed-step max-w-5xl /
+                  2xl:max-w-[1400px]) only reduced the problem: still a flat pixel cap that doesn't
+                  scale with the viewport, so any monitor wider than ~1536-1920px (most desktop
+                  monitors today) still showed several hundred px of dead space on the right.
+                  Fluid cap instead: 92% of the available width (after the rail), capped at 1800px so
+                  it doesn't run unreadably wide on very large displays — scales continuously instead
+                  of jumping between a couple of hardcoded steps. sm:-scoped (not applied on mobile,
+                  where the rail itself doesn't exist and w-full should fill edge to edge as before). */}
+              <main id="main-content" className="w-full px-4 py-5 pb-24 max-sm:overflow-x-clip sm:max-w-[min(92%,1800px)] sm:py-8 sm:pb-8">{children}</main>
             </div>
           </SyncProvider>
         </QueryProvider>
