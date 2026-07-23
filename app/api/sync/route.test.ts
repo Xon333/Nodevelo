@@ -1215,4 +1215,21 @@ describe("DELETE /api/sync — discard block", () => {
     const res = await DELETE(new Request(`http://localhost/api/sync?expectedBlockCreatedAt=${encodeURIComponent("2026-06-14T10:00:00.000Z")}`));
     expect(res.status).toBe(200);
   });
+
+  it("HR-35: 409s and skips calendar/archive side effects when the block changed between the top-of-request guard and the actual clear", async () => {
+    // The guard above only runs once; deleteEvents is a network round-trip that opens a window where a
+    // second mutation (another tab's write/reschedule) can land. updateCurrentBlock's own CAS is what
+    // actually re-checks createdAt — simulate it rejecting, as it would if a concurrent write won the race.
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 75, eventId: 11 }] })
+    );
+    vi.mocked(store.updateCurrentBlock).mockImplementationOnce(async (_mutate, expectedCreatedAt) => {
+      expect(expectedCreatedAt).toBe("2026-06-14T10:00:00.000Z");
+      return mkBlock({ createdAt: "2026-06-15T00:00:00.000Z" }); // a different, newer block survived
+    });
+    const res = await DELETE(new Request(`http://localhost/api/sync?expectedBlockCreatedAt=${encodeURIComponent("2026-06-14T10:00:00.000Z")}`));
+    expect(res.status).toBe(409);
+    expect(api.deleteEvents).not.toHaveBeenCalled();
+    expect(store.appendBlockHistory).not.toHaveBeenCalled();
+  });
 });

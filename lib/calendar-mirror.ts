@@ -194,13 +194,19 @@ export async function applyCalendarMirror(
 // PUT — `block` there genuinely IS the pre-move state. /api/morning-check's PUT is the one caller that
 // must override it explicitly (its `updated.days` loses the swap sources' eventIds — see
 // applyCalendarMirror's comment).
+// `expectedCreatedAt` (HR-35): forwarded to mergeCurrentBlockDays so the version check a caller ran up
+// front (UXA-24) gets re-applied INSIDE the lock, right before this write — the `applyCalendarMirror`
+// call above is a network round-trip that opens a window for a second mutation (another tab's
+// write/delete/reschedule) to land. `undefined` (no caller passes one, e.g. morning-check, which never
+// had a version guard to begin with) skips the check entirely, same as blockChangedResponse itself.
 export async function persistMirroredMove(
   block: CurrentBlock,
   days: CurrentBlockDay[],
   moves: PlannedMove[],
   today: string,
-  preMoveDays: CurrentBlockDay[] = block.days
-): Promise<{ updatedBlock: CurrentBlock; mirrored: string[]; failed: string[] }> {
+  preMoveDays: CurrentBlockDay[] = block.days,
+  expectedCreatedAt?: string | null
+): Promise<{ updatedBlock: CurrentBlock; mirrored: string[]; failed: string[]; versionConflict: boolean }> {
   let updated: CurrentBlock = { ...block, days };
   let mirrored: string[] = [];
   let failed: string[] = [];
@@ -218,7 +224,13 @@ export async function persistMirroredMove(
   // to Intervals.icu just happened above — so only write the dates THIS move actually touches, instead
   // of blindly overwriting the whole array and losing a concurrent writer's change to some other day.
   const touchedDates = new Set(moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])));
-  const persisted = await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)));
+  const persisted = await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)), expectedCreatedAt);
+  // HR-35: a real version conflict is a non-null persisted block whose createdAt isn't the one we
+  // asked for — mergeCurrentBlockDays' CAS returned the (different) block that's actually current
+  // instead of applying our stale merge. (A null `persisted` means the block was deleted outright — an
+  // existing, separate case this function already treats as a no-op by falling back to `updated` below;
+  // that's unrelated to the version thread introduced here and stays as-is.)
+  const versionConflict = expectedCreatedAt !== undefined && persisted !== null && persisted.createdAt !== expectedCreatedAt;
   updated = persisted ?? updated;
-  return { updatedBlock: updated, mirrored, failed };
+  return { updatedBlock: updated, mirrored, failed, versionConflict };
 }

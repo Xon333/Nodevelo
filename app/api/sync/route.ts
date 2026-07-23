@@ -833,12 +833,29 @@ export async function DELETE(req: Request) {
   // replaced — `expectedBlockCreatedAt` is absent for any older/other caller (check skipped).
   const url = new URL(req.url);
   const expected = url.searchParams.get("expectedBlockCreatedAt");
-  const versionError = blockChangedResponse(block, expected === null ? undefined : expected);
+  const expectedCreatedAt = expected === null ? undefined : expected;
+  const versionError = blockChangedResponse(block, expectedCreatedAt);
   if (versionError) return versionError;
   // HR-32: was utcToday() below — for an athlete west of UTC, a day ridden this morning (local) can
   // still read as "not yet lived" (UTC) and silently drop out of the archive (worst case: the block's
   // ONLY lived day, and the archive is skipped entirely). Matches GET/POST's own resolveToday pattern.
   const today = resolveToday(url.searchParams.get("today"));
+
+  // HR-35: commit the local clear FIRST, re-checking createdAt inside the per-file lock (a real
+  // compare-and-swap) — closes the check-then-act race between the guard above and this write. The
+  // guard only ran once, near the top; `deleteEvents` below is a network round-trip that opens a window
+  // where a second mutation (another tab's write/reschedule) could land and this DELETE would otherwise
+  // still clobber it using the now-stale premise. Gating the calendar/archive side effects on the CAS
+  // actually succeeding also means a rejected delete never deletes calendar events or archives a block
+  // this request no longer has authority over.
+  const result = await updateCurrentBlock(() => null, expectedCreatedAt);
+  if (result !== null) {
+    return NextResponse.json(
+      { error: "This plan changed in another tab — reload to see the latest before continuing." },
+      { status: 409 }
+    );
+  }
+
   const ids = blockEventIds(block);
   let eventsRemoved = 0;
   let eventsFailed: number[] = [];
@@ -869,6 +886,5 @@ export async function DELETE(req: Request) {
       });
     }
   }
-  await updateCurrentBlock(() => null);
   return NextResponse.json({ ok: true, eventsRemoved, eventsFailed });
 }

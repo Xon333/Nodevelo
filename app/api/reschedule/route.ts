@@ -30,7 +30,10 @@ function parseBody(body: unknown): { from: string; to: string; today: string } |
 // since those genuinely differ per verb.
 async function loadRescheduleContext(
   req: Request
-): Promise<{ block: CurrentBlock; fromDay: CurrentBlockDay; toDay: CurrentBlockDay; p: { from: string; to: string; today: string } } | NextResponse> {
+): Promise<
+  | { block: CurrentBlock; fromDay: CurrentBlockDay; toDay: CurrentBlockDay; p: { from: string; to: string; today: string }; expectedCreatedAt: string | null | undefined }
+  | NextResponse
+> {
   let body: unknown;
   try {
     body = await req.json();
@@ -43,13 +46,28 @@ async function loadRescheduleContext(
   const block = await readCurrentBlock();
   if (!block) return NextResponse.json({ error: "No active block." }, { status: 400 });
   const b = (body ?? {}) as Record<string, unknown>;
-  const versionError = blockChangedResponse(block, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
+  const expectedCreatedAt = "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined;
+  const versionError = blockChangedResponse(block, expectedCreatedAt);
   if (versionError) return versionError;
   const fromDay = block.days.find((d) => d.date === p.from);
   const toDay = block.days.find((d) => d.date === p.to);
   if (!fromDay || !toDay) return NextResponse.json({ error: "from/to not in the current block." }, { status: 400 });
 
-  return { block, fromDay, toDay, p };
+  return { block, fromDay, toDay, p, expectedCreatedAt };
+}
+
+// HR-35: the shared post-persistMirroredMove response — a version conflict detected INSIDE the merge's
+// lock (a real compare-and-swap, re-checked right before the write) surfaces as the same 409 the
+// up-front guard would have given if it had run a moment later. mirrorFailed is omitted on conflict —
+// the local move never persisted, so there's nothing meaningful to report about the calendar mirror.
+function rescheduleResult(res: { mirrored: string[]; failed: string[]; versionConflict: boolean }): NextResponse {
+  if (res.versionConflict) {
+    return NextResponse.json(
+      { error: "This plan changed in another tab — reload to see the latest before continuing." },
+      { status: 409 }
+    );
+  }
+  return NextResponse.json({ ok: true, mirrored: res.mirrored, mirrorFailed: res.failed });
 }
 
 // POST { from, to, today } → make up the missed `from` session on the `to` rest day (athlete-confirmed).
@@ -57,7 +75,7 @@ async function loadRescheduleContext(
 export async function POST(req: Request) {
   const ctx = await loadRescheduleContext(req);
   if (ctx instanceof NextResponse) return ctx;
-  const { block, fromDay, p } = ctx;
+  const { block, fromDay, p, expectedCreatedAt } = ctx;
   if (p.to <= p.today) return NextResponse.json({ error: "Can only reschedule onto a future day." }, { status: 400 });
 
   const days = block.days.map((d) =>
@@ -72,8 +90,8 @@ export async function POST(req: Request) {
         }
       : d
   );
-  const { mirrored, failed: mirrorFailed } = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today);
-  return NextResponse.json({ ok: true, mirrored, mirrorFailed });
+  const res = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today, block.days, expectedCreatedAt);
+  return rescheduleResult(res);
 }
 
 // PUT { from, to, today } → MANUAL move (§7 lean slice): shift a future planned session to a clear
@@ -82,7 +100,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   const ctx = await loadRescheduleContext(req);
   if (ctx instanceof NextResponse) return ctx;
-  const { block, fromDay, toDay, p } = ctx;
+  const { block, fromDay, toDay, p, expectedCreatedAt } = ctx;
   if (p.from < p.today) return NextResponse.json({ error: "Can't move a past session." }, { status: 400 });
   if (p.to < p.today) return NextResponse.json({ error: "Can't move onto a past day." }, { status: 400 });
   if (fromDay.durationMin <= 0 || fromDay.type === "Rest") return NextResponse.json({ error: "Nothing planned on the from day." }, { status: 400 });
@@ -94,8 +112,8 @@ export async function PUT(req: Request) {
     if (d.date === p.from) return { date: p.from, name: `Rest (moved to ${p.to})`, type: "Rest" as CurrentBlockDay["type"], durationMin: 0 };
     return d;
   });
-  const { mirrored, failed: mirrorFailed } = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today);
-  return NextResponse.json({ ok: true, mirrored, mirrorFailed });
+  const res = await persistMirroredMove(block, days, [{ from: p.from, to: p.to }], p.today, block.days, expectedCreatedAt);
+  return rescheduleResult(res);
 }
 
 // PATCH { from, to, today } → SWAP two occupied sessions (§7 follow-on): both days trade their full
@@ -108,7 +126,7 @@ export async function PUT(req: Request) {
 export async function PATCH(req: Request) {
   const ctx = await loadRescheduleContext(req);
   if (ctx instanceof NextResponse) return ctx;
-  const { block, fromDay, toDay, p } = ctx;
+  const { block, fromDay, toDay, p, expectedCreatedAt } = ctx;
   if (p.from === p.to) return NextResponse.json({ error: "from and to must be different days." }, { status: 400 });
   if (p.from < p.today) return NextResponse.json({ error: "Can't swap a past session." }, { status: 400 });
   if (p.to < p.today) return NextResponse.json({ error: "Can't swap onto a past day." }, { status: 400 });
@@ -126,11 +144,13 @@ export async function PATCH(req: Request) {
     if (d.date === p.from) return { date: p.from, ...toContent, ...(typeof toDay.eventId === "number" ? { eventId: toDay.eventId } : {}) };
     return d;
   });
-  const { mirrored, failed: mirrorFailed } = await persistMirroredMove(
+  const res = await persistMirroredMove(
     block,
     days,
     [{ from: p.from, to: p.to }, { from: p.to, to: p.from }],
-    p.today
+    p.today,
+    block.days,
+    expectedCreatedAt
   );
-  return NextResponse.json({ ok: true, mirrored, mirrorFailed });
+  return rescheduleResult(res);
 }

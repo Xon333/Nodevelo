@@ -64,7 +64,8 @@ export async function POST(req: Request) {
   // archive-the-old-block step instead of re-reading.
   const existing = await readCurrentBlock();
   const b = (body ?? {}) as Record<string, unknown>;
-  const versionError = blockChangedResponse(existing, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
+  const expectedCreatedAt = "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined;
+  const versionError = blockChangedResponse(existing, expectedCreatedAt);
   if (versionError) return versionError;
   // HR-32: was utcToday() at both use sites below — see the identical fix on /api/sync's DELETE.
   const today = resolveToday(b.today);
@@ -192,7 +193,28 @@ export async function POST(req: Request) {
       });
     })(),
   };
-  await updateCurrentBlock(() => currentBlock);
+  // HR-35: re-check createdAt INSIDE the lock, right before the actual write — the guard above ran
+  // once, before the per-day event-creation loop and the archive step above, both of which can take a
+  // while. A second mutation (another tab's write/delete/reschedule) landing in that window previously
+  // still got silently clobbered by this stale write. On mismatch, roll back the events this request
+  // just created (mirroring the partial-failure path above) instead of persisting a block onto a
+  // premise that's no longer current.
+  const written = await updateCurrentBlock(() => currentBlock, expectedCreatedAt);
+  if (written !== currentBlock) {
+    const created = results.filter((r) => r.ok && r.eventId !== null).map((r) => r.eventId as number);
+    const { deleted, failed } = created.length > 0 ? await deleteEvents(created) : { deleted: [], failed: [] };
+    return NextResponse.json(
+      {
+        error: "This plan changed in another tab while writing — reload to see the latest before continuing.",
+        results,
+        blockSaved: false,
+        currentBlock: null,
+        rolledBack: deleted.length,
+        rollbackFailed: failed,
+      },
+      { status: 409 }
+    );
+  }
 
   // Clean the replaced block's now-orphaned events (RV-9): future planned days the new block doesn't
   // re-cover. A shared date is upserted in place (same external_id) so it's left alone; past days keep

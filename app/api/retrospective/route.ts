@@ -69,7 +69,8 @@ export async function POST(req: Request) {
   // HR-33: was the only block-mutating route with no version guard — write and DELETE both got the
   // UXA-24 check, this one didn't. Checked before the live LLM call below (tens of seconds) so a
   // stale tab can't archive-and-clear a block another tab already replaced in the meantime.
-  const versionError = blockChangedResponse(block, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
+  const expectedCreatedAt = "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined;
+  const versionError = blockChangedResponse(block, expectedCreatedAt);
   if (versionError) return versionError;
   if (!sync) {
     return NextResponse.json({ error: "No sync data — sync first." }, { status: 400 });
@@ -283,7 +284,26 @@ export async function POST(req: Request) {
     days: truncateBlockDays(block.days, today),
   };
   await appendBlockHistory(historyEntry);
-  await updateCurrentBlock(() => null);
+  // HR-35: re-check createdAt INSIDE the lock, right before this write — the guard above ran once,
+  // before the live LLM call(s) above (tens of seconds, the widest window of any block-mutating route).
+  // A second mutation (another tab's write/delete/reschedule) landing in that window previously still
+  // got silently clobbered by this stale clear. On mismatch, the retrospective is still real and
+  // already saved to Plan history above — only the active-block clear is rejected, so the client isn't
+  // told a block was cleared when it wasn't.
+  const written = await updateCurrentBlock(() => null, expectedCreatedAt);
+  if (written !== null) {
+    return NextResponse.json(
+      {
+        error: "This plan changed in another tab while generating the retrospective — it was saved to Plan history, but the active block wasn't cleared. Reload to see the latest.",
+        retrospective,
+        seeds,
+        structuredReflections,
+        fileId,
+        complianceByType: complianceMap,
+      },
+      { status: 409 }
+    );
+  }
 
   return NextResponse.json({ retrospective, seeds, structuredReflections, fileId, complianceByType: complianceMap });
 }

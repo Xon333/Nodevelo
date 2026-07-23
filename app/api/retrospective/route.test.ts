@@ -211,6 +211,18 @@ describe("/api/retrospective POST", () => {
       const res = await post();
       expect(res.status).toBe(200);
     });
+
+    it("HR-35: 409s (but keeps the already-saved retrospective in the response) when the block changed between the guard and the actual clear", async () => {
+      // The guard above only runs once, before the live LLM call(s) — the widest window of any
+      // block-mutating route. updateCurrentBlock's own CAS is what actually re-checks createdAt at
+      // write time; simulate it rejecting, as it would if a concurrent write won the race.
+      h.updateCurrentBlock.mockImplementation(async () => ({ ...block, createdAt: "2026-06-20T00:00:00.000Z" }));
+      const res = await post({ expectedBlockCreatedAt: block.createdAt });
+      const json = await res.json();
+      expect(res.status).toBe(409);
+      expect(store.appendBlockHistory).toHaveBeenCalled(); // already saved — not rolled back
+      expect(json.retrospective).toBe("Solid block overall.");
+    });
   });
 
   describe("archive-truncation uses the client's local today (HR-32)", () => {

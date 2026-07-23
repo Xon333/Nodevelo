@@ -59,7 +59,7 @@ beforeEach(() => {
   vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
     const updatedBlock = { ...b, days };
     await store.writeCurrentBlock(updatedBlock);
-    return { updatedBlock, mirrored: [], failed: [] };
+    return { updatedBlock, mirrored: [], failed: [], versionConflict: false };
   });
 });
 
@@ -68,7 +68,7 @@ describe("POST /api/reschedule — make-up move", () => {
     vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
       const updatedBlock = { ...b, days: days.map((d) => (d.date === "2026-06-21" ? { ...d, eventId: 999 } : d)) };
       await store.writeCurrentBlock(updatedBlock);
-      return { updatedBlock, mirrored: ["2026-06-21"], failed: [] };
+      return { updatedBlock, mirrored: ["2026-06-21"], failed: [], versionConflict: false };
     });
 
     const res = await POST(postReq({ from: "2026-06-18", to: "2026-06-21", today: TODAY }));
@@ -117,6 +117,17 @@ describe("version guard (UXA-24) — shared across POST/PUT/PATCH", () => {
   it("PUT skips the check entirely when the caller sends no expectedBlockCreatedAt at all", async () => {
     const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY }));
     expect(res.status).toBe(200);
+  });
+
+  it("HR-35: PUT surfaces 409 when persistMirroredMove detects a version conflict at the actual write (not just the up-front guard)", async () => {
+    // The up-front guard here passes (expectedBlockCreatedAt matches the block read at request start),
+    // but a concurrent write can still land during persistMirroredMove's own network round-trip —
+    // its CAS re-check is what actually catches this, surfaced here as versionConflict: true.
+    vi.mocked(mirror.persistMirroredMove).mockResolvedValue({ updatedBlock: block(), mirrored: [], failed: [], versionConflict: true });
+    const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY, expectedBlockCreatedAt: block().createdAt }));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.ok).toBeUndefined();
   });
 });
 
@@ -216,7 +227,7 @@ describe("PATCH mirror failure surfaces without blocking the local swap", () => 
     vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days, moves) => {
       const updatedBlock = { ...b, days };
       await store.writeCurrentBlock(updatedBlock);
-      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])) };
+      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])), versionConflict: false };
     });
 
     const res = await PATCH(patchReq({ from: "2026-06-18", to: "2026-06-23", today: SWAP_TODAY }));
@@ -236,7 +247,7 @@ describe("mirror failure surfaces without blocking the local move", () => {
     vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days, moves) => {
       const updatedBlock = { ...b, days }; // mirror failed — local move still stands, no eventId changes
       await store.writeCurrentBlock(updatedBlock);
-      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])) };
+      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])), versionConflict: false };
     });
 
     const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY }));

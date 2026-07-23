@@ -146,6 +146,28 @@ describe("/api/write version guard (UXA-24)", () => {
     const json = await (await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z" })).json();
     expect(json.blockSaved).toBe(true);
   });
+
+  it("HR-35: 409s and rolls back this request's newly-created events when the block changed between the top-of-request guard and the actual write", async () => {
+    // The guard above only runs once, before the whole per-day createEvent loop + archive step below —
+    // a second mutation (another tab's write/delete/reschedule) can land in that window. updateCurrentBlock's
+    // own CAS is what actually re-checks createdAt at write time; simulate it rejecting.
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goal: "g", lengthWeeks: 2, startDate: "2026-06-10", endDate: "2026-06-20", overview: "",
+      createdAt: "2026-06-01T00:00:00Z", days: [],
+    });
+    h.createEvent.mockResolvedValueOnce(301).mockResolvedValueOnce(302);
+    (store.updateCurrentBlock as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => ({
+      goal: "a different, newer block", lengthWeeks: 1, startDate: "2026-06-11", endDate: "2026-06-11",
+      overview: "", createdAt: "2026-06-02T00:00:00Z", days: [],
+    }));
+    const res = await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z" });
+    const json = await res.json();
+    expect(res.status).toBe(409);
+    expect(json.blockSaved).toBe(false);
+    expect(json.currentBlock).toBeNull();
+    expect(h.deleteEvents).toHaveBeenCalledWith([301, 302]);
+    expect(json.rolledBack).toBe(2);
+  });
 });
 
 describe("/api/write archive-truncation uses the client's local today (HR-32)", () => {

@@ -223,7 +223,7 @@ describe("persistMirroredMove", () => {
 
     expect(intervalsApi.fetchEvents).not.toHaveBeenCalled();
     expect(intervalsApi.createEvent).not.toHaveBeenCalled();
-    expect(res).toEqual({ updatedBlock: { ...blk, days }, mirrored: [], failed: [] });
+    expect(res).toEqual({ updatedBlock: { ...blk, days }, mirrored: [], failed: [], versionConflict: false });
     expect(dataStore.mergeCurrentBlockDays).toHaveBeenCalled();
   });
 
@@ -273,6 +273,28 @@ describe("persistMirroredMove", () => {
 
     expect(res.updatedBlock.days.find((d) => d.date === "2026-07-14")!.name).toBe("Recovery"); // this move applied
     expect(res.updatedBlock.days.find((d) => d.date === "2026-07-18")!.name).toBe("Concurrent edit"); // survives, not clobbered
+  });
+
+  it("HR-35: reports versionConflict (not the stale merge) when a concurrent write already replaced the block", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(false);
+    // Simulates mergeCurrentBlockDays' own CAS rejecting: a concurrent write already replaced the
+    // block, so it returns the actual current (different, untouched) generation instead of applying
+    // this caller's merge — exactly like data-store.test.ts's "no-ops on mismatch" unit test.
+    const differentReplaced = { ...blk, createdAt: "2026-07-15T00:00:00Z", days: [day({ date: "2026-07-14", name: "Concurrent write won" })] };
+    vi.mocked(dataStore.mergeCurrentBlockDays).mockImplementation(async () => differentReplaced);
+
+    const days = blk.days.map((d) => (d.date === "2026-07-14" ? { ...d, name: "Recovery" } : d));
+    const res = await persistMirroredMove(blk, days, [{ from: "2026-07-14", to: null }], "2026-07-13", blk.days, blk.createdAt);
+
+    expect(res.versionConflict).toBe(true);
+    expect(res.updatedBlock).toEqual(differentReplaced); // the real current block, not our stale merge
+  });
+
+  it("does not report versionConflict when expectedCreatedAt matches the current on-disk block", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(false);
+    const days = blk.days.map((d) => (d.date === "2026-07-14" ? { ...d, name: "Recovery" } : d));
+    const res = await persistMirroredMove(blk, days, [{ from: "2026-07-14", to: null }], "2026-07-13", blk.days, blk.createdAt);
+    expect(res.versionConflict).toBe(false);
   });
 
   it("uses the explicit preMoveDays override (not block.days, not post-move days) to find the source's eventId", async () => {

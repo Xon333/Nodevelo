@@ -60,7 +60,7 @@ beforeEach(() => {
   vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
     const updatedBlock = { ...b, days };
     await store.writeCurrentBlock(updatedBlock);
-    return { updatedBlock, mirrored: [], failed: [] };
+    return { updatedBlock, mirrored: [], failed: [], versionConflict: false };
   });
 });
 
@@ -192,7 +192,7 @@ describe("PUT /api/morning-check — mirrors the applied swap/downgrade to Inter
     vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days) => {
       const updatedBlock = { ...b, days: days.map((d) => (d.date === "2026-06-22" ? { ...d, eventId: 555 } : d)) };
       await store.writeCurrentBlock(updatedBlock);
-      return { updatedBlock, mirrored: [TODAY, "2026-06-22"], failed: [] };
+      return { updatedBlock, mirrored: [TODAY, "2026-06-22"], failed: [], versionConflict: false };
     });
 
     const res = await PUT(req("PUT", { today: TODAY }));
@@ -269,7 +269,7 @@ describe("PUT /api/morning-check — mirrors the applied swap/downgrade to Inter
     vi.mocked(mirror.persistMirroredMove).mockImplementation(async (b, days, moves) => {
       const updatedBlock = { ...b, days }; // mirror failed — local move still stands, no eventId changes
       await store.writeCurrentBlock(updatedBlock);
-      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])) };
+      return { updatedBlock, mirrored: [], failed: moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])), versionConflict: false };
     });
 
     const res = await PUT(req("PUT", { today: TODAY }));

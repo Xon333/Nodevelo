@@ -51,14 +51,17 @@ independently by two agents). Continues the HR- series (append, not renumber).
 
 ### P2 — high-value correctness (2026-07-23 round)
 
-- ☐ P2 `bug` **HR-35** — Every block-mutating route is check-then-act, not check-*and*-act: the
-  `expectedBlockCreatedAt` guard runs once near the top, then the actual mutating write happens after
-  further awaits (network round-trips to Intervals.icu, or a full sequential write loop taking minutes)
-  with no re-check. `app/api/sync/route.ts` (guard :835, write :867), `app/api/write/route.ts` (guard
-  :67, write :193), `app/api/reschedule/route.ts` (guard :46, merge after the mirror round-trip). A
-  second mutation landing in that window still applies against the now-stale premise. Fix direction:
-  re-compare `createdAt` inside each `updateCurrentBlock` mutator itself (not just before it) and no-op
-  on mismatch — turns the check-then-act race into a real compare-and-swap.
+- ☑ P2 `bug` **HR-35** — **Fixed.** `updateCurrentBlock`/`mergeCurrentBlockDays` (`lib/data-store.ts`)
+  now take an optional `expectedCreatedAt` that's re-compared INSIDE the per-file lock, right before the
+  mutator runs — a real compare-and-swap instead of check-then-act. Threaded through all four
+  block-mutating routes: `app/api/sync/route.ts` DELETE (now CAS-writes the local clear FIRST, before
+  touching the calendar/archive — a rejected delete no longer deletes events or archives a block it lost
+  authority over), `app/api/write/route.ts` POST (rejects with 409 + rolls back this request's
+  newly-created events on mismatch), `app/api/reschedule/route.ts` POST/PUT/PATCH (via
+  `persistMirroredMove`'s new `versionConflict` flag, surfaced as 409), and `app/api/retrospective/route.ts`
+  POST (the widest window of all — a live LLM call; on mismatch the retrospective is still saved to Plan
+  history, only the block-clear is rejected). New regression tests in `lib/data-store.test.ts`,
+  `lib/calendar-mirror.test.ts`, and all 4 route test files simulate a concurrent write winning the race.
 - ☐ P2 `bug` **HR-36** — `intervention-log.json` (a CRITICAL store) has no transactional updater —
   `lib/data-store.ts:251-253` only offers a plain read/write pair, unlike every other critical ledger.
   Two live call sites do unlocked read-modify-write: `app/api/write/route.ts:207-215` (merge fresh

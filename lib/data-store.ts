@@ -94,10 +94,24 @@ export async function writeCurrentBlock(block: CurrentBlock | null): Promise<voi
 // Transactional read-modify-write on the current block (HR-4) — the read happens inside the per-file
 // lock, so a mutate that only touches specific days (a reschedule move, a sync reconcile) can't lose a
 // concurrent writer's change to some other day the way a stale-read-then-plain-write can.
+//
+// HR-35: `expectedCreatedAt` re-runs the UXA-24 version check INSIDE the lock, immediately before
+// `mutate` runs — not just once by the route handler before its own (possibly slow: a network
+// round-trip, a sequential write loop) work started. Every block-mutating route already reads the
+// block and checks `expectedBlockCreatedAt` up front, but that's check-THEN-act: a second mutation
+// landing in the window between the check and this write previously still applied against a now-stale
+// premise. Passing the same expected value through here turns it into a real compare-and-swap —
+// `undefined` (the caller sent no version) skips the check entirely, matching blockChangedResponse's
+// own "no version supplied" semantics; a mismatch no-ops (returns `cur` unchanged) instead of silently
+// overwriting the newer, already-applied write.
 export async function updateCurrentBlock(
-  mutate: (cur: CurrentBlock | null) => CurrentBlock | null
+  mutate: (cur: CurrentBlock | null) => CurrentBlock | null,
+  expectedCreatedAt?: string | null
 ): Promise<CurrentBlock | null> {
-  return updateJson<CurrentBlock | null>("current-block.json", null, mutate);
+  return updateJson<CurrentBlock | null>("current-block.json", null, (cur) => {
+    if (expectedCreatedAt !== undefined && (cur?.createdAt ?? null) !== expectedCreatedAt) return cur;
+    return mutate(cur);
+  });
 }
 
 // Merges only `touchedDays` (by date) onto the fresh on-disk block. Any other writer's change to a
@@ -108,12 +122,15 @@ export async function updateCurrentBlock(
 // concurrently cleared (the athlete deleted it while this writer's own network round-trip was in
 // flight), the merge silently resurrected the deleted block. A cleared block is a real, terminal
 // state — no-op instead. `fallback` served no other purpose, so it's gone from the signature too.
-export async function mergeCurrentBlockDays(touchedDays: CurrentBlockDay[]): Promise<CurrentBlock | null> {
+export async function mergeCurrentBlockDays(
+  touchedDays: CurrentBlockDay[],
+  expectedCreatedAt?: string | null
+): Promise<CurrentBlock | null> {
   const touchedContent = new Map(touchedDays.map((d) => [d.date, d]));
   return updateCurrentBlock((cur) => {
     if (!cur) return null;
     return { ...cur, days: cur.days.map((d) => touchedContent.get(d.date) ?? d) };
-  });
+  }, expectedCreatedAt);
 }
 
 export async function readBlockSettings(): Promise<BlockSettings> {

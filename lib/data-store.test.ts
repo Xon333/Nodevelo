@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readBlockHistory, readCurrentBlock, updateBlockHistory, writeCurrentBlock } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readBlockHistory, readCurrentBlock, updateBlockHistory, updateCurrentBlock, writeCurrentBlock } from "./data-store";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -195,5 +195,62 @@ describe("mergeCurrentBlockDays", () => {
     const touched = { date: "2026-06-01", name: "Threshold (re-scheduled)", type: "Threshold" as const, durationMin: 75 };
     const result = await mergeCurrentBlockDays([touched]);
     expect(result?.days.find((d) => d.date === "2026-06-01")?.name).toBe("Threshold (re-scheduled)");
+  });
+
+  it("HR-35: no-ops when a second write replaced the block in the window between read and merge, instead of merging touched days onto the wrong generation", async () => {
+    await writeCurrentBlock(block()); // this writer's own stale read of createdAt: 2026-06-01T00:00:00.000Z
+    // Simulates a second mutation (e.g. a write/replace) landing first, during this writer's own
+    // network round-trip — a genuinely new block, different createdAt, on the same dates.
+    const replaced = block({ createdAt: "2026-06-02T00:00:00.000Z", days: [{ date: "2026-06-01", name: "Endurance", type: "Z2", durationMin: 90 }] });
+    await writeCurrentBlock(replaced);
+    const touched = { date: "2026-06-01", name: "Threshold (stale move)", type: "Threshold" as const, durationMin: 75 };
+    const result = await mergeCurrentBlockDays([touched], "2026-06-01T00:00:00.000Z");
+    expect(result).toEqual(replaced); // unchanged — the stale merge was rejected
+    expect(await readCurrentBlock()).toEqual(replaced); // and disk reflects the newer block, not the stale merge
+  });
+
+  it("still merges when expectedCreatedAt matches what's actually on disk", async () => {
+    await writeCurrentBlock(block());
+    const touched = { date: "2026-06-01", name: "Threshold (re-scheduled)", type: "Threshold" as const, durationMin: 75 };
+    const result = await mergeCurrentBlockDays([touched], "2026-06-01T00:00:00.000Z");
+    expect(result?.days.find((d) => d.date === "2026-06-01")?.name).toBe("Threshold (re-scheduled)");
+  });
+});
+
+describe("updateCurrentBlock", () => {
+  const block = (overrides: Partial<CurrentBlock> = {}): CurrentBlock => ({
+    goal: "Build FTP",
+    lengthWeeks: 4,
+    startDate: "2026-06-01",
+    endDate: "2026-06-28",
+    overview: "",
+    createdAt: "2026-06-01T00:00:00.000Z",
+    days: [{ date: "2026-06-01", name: "Threshold", type: "Threshold", durationMin: 60 }],
+    ...overrides,
+  });
+
+  it("HR-35: an expectedCreatedAt mismatch no-ops — mutate is never called and disk is untouched", async () => {
+    await writeCurrentBlock(block());
+    let mutateCalled = false;
+    const result = await updateCurrentBlock((cur) => {
+      mutateCalled = true;
+      return cur;
+    }, "some-other-createdAt");
+    expect(mutateCalled).toBe(false);
+    expect(result).toEqual(block());
+    expect(await readCurrentBlock()).toEqual(block());
+  });
+
+  it("runs mutate normally when expectedCreatedAt matches", async () => {
+    await writeCurrentBlock(block());
+    const result = await updateCurrentBlock(() => null, "2026-06-01T00:00:00.000Z");
+    expect(result).toBeNull();
+    expect(await readCurrentBlock()).toBeNull();
+  });
+
+  it("skips the version check entirely when expectedCreatedAt is undefined (caller sent no version)", async () => {
+    await writeCurrentBlock(block());
+    const result = await updateCurrentBlock(() => null);
+    expect(result).toBeNull();
   });
 });
