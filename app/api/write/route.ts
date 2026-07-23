@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
-import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, writeInterventionLog } from "@/lib/data-store";
+import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, updateInterventionLog } from "@/lib/data-store";
 import { blockChangedResponse } from "@/lib/block-version";
 import { currentPeriod, isSeasonFocus } from "@/lib/season";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
@@ -228,14 +228,17 @@ export async function POST(req: Request) {
   // to be validated after a horizon (the learning loop). Best-effort.
   try {
     const firedAt = new Date().toISOString().slice(0, 10);
-    const [scoreLog, sync, log] = await Promise.all([readScoreLog(), readLastSync(), readInterventionLog()]);
+    const [scoreLog, sync] = await Promise.all([readScoreLog(), readLastSync()]);
     const model = buildAthleteModel(scoreLog.entries);
     const fresh = buildInterventions(deriveInsights(model), model, sync, currentBlock.startDate, firedAt);
     if (fresh.length > 0) {
-      await writeInterventionLog({
+      // HR-36: read-modify-write inside one locked critical section — a concurrent sync's
+      // outcome-validation pass (app/api/sync/route.ts) can no longer read the same stale base and
+      // clobber this merge (or vice versa).
+      await updateInterventionLog((log) => ({
         records: mergeInterventions(log.records, fresh),
         updatedAt: new Date().toISOString(),
-      });
+      }));
     }
   } catch (err) {
     logWarn("/api/write", "record-interventions", err instanceof Error ? err.message : String(err));

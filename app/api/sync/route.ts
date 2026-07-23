@@ -26,9 +26,9 @@ import {
   readRollingBaselines,
   readScoreLog,
   updateScoreLog,
+  updateInterventionLog,
   writeLedgerRebuild,
   writeCalibration,
-  writeInterventionLog,
   writeQuirks,
   writeTodayAnalysis,
   updateCurrentBlock,
@@ -567,9 +567,12 @@ export async function POST(req: Request) {
     try {
       const scoreLog = await readScoreLog();
       const model = buildAthleteModel(scoreLog.entries);
-      const interventionLog = await readInterventionLog();
-      const { log: updatedInterventions, changed } = validateInterventions(interventionLog, model, lastSync, today);
-      if (changed) await writeInterventionLog(updatedInterventions);
+      // HR-36: read-modify-write inside one locked critical section — a concurrent write's
+      // fresh-intervention merge (app/api/write/route.ts) can no longer read the same stale base and
+      // clobber this validation pass (or vice versa). validateInterventions itself only bumps
+      // updatedAt when something actually changed, so an unchanged pass still rewrites identical
+      // content — harmless, and simpler than threading `changed` through the lock.
+      await updateInterventionLog((log) => validateInterventions(log, model, lastSync, today).log);
     } catch (e) {
       // Never fail a sync on the validation pass — but surface it instead of swallowing silently.
       logWarn("/api/sync", "intervention-validation", e instanceof Error ? e.message : String(e));

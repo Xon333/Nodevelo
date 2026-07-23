@@ -62,13 +62,15 @@ independently by two agents). Continues the HR- series (append, not renumber).
   POST (the widest window of all — a live LLM call; on mismatch the retrospective is still saved to Plan
   history, only the block-clear is rejected). New regression tests in `lib/data-store.test.ts`,
   `lib/calendar-mirror.test.ts`, and all 4 route test files simulate a concurrent write winning the race.
-- ☐ P2 `bug` **HR-36** — `intervention-log.json` (a CRITICAL store) has no transactional updater —
-  `lib/data-store.ts:251-253` only offers a plain read/write pair, unlike every other critical ledger.
-  Two live call sites do unlocked read-modify-write: `app/api/write/route.ts:207-215` (merge fresh
-  interventions) and `app/api/sync/route.ts:568-572` (validate/mature outcomes). A block write landing
-  while a sync is in flight — a realistic overlap, since write commonly follows generation and sync
-  auto-runs on open — silently drops whichever side's changes land second. Fix direction: add
-  `updateInterventionLog` via `updateJsonFile` (mirrors `updateScoreLog`) and route both sites through it.
+- ☑ P2 `bug` **HR-36** — **Fixed.** Added `updateInterventionLog` (`lib/data-store.ts`) via
+  `updateJsonFile`, operating on the whole `InterventionLog` (mirrors `updateCalibration`, not
+  `updateScoreLog` — `validateInterventions` already conditionally stamps its own `updatedAt`). Both live
+  call sites now route through it: `app/api/write/route.ts` (merge fresh interventions) and
+  `app/api/sync/route.ts` (validate/mature outcomes) — a block write landing while a sync is in flight
+  can no longer silently drop whichever side's changes land second. The now-orphaned unlocked
+  `writeInterventionLog` was removed outright (zero remaining callers — leaving it would've been exactly
+  the HR-54(a) footgun). New concurrency regression test in `lib/data-store.test.ts` proves both a
+  concurrent merge and a concurrent validation pass land together instead of last-writer-wins.
 - ☐ P2 `bug` **HR-37** — `appendBlockHistory`'s dedupe-by-id (`lib/data-store.ts:137`,
   `history.filter(h => h.id !== entry.id)` then prepend) is wholesale last-writer-wins. Retro and DELETE
   both archive under `id = block.createdAt`; both have multi-second-to-tens-of-seconds windows between

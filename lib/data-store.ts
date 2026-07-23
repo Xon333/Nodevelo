@@ -266,8 +266,14 @@ export async function readInterventionLog(): Promise<InterventionLog> {
   return readJson<InterventionLog>("intervention-log.json", DEFAULT_INTERVENTION_LOG);
 }
 
-export async function writeInterventionLog(log: InterventionLog): Promise<void> {
-  await writeJson("intervention-log.json", log);
+// Transactional read-modify-write on the intervention log (HR-36) — the read happens inside the
+// per-file lock, so a block write's fresh-intervention merge (app/api/write/route.ts) and a sync's
+// outcome-validation pass (app/api/sync/route.ts) can't read the same base and clobber each other's
+// changes the way two unlocked read-modify-writes on this CRITICAL store previously could.
+export async function updateInterventionLog(
+  mutate: (log: InterventionLog) => InterventionLog
+): Promise<InterventionLog> {
+  return updateJson<InterventionLog>("intervention-log.json", DEFAULT_INTERVENTION_LOG, mutate);
 }
 
 const DEFAULT_DISPOSITIONS: DispositionLog = { entries: [], updatedAt: new Date(0).toISOString() };

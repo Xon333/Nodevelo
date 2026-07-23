@@ -56,9 +56,11 @@ vi.mock("@/lib/data-store", () => ({
   updateScoreLog: vi.fn(),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
   updateBlockHistory: vi.fn(),
+  updateInterventionLog: vi.fn(async (mutate: (log: { records: unknown[]; updatedAt: string }) => unknown) =>
+    mutate({ records: [], updatedAt: "" })
+  ),
   mergeCurrentBlockDays: vi.fn(),
   writeCalibration: vi.fn(),
-  writeInterventionLog: vi.fn(),
   writeLastSync: vi.fn(),
   writeLedgerRebuild: vi.fn(),
   writeQuirks: vi.fn(),

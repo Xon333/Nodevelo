@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readBlockHistory, readCurrentBlock, updateBlockHistory, updateCurrentBlock, writeCurrentBlock } from "./data-store";
-import type { AthleteProfile, BlockHistoryEntry, CurrentBlock } from "./types";
+import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readBlockHistory, readCurrentBlock, readInterventionLog, updateBlockHistory, updateCurrentBlock, updateInterventionLog, writeCurrentBlock } from "./data-store";
+import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10 },
@@ -214,6 +214,57 @@ describe("mergeCurrentBlockDays", () => {
     const touched = { date: "2026-06-01", name: "Threshold (re-scheduled)", type: "Threshold" as const, durationMin: 75 };
     const result = await mergeCurrentBlockDays([touched], "2026-06-01T00:00:00.000Z");
     expect(result?.days.find((d) => d.date === "2026-06-01")?.name).toBe("Threshold (re-scheduled)");
+  });
+});
+
+describe("updateInterventionLog", () => {
+  const record = (id: string, overrides: Partial<InterventionRecord> = {}): InterventionRecord => ({
+    id,
+    firedAt: "2026-06-01",
+    blockStartDate: "2026-06-01",
+    dimension: "Threshold",
+    severity: "watch",
+    title: "Threshold compliance watch",
+    horizonDays: 14,
+    baselineExecEwma: 0.8,
+    baselinePhys: 250,
+    physMetric: "5-min power",
+    outcome: null,
+    ...overrides,
+  });
+
+  it("defaults to an empty log when intervention-log.json doesn't exist yet", async () => {
+    const out = await updateInterventionLog((log) => log);
+    expect(out).toEqual({ records: [], updatedAt: new Date(0).toISOString() });
+  });
+
+  it("mutates and persists the intervention log", async () => {
+    await updateInterventionLog(() => ({ records: [record("a")], updatedAt: "2026-06-01T00:00:00.000Z" }));
+    const out = await updateInterventionLog((log) => ({
+      records: log.records.map((r) => (r.id === "a" ? { ...r, title: "Updated" } : r)),
+      updatedAt: "2026-06-02T00:00:00.000Z",
+    }));
+    expect(out.records.find((r) => r.id === "a")?.title).toBe("Updated");
+    expect((await readInterventionLog()).records.find((r) => r.id === "a")?.title).toBe("Updated");
+  });
+
+  it("HR-36: does not lose a concurrent write's merge racing a concurrent sync's validation pass — both land instead of last-writer-wins", async () => {
+    // Mirrors json-store.test.ts's concurrent-update coverage: with the old unlocked
+    // read-then-write (readInterventionLog + writeInterventionLog), two concurrent callers both read
+    // the same stale base and whichever wrote last silently discarded the other's change.
+    await updateInterventionLog(() => ({ records: [record("existing")], updatedAt: "2026-06-01T00:00:00.000Z" }));
+    await Promise.all([
+      // A block write merging in a freshly-fired intervention.
+      updateInterventionLog((log) => ({ records: [...log.records, record("new")], updatedAt: new Date().toISOString() })),
+      // A sync's validation pass maturing the existing one.
+      updateInterventionLog((log) => ({
+        records: log.records.map((r) => (r.id === "existing" ? { ...r, outcome: { evaluatedAt: "2026-06-15", execNow: 0.9, physNow: 260, execDelta: 0.1, physDelta: 10, verdict: "validated" } } : r)),
+        updatedAt: new Date().toISOString(),
+      })),
+    ]);
+    const log = await readInterventionLog();
+    expect(log.records.find((r) => r.id === "new")).toBeTruthy();
+    expect(log.records.find((r) => r.id === "existing")?.outcome?.verdict).toBe("validated");
   });
 });
 

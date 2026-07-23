@@ -21,12 +21,13 @@ vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(async () => ({ performance: { ftp: 280 } })),
   readBlockSettings: vi.fn(async () => ({ durabilityInsertEnvelope: undefined })),
   readCurrentBlock: vi.fn(async () => null),
-  readInterventionLog: vi.fn(async () => ({ records: [], updatedAt: "" })),
   readLastSync: vi.fn(async () => null),
   readScoreLog: vi.fn(async () => ({ entries: [] })),
   readSeasonPlan: vi.fn(async () => ({ objective: "", events: [], periods: [], updatedAt: "" })),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
-  writeInterventionLog: vi.fn(async () => {}),
+  updateInterventionLog: vi.fn(async (mutate: (log: { records: unknown[]; updatedAt: string }) => unknown) =>
+    mutate({ records: [], updatedAt: "" })
+  ),
 }));
 
 import * as store from "@/lib/data-store";
@@ -296,12 +297,6 @@ describe("/api/write intervention recording (learning loop, first-ever write)", 
 
   it("first-ever write with no existing log + non-empty directives creates one record per insight with a baseline snapshot and correct block linkage", async () => {
     h.createEvent.mockResolvedValue(200);
-    // Genuine on-disk default for a never-yet-written intervention-log.json (lib/data-store.ts:207-210) —
-    // not the file's placeholder `{ records: [], updatedAt: "" }`.
-    (store.readInterventionLog as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      records: [],
-      updatedAt: new Date(0).toISOString(),
-    });
     (store.readScoreLog as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       entries: [
         scoreEntry("VO2max", 4, "2026-05-01"),
@@ -314,8 +309,12 @@ describe("/api/write intervention recording (learning loop, first-ever write)", 
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
 
-    expect(store.writeInterventionLog).toHaveBeenCalledTimes(1);
-    const written = (store.writeInterventionLog as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+    expect(store.updateInterventionLog).toHaveBeenCalledTimes(1);
+    const mutateFn = (store.updateInterventionLog as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // Genuine on-disk default for a never-yet-written intervention-log.json (lib/data-store.ts) — not
+    // this test file's own mock placeholder — fed through the captured mutate callback (HR-36: the
+    // real read now happens inside updateInterventionLog's lock, so the route itself never sees it).
+    const written = mutateFn({ records: [], updatedAt: new Date(0).toISOString() }) as {
       records: Array<{
         dimension: string;
         blockStartDate: string;
@@ -335,13 +334,13 @@ describe("/api/write intervention recording (learning loop, first-ever write)", 
     expect(vo2!.physMetric.length).toBeGreaterThan(0);
   });
 
-  it("empty directives (no insights fire) succeeds without ever calling writeInterventionLog", async () => {
+  it("empty directives (no insights fire) succeeds without ever calling updateInterventionLog", async () => {
     h.createEvent.mockResolvedValue(200);
     // readScoreLog default from this file's top-level mock is already { entries: [] }, which can't
     // clear MIN_OBSERVATIONS for any dimension — deriveInsights returns [].
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
-    expect(store.writeInterventionLog).not.toHaveBeenCalled();
+    expect(store.updateInterventionLog).not.toHaveBeenCalled();
   });
 });
 
