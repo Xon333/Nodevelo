@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { useSync, type AppState } from "./SyncProvider";
+import { SYNC_QUERY_KEY, useSync } from "./SyncProvider";
 import { LoadFailed, useMountLoad } from "./ui";
 
 interface Suggestion {
@@ -18,7 +19,8 @@ interface Suggestion {
 // rest day to make it up on. Athlete-confirmed — "Apply" rewrites the local block plan and mirrors
 // the move to the Intervals.icu calendar (best-effort; a failed mirror never blocks the local move).
 export default function RescheduleBanner() {
-  const { state, setState } = useSync();
+  const { state } = useSync();
+  const queryClient = useQueryClient();
   const [s, setS] = useState<Suggestion | null>(null);
   // HR-44: captured at the moment THIS suggestion was fetched — not re-read from `state.currentBlock`
   // at Apply-click time, which may by then point at a different block (the athlete could have
@@ -89,8 +91,12 @@ export default function RescheduleBanner() {
           expectedBlockCreatedAt: suggestionBlockCreatedAt,
         }),
       });
-      const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
-      setState(fresh);
+      // HR-46: was a bare GET with no ?today= (fell back to the server's UTC date) plus a manual
+      // setState(fresh) that replaced the ENTIRE app-state cache — if a Sync was also in flight, whichever
+      // response landed second won outright, with no error surfaced either way. invalidateQueries is the
+      // same idiom DayAction.tsx already uses for this exact refresh-after-move need: it merges through
+      // react-query's own cache instead of a competing raw overwrite, and needs no `today` at all.
+      await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
       setS(null);
       setMirrorFailed(res.mirrorFailed);
     } catch {

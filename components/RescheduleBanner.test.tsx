@@ -3,16 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AppState } from "./SyncProvider";
 
-// RescheduleBanner's own useSync() + api() calls are mocked at the module boundary — this is a unit
-// test of the component's OWN state machine (capture-at-fetch-time, reload-on-block-change), not an
-// integration test of SyncProvider/react-query.
+// RescheduleBanner's own useSync()/useQueryClient()/api() calls are mocked at the module boundary —
+// this is a unit test of the component's OWN state machine (capture-at-fetch-time, reload-on-block-
+// change, invalidate-on-apply), not an integration test of SyncProvider/react-query itself (that's
+// SyncProvider.test.tsx, which uses a real QueryClientProvider).
 const h = vi.hoisted(() => ({
   api: vi.fn(),
   useSync: vi.fn(),
+  invalidateQueries: vi.fn(),
 }));
 
 vi.mock("@/lib/client-api", () => ({ api: h.api }));
-vi.mock("./SyncProvider", () => ({ useSync: h.useSync }));
+vi.mock("./SyncProvider", () => ({ useSync: h.useSync, SYNC_QUERY_KEY: ["sync"] }));
+vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQueries: h.invalidateQueries }) }));
 
 import RescheduleBanner from "./RescheduleBanner";
 
@@ -135,5 +138,28 @@ describe("RescheduleBanner — HR-44 (reload suggestion when the block changes)"
     rerender(<RescheduleBanner />);
     await Promise.resolve();
     expect(h.api).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RescheduleBanner — HR-46 (post-apply refresh)", () => {
+  it("invalidates the sync query cache after a successful apply, instead of a bare GET + full-state overwrite", async () => {
+    mockSync("createdAt-A");
+    h.api.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.startsWith("/api/reschedule?today=")) {
+        return { suggestion, blockCreatedAt: "createdAt-A" };
+      }
+      if (url === "/api/reschedule" && init?.method === "POST") {
+        return { ok: true, mirrored: [], mirrorFailed: [] };
+      }
+      throw new Error(`unexpected api call: ${url}`);
+    });
+
+    render(<RescheduleBanner />);
+    await waitFor(() => expect(screen.getByText("Apply")).toBeTruthy());
+    fireEvent.click(screen.getByText("Apply"));
+
+    await waitFor(() => expect(h.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["sync"] }));
+    // The old flow's bare (no ?today=) GET to /api/sync must be gone entirely.
+    expect(h.api.mock.calls.some(([url]) => url === "/api/sync")).toBe(false);
   });
 });

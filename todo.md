@@ -134,13 +134,13 @@ independently by two agents). Continues the HR- series (append, not renumber).
   (the first `@tanstack/react-query`-backed component test in the repo, using a real `QueryClientProvider`)
   proves a block mutated server-side by the sync itself is picked up after `doSync` resolves; confirmed
   RED against the pre-fix code.
-- ☐ P2 `bug` **HR-46** — `RescheduleBanner.apply`'s own post-apply refresh (`RescheduleBanner.tsx:78-79`,
-  `api<AppState>("/api/sync")`) omits `?today=`, so the server falls back to UTC — the same recurring
-  class as HR-32, here on the client. Worse, `setState(fresh)` replaces the *entire* app-state cache: if
-  the athlete also has a Sync in flight when they hit Apply, whichever response lands second wins and is
-  marked fresh for 30s, with no error surfaced either way. Fix direction: pass `?today=${localToday()}`
-  and replace the manual GET+setState with `invalidateQueries(SYNC_QUERY_KEY)` — `DayAction.tsx` already
-  does exactly this; the two flows should be consistent.
+- ☑ P2 `bug` **HR-46** — **Fixed.** `RescheduleBanner.apply`'s post-apply refresh no longer does a bare
+  `api<AppState>("/api/sync")` GET (which omitted `?today=`, falling back to UTC) plus a raw
+  `setState(fresh)` (which replaced the entire app-state cache — a race against a concurrent Sync).
+  Replaced with `queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY })`, the same idiom
+  `DayAction.tsx` already uses for this exact refresh-after-move need. New test in
+  `components/RescheduleBanner.test.tsx` confirms the invalidate call and that the old bare GET is gone
+  entirely; confirmed RED against the pre-fix code.
 - ☐ P2 `bug` **HR-47** — `DayAction`'s calendar-mirror-failure note (`DayAction.tsx:52-62`) —
   specifically the "Intervals.icu update failed (will drift until re-synced)" case — can never actually
   be read. `onMoved?.()` fires immediately after, which calls `setPinnedDate(null)` in
