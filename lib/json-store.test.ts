@@ -42,6 +42,15 @@ describe("json-store (atomic + recovery)", () => {
     expect(await readJsonFile("broken.json", { v: "DEFAULT" })).toEqual({ v: "DEFAULT" });
   });
 
+  it("returns a legitimately-null live value instead of resurrecting a stale .bak", async () => {
+    // Mirrors current-block.json's real delete flow: a block existed (so a .bak snapshot exists
+    // from that write), then it's deleted by writing a literal `null` — a real, intentional value,
+    // not a corrupt/missing file. Reading it back must see the delete, not the pre-delete block.
+    await writeJsonFile("current-block.json", { id: "the-block" });
+    await writeJsonFile("current-block.json", null); // the delete — snapshots {id:"the-block"} to .bak first
+    expect(await readJsonFile("current-block.json", "SHOULD_NOT_SEE_DEFAULT")).toBeNull();
+  });
+
   it("snapshots a .bak before overwriting a CRITICAL store", async () => {
     await writeJsonFile("score-log.json", { v: 1 }); // first write — no prior to back up
     await writeJsonFile("score-log.json", { v: 2 }); // backs up {v:1}

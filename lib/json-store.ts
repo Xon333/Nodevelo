@@ -38,9 +38,12 @@ export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
   for (const candidate of [full, `${full}.bak`]) {
     try {
       const raw = await fs.readFile(candidate, "utf-8");
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed === null || parsed === undefined) continue;
-      return parsed as T;
+      // A successful parse is trusted as-is, even when the value is `null` — that's the real,
+      // intentional content for some stores (current-block.json's "no active block" after a
+      // delete). Treating a legitimate `null` as a failed read fell through to `.bak`, which
+      // always holds the pre-write snapshot — resurrecting the block a delete had just cleared.
+      // Only a genuine read/parse failure (missing file, corrupt JSON) should reach `.bak`.
+      return JSON.parse(raw) as T;
     } catch {
       // missing or unparseable — try the next candidate (.bak), then the default
     }
