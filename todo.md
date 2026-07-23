@@ -141,13 +141,13 @@ independently by two agents). Continues the HR- series (append, not renumber).
   `DayAction.tsx` already uses for this exact refresh-after-move need. New test in
   `components/RescheduleBanner.test.tsx` confirms the invalidate call and that the old bare GET is gone
   entirely; confirmed RED against the pre-fix code.
-- ☐ P2 `bug` **HR-47** — `DayAction`'s calendar-mirror-failure note (`DayAction.tsx:52-62`) —
-  specifically the "Intervals.icu update failed (will drift until re-synced)" case — can never actually
-  be read. `onMoved?.()` fires immediately after, which calls `setPinnedDate(null)` in
-  `plan.tsx:344-345`, which unmounts `DayAction` (the `eligible && pinned` gate at `plan.tsx:342`) on the
-  next render — destroying the note before the athlete has a real chance to see it. Same silent-failure
-  shape as the delete bug this session started from. Fix direction: lift mirror-status display out of
-  the popover into `CurrentBlockSection` itself, or don't auto-close the popover on a mirror failure.
+- ☑ P2 `bug` **HR-47** — **Fixed.** `DayAction`'s `onMoved` now reports `{ mirrorFailed: boolean }`
+  instead of firing blind; `plan.tsx`'s two call sites only `setPinnedDate(null)` (which unmounts
+  `DayAction`, destroying its own failure note) when the mirror actually succeeded. A mirror failure
+  leaves the popover open — the note stays visible until the athlete dismisses it themselves (outside
+  click, Escape, or re-toggling the cell). New test in `components/dashboard/plan.test.tsx` (through the
+  real `CurrentBlockSection` — pins a day, triggers Move, asserts the popover survives a mirror failure
+  but auto-closes on success); confirmed RED against the old unconditional-close behavior.
 - ☐ P2 `bug` **HR-48** — A partial write shows "✓ written" on cards whose events were just rolled back.
   `app/api/write/route.ts:94-104` correctly rolls back created events on partial failure and returns
   `rolledBack`/`rollbackFailed`, but `PlanView.tsx:261-267` only destructures `{results, currentBlock}` —

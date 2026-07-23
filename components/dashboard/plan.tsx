@@ -341,8 +341,14 @@ function BlockCalendar({
                         </p>
                         {eligible && pinned && (
                           <div className="mt-2 flex flex-col gap-1 border-t border-zinc-100 pt-2 dark:border-zinc-700">
-                            <DayAction verb="move" date={day.date} maxDate={blockEndDate} blockCreatedAt={blockCreatedAt} onMoved={() => setPinnedDate(null)} />
-                            <DayAction verb="swap" date={day.date} maxDate={blockEndDate} blockCreatedAt={blockCreatedAt} onMoved={() => setPinnedDate(null)} />
+                            {/* HR-47: closing the popover unmounts DayAction — and with it, the
+                                mirror-failure note it just set — before the athlete can read it. Only
+                                auto-close on a clean mirror; a failure leaves the popover open (the
+                                note is now visible in DayAction's own collapsed state) until the
+                                athlete dismisses it themselves (outside click, Escape, or re-toggling
+                                the cell). */}
+                            <DayAction verb="move" date={day.date} maxDate={blockEndDate} blockCreatedAt={blockCreatedAt} onMoved={({ mirrorFailed }) => { if (!mirrorFailed) setPinnedDate(null); }} />
+                            <DayAction verb="swap" date={day.date} maxDate={blockEndDate} blockCreatedAt={blockCreatedAt} onMoved={({ mirrorFailed }) => { if (!mirrorFailed) setPinnedDate(null); }} />
                           </div>
                         )}
                       </div>

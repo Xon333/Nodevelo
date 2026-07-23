@@ -30,7 +30,10 @@ export default function DayAction({
   // UXA-24: this tab's understanding of which block is active, so a stale tab can't silently
   // move/swap days on a block another tab already replaced.
   blockCreatedAt: string;
-  onMoved?: () => void;
+  // HR-47: reports whether the calendar mirror failed, so the caller can decide whether it's safe to
+  // auto-close the popover hosting this control — closing it on a mirror failure would unmount this
+  // component (and its own `note` state) before the athlete has a real chance to read it.
+  onMoved?: (result: { mirrorFailed: boolean }) => void;
 }) {
   const c = COPY[verb];
   const queryClient = useQueryClient();
@@ -59,7 +62,7 @@ export default function DayAction({
       // day layout. GET /api/sync (the query this cache key backs) DOES return `currentBlock` — so
       // invalidate and let the next read re-fetch fresh state instead.
       await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
-      onMoved?.();
+      onMoved?.({ mirrorFailed: res.mirrorFailed.length > 0 });
     } catch (e) {
       setError(e instanceof Error ? e.message : `${c.actionLabel} failed`);
     } finally {
