@@ -218,7 +218,7 @@ export async function persistMirroredMove(
   // to Intervals.icu just happened above — so only write the dates THIS move actually touches, instead
   // of blindly overwriting the whole array and losing a concurrent writer's change to some other day.
   const touchedDates = new Set(moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])));
-  const persisted = await mergeCurrentBlockDays(updated, updated.days.filter((d) => touchedDates.has(d.date)));
+  const persisted = await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)));
   updated = persisted ?? updated;
   return { updatedBlock: updated, mirrored, failed };
 }

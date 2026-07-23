@@ -373,7 +373,6 @@ describe("POST /api/sync — ledger wiring", () => {
     );
     await postSync();
     expect(store.mergeCurrentBlockDays).toHaveBeenCalledWith(
-      expect.anything(),
       expect.arrayContaining([expect.objectContaining({ date: "2026-07-01", execution: { score: 9, compliancePct: 100 } })])
     );
   });
@@ -562,14 +561,14 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     // execution-outcome backfill now running right after this section, a matching score-log entry
     // for TODAY can trigger its own (later) mergeCurrentBlockDays call — the move-persistence call
     // this assertion cares about is always the FIRST one the calendar-reconcile section makes.
-    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[0][0] as CurrentBlock;
-    expect(written.days.find((d) => d.date === TODAY)).toMatchObject({
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[0][0] as CurrentBlockDay[];
+    expect(written.find((d) => d.date === TODAY)).toMatchObject({
       name: "Threshold 3x12",
       type: "Threshold",
       durationMin: 75,
       eventId: 41,
     });
-    expect(written.days.find((d) => d.date === TOMORROW)?.type).toBe("Rest");
+    expect(written.find((d) => d.date === TOMORROW)?.type).toBe("Rest");
 
     // (b) response warnings include a "Calendar move applied" line
     expect(json.warnings.some((w: string) => new RegExp(`Calendar move applied: ${TOMORROW} → ${TODAY}`).test(w))).toBe(true);
@@ -628,8 +627,8 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     // Index 1 (the second mergeCurrentBlockDays call): index 0 is the move-persistence call, and a
     // later Task 3 execution-outcome backfill call (triggered by a matching score-log entry for TODAY)
     // can follow this one, so the re-stamp call is never reliably the LAST one either.
-    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[1][0] as CurrentBlock;
-    expect(written.days.find((d) => d.date === TODAY)?.eventId).toBe(777);
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[1][0] as CurrentBlockDay[];
+    expect(written.find((d) => d.date === TODAY)?.eventId).toBe(777);
   });
 
   it("a re-stamp failure (createEvent rejects) is best-effort — sync still succeeds, local move still stands", async () => {
@@ -645,8 +644,8 @@ describe("POST /api/sync — inbound calendar reconcile (§7)", () => {
     expect(api.deleteEvents).not.toHaveBeenCalled(); // create never succeeded → never reached delete
 
     // The local move (from the reconcile itself) still stands, with the OLD eventId intact.
-    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[0][0] as CurrentBlock;
-    expect(written.days.find((d) => d.date === TODAY)).toMatchObject({ eventId: 41 });
+    const written = vi.mocked(store.mergeCurrentBlockDays).mock.calls[0][0] as CurrentBlockDay[];
+    expect(written.find((d) => d.date === TODAY)).toMatchObject({ eventId: 41 });
   });
 });
 
@@ -1129,6 +1128,26 @@ describe("DELETE /api/sync — discard block", () => {
     expect(store.updateCurrentBlock).toHaveBeenCalled();
     expect((vi.mocked(store.updateCurrentBlock).mock.calls.at(-1)![0])(null)).toBe(null);
     expect(json).toMatchObject({ ok: true, eventsRemoved: 3, eventsFailed: [] });
+  });
+
+  it("HR-32: uses the client-supplied local ?today, not the server's UTC date, to decide what's lived", async () => {
+    // System time is 2026-06-22T12:00:00Z (utcToday() === "2026-06-22"), but an athlete east of UTC
+    // can already be on 2026-06-23 locally — a day they rode THIS MORNING must still archive as lived.
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-23", name: "Threshold", type: "Threshold", durationMin: 75 }] })
+    );
+    await DELETE(new Request("http://localhost/api/sync?today=2026-06-23"));
+    const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
+    expect(archived.days?.map((d) => d.date)).toEqual(["2026-06-23"]); // not silently dropped
+  });
+
+  it("falls back to UTC when no ?today is supplied", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-22", name: "Threshold", type: "Threshold", durationMin: 75 }] })
+    );
+    await DELETE(new Request("http://localhost/api/sync"));
+    const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
+    expect(archived.days?.map((d) => d.date)).toEqual(["2026-06-22"]);
   });
 
   it("carries block.seasonFocus forward onto the archived BlockHistoryEntry (CFS-8)", async () => {

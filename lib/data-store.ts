@@ -100,18 +100,19 @@ export async function updateCurrentBlock(
   return updateJson<CurrentBlock | null>("current-block.json", null, mutate);
 }
 
-// Merges only `touchedDays` (by date) onto the fresh on-disk block, falling back to `fallback`
-// (the caller's own snapshot) if the block was concurrently cleared. Any other writer's change to a
+// Merges only `touchedDays` (by date) onto the fresh on-disk block. Any other writer's change to a
 // date NOT in `touchedDays` survives — used by every partial-block writer (persistMirroredMove,
 // the sync inbound-reconcile) instead of each hand-rolling stale-read-then-blind-overwrite.
-export async function mergeCurrentBlockDays(
-  fallback: CurrentBlock,
-  touchedDays: CurrentBlockDay[]
-): Promise<CurrentBlock | null> {
+// HR-31: previously took a `fallback: CurrentBlock` second-guess for when the on-disk read came back
+// null (the caller's own pre-write snapshot) and wrote THAT back — meaning if the block was
+// concurrently cleared (the athlete deleted it while this writer's own network round-trip was in
+// flight), the merge silently resurrected the deleted block. A cleared block is a real, terminal
+// state — no-op instead. `fallback` served no other purpose, so it's gone from the signature too.
+export async function mergeCurrentBlockDays(touchedDays: CurrentBlockDay[]): Promise<CurrentBlock | null> {
   const touchedContent = new Map(touchedDays.map((d) => [d.date, d]));
   return updateCurrentBlock((cur) => {
-    const base = cur ?? fallback;
-    return { ...base, days: base.days.map((d) => touchedContent.get(d.date) ?? d) };
+    if (!cur) return null;
+    return { ...cur, days: cur.days.map((d) => touchedContent.get(d.date) ?? d) };
   });
 }
 

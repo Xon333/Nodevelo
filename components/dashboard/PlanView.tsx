@@ -50,6 +50,8 @@ export default function PlanView() {
 
   const [writing, setWriting] = useState(false);
   const [writeResults, setWriteResults] = useState<WriteResult[] | null>(null);
+  // HR-34: dedicated state instead of generateError — see PlanPreview's writeError prop comment.
+  const [writeError, setWriteError] = useState<string | null>(null);
 
   const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
 
@@ -255,6 +257,7 @@ export default function PlanView() {
   const write = async () => {
     if (!plan) return;
     setWriting(true);
+    setWriteError(null);
     try {
       // UXA-24: tells the server what block (if any) this tab believes is active, so a stale tab
       // can't silently overwrite one another tab already replaced.
@@ -263,7 +266,9 @@ export default function PlanView() {
         currentBlock: CurrentBlock | null;
       }>("/api/write", {
         method: "POST",
-        body: JSON.stringify({ plan, expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null }),
+        // HR-32: today, alongside expectedBlockCreatedAt — the route's archive-truncation step needs
+        // the athlete's real local date, not the server's UTC one.
+        body: JSON.stringify({ plan, expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null, today: localToday() }),
       });
       setWriteResults(results);
       if (currentBlock) {
@@ -271,7 +276,7 @@ export default function PlanView() {
         void loadBlockHistory();
       }
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "Couldn't write to Intervals.icu — try again.");
+      setWriteError(err instanceof Error ? err.message : "Couldn't write to Intervals.icu — try again.");
     } finally {
       setWriting(false);
     }
@@ -286,8 +291,12 @@ export default function PlanView() {
   // always, at the exact moment Delete is used) — a failed delete gave zero visible feedback.
   const deleteBlock = async () => {
     const expected = state?.currentBlock?.createdAt;
-    const qs = expected ? `?expectedBlockCreatedAt=${encodeURIComponent(expected)}` : "";
-    await api(`/api/sync${qs}`, { method: "DELETE" });
+    const params = new URLSearchParams();
+    if (expected) params.set("expectedBlockCreatedAt", expected);
+    // HR-32: the route's archive-truncation step needs the athlete's real local date, not the
+    // server's UTC one.
+    params.set("today", localToday());
+    await api(`/api/sync?${params}`, { method: "DELETE" });
     setState((s) => (s ? { ...s, currentBlock: null } : s));
     setPlan(null);
     setWriteResults(null);
@@ -297,9 +306,15 @@ export default function PlanView() {
     setRetroGenerating(true);
     setRetroError(null);
     try {
+      // HR-32/HR-33: was a bare POST with no body — the route fell back to UTC "today" for its
+      // archive truncation (could silently drop or skip archiving a day ridden this morning local
+      // time but not yet "today" in UTC), and had no version guard at all, unlike write/delete.
       const result = await api<{ retrospective: string; seeds: string[]; complianceByType: Record<string, number> }>(
         "/api/retrospective",
-        { method: "POST" }
+        {
+          method: "POST",
+          body: JSON.stringify({ today: localToday(), expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null }),
+        }
       );
       setRetroResult(result);
       // Block is now cleared server-side — update local state.
@@ -372,12 +387,14 @@ export default function PlanView() {
           plan={plan}
           writing={writing}
           results={writeResults}
+          writeError={writeError}
           intervalsConfigured={state.configured}
           hasActiveBlock={hasActiveBlock}
           onWrite={write}
           onDismiss={() => {
             setPlan(null);
             setWriteResults(null);
+            setWriteError(null);
           }}
         />
       )}

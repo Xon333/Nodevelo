@@ -16,7 +16,7 @@ const base: GeneratedPlan = {
 
 const render = (plan: GeneratedPlan) =>
   renderToStaticMarkup(
-    <PlanPreview plan={plan} writing={false} results={null} intervalsConfigured={true} hasActiveBlock={false} onWrite={() => {}} onDismiss={() => {}} />
+    <PlanPreview plan={plan} writing={false} results={null} writeError={null} intervalsConfigured={true} hasActiveBlock={false} onWrite={() => {}} onDismiss={() => {}} />
   );
 
 test("renders protocol violations as a distinct red category above the amber warnings", () => {
@@ -34,4 +34,20 @@ test("renders no violations box when the plan carries none (pre-field plans incl
   const html = render(base);
   expect(html).not.toContain("Protocol violations");
   expect(html).toContain("Warnings — review before writing");
+});
+
+test("HR-34: shows writeError next to the Write button instead of nowhere", () => {
+  const html = renderToStaticMarkup(
+    <PlanPreview
+      plan={base}
+      writing={false}
+      results={null}
+      writeError="This plan changed in another tab — reload to see the latest before continuing."
+      intervalsConfigured={true}
+      hasActiveBlock={false}
+      onWrite={() => {}}
+      onDismiss={() => {}}
+    />
+  );
+  expect(html).toContain("This plan changed in another tab");
 });

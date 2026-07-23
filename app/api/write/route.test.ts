@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RideScoreEntry, WorkoutType } from "@/lib/types";
 
 // Integration test for /api/write (RV-9, regression for RV-2). Proves the route's partial-failure
@@ -145,6 +145,28 @@ describe("/api/write version guard (UXA-24)", () => {
     h.createEvent.mockResolvedValue(200);
     const json = await (await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z" })).json();
     expect(json.blockSaved).toBe(true);
+  });
+});
+
+describe("/api/write archive-truncation uses the client's local today (HR-32)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z")); // utcToday() === "2026-06-15"
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("archives a day already lived local-side even though the server's UTC date hasn't rolled over yet", async () => {
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goal: "old", lengthWeeks: 2, startDate: "2026-06-14", endDate: "2026-06-27", overview: "",
+      createdAt: "2026-06-01T00:00:00Z",
+      days: [{ date: "2026-06-16", name: "Threshold", type: "Threshold", durationMin: 60 }],
+    });
+    h.createEvent.mockResolvedValue(200);
+    await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z", today: "2026-06-16" });
+    const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
+    expect(archived.days?.map((d: { date: string }) => d.date)).toEqual(["2026-06-16"]); // not silently dropped
   });
 });
 

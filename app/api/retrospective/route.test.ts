@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReflectionInterventionInput, RetrospectiveInput } from "@/lib/anthropic-api";
 import type { StructuredReflection } from "@/lib/types";
 
@@ -46,7 +46,10 @@ vi.mock("@/lib/data-store", () => ({
 import * as store from "@/lib/data-store";
 import { POST } from "@/app/api/retrospective/route";
 
-const post = () => POST();
+// A bare Request with no body — tolerated (today falls back to UTC), matching every existing test's
+// expectations below; the dedicated `today`-threading tests further down send a real body.
+const post = (body?: unknown) =>
+  POST(new Request("http://localhost/api/retrospective", { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) }));
 
 const day = (date: string, type: string, durationMin: number) => ({
   date,
@@ -190,6 +193,54 @@ describe("/api/retrospective POST", () => {
     await post();
     const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(entry.seasonFocus).toBe("threshold");
+  });
+
+  describe("version guard (HR-33)", () => {
+    it("rejects with 409 and archives nothing when expectedBlockCreatedAt is stale", async () => {
+      const res = await post({ expectedBlockCreatedAt: "2020-01-01T00:00:00Z" });
+      expect(res.status).toBe(409);
+      expect(store.appendBlockHistory).not.toHaveBeenCalled();
+    });
+
+    it("proceeds when expectedBlockCreatedAt matches the real block", async () => {
+      const res = await post({ expectedBlockCreatedAt: block.createdAt });
+      expect(res.status).toBe(200);
+    });
+
+    it("skips the check entirely when the caller sends no expectedBlockCreatedAt at all", async () => {
+      const res = await post();
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("archive-truncation uses the client's local today (HR-32)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-06-28T12:00:00.000Z")); // utcToday() === "2026-06-28"
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("archives a day already lived local-side even though the server's UTC date hasn't rolled over yet", async () => {
+      h.readCurrentBlock.mockResolvedValueOnce({
+        ...block,
+        days: [...block.days, day("2026-06-29", "Z2", 60)], // rode it this morning, local
+      });
+      await post({ today: "2026-06-29" });
+      const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(entry.days.map((d: { date: string }) => d.date)).toContain("2026-06-29"); // not silently dropped
+    });
+
+    it("falls back to UTC when no today is sent in the body", async () => {
+      h.readCurrentBlock.mockResolvedValueOnce({
+        ...block,
+        days: [...block.days, day("2026-06-29", "Z2", 60)],
+      });
+      await post(); // no body at all
+      const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(entry.days.map((d: { date: string }) => d.date)).not.toContain("2026-06-29");
+    });
   });
 
   it("omits seasonFocus on the archived entry when the block never had one (pre-upgrade block)", async () => {

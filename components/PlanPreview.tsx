@@ -7,6 +7,12 @@ interface Props {
   plan: GeneratedPlan;
   writing: boolean;
   results: WriteResult[] | null;
+  // HR-34: a thrown write failure (network error, or the UXA-24 409 from a stale tab) — shown right
+  // here, next to Write. Previously routed through PlanView's generateError, which only renders
+  // inside BlockGenerator's expanded form — collapsed by default whenever a block is active, i.e.
+  // always, at the exact moment Write is used. The 409's "reload to see the latest" guidance, the
+  // whole point of the version guard, was exactly the message most likely lost.
+  writeError: string | null;
   intervalsConfigured: boolean;
   hasActiveBlock: boolean; // UXA-8: states the consequence before Write replaces it
   onWrite: () => void;
@@ -68,6 +74,7 @@ export default function PlanPreview({
   plan,
   writing,
   results,
+  writeError,
   intervalsConfigured,
   hasActiveBlock,
   onWrite,
@@ -179,6 +186,11 @@ export default function PlanPreview({
         {results !== null && !written && (
           <p className="text-xs text-red-600">
             {results.filter((r) => !r.ok).length}/{results.length} events failed — see cards above.
+          </p>
+        )}
+        {writeError && (
+          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {writeError}
           </p>
         )}
       </div>

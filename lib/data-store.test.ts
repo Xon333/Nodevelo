@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, readBlockHistory, updateBlockHistory } from "./data-store";
-import type { AthleteProfile, BlockHistoryEntry } from "./types";
+import { applyGoalsMigration, appendBlockHistory, mergeCurrentBlockDays, readBlockHistory, readCurrentBlock, updateBlockHistory, writeCurrentBlock } from "./data-store";
+import type { AthleteProfile, BlockHistoryEntry, CurrentBlock } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10 },
@@ -153,5 +153,47 @@ describe("appendBlockHistory", () => {
     const history = await readBlockHistory();
     expect(history.find((h) => h.id === "new")).toBeTruthy();
     expect(history.find((h) => h.id === "existing")?.retrospective).toBe("done");
+  });
+});
+
+describe("mergeCurrentBlockDays", () => {
+  const block = (overrides: Partial<CurrentBlock> = {}): CurrentBlock => ({
+    goal: "Build FTP",
+    lengthWeeks: 4,
+    startDate: "2026-06-01",
+    endDate: "2026-06-28",
+    overview: "",
+    createdAt: "2026-06-01T00:00:00.000Z",
+    days: [
+      { date: "2026-06-01", name: "Threshold", type: "Threshold", durationMin: 60 },
+      { date: "2026-06-02", name: "Rest", type: "Rest", durationMin: 0 },
+    ],
+    ...overrides,
+  });
+
+  it("merges only the touched days onto the fresh on-disk block, leaving other days untouched", async () => {
+    await writeCurrentBlock(block());
+    const touched = { date: "2026-06-02", name: "Z2 (moved)", type: "Z2" as const, durationMin: 60 };
+    const result = await mergeCurrentBlockDays([touched]);
+    expect(result?.days.find((d) => d.date === "2026-06-02")).toEqual(touched);
+    expect(result?.days.find((d) => d.date === "2026-06-01")?.name).toBe("Threshold"); // untouched
+  });
+
+  it("HR-31: does NOT resurrect a concurrently-deleted block — returns null instead of writing touched days onto nothing", async () => {
+    // The real sequence: a writer (e.g. a reschedule move) reads the block, starts a slow network
+    // round-trip (Intervals.icu), and during that window the athlete deletes the block — the on-disk
+    // file is now null. The writer's merge must respect the delete, not resurrect a block to merge onto.
+    await writeCurrentBlock(null); // simulates the concurrent delete having already landed
+    const touched = { date: "2026-06-02", name: "Z2 (moved)", type: "Z2" as const, durationMin: 60 };
+    const result = await mergeCurrentBlockDays([touched]);
+    expect(result).toBeNull();
+    expect(await readCurrentBlock()).toBeNull(); // and the disk state must stay deleted, not resurrected
+  });
+
+  it("still merges correctly in the common, non-race case", async () => {
+    await writeCurrentBlock(block());
+    const touched = { date: "2026-06-01", name: "Threshold (re-scheduled)", type: "Threshold" as const, durationMin: 75 };
+    const result = await mergeCurrentBlockDays([touched]);
+    expect(result?.days.find((d) => d.date === "2026-06-01")?.name).toBe("Threshold (re-scheduled)");
   });
 });

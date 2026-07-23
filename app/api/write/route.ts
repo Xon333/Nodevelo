@@ -8,7 +8,7 @@ import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { buildInterventions, mergeInterventions } from "@/lib/intervention";
 import { planDayToEvent } from "@/lib/plan-parser";
 import { staleEventIds } from "@/lib/block-events";
-import { utcToday } from "@/lib/date";
+import { resolveToday } from "@/lib/date";
 import { truncateBlockDays } from "@/lib/score-log";
 import { parsePrescription } from "@/lib/prescription";
 import { computeSessionLevel } from "@/lib/session-level";
@@ -66,6 +66,8 @@ export async function POST(req: Request) {
   const b = (body ?? {}) as Record<string, unknown>;
   const versionError = blockChangedResponse(existing, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
   if (versionError) return versionError;
+  // HR-32: was utcToday() at both use sites below — see the identical fix on /api/sync's DELETE.
+  const today = resolveToday(b.today);
 
   // Sequential writes so per-day results are deterministic and the API isn't hammered.
   const results: WriteResult[] = [];
@@ -120,7 +122,7 @@ export async function POST(req: Request) {
       ...(existing.seasonFocus && isSeasonFocus(existing.seasonFocus) ? { seasonFocus: existing.seasonFocus } : {}),
       // SUB-1: archive only the lived portion — the days the superseded block actually covered while
       // live, not the un-lived future the new block is about to overwrite.
-      days: truncateBlockDays(existing.days, utcToday()),
+      days: truncateBlockDays(existing.days, today),
     });
   }
 
@@ -196,7 +198,7 @@ export async function POST(req: Request) {
   // re-cover. A shared date is upserted in place (same external_id) so it's left alone; past days keep
   // their marker (the athlete may have ridden them). Best-effort — never fail the write on cleanup.
   if (existing) {
-    const stale = staleEventIds(existing, currentBlock.days.map((d) => d.date), utcToday());
+    const stale = staleEventIds(existing, currentBlock.days.map((d) => d.date), today);
     if (stale.length > 0) await deleteEvents(stale);
   }
 

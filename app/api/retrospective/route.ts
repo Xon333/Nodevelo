@@ -11,7 +11,8 @@ import {
 } from "@/lib/data-store";
 import { analyzePowerProfile, formatPowerProfileForPrompt, powerProfileSeed } from "@/lib/power-profile";
 import { writeRetrospective } from "@/lib/kb-loader";
-import { utcToday } from "@/lib/date";
+import { blockChangedResponse } from "@/lib/block-version";
+import { resolveToday } from "@/lib/date";
 import { truncateBlockDays } from "@/lib/score-log";
 import { isSeasonFocus } from "@/lib/season";
 import {
@@ -37,10 +38,23 @@ function closestCtl(
 }
 
 // POST — generate retrospective for current block (or most recent history entry without one)
-export async function POST() {
+export async function POST(req: Request) {
   if (!isAnthropicConfigured()) {
     return NextResponse.json({ error: "Anthropic API is not configured." }, { status: 400 });
   }
+
+  // No body was previously ever sent here — tolerate one missing/empty entirely, since `today` is
+  // optional (falls back to UTC) and this keeps the route accepting the same bare POST it always has.
+  let body: unknown = {};
+  try {
+    body = await req.json();
+  } catch {
+    // no body sent — fine
+  }
+  const b = (body ?? {}) as Record<string, unknown>;
+  // HR-32: was utcToday() at the archive-truncation call site below — see the identical fix on
+  // /api/sync's DELETE and /api/write's POST.
+  const today = resolveToday(b.today);
 
   const [block, sync, interventionLog, athleteProfile] = await Promise.all([
     readCurrentBlock(),
@@ -52,6 +66,11 @@ export async function POST() {
   if (!block) {
     return NextResponse.json({ error: "No active block found." }, { status: 404 });
   }
+  // HR-33: was the only block-mutating route with no version guard — write and DELETE both got the
+  // UXA-24 check, this one didn't. Checked before the live LLM call below (tens of seconds) so a
+  // stale tab can't archive-and-clear a block another tab already replaced in the meantime.
+  const versionError = blockChangedResponse(block, "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined);
+  if (versionError) return versionError;
   if (!sync) {
     return NextResponse.json({ error: "No sync data — sync first." }, { status: 400 });
   }
@@ -261,7 +280,7 @@ export async function POST() {
     // SUB-1: truncation is a no-op here in practice — a retrospective only runs on a finished block
     // (isBlockFinished), so every day is already in the past — but applying it uniformly keeps one code
     // path instead of special-casing this call site.
-    days: truncateBlockDays(block.days, utcToday()),
+    days: truncateBlockDays(block.days, today),
   };
   await appendBlockHistory(historyEntry);
   await updateCurrentBlock(() => null);

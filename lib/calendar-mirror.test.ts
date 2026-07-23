@@ -205,7 +205,7 @@ describe("persistMirroredMove", () => {
   // Simulates the real mergeCurrentBlockDays against a given on-disk base — exercises persistMirroredMove's
   // actual touched-dates computation while only the disk I/O itself stays mocked.
   const mockMergeOnto = (onDisk: CurrentBlock) =>
-    vi.mocked(dataStore.mergeCurrentBlockDays).mockImplementation(async (_fallback, touchedDays) => {
+    vi.mocked(dataStore.mergeCurrentBlockDays).mockImplementation(async (touchedDays) => {
       const touchedContent = new Map(touchedDays.map((d) => [d.date, d]));
       return { ...onDisk, days: onDisk.days.map((d) => touchedContent.get(d.date) ?? d) };
     });

@@ -56,7 +56,7 @@ import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveA
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "@/lib/aerobic";
 import { timeAboveAerobicHrFraction } from "@/lib/execution-score";
-import { resolveToday, utcToday } from "@/lib/date";
+import { resolveToday } from "@/lib/date";
 import { deriveFuelPrompt } from "@/lib/fuel-prompt";
 import { isSeasonFocus } from "@/lib/season";
 import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
@@ -442,7 +442,7 @@ export async function POST(req: Request) {
               // HR-4: only the dates this reconcile actually touched go to disk, merged onto a fresh
               // read — a concurrent reschedule/morning-check write to some other day can't be clobbered.
               const touchedDates = new Set(rec.applied.flatMap((m) => [m.from, m.to]));
-              await mergeCurrentBlockDays(block, block.days.filter((d) => touchedDates.has(d.date)));
+              await mergeCurrentBlockDays(block.days.filter((d) => touchedDates.has(d.date)));
               warnings.push(...rec.applied.map((m) => `Calendar move applied: ${m.from} → ${m.to} (from Intervals.icu).`));
 
               // Fix B (final review): reconcileInboundMoves relocates the block day but — by that
@@ -483,7 +483,7 @@ export async function POST(req: Request) {
               });
               if (restampedByDate.size > 0) {
                 block = { ...block, days: block.days.map((d) => (restampedByDate.has(d.date) ? { ...d, eventId: restampedByDate.get(d.date)! } : d)) };
-                await mergeCurrentBlockDays(block, block.days.filter((d) => touchedDates.has(d.date)));
+                await mergeCurrentBlockDays(block.days.filter((d) => touchedDates.has(d.date)));
               }
             }
             warnings.push(...rec.warnings);
@@ -546,7 +546,7 @@ export async function POST(req: Request) {
             const changedDates = new Set(
               patchedDays.filter((d, i) => d !== blockForBackfill.days[i]).map((d) => d.date)
             );
-            await mergeCurrentBlockDays(blockForBackfill, patchedDays.filter((d) => changedDates.has(d.date)));
+            await mergeCurrentBlockDays(patchedDays.filter((d) => changedDates.has(d.date)));
           }
         }
         const history = await readBlockHistory();
@@ -831,9 +831,14 @@ export async function DELETE(req: Request) {
   const block = await readCurrentBlock();
   // UXA-24: a stale tab's Delete button shouldn't silently discard a block another tab already
   // replaced — `expectedBlockCreatedAt` is absent for any older/other caller (check skipped).
-  const expected = new URL(req.url).searchParams.get("expectedBlockCreatedAt");
+  const url = new URL(req.url);
+  const expected = url.searchParams.get("expectedBlockCreatedAt");
   const versionError = blockChangedResponse(block, expected === null ? undefined : expected);
   if (versionError) return versionError;
+  // HR-32: was utcToday() below — for an athlete west of UTC, a day ridden this morning (local) can
+  // still read as "not yet lived" (UTC) and silently drop out of the archive (worst case: the block's
+  // ONLY lived day, and the archive is skipped entirely). Matches GET/POST's own resolveToday pattern.
+  const today = resolveToday(url.searchParams.get("today"));
   const ids = blockEventIds(block);
   let eventsRemoved = 0;
   let eventsFailed: number[] = [];
@@ -843,7 +848,7 @@ export async function DELETE(req: Request) {
     eventsFailed = failed;
   }
   if (block) {
-    const livedDays = truncateBlockDays(block.days, utcToday());
+    const livedDays = truncateBlockDays(block.days, today);
     // SUB-1: only archive when something was actually lived — a same-day discard (regenerated before
     // any day passed) has nothing worth preserving, and archiving it anyway shows a noise entry (no
     // compliance, no hours, empty days) on the athlete-visible Plan history + Trends block timeline.
