@@ -100,6 +100,17 @@ describe("POST /api/reschedule — make-up move", () => {
     expect(store.writeCurrentBlock).not.toHaveBeenCalled();
     expect(mirror.persistMirroredMove).not.toHaveBeenCalled();
   });
+
+  it("HR-39: rejects making up onto an occupied (non-rest) day (400) instead of silently overwriting its prescription", async () => {
+    // 2026-06-22 is "Easy" (Z2, 60min) — a real planned day, unlike PUT/PATCH's equivalent tests this
+    // verb previously had no server-side check for at all.
+    const res = await POST(postReq({ from: "2026-06-18", to: "2026-06-22", today: TODAY }));
+    const json = await res.json();
+    expect(res.status).toBe(400);
+    expect(json.error).toContain("2026-06-22");
+    expect(store.writeCurrentBlock).not.toHaveBeenCalled();
+    expect(mirror.persistMirroredMove).not.toHaveBeenCalled();
+  });
 });
 
 describe("version guard (UXA-24) — shared across POST/PUT/PATCH", () => {

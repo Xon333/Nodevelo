@@ -75,8 +75,14 @@ function rescheduleResult(res: { mirrored: string[]; failed: string[]; versionCo
 export async function POST(req: Request) {
   const ctx = await loadRescheduleContext(req);
   if (ctx instanceof NextResponse) return ctx;
-  const { block, fromDay, p, expectedCreatedAt } = ctx;
+  const { block, fromDay, toDay, p, expectedCreatedAt } = ctx;
   if (p.to <= p.today) return NextResponse.json({ error: "Can only reschedule onto a future day." }, { status: 400 });
+  // HR-39: unlike PUT (move) and PATCH (swap), this verb never checked `to` was actually empty —
+  // it overwrote a real planned (non-rest) day unconditionally, silently discarding that prescription
+  // with no archive of it anywhere. Same rest/empty requirement PUT already enforces.
+  if (toDay.durationMin > 0 && toDay.type !== "Rest") {
+    return NextResponse.json({ error: `${toDay.name} is already planned on ${p.to} — choose a rest day.` }, { status: 400 });
+  }
 
   const days = block.days.map((d) =>
     d.date === p.to

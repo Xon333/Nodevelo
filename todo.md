@@ -84,12 +84,10 @@ independently by two agents). Continues the HR- series (append, not renumber).
   instead of being deleted; only genuinely new dates (no old-block day to restore) still get deleted. New
   regression test in `app/api/write/route.test.ts` proves the shared date is restored, not destroyed,
   while the non-shared date is still cleaned up.
-- ☐ P2 `bug` **HR-39** — Reschedule POST (the "make-up a missed session" verb) never validates that its
-  target day is actually empty — unlike PUT (move) and PATCH (swap), which both reject an occupied
-  target. `app/api/reschedule/route.ts:57-77` overwrites `to`'s content unconditionally; if it's a real
-  planned (non-rest) day, that prescription is silently replaced and never archived anywhere. Only the
-  client-side suggestion currently keeps this honest. Fix direction: enforce the same rest/empty check
-  server-side that PUT/PATCH already have.
+- ☑ P2 `bug` **HR-39** — **Fixed.** `app/api/reschedule/route.ts` POST now rejects with 400 when `to`
+  is a real planned (non-rest) day — the same rest/empty check PUT/PATCH already had — instead of
+  overwriting its prescription unconditionally. New regression test in
+  `app/api/reschedule/route.test.ts` confirms it 400s onto an occupied day and never calls the mirror.
 - ☐ P2 `bug` **HR-40** — Sync applies a stale dispositions snapshot inside the score-log lock.
   `app/api/sync/route.ts:510` reads dispositions *outside* `updateScoreLog`'s lock; line 528 applies them
   inside it via `applyDispositions`, which sets `compromised` to exactly the read snapshot — clearing the
