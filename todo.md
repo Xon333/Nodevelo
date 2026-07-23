@@ -76,13 +76,14 @@ independently by two agents). Continues the HR- series (append, not renumber).
   that the incoming (bare) entry lacks — if so, the existing richer entry wins outright (still bumped to
   the front) instead of being wiped by whichever archive call happened to land second. Both directions
   (rich-then-bare, bare-then-rich, rich-then-rich) covered by new tests in `lib/data-store.test.ts`.
-- ☐ P2 `bug` **HR-38** — Write-route rollback (`app/api/write/route.ts:94-104`) deletes the *old*
-  block's live calendar events on shared dates. `createEvent` upserts on a stable `nodevelo-<date>`
-  external_id, so for any date the old and new block both cover, the "created" event id returned by a
-  partial-failure write IS the old block's existing event, already overwritten with the new content. The
-  auto-rollback then deletes it — destroying the still-active old block's real planned sessions on
-  Intervals.icu (unrecoverable) while claiming "the calendar returns to its pre-write state." Fix
-  direction: on rollback, re-upsert the old block's original payload for shared dates instead of deleting.
+- ☑ P2 `bug` **HR-38** — **Fixed.** `app/api/write/route.ts` now snapshots the OLD block's live
+  calendar descriptions (`fetchEvents`) BEFORE the per-day write loop starts — the only point they're
+  still intact, since a shared date's upsert overwrites them. On a partial-failure rollback, a shared
+  date (one the old block also covered) is now restored via a fresh `createEvent` carrying the old
+  block's own content and real description (`dayToEventPayload`, reused from `lib/calendar-mirror.ts`)
+  instead of being deleted; only genuinely new dates (no old-block day to restore) still get deleted. New
+  regression test in `app/api/write/route.test.ts` proves the shared date is restored, not destroyed,
+  while the non-shared date is still cleaned up.
 - ☐ P2 `bug` **HR-39** — Reschedule POST (the "make-up a missed session" verb) never validates that its
   target day is actually empty — unlike PUT (move) and PATCH (swap), which both reject an occupied
   target. `app/api/reschedule/route.ts:57-77` overwrites `to`'s content unconditionally; if it's a real

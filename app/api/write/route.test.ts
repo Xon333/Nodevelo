@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RideScoreEntry, WorkoutType } from "@/lib/types";
+import type { IntervalsCalendarEvent, RideScoreEntry, WorkoutType } from "@/lib/types";
 
 // Integration test for /api/write (RV-9, regression for RV-2). Proves the route's partial-failure
 // safety at the IO boundary the pure tests can't reach: a mid-loop createEvent failure must NOT
@@ -9,12 +9,14 @@ import type { RideScoreEntry, WorkoutType } from "@/lib/types";
 const h = vi.hoisted(() => ({
   createEvent: vi.fn(),
   deleteEvents: vi.fn(async (ids: number[]) => ({ deleted: ids, failed: [] as number[] })),
+  fetchEvents: vi.fn(async (): Promise<IntervalsCalendarEvent[]> => []),
 }));
 
 vi.mock("@/lib/intervals-api", () => ({
   isIntervalsConfigured: () => true,
   createEvent: h.createEvent,
   deleteEvents: h.deleteEvents,
+  fetchEvents: h.fetchEvents,
 }));
 vi.mock("@/lib/data-store", () => ({
   appendBlockHistory: vi.fn(async () => {}),
@@ -88,6 +90,47 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
     expect(json.blockSaved).toBe(false);
     expect(h.deleteEvents).toHaveBeenCalledWith([101]); // the one event that wrote is deleted
     expect(json.rolledBack).toBe(1);
+    expect(json.rollbackFailed).toEqual([]);
+  });
+
+  it("HR-38: restores (re-upserts) the OLD block's original content on a shared date instead of deleting its still-active event, and only deletes genuinely new dates", async () => {
+    // The old block still covers 2026-06-15 (a real, active session) — the new plan's write to that
+    // SAME date is an upsert on the stable external_id, so createEvent's returned id IS the old
+    // block's event, now overwritten. 2026-06-16 has no old-block day — a genuinely new date. 2026-06-17
+    // fails, triggering rollback for the two that already wrote.
+    (store.readCurrentBlock as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      goal: "old",
+      lengthWeeks: 2,
+      startDate: "2026-06-10",
+      endDate: "2026-06-20",
+      overview: "",
+      createdAt: "2026-06-01T00:00:00Z",
+      days: [{ date: "2026-06-15", name: "Old Threshold", type: "Threshold", durationMin: 75, eventId: 900, workoutText: "3x10min @Threshold" }],
+    });
+    h.fetchEvents.mockResolvedValueOnce([
+      { id: 900, uid: "u", externalId: "nodevelo-2026-06-15", name: "Old Threshold", description: "Old intent text", category: "WORKOUT", type: "Ride", date: "2026-06-15" },
+    ]);
+    const threeDayPlan = { ...plan, days: [day("2026-06-15", "A"), day("2026-06-16", "B"), day("2026-06-17", "C")] };
+    h.createEvent
+      .mockResolvedValueOnce(101) // 2026-06-15 — overwrites the old block's real event
+      .mockResolvedValueOnce(102) // 2026-06-16 — a genuinely new date
+      .mockRejectedValueOnce(new Error("502 upstream")) // 2026-06-17 — fails, triggers rollback
+      .mockResolvedValueOnce(999); // the restore re-upsert for 2026-06-15
+
+    const json = await (await post({ plan: threeDayPlan })).json();
+    expect(json.blockSaved).toBe(false);
+
+    // Only the genuinely-new date (2026-06-16's event, id 102) is deleted.
+    expect(h.deleteEvents).toHaveBeenCalledWith([102]);
+    // The shared date is restored via a fresh createEvent call carrying the OLD block's own content
+    // and its real (pre-overwrite) description — not deleted.
+    expect(h.deleteEvents).not.toHaveBeenCalledWith(expect.arrayContaining([101]));
+    const restoreCall = h.createEvent.mock.calls[3][0] as { external_id?: string; name?: string; description?: string };
+    expect(restoreCall.external_id).toBe("nodevelo-2026-06-15");
+    expect(restoreCall.name).toBe("Old Threshold");
+    expect(restoreCall.description).toBe("Old intent text");
+
+    expect(json.rolledBack).toBe(2); // 1 deleted + 1 restored
     expect(json.rollbackFailed).toEqual([]);
   });
 

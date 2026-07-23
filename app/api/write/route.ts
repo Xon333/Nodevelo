@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
-import { createEvent, deleteEvents, isIntervalsConfigured } from "@/lib/intervals-api";
+import { createEvent, deleteEvents, fetchEvents, isIntervalsConfigured } from "@/lib/intervals-api";
 import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, updateInterventionLog } from "@/lib/data-store";
 import { blockChangedResponse } from "@/lib/block-version";
+import { dayToEventPayload } from "@/lib/calendar-mirror";
 import { currentPeriod, isSeasonFocus } from "@/lib/season";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { buildInterventions, mergeInterventions } from "@/lib/intervention";
@@ -70,6 +71,24 @@ export async function POST(req: Request) {
   // HR-32: was utcToday() at both use sites below — see the identical fix on /api/sync's DELETE.
   const today = resolveToday(b.today);
 
+  // HR-38: snapshot the OLD block's current calendar descriptions BEFORE any new-plan event is
+  // created — createEvent upserts on the stable nodevelo-<date> external_id, so for any date both
+  // blocks cover, the loop below doesn't create a NEW event, it overwrites the old block's real one.
+  // If the write then fails partway, a rollback that only knows how to delete would destroy that
+  // still-active old session instead of restoring it. Must run before the loop (once a shared date's
+  // event is overwritten, its original description is gone) — best-effort: a fetch failure just means
+  // the eventual restore falls back to workoutText/empty, same convention as the reschedule mirror's
+  // own description-carry (lib/calendar-mirror.ts).
+  const existingDescByDate = new Map<string, string>();
+  if (existing) {
+    try {
+      const oldEvents = await fetchEvents(existing.startDate, existing.endDate);
+      for (const e of oldEvents) if (e.date && e.description) existingDescByDate.set(e.date, e.description);
+    } catch {
+      // best-effort — restore falls back to workoutText/empty below
+    }
+  }
+
   // Sequential writes so per-day results are deterministic and the API isn't hammered.
   const results: WriteResult[] = [];
   for (const day of plan.days as PlannedDay[]) {
@@ -90,19 +109,38 @@ export async function POST(req: Request) {
 
   const allOk = results.every((r) => r.ok);
 
-  // Auto-rollback (RV-9): a partial write must never leave a half-written block on the calendar. Delete
-  // the days that DID write so the calendar returns to its pre-write state, and report it. The stable
-  // per-day external_id (RV-2) means a later clean re-Write still won't duplicate — this just doesn't make
-  // the user live with a half-block in the meantime. Nothing is persisted locally on a failed write.
+  // Auto-rollback (RV-9): a partial write must never leave a half-written block on the calendar.
+  // The stable per-day external_id (RV-2) means a later clean re-Write still won't duplicate — this
+  // just doesn't make the user live with a half-block in the meantime. Nothing is persisted locally
+  // on a failed write.
   if (!allOk) {
-    const created = results.filter((r) => r.ok && r.eventId !== null).map((r) => r.eventId as number);
-    const { deleted, failed } = created.length > 0 ? await deleteEvents(created) : { deleted: [], failed: [] };
+    const created = results.filter((r) => r.ok && r.eventId !== null);
+    const existingByDate = new Map((existing?.days ?? []).map((d) => [d.date, d]));
+    // HR-38: a shared date's "created" event above IS the old block's real event (upsert, not
+    // insert) — re-upsert its original payload to restore it instead of deleting it outright, which
+    // previously destroyed the still-active old block's real planned session. Only genuinely new
+    // dates (no old-block day to restore) get deleted — the calendar then truly returns to its
+    // pre-write state on both fronts.
+    const toRestore = created.filter((r) => existingByDate.has(r.date));
+    const toDelete = created.filter((r) => !existingByDate.has(r.date)).map((r) => r.eventId as number);
+    const restoreResults = await Promise.allSettled(
+      toRestore.map((r) => {
+        const oldDay = existingByDate.get(r.date)!;
+        const description = existingDescByDate.get(r.date) ?? oldDay.workoutText?.trim() ?? "";
+        return createEvent(dayToEventPayload(oldDay, description));
+      })
+    );
+    const restoreFailedIds = toRestore
+      .filter((_, i) => restoreResults[i].status === "rejected")
+      .map((r) => r.eventId as number);
+    const { deleted, failed } = toDelete.length > 0 ? await deleteEvents(toDelete) : { deleted: [], failed: [] };
     return NextResponse.json({
       results,
       blockSaved: false,
       currentBlock: null,
-      rolledBack: deleted.length,
-      rollbackFailed: failed, // ids the rollback couldn't remove (rare) — surfaced so the user can clear them
+      rolledBack: deleted.length + (toRestore.length - restoreFailedIds.length),
+      // ids the rollback couldn't remove or restore (rare) — surfaced so the user can clear/fix them
+      rollbackFailed: [...failed, ...restoreFailedIds],
     });
   }
 
