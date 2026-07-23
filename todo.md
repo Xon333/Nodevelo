@@ -88,13 +88,12 @@ independently by two agents). Continues the HR- series (append, not renumber).
   is a real planned (non-rest) day — the same rest/empty check PUT/PATCH already had — instead of
   overwriting its prescription unconditionally. New regression test in
   `app/api/reschedule/route.test.ts` confirms it 400s onto an occupied day and never calls the mirror.
-- ☐ P2 `bug` **HR-40** — Sync applies a stale dispositions snapshot inside the score-log lock.
-  `app/api/sync/route.ts:510` reads dispositions *outside* `updateScoreLog`'s lock; line 528 applies them
-  inside it via `applyDispositions`, which sets `compromised` to exactly the read snapshot — clearing the
-  flag for any date not in it. A disposition POST landing in that window has its stamp immediately
-  un-set by sync's stale list, and since sync is user-triggered, the wrong flag can persist for a day or
-  more (feeds Trends and the learning gate). Fix direction: re-read dispositions inside the lock,
-  immediately before applying.
+- ☑ P2 `bug` **HR-40** — **Fixed.** `updateScoreLog` (`lib/data-store.ts`) now accepts an async mutate;
+  `app/api/sync/route.ts` moved its `readDispositions()` call from outside the lock to inside
+  `updateScoreLog`'s mutate, immediately before `applyDispositions` — a disposition POST landing in that
+  window can no longer have its stamp un-set by sync's stale snapshot. New regression test in
+  `app/api/sync/route.test.ts` asserts (via `invocationCallOrder`) that the dispositions read happens
+  after `updateScoreLog` is invoked, not before it; confirmed RED against the old ordering before the fix.
 - ☐ P2 `bug` **HR-41** — `atomicWrite`'s `.bak` rotation (`lib/json-store.ts:105`) swallows every copy
   error, not just the expected first-write ENOENT — a real EACCES/EIO/ENOSPC during a disk-pressure
   event silently voids the backup guarantee exactly when it matters. Separately: if the *live* file is

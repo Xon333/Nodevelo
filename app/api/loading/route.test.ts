@@ -179,7 +179,7 @@ describe("POST /api/loading", () => {
       expect(res.status).toBe(200);
       const mutate = vi.mocked(store.updateScoreLog).mock.calls[0][0];
       const ledgerEntry = scoreEntry({ date: "2026-07-10", durabilityTemplate: "C", executionScore: 6 });
-      const result = mutate([ledgerEntry]);
+      const result = await mutate([ledgerEntry]);
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({ executionScore: 6, preLoad: { loaded: true, targetG: 490 } });
     });
@@ -189,8 +189,7 @@ describe("POST /api/loading", () => {
       expect(res.status).toBe(200);
       const mutate = vi.mocked(store.updateScoreLog).mock.calls[0][0];
       const otherEntry = scoreEntry({ date: "2026-06-01", durabilityTemplate: "C" });
-      expect(() => mutate([otherEntry])).not.toThrow();
-      expect(mutate([otherEntry])).toEqual([otherEntry]);
+      expect(await mutate([otherEntry])).toEqual([otherEntry]);
     });
 
     it("does not overwrite an existing preLoad stamp (first answer wins)", async () => {
@@ -202,7 +201,7 @@ describe("POST /api/loading", () => {
         durabilityTemplate: "C",
         preLoad: { loaded: false, targetG: 400 },
       });
-      const result = mutate([ledgerEntry]);
+      const result = await mutate([ledgerEntry]);
       expect(result[0].preLoad).toEqual({ loaded: false, targetG: 400 });
     });
   });

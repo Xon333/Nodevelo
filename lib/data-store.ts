@@ -248,10 +248,10 @@ export async function writeScoreLog(log: ScoreLog): Promise<void> {
 // one another's entries. `mutate` receives the current entries and returns the next set; updatedAt
 // is stamped here so callers can't forget it.
 export async function updateScoreLog(
-  mutate: (entries: ScoreLog["entries"]) => ScoreLog["entries"]
+  mutate: (entries: ScoreLog["entries"]) => ScoreLog["entries"] | Promise<ScoreLog["entries"]>
 ): Promise<ScoreLog> {
-  return updateJson<ScoreLog>("score-log.json", DEFAULT_SCORE_LOG, (log) => ({
-    entries: mutate(log.entries),
+  return updateJson<ScoreLog>("score-log.json", DEFAULT_SCORE_LOG, async (log) => ({
+    entries: await mutate(log.entries),
     updatedAt: new Date().toISOString(),
   }));
 }

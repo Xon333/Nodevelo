@@ -221,7 +221,7 @@ beforeEach(() => {
   vi.mocked(store.readScoreLog).mockImplementation(async () => ({ entries: scoreEntries, updatedAt: "" }));
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
   vi.mocked(store.updateScoreLog).mockImplementation(async (mutate) => {
-    scoreEntries = mutate(scoreEntries);
+    scoreEntries = await mutate(scoreEntries);
     return { entries: scoreEntries, updatedAt: "" };
   });
 });
@@ -366,6 +366,24 @@ describe("POST /api/sync — ledger wiring", () => {
     expect(scoreEntries.find((e) => e.date === "2026-06-21")?.compromised).toBe(true);
     expect(json.scores.map((e: RideScoreEntry) => e.date)).not.toContain("2026-06-21");
     expect(json.compromisedDates).toContain("2026-06-21");
+  });
+
+  it("HR-40: reads dispositions from INSIDE updateScoreLog's own call, not before it — closes the window where a stale outer read could un-set a disposition landing mid-sync", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(
+      mkBlock({ days: [{ date: "2026-06-21", name: "Endurance", type: "Z2", durationMin: 90, workoutText: "- 90m 65%" }] })
+    );
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21" })] }));
+    await postSync();
+    // Proves the structural fix: previously, dispositions were read once BEFORE updateScoreLog was
+    // even called, so a disposition POST landing after that read (but before this write acquired the
+    // lock) was silently un-set by the stale snapshot applyDispositions was handed. The EARLIEST
+    // readDispositions call must now come AFTER updateScoreLog's own call is registered — i.e. from
+    // within its mutate, the locked critical section — not carried in from an earlier, un-locked read.
+    // (A later, separate readDispositions call still exists — for the response body — in both the old
+    // and new code, so only the FIRST call's ordering actually distinguishes the two.)
+    const ledgerUpdateCallOrder = vi.mocked(store.updateScoreLog).mock.invocationCallOrder[0];
+    const firstDispositionReadOrder = vi.mocked(store.readDispositions).mock.invocationCallOrder[0];
+    expect(firstDispositionReadOrder).toBeGreaterThan(ledgerUpdateCallOrder);
   });
 
   it("backfills the fresh execution outcome onto the matching current-block day (§8 block-history enrichment)", async () => {

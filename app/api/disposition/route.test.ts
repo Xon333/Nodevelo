@@ -31,7 +31,7 @@ beforeEach(() => {
     return { entries: dispositionEntries, updatedAt: "now" };
   });
   vi.mocked(updateScoreLog).mockImplementation(async (mutate) => {
-    scoreEntries = mutate(scoreEntries);
+    scoreEntries = await mutate(scoreEntries);
     return { entries: scoreEntries, updatedAt: "now" };
   });
 });

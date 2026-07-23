@@ -506,8 +506,6 @@ export async function POST(req: Request) {
         adherenceForDate,
         preLoadForDate
       );
-      // Stamp the athlete's compromised attributions onto the ledger (re-derived each sync).
-      const dispositions = (await readDispositions()).entries;
       // One-shot guard (LEDGER-3): the rebuild runs at most once. A normal sync never requests it; a
       // repeat request after the persisted marker is refused unless `force` is set.
       const rebuildMarker = await readLedgerRebuild();
@@ -518,13 +516,18 @@ export async function POST(req: Request) {
       // Transactional (CR-A): the backfill is computed from the ledger read INSIDE the lock, so a
       // concurrent disposition POST (or the deferred analyze patch) can't clobber these scores. The
       // backfill itself is the pure, unit-tested backfillLedgerEntries (CR-G).
-      await updateScoreLog((entries) => {
+      await updateScoreLog(async (entries) => {
         const backfilled = backfillLedgerEntries(entries, ftpForDate, offPlanFloor);
         // Normal sync: existing wins (immutable per date). Rebuild: fresh (recomputed from corrected
         // activities) wins, while existing still fills any date outside the activity window — but a
         // rebuild never downgrades a frozen planned ride to off-plan and carries forward frozen context
         // (LEDGER-1/2; see mergeScoreLogRebuild).
         const merged = doRebuild ? mergeScoreLogRebuild(fresh, backfilled) : mergeScoreLog(backfilled, fresh);
+        // HR-40: re-read dispositions INSIDE the lock, immediately before applying them — reading them
+        // once outside (before this critical section) meant a disposition POST landing in that window
+        // had its stamp immediately un-set by this sync's now-stale snapshot the moment this write
+        // landed, since applyDispositions sets `compromised` to exactly the snapshot it's handed.
+        const dispositions = (await readDispositions()).entries;
         return applyDispositions(merged, dispositions);
       });
       if (doRebuild) {
