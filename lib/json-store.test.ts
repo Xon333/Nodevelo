@@ -30,6 +30,11 @@ describe("json-store (atomic + recovery)", () => {
     await expect(fs.access(p("rt.json.tmp"))).rejects.toBeDefined();
   });
 
+  it("HR-54(b): refuses to write undefined instead of silently serializing the literal string 'undefined'", async () => {
+    await expect(writeJsonFile("undef.json", undefined)).rejects.toThrow(/undefined/i);
+    await expect(fs.access(p("undef.json"))).rejects.toBeDefined(); // nothing written at all
+  });
+
   it("recovers from a corrupt live file via the .bak", async () => {
     await writeJsonFile("rec.json", { v: "good" });
     await fs.copyFile(p("rec.json"), p("rec.json.bak")); // a prior good backup exists

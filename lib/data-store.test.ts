@@ -519,4 +519,21 @@ describe("updateBlockSettings", () => {
     await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 3 }));
     expect((await readBlockSettings()).restDaysPerWeek).toBe(3);
   });
+
+  it("HR-54(d): heals a missing autoSyncOnOpen/polarisedApproach (old file predating the field) back to their true default, not undefined-as-falsy", async () => {
+    // Simulates an old on-disk file written before these fields existed — they parse back as
+    // `undefined`, not `false`. A plain truthy check anywhere downstream would silently disable them.
+    const { updatedAt: _u, autoSyncOnOpen: _a, polarisedApproach: _p, ...oldFormat } = DEFAULT_BLOCK_SETTINGS;
+    await fs.writeFile(p("block-settings.json"), JSON.stringify(oldFormat), "utf-8");
+
+    const read = await readBlockSettings();
+    expect(read.autoSyncOnOpen).toBe(true);
+    expect(read.polarisedApproach).toBe(true);
+
+    // updateBlockSettings' own internal read must heal it too, not just readBlockSettings — a mutate
+    // that preserves "whatever current already has" must not silently carry the undefined forward.
+    const updated = await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 }));
+    expect(updated.autoSyncOnOpen).toBe(true);
+    expect(updated.polarisedApproach).toBe(true);
+  });
 });

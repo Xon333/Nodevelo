@@ -183,8 +183,21 @@ export async function mergeCurrentBlockDays(
   }, expectedCreatedAt);
 }
 
+// HR-54(d): an old block-settings.json predating a boolean field parses back with it entirely absent
+// (`undefined`), not `false` — a plain truthy check at a consumer would then silently disable a
+// toggle whose documented default is `true`, even though nothing ever set it. Only the true-by-default
+// booleans need this (a false-by-default field's `undefined` already reads correctly as falsy) —
+// `autoPostCoachNote` defaults to `false`, so it's untouched here.
+function healBlockSettingsBooleans(settings: BlockSettings): BlockSettings {
+  return {
+    ...settings,
+    autoSyncOnOpen: settings.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
+    polarisedApproach: settings.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
+  };
+}
+
 export async function readBlockSettings(): Promise<BlockSettings> {
-  return readJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS);
+  return healBlockSettingsBooleans(await readJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS));
 }
 
 // HR-52: transactional read-modify-write on block-settings.json — the read happens inside the
@@ -196,7 +209,7 @@ export async function updateBlockSettings(
   mutate: (current: BlockSettings) => BlockSettings | Promise<BlockSettings>
 ): Promise<BlockSettings> {
   return updateJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS, async (current) => ({
-    ...(await mutate(current)),
+    ...(await mutate(healBlockSettingsBooleans(current))),
     updatedAt: new Date().toISOString(),
   }));
 }
@@ -295,10 +308,6 @@ export async function readScoreLog(): Promise<ScoreLog> {
   return readJson<ScoreLog>("score-log.json", DEFAULT_SCORE_LOG);
 }
 
-export async function writeScoreLog(log: ScoreLog): Promise<void> {
-  await writeJson("score-log.json", log);
-}
-
 // Transactional read-modify-write on the ledger (CR-A). The read happens inside the per-file lock,
 // so a sync, a disposition POST and the deferred analyze step can't read the same base and clobber
 // one another's entries. `mutate` receives the current entries and returns the next set; updatedAt
@@ -344,10 +353,6 @@ const DEFAULT_DISPOSITIONS: DispositionLog = { entries: [], updatedAt: new Date(
 
 export async function readDispositions(): Promise<DispositionLog> {
   return readJson<DispositionLog>("dispositions.json", DEFAULT_DISPOSITIONS);
-}
-
-export async function writeDispositions(log: DispositionLog): Promise<void> {
-  await writeJson("dispositions.json", log);
 }
 
 // Transactional read-modify-write on the disposition log (CR-A) — guards two near-simultaneous

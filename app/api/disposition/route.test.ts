@@ -10,8 +10,8 @@ vi.mock("@/lib/data-store", () => ({
   updateScoreLog: vi.fn(),
 }));
 
-import { updateDispositions, updateScoreLog } from "@/lib/data-store";
-import { POST } from "@/app/api/disposition/route";
+import { readDispositions, updateDispositions, updateScoreLog } from "@/lib/data-store";
+import { GET, POST } from "@/app/api/disposition/route";
 import type { DispositionEntry, RideScoreEntry } from "@/lib/types";
 
 const TODAY = "2026-06-22";
@@ -25,6 +25,7 @@ beforeEach(() => {
   scoreEntries = [
     { date: TODAY, executionScore: 8, plannedType: "Threshold", inferredType: "Threshold", planned: true, legacy: false, compliancePct: 100, intensityFactor: 0.88, ftpUsed: 250, durationMin: 60, tss: 75 },
   ];
+  vi.mocked(readDispositions).mockImplementation(async () => ({ entries: dispositionEntries, updatedAt: "now" }));
   // Apply the real mutator against the in-memory fixtures so the transaction's effect is observable.
   vi.mocked(updateDispositions).mockImplementation(async (mutate) => {
     dispositionEntries = mutate(dispositionEntries);
@@ -38,6 +39,22 @@ beforeEach(() => {
 
 const post = (body: unknown) =>
   POST(new Request("http://t/api/disposition", { method: "POST", body: JSON.stringify(body) }));
+const get = (qs: string) => GET(new Request(`http://t/api/disposition${qs}`));
+
+describe("GET /api/disposition — HR-54(c) date-omitted fallback", () => {
+  it("uses the client-supplied ?today when ?date is omitted, not a bare UTC computation", async () => {
+    dispositionEntries = [{ date: "2026-06-23", disposition: "completed", reason: null, setAt: "now" }];
+    // No ?date at all — falls back to resolveToday(?today), not an inline new Date().toISOString().
+    const json = await (await get("?today=2026-06-23")).json();
+    expect(json.disposition).toEqual({ date: "2026-06-23", disposition: "completed", reason: null, setAt: "now" });
+  });
+
+  it("still honours an explicit ?date over ?today", async () => {
+    dispositionEntries = [{ date: "2026-06-20", disposition: "partial", reason: null, setAt: "now" }];
+    const json = await (await get("?date=2026-06-20&today=2026-06-23")).json();
+    expect(json.disposition?.date).toBe("2026-06-20");
+  });
+});
 
 describe("POST /api/disposition", () => {
   it("rejects an invalid disposition without touching either store", async () => {

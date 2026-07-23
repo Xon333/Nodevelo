@@ -200,14 +200,15 @@ independently by two agents). Continues the HR- series (append, not renumber).
   seeds a marker missing the field entirely (`{}`, the real on-disk shape for a hand-edited or
   partially-imported file) and confirms a requested rebuild still runs; confirmed RED against the old
   `!== null` check.
-- ☐ P3 `bug` **HR-54** — Assorted data-store hygiene, all low-risk: (a) `writeScoreLog`/`writeDispositions`
-  are exported but have zero callers — standing footguns inviting exactly HR-36's unlocked-write pattern
-  if someone reaches for them later; consider removing. (b) `writeJsonFile(file, undefined)` would
-  serialize to the literal string `"undefined"` (not valid JSON) — no current caller, but cheap to guard.
-  (c) `app/api/disposition/route.ts:13` inlines UTC "today" (`new Date().toISOString().slice(0,10)`) for
-  a user-facing default instead of `localToday()` — the AGENTS.md-flagged class, here missed. (d) An old
-  `block-settings.json` predating `autoSyncOnOpen` reads that field as `undefined` → falsy → auto-sync
-  silently disabled even though the documented default is `true`.
+- ☑ P3 `bug` **HR-54** — **Fixed**, all 4: (a) removed the zero-caller `writeScoreLog`/`writeDispositions`
+  footguns outright. (b) `atomicWrite` now throws immediately if handed `undefined` instead of silently
+  serializing the literal string `"undefined"`. (c) `app/api/disposition/route.ts` GET now resolves its
+  date-omitted fallback via `resolveToday(?today)` (an optional client-supplied param, same convention
+  every other route uses) instead of an inline UTC computation. (d) `readBlockSettings`/
+  `updateBlockSettings` now heal a missing `autoSyncOnOpen`/`polarisedApproach` (old file predating the
+  field) back to their documented `true` default instead of leaving `undefined` to read as falsy. New
+  tests for (b)/(c)/(d) in `lib/json-store.test.ts`, `app/api/disposition/route.test.ts`, and
+  `lib/data-store.test.ts`; confirmed RED against the pre-fix code for all three.
 - ☐ P3 `bug` **HR-55** — Write-replace archives unconditionally (`app/api/write/route.ts:108-125`, no
   guard), unlike DELETE which only archives when `livedDays.length > 0`
   (`app/api/sync/route.ts:846-850`). A generate-then-regenerate-without-delete cycle on a future-start

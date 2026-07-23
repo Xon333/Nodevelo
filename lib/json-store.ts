@@ -122,6 +122,13 @@ export function updateJsonFile<T>(
 }
 
 async function atomicWrite(file: string, value: unknown): Promise<void> {
+  // HR-54(b): JSON.stringify(undefined) returns the JS value `undefined`, not a string — the `+ "\n"`
+  // below would silently coerce it to the literal 4 characters `undefined\n`, not valid JSON. No
+  // current caller passes `undefined`, but fail loudly here rather than writing unparseable garbage a
+  // future caller wouldn't notice until the next read fell back to `.bak`/default.
+  if (value === undefined) {
+    throw new Error(`${file}: refusing to write undefined — JSON.stringify(undefined) is not valid JSON.`);
+  }
   const dir = dataDir();
   await fs.mkdir(dir, { recursive: true });
   const full = path.join(dir, file);
