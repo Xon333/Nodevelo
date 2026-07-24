@@ -1,7 +1,12 @@
 # Season Architecture Redesign — Design
 
 **Date:** 2026-07-17
-**Status:** Design approved, not yet planned/implemented
+**Status:** Shipped (mechanism) — `chooseNextFocus`/`settleSeasonHistory`/`replanEventArc` (implementation
+plan `docs/superpowers/plans/2026-07-17-season-continuous-focus-selection.md`) and the roadmap-preview UI
+(`projectSeasonOutlook`, plan `docs/superpowers/plans/2026-07-17-season-roadmap-preview-and-rollout.md`)
+are both built and wired in. Hardened by a 2026-07-17 hostile review (15 findings, all fixed →
+ARCHIVE.md). `SEASON_SHAPES_GENERATION` stays `false` pending the rollout plan's final task (flip the
+flag + a live smoke run) — see ROADMAP.md "Season engine — known debt."
 **ROADMAP:** ties `6a` `§7` `#4` `#2`; supersedes the rolling-mode portion of
 `2026-07-01-macro-periodization-design.md` and the four 2026-07-15 season plans
 (`season-critical-fixes`, `season-coverage-selector`, `season-macro-structure`,

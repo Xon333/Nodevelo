@@ -63,10 +63,9 @@ honest list of what wasn't (or couldn't be) fully verified, plus the calls worth
   Profile read sensibly against your own real values, not just the fixture data checked live.
 
 **Judgment calls worth weighing in on:**
-- **The PlanView goal-textarea race** (Season engine debt list, above) — UXA-19's refactor narrowed
-  the old race but didn't eliminate it: saving the Season form while mid-edit on the goal textarea
-  can still overwrite your typing. Decide whether that's worth a guard or fine to leave (same page,
-  two adjacent actions, low real-world odds).
+- **The PlanView goal-textarea race** — a judgment call, not a bug: full description under "Season
+  engine — known debt" below (UXA-19's refactor narrowed the old race but didn't eliminate it). Decide
+  whether it's worth a guard or fine to leave (same page, two adjacent actions, low real-world odds).
 - **Nutrition bounds (UXA-51)** — I gave `baseCalories`/`restDayTarget`/`targetWeightKg` a floor of 0
   and no ceiling (no authoritative one exists in the codebase); a typo like `750` instead of `75` for
   target weight still passes silently. Worth deciding if any of these deserve a real sanity ceiling.
@@ -94,11 +93,11 @@ honest list of what wasn't (or couldn't be) fully verified, plus the calls worth
 
 ## Data substrate — turn the loop over ⭐ (audit P1–3)
 
-SUB-1 (block-history durable corpus), SUB-3 (sync/generate route tests), SUB-4's off-machine backup
-half, and SUB-5 (the first loop turnover — retrospective → `block-history.json` born → next block
-write → `intervention-log.json` born, run attended per the WORKFLOW.md runbook) all shipped
-→ [ARCHIVE.md](ARCHIVE.md). The runbook itself stays in [WORKFLOW.md](WORKFLOW.md) as a reusable
-reference for any future turnover, not just the first one.
+SUB-1 (block-history durable corpus), SUB-3 (sync/generate route tests), SUB-4 (off-machine backup +
+branch discipline, both halves), and SUB-5 (the first loop turnover — retrospective →
+`block-history.json` born → next block write → `intervention-log.json` born, run attended per the
+WORKFLOW.md runbook) all shipped → [ARCHIVE.md](ARCHIVE.md). The runbook itself stays in
+[WORKFLOW.md](WORKFLOW.md) as a reusable reference for any future turnover, not just the first one.
 
 ### SUB-2 · Legacy backfill importer — paused (2026-07-02)
 A live-API check showed the Intervals.icu calendar recovers only ~22–28% of the 100 legacy rides
@@ -107,11 +106,6 @@ Full investigation record → [ARCHIVE.md](ARCHIVE.md). The athlete relabels leg
 manually if specific rides should become gradable. Revisit only if that manual path proves painful
 or a better recovery signal surfaces. (Legacy rides *do* already feed FTP-independent trends —
 Pw:HR, polarization, volume baselines — which need no prescription.)
-
-### SUB-4 · Branch discipline (remaining half)
-The immutable ledger's off-machine backup shipped → [ARCHIVE.md](ARCHIVE.md). Left: lightweight
-branch discipline for the trunk checkout shared with a concurrent agent session — the second
-fragility axis is operational, not storage.
 
 ---
 
@@ -154,8 +148,7 @@ ARCHIVE) → #1 stays as the cross-ref handle; nothing left under it. (The separ
 *personalised* adequate line is `← Track C` — not one of #1's slots.)
 
 ### #3 · Proactive reschedule — slivers
-Decision thresholds → per-athlete `← #2`; let the **reactive** `RescheduleBanner` adopt the shared
-`findMakeUpSlot` (still rest-only); possible fully-automatic fatigue-path downgrade (on
+Decision thresholds → per-athlete `← #2`; possible fully-automatic fatigue-path downgrade (on
 `fatigueAlert`, before a miss).
 
 ### §5 · Athlete-state — slivers
@@ -169,27 +162,17 @@ season breaks, FTP retest nudge) are fully shipped → [ARCHIVE.md](ARCHIVE.md);
 `docs/superpowers/`. The old "anaerobic unreachable via the default fallback" debt item is resolved
 (the scored selector replaced that fallback entirely) and removed.
 
-**Season is currently NOT shaping or gating block generation (2026-07-16 athlete decision) —
-architecturally resolved by the 2026-07-17 continuous-focus-selection redesign**
-(`docs/superpowers/specs/2026-07-17-season-architecture-redesign-design.md` + its implementation
-plans). The fixed phase-sequence model is replaced by `chooseNextFocus` — a fresh, real-data-scored
-decision made every `/api/generate` call — for the rolling (no-upcoming-A-event) case; event-anchored
-mode keeps its existing persisted, backward-scheduled arc, largely unchanged. `SEASON_SHAPES_GENERATION`
-(`lib/season.ts`, default `false`) still gates `formatFocusContext`/`formatRecoveryWeeks`'s prompt text
-(rolling) and `formatSeasonContext`/`formatRetestNote`'s (event) out of every `/api/generate` call, plus
-`validateBlockFocus`/`validateSeasonFit`/`validateFocusMatch`'s warnings. Season state keeps being
-tracked underneath regardless — `season-plan.json` still updates every call, `chooseNextFocus`'s result
-still stamps `GeneratedPlan.seasonFocus` and carries into `CurrentBlock`/`BlockHistoryEntry` — so
-nothing here atrophies while the flag is off. The flag flips back on as the final step of the
-season-roadmap-preview-and-rollout plan, once the roadmap UI can honestly represent the new model.
-
-**Hardened since:** a 2026-07-17 hostile review (prompted by the athlete reporting the 2026-07-16
-fixes didn't resolve their real symptoms) found and fixed 15 more issues in this exact implementation
-— including a genuine regression where the flag never reached the frontend (`PlanView.tsx`/
-`SeasonRoadmap.tsx` kept acting as if season still shaped generation) and a rolling-cadence bug where
-`applyDeloadCadence`'s fix didn't actually persist across calls. All 15 resolved → ARCHIVE.md. Worth
-knowing before trusting this implementation blind: it's been through one real fidelity audit since
-the initial build, not zero.
+**Season is currently NOT shaping or gating block generation (2026-07-16 athlete decision).** The old
+fixed phase-sequence engine was replaced by `chooseNextFocus` (a fresh, real-data-scored decision made
+every `/api/generate` call) plus a roadmap-preview UI (`projectSeasonOutlook`, already wired into
+`SeasonRoadmap.tsx`/`PlanView.tsx`) — both shipped and hardened by a follow-up hostile review (15
+findings, all fixed) → [ARCHIVE.md](ARCHIVE.md) "Season continuous-focus-selection + roadmap-preview
+outlook." `SEASON_SHAPES_GENERATION` (`lib/season.ts`) still defaults `false`, gating the phase-derived
+prompt text/warnings out of generation — though `season-plan.json` and `GeneratedPlan.seasonFocus`
+keep tracking underneath regardless, so nothing atrophies while it's off. **Left: flip the flag +
+run the required live Anthropic smoke test** (`docs/superpowers/plans/2026-07-17-season-roadmap-preview-and-rollout.md`
+Task 5, AGENTS.md's LLM-backed-path rule) — the one remaining step; the UI it was waiting on is
+already built.
 
 Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currently worth a dedicated pass:
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label; only the
@@ -268,14 +251,11 @@ dormant until `carbs_ingested` data accrues, like every calibrated param. What's
 - **Energy-availability tile — open sliver** — the deterministic EA proxy shipped → ARCHIVE. Left:
   a *personalised* "adequate" line `← Track C` calibration.
 - **Pw:HR × fuel Trends overlay** — carb-intake g/h on the existing `efSeries` chart (build w/ Track C).
-- **Mobile density polish** — UX-MASTERPLAN §3 recorded but deliberately deferred all mobile
-  execution (desktop-first scope decision). Measured live at 1440×900 during the 2026-07-22 UX/UI
-  audit (→ ARCHIVE.md): only 3 of 7 pages (Today, Model, Knowledge) actually fit in one viewport —
-  Plan/Trends/Profile/Settings all scroll, Settings by over 1000px — correcting this doc's prior
-  "no page runs over the fold" claim. Likely reflects the real intent ("fold-1 decision-critical
-  content fits," which does hold — verdicts and prescriptions are above the fold everywhere) rather
-  than "the whole page fits" — worth a defined phrase change here if the ambiguity ever causes a real
-  decision to go wrong, not urgent enough to reopen build work on its own.
+- **Mobile density polish** — deliberately deferred (UX-MASTERPLAN §3, desktop-first scope decision).
+  Real state (measured 1440×900, 2026-07-22 → ARCHIVE.md): only 3 of 7 pages (Today, Model, Knowledge)
+  fit in one viewport; Plan/Trends/Profile/Settings scroll, Settings by over 1000px. Fold-1
+  decision-critical content (verdicts, prescriptions) still fits everywhere — worth a phrasing tweak
+  here if that distinction ever causes real confusion, not urgent enough to reopen build work on its own.
 - **Two small UI-polish items surfaced by the UX v2 Wave 5 closing review — both shipped 2026-07-11**
   → [ARCHIVE.md](ARCHIVE.md).
 - **Full-app UX/UI audit — 61 findings across 8 parallel reviews, all shipped 2026-07-22** →

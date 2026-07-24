@@ -1,7 +1,7 @@
 # Durable Planned Corpus (Block-History) — Design
 
 **Date:** 2026-07-02
-**Status:** Design approved 2026-07-02 — implementation plan pending
+**Status:** Shipped 2026-07-02 → [ARCHIVE.md](../../../ARCHIVE.md) "SUB-1 · Durable planned corpus (block-history)"
 **ROADMAP:** `SUB-1` under "Data substrate — turn the loop over ⭐". Sibling `SUB-2` (legacy backfill
 importer, pre-app rides) was paused 2026-07-02 after a live Intervals.icu API check showed only 22–28%
 of that corpus has calendar-event backing — separate scope, not a blocker here. Ties `MACRO` (the

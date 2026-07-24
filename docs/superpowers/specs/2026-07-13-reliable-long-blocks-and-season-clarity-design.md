@@ -1,7 +1,7 @@
 # Reliable Long Blocks and Season Clarity — Design
 
 **Date:** 2026-07-13
-**Status:** Approved for planning
+**Status:** Shipped 2026-07-14 → [ARCHIVE.md](../../../ARCHIVE.md) "Reliable long-block generation + generator/season UI fixes"
 
 ## Goal
 

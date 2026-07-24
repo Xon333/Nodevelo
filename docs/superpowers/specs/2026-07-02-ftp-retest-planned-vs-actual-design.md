@@ -1,7 +1,7 @@
 # FTP-Retest Advisory + Planned-vs-Actual per Session Type (#4) — Design
 
 **Date:** 2026-07-02
-**Status:** Design approved 2026-07-02 — implementation plan: `docs/superpowers/plans/2026-07-02-ftp-retest-planned-vs-actual.md`
+**Status:** Shipped 2026-07-02 → [ARCHIVE.md](../../../ARCHIVE.md) "FTP-retest advisory + planned-vs-actual (#4, measurement half)"
 **ROADMAP:** `#4 · Validation loop` — the *measurement* half ("surface planned-vs-actual per session
 type and, on a consistent gap, flag an FTP re-test in Intervals.icu"). The *demote* half (low hit-rate
 in `lib/synthesis.ts` → demote a directive) stays open in #4 — it is time-gated on matured

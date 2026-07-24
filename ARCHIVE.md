@@ -192,6 +192,45 @@ See git log (`3ea28a2..465868d`) for exact commits and file-level detail per ite
 
 ---
 
+## Season continuous-focus-selection + roadmap-preview outlook (2026-07-18 → 2026-07-21)
+
+Replaces the fixed phase-sequence engine (`replanSeasonArc`'s Mode-C loop, `applyDeloadCadence`'s
+cross-call counter, `needsBaseGate`/`weeksSinceBase`'s arc-cap machinery) with a stateless,
+real-data-scored choice made fresh every `/api/generate` call — the architectural answer to the
+season-architecture doubt raised earlier (does a fixed phase sequence honestly fit a rider's current
+state?). Design: `docs/superpowers/specs/2026-07-17-season-architecture-redesign-design.md`. Plans:
+`docs/superpowers/plans/2026-07-17-season-continuous-focus-selection.md` (the engine, commits
+`9b63e13`..`d703dbd`, 2026-07-18) and `docs/superpowers/plans/2026-07-17-season-roadmap-preview-and-rollout.md`
+(the UI, commits `4fd0856`..`8afbfec`, 2026-07-21).
+
+- **The engine.** `chooseNextFocus` (`lib/season.ts`) scores the next block's focus fresh from real
+  data every call, replacing the old rolling-mode drafting loop; `aerobic-base` is now a normal scored
+  candidate instead of a special-cased gate. A real-data recovery hard cap
+  (`realWeeksSinceLastRecovery` + `planRecoveryWeeks`) replaces the old deload-cadence counter.
+  `replanSeasonArc` split into two narrower functions: `settleSeasonHistory` (rolling — freezes/prunes
+  history, drafts nothing new) and `replanEventArc` (event mode — the existing three-bucket re-plan,
+  behavior-unchanged). Event-anchored mode (a real upcoming A-priority race) keeps its existing
+  persisted, backward-scheduled arc throughout. `app/api/generate/route.ts` branches on whether an
+  A-event exists and wires the right path; the chosen focus/rationale ride through `GeneratedPlan` →
+  `CurrentBlock` → `BlockHistoryEntry` as one un-recomputed value instead of being re-derived at each
+  hop.
+- **The roadmap-preview UI.** `projectSeasonOutlook` (`lib/season.ts`) re-runs `chooseNextFocus`
+  forward a handful of hypothetical slots for display only — never persisted, never gates anything.
+  `GET /api/season` computes it server-side (gated behind `SEASON_SHAPES_GENERATION`, rolling case
+  only, so the flag-gating and mode-branching live in one place). `SeasonRoadmap.tsx` and
+  `PlanView.tsx` now read the projected outlook for the rolling case, falling back to the untouched
+  event-mode path when the server returns none.
+- **`SEASON_SHAPES_GENERATION` stays `false`.** The engine and the roadmap-preview UI are both built
+  and wired in, but the flag — which gates the phase-derived prompt text and validator warnings out of
+  actual generation — hasn't been flipped back on yet. That flip (plus the live Anthropic smoke run it
+  requires per AGENTS.md) is the one remaining task in the roadmap-preview-and-rollout plan; tracked in
+  [ROADMAP.md](ROADMAP.md) "Season engine — known debt."
+- **Hardened by a 2026-07-17 hostile review** (15 findings, all fixed) — see the next entry below. That
+  review's fixes predate/underlie this redesign's own final shape (e.g. HR-22's deload-cadence
+  persistence fix informed `realWeeksSinceLastRecovery`'s design).
+
+---
+
 ## Hostile review — block-generation-fidelity commits, round 2 (HR-2026-07-17)
 
 Requested after the athlete reported the shipped fixes from the 2026-07-16 round (below) didn't
@@ -1390,8 +1429,16 @@ only happens once the directory actually points at something that leaves the mac
 Dropbox/iCloud/Drive folder, a mounted NAS), which is the athlete's infrastructure to choose, not this
 app's. A misconfigured-after-the-fact destination (e.g. an unmounted sync folder) surfaces through the
 existing sync `warnings[]` → `SyncNotice` path rather than failing the sync. `export/route.ts` now calls
-the shared bundle builder instead of carrying its own copy of the collect/walk logic. Branch discipline
-(SUB-4's other half) remains open.
+the shared bundle builder instead of carrying its own copy of the collect/walk logic.
+
+**Branch discipline (SUB-4's other half) — resolved 2026-06-22, documented convention rather than
+tooling.** `CLAUDE.md`'s "Concurrent Agents" section codifies the operational half of this fragility
+axis: trunk-based, direct on `main`, no per-session branches/worktrees; before treating a build/lint
+error in a file you didn't edit as a real regression, `git status --short` it first (uncommitted =
+almost certainly another agent session mid-edit — wait ~30s and retry once, else report rather than
+patch someone's WIP); stage only the exact files you personally touched, never `git add -A`. Predates
+the 2026-07-22 sweep that still listed this as open. Revisit only if this documented convention proves
+insufficient in practice and actual tooling enforcement (a pre-commit hook, a lockfile) is wanted.
 
 ---
 

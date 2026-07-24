@@ -1,7 +1,7 @@
 # Two-way session swap (§7 follow-on) — Design
 
 **Date:** 2026-07-11
-**Status:** Design approved 2026-07-11 — implementation plan: TBD (next step)
+**Status:** Shipped 2026-07-11 → [ARCHIVE.md](../../../ARCHIVE.md) "Two-way session swap — §7 follow-on"
 **ROADMAP:** `§7 · Calendar flexibility — remaining scope`. The reschedule/calendar-mirror lean slice
 (shipped 2026-07-10) deliberately built move-onto-a-clear-rest-day only. This closes the adjacent gap:
 trading two already-occupied sessions directly, with no rest day involved.
