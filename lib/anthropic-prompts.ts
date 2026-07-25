@@ -13,6 +13,7 @@ import type {
   SyncData,
 } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
+import { formatWeekTargets, type WeekTarget } from "./block-skeleton";
 import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
@@ -253,7 +254,8 @@ export function buildUserMessage(
   blockParams: BlockParams,
   weeks: string[][],
   nutritionTableMd: string,
-  settings: BlockSettings = DEFAULT_BLOCK_SETTINGS
+  settings: BlockSettings = DEFAULT_BLOCK_SETTINGS,
+  weekTargets?: WeekTarget[]
 ): string {
   const calendar = weeks
     .map(
@@ -267,10 +269,10 @@ export function buildUserMessage(
 The block runs on these exact dates — output exactly one DAY entry per date, in order:
 ${calendar}
 
-Output format — strictly follow this structure:
-
-BLOCK OVERVIEW
-[2-3 sentence summary of the block's training approach and rationale]
+Output format — strictly follow this structure. Build every WEEK/DAY first; write BLOCK OVERVIEW
+LAST, once every day below it is decided, so it accurately summarises the block you actually built
+rather than a plan you intend to build (a narrative written before the schedule exists is how a
+block ends up promising something — e.g. "escalates X" — that its own days don't deliver):
 
 WEEK [N]: [Week theme]
 DAY [date]: [Session name]
@@ -280,6 +282,10 @@ DAY [date]: [Session name]
   DESCRIPTION: [Nutrition and intent description — see format below]
 
 [Repeat for every day of the block]
+
+BLOCK OVERVIEW (write this LAST)
+[2-3 sentence summary of the block's training approach and rationale — describe what the weeks
+above actually contain, not an aspiration]
 
 DESCRIPTION FORMAT for each workout:
   Intent: [1 sentence on the physiological goal of this session]
@@ -292,7 +298,7 @@ NUTRITION REFERENCE TABLE (pre-computed by the app's deterministic formula — c
 
 ${nutritionTableMd}
 
-Hard rules:
+${weekTargets && weekTargets.length > 0 ? `${formatWeekTargets(weekTargets)}\n\n` : ""}Hard rules:
 - Use ISO dates (YYYY-MM-DD) in every DAY line, exactly as listed above.
 - DURATION is an integer number of minutes.
 - TYPE must be one of: Z2, Threshold, VO2max, SIT, RaceSim, Recovery, Strength, Rest.
@@ -307,11 +313,10 @@ Hard rules:
   Keep every cue as concise *inline* coaching (a clause the athlete acts on mid-ride) — **never**
   tell them to watch a video, read an article, or include any external link/URL.
 - **Workout step durations must sum to DURATION — no hedging.** Add up every warmup + main + cooldown step before finalising a session; if they don't match, adjust the steps (never just the stated number) so Intervals.icu's own parsed ride time (which is what actually shows on the athlete's calendar) matches what you tell them the session costs.
-- **WEEKLY VOLUME (loading weeks):** Every loading week must total ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours — plan toward the TOP of that range (~${settings.weeklyHoursMax}h). Landing at exactly ${settings.weeklyHoursMin}h is a shortfall, not a pass; below ${settings.weeklyHoursMin}h is a broken week. Before finalising each week, add up every session's DURATION; if the total is short, LENGTHEN the easy Z2 sessions — their duration (not their count, and not the long ride or quality sessions, which follow their own rules) is the lever that fills the week.
-- **WEEKLY VOLUME (recovery week):** Reduce to ${settings.recoveryWeekHoursMin}–${settings.recoveryWeekHoursMax} hours total.
-- **WEEKLY STRUCTURE (loading weeks):** ${settings.qualitySessionsPerLoadingWeek} quality sessions (Threshold/VO2max/SIT/RaceSim COMBINED — RaceSim counts toward this total like every other quality type, and this number is a CEILING, never a target to exceed) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60 min minimum each — size them UP, typically 90–120 min, until the week's total hits the WEEKLY VOLUME target) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week. **Never place two quality sessions on consecutive calendar days, and never let a week's quality-session count exceed the number above** — before finalising each week, count its Threshold/VO2max/SIT/RaceSim days and check no two land back-to-back; if either check fails, fix it by moving/dropping a session, not by re-labelling it.${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
+- **WEEKLY VOLUME:** see WEEK-BY-WEEK HOUR TARGETS above — an exact figure per week, not a range.${weekTargets && weekTargets.length > 0 ? "" : ` (fallback, no per-week targets supplied) every loading week must total ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours — plan toward the TOP of that range; recovery weeks reduce to ${settings.recoveryWeekHoursMin}–${settings.recoveryWeekHoursMax} hours.`}
+- **WEEKLY STRUCTURE (loading weeks):** ${settings.qualitySessionsPerLoadingWeek} quality sessions (Threshold/VO2max/SIT/RaceSim COMBINED — RaceSim counts toward this total like every other quality type, and this number is a CEILING, never a target to exceed) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60 min minimum each — size them UP, typically 90–120 min, until the week's total hits its WEEK-BY-WEEK HOUR TARGET) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week. **Never place two quality sessions on consecutive calendar days, and never let a week's quality-session count exceed the number above** — before finalising each week, count its Threshold/VO2max/SIT/RaceSim days and check no two land back-to-back; if either check fails, fix it by moving/dropping a session, not by re-labelling it.${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
 - **Rest days:** TYPE: Rest, DURATION: 0, WORKOUT: Rest, description with Intent and Daily target only. Limit to ${settings.restDaysPerWeek} per week.
-- Do not output anything before BLOCK OVERVIEW or after the final day.`;
+- Do not add any content outside WEEK/DAY entries and the final BLOCK OVERVIEW.`;
 }
 
 // ---------- Today's ride analysis ----------

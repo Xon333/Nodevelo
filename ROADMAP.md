@@ -169,10 +169,182 @@ every `/api/generate` call) plus a roadmap-preview UI (`projectSeasonOutlook`, a
 findings, all fixed) → [ARCHIVE.md](ARCHIVE.md) "Season continuous-focus-selection + roadmap-preview
 outlook." `SEASON_SHAPES_GENERATION` (`lib/season.ts`) still defaults `false`, gating the phase-derived
 prompt text/warnings out of generation — though `season-plan.json` and `GeneratedPlan.seasonFocus`
-keep tracking underneath regardless, so nothing atrophies while it's off. **Left: flip the flag +
-run the required live Anthropic smoke test** (`docs/superpowers/plans/2026-07-17-season-roadmap-preview-and-rollout.md`
-Task 5, AGENTS.md's LLM-backed-path rule) — the one remaining step; the UI it was waiting on is
-already built.
+keep tracking underneath regardless, so nothing atrophies while it's off.
+
+**2026-07-24 research-backed redesign (prompted by a real generated-block review):** a research pass
+across TrainerRoad/Xert/TrainingPeaks/Intervals.icu/JOIN Cycling, open-source plan-generator repos,
+and coaching-forum consensus, plus a full re-audit of this file's own machinery, replaced the old
+"just flip the flag" plan with a 7-part sequence. Root cause: the flag bundles two independent
+things — the doubted fixed-phase event arc (`formatSeasonContext`/`backwardScheduleFromEvent`,
+`validateSeasonFit`/`validateFocusMatch`) AND the *not*-doubted, already-built, already-tested
+rolling/support layer (`chooseNextFocus`→`formatFocusContext`, `validateBlockFocus`,
+`formatRecoveryWeeks`, `formatRetestNote`, `/api/season`'s `projectSeasonOutlook`) — so disabling one
+disabled both, even though the athlete's standing doubt is specifically about the fixed
+phase-sequence model, not about state-scored rolling selection.
+
+- **P1 — split the flag (scoped in full 2026-07-24, ready to implement):** keep the event-anchored
+  bundle off; reconnect the rolling/support bundle unconditionally. Concretely: in
+  `app/api/generate/route.ts`, the `if (SEASON_SHAPES_GENERATION) {...}` blocks at the season-context
+  injection (~L280) and the season-fit/focus-match/block-focus warnings (~L388) each split into an
+  `aEventForBlock`-gated (stays behind the flag) branch and a `rollingFocusChoice`-gated (always runs)
+  branch; the retest-note block (~L297) and `formatRecoveryWeeks` ungate entirely; `/api/season`'s
+  `outlook` (route.ts:17) drops its `SEASON_SHAPES_GENERATION &&` condition (already `!aEvent`-scoped).
+  No changes needed inside `lib/season.ts` itself — every function this reconnects already exists and
+  already has passing tests (`route.season-enabled.test.ts` already exercises the exact rolling-mode
+  bundle this turns on; `route.test.ts` L133–150 and `season/route.test.ts` L114 have "while
+  SEASON_SHAPES_GENERATION is off" assertions that need flipping to positive expectations). Known
+  residual gap, unchanged by design: A-priority events still get no phase text either
+  (`formatSeasonContext` is the only channel for the backward-scheduled taper arc) — same underlying
+  gap the athlete's real priority-B event hit, just currently latent since no A-event exists yet.
+  Recovery-week *placement* is fixed by this step; recovery-week *depth* is not (→ P2 — the fixed 6–7h
+  band was reasonably calibrated against the 10–12h loading target, so the shallow-cut problem found
+  live is really loading weeks undershooting their own floor, a generation-adherence problem, not a
+  placement bug).
+- **P2 — deterministic per-block skeleton. Shipped 2026-07-24, four sub-phases:**
+  - **P2a — feasibility pre-check** (`lib/block-skeleton.ts: checkBlockFeasibility`): refuses an
+    infeasible `BlockSettings` combination with a 400 before spending an LLM call on it.
+  - **P2b — exact hour figure per week** (`computeWeekTargets`/`formatWeekTargets`/`validateWeekHours`):
+    replaced the old min-max range (which the reviewed block undershot in 5 of 5 non-recovery weeks)
+    with one number per week, and — the piece that was missing entirely — a post-generation check that
+    actual hours landed near it. Recovery depth is now derived (60% of the loading target, clamped to
+    `recoveryWeekHoursMin/Max` — widened `recoveryWeekHoursMax` 7→8 so the derived figure governs
+    instead of being clamped back to the old shallow band) instead of a fixed absolute figure blind to
+    what loading actually targets.
+  - **P2c — mandatory focus-coverage requirement** (`lib/season.ts: focusSessionMatchers`/
+    `formatFocusCoverageLine`): the block's chosen focus (`chooseNextFocus`) now injects "include ≥1
+    {matching type} session" upfront, reusing the exact matcher `validateBlockFocus` already enforces
+    post-generation, so requirement and enforcement can't drift apart. At least once across the whole
+    block, not per loading week — stacking a second per-week requirement onto RaceSim's existing one
+    risked the exact over-constrained conflict P2a exists to catch.
+  - **P2d — `weeks` before `overview`** (`lib/plan-schema.ts`): Claude's tool-use fills JSON fields in
+    declared order, so the model was committing to a narrative before generating a single day. Simple
+    field reorder (verified: `z.toJSONSchema` preserves it into the tool's `input_schema`) so the
+    overview is now written last, describing the schedule that exists rather than one that doesn't yet.
+  - **Live-smoked, honest result:** recovery depth landed within 12 minutes of its derived 7.2h target
+    (vs. the old fixed-band defect); the coverage requirement was satisfied in both weeks of a 2-week
+    smoke run; a loading week landed at 11h against a 12h target (a ~9% miss, correctly flagged by the
+    new HOURS check — much closer than the prior floor violation, but not exact); the new EVENT TAPER
+    week-cap check caught the model still overloading a taper week with 3 quality sessions despite the
+    strengthened prompt cue; the overview also once mis-stated a 190-minute long ride as "4-hour." **P2
+    measurably narrows the defect class (recovery depth precise, coverage satisfied, hour misses far
+    smaller and now visible for the first time) but does not eliminate model non-compliance** — exactly
+    the residual P3's tiered auto-repair and narrative-coherence critic exist to close.
+- **P3 — tier the post-generation validators. P3a/b/c shipped 2026-07-24; P3d/e deliberately
+  deferred** (scoped, not built — see below):
+  - **P3a — nutrition auto-repair** (`lib/nutrition-validate.ts: repairNutrition`): the correct kcal
+    figure is always known (the deterministic reference table), so a mismatch is now overwritten, not
+    just flagged — the fix stays visible as a `repairs`/warnings note (calibrated honesty), replacing
+    the old `validateNutrition` call in `route.ts` outright. Live-confirmed: a real generation shipped
+    an invented 3000 kcal figure, auto-corrected to the real 3810 kcal.
+  - **P3b — durability-insert-ceiling classification fix** (`lib/workout-validate.ts`): steps shorter
+    than 90s (VO2max's own protocol floor) are now excluded from the 122%/20-min durability-insert
+    ceiling check — a short near-maximal touch is a KB-sanctioned neuromuscular pattern (§12 Template D
+    + the standing-sprint section), not a malformed durability insert. Confirmed live twice before the
+    fix (a Recovery day's 10s touches at 130-140% FTP false-flagged).
+  - **P3c — narrative-coherence critic + overview auto-repair** (new `lib/narrative-critic.ts` +
+    `lib/anthropic-api.ts: critiqueOverview`): a small, cheap follow-up call (`QUICK_MODEL`, not the
+    generation model) fact-checks the written overview against deterministically-extracted per-week
+    facts (hours, quality-type counts, longest ride) and rewrites it if it disagrees — never touches
+    the schedule itself, bounding the risk. Skipped for a truncated/incomplete block. **Live result,
+    honest:** it fired and corrected a real overview on the first smoke run — but the corrected text
+    still described a 200-minute long ride as "4-hour," the same class of imprecision it exists to
+    catch. P3c measurably helps; it is not a complete fix, and approximate duration language ("a
+    4-hour ride") appears to read as descriptive rather than a hard factual claim worth reconciling
+    against the exact minute figure — worth sharpening the critic's prompt if this recurs, not
+    evidence the mechanism is broken.
+  - **P3d — consequence forecast: deferred.** Needs genuinely new forward-projection code (checked:
+    `lib/readiness.ts`'s `computeAcwr`/`computeLoadRamp` only analyze past activity, nothing projects
+    CTL/ATL/TSB forward from a hypothetical block) and — unlike a/b/c — nothing in two live smoke runs
+    has shown a dangerous ramp-rate or bad event-day form yet to justify building it now.
+  - **P3e — aggregate-miss hard-fail + targeted single-week regeneration: deferred.** The largest,
+    riskiest piece (new partial-regen prompt/schema/splicing/bounded-retry, roughly doubling worst-case
+    latency when it fires, a new boundary-conflict failure mode of its own). Recommended as its own
+    dedicated session once real data shows how often a/b/c-hardened blocks still miss badly enough to
+    need it — both live smoke tests so far only produced modest (<1.5h) hour misses, not clear
+    hard-fail cases.
+- **P4 — a lightweight taper tier for priority-B/C events**, short of full A-tier backward
+  scheduling: capped quality budget + no quality in the final 2 days before the event. Today B/C
+  events get only `formatUpcomingEventsForBlock`'s one-line "protect this day" callout — no
+  load-shaping at all, which is how a real priority-B KOM attempt ended up with the block's single
+  most quality-dense week landing immediately before it.
+- **P5 — temporal sequencing + one primary quality per block**, per the applied-sports-science
+  consensus (VO2max freshest early in the week, threshold mid-week on some fatigue, durability/
+  endurance last) — stops diluting concurrent goals (this athlete's FTP + 1-min power + 5-sec power
+  all at once) the way SIT/neuromuscular work quietly disappeared from the back half of the reviewed
+  block despite its own overview claiming otherwise. **Grafted (2026-07-24):** carry a lightweight
+  per-zone progression ledger (a number per workout-type, TrainerRoad's actual mechanism) as state
+  across week boundaries under P5/P6 — not as the planning engine (see the held-for-reopen note
+  below), but so a multi-week claim like "SIT escalates" becomes a checkable number instead of a
+  narrative promise, and so the sample size that would eventually justify a real progression-engine
+  starts accruing now.
+- **P6 — week-boundary re-anchoring:** recompute the remaining weeks' skeleton from actual executed
+  load at each week rollover — drops the feedback loop from 42 days to 7 without a daily engine.
+  Intervals.icu's own developer confirmed (forum) they haven't shipped full auto-replanning yet —
+  treat that as evidence the full daily-engine version (Xert/Aixle-style) is genuinely hard, not as
+  something to skip straight to.
+- **P7 — the phase-sequence doubt: `chooseNextFocus` fixes the structural bug, but a real gap
+  remains underneath it (verified 2026-07-24).** The good news: the fixed-sequence engine is gone —
+  `aerobic-base` is now one of five scored candidates every block, never an unconditional first
+  phase, so the athlete's literal worry ("always assigning base regardless of existing fitness") no
+  longer happens *by construction*. The gap: the selector's urgency/staleness signal
+  (`exposureFromSessions`, `lib/season-signals.ts:76`) is built **only** from NodeVelo-generated
+  block history (`currentBlock.days` + `blockHistory[].days`) — it has no visibility into real
+  pre-app or off-app fitness (legacy rides, or a rider brand-new to this app). A focus with zero
+  in-app exposure hits `NEVER_SEEN_URGENCY` (1.3 — higher than any bounded staleness score), and for
+  `aerobic-base` specifically (high trainability 0.9, goal-relevance hard-pinned to a neutral 0.5 it
+  can never rise above) that spike can still win the slot for a goal-neutral block — the test suite's
+  own comment on `lib/season.test.ts`'s urgency test names this exactly ("otherwise... it would fall
+  back to NEVER_SEEN_URGENCY and... outscore \[everything], which isn't what this test is about" —
+  the test sidesteps the case rather than proving it's handled). In practice this is heavily masked
+  for a goal-driven athlete (aerobic-base's capped 0.5 goal-relevance loses to any goal-matched focus
+  at 0.8–1.0) and further masked for *this* athlete specifically (Z2 riding is common in every block,
+  so real exposure data usually exists) — but the original example (a rider new to NodeVelo, or whose
+  real base predates its ledger, getting assigned a base emphasis they don't need) is not actually
+  closed, just less likely to trigger than under the old engine. **Not scheduled as a fix** — surfaced
+  so it isn't mistaken for resolved. If it's worth closing: feed aerobic-base's urgency partly from a
+  real, ledger-independent signal (synced CTL/volume-baseline trend, which NodeVelo already syncs from
+  Intervals.icu regardless of in-app block history) instead of `NEVER_SEEN_URGENCY`'s flat spike.
+
+**2026-07-24 — was a more drastic re-architecture warranted instead of P1–P7?** Evaluated explicitly,
+not assumed away: eleven candidate architectures (LLM-as-copywriter over a fully deterministic
+skeleton; a library+guided-search engine; a hard constraint solver; a two-clock macro-envelope/
+weekly-fill split; full rolling-horizon generation with no block concept; a TrainerRoad-style per-zone
+progression-level state machine; a Xert-style soft-phase+daily-override hybrid; a backward-from-event
+planner with block length as an output; a generate→LLM-critique→repair loop; a forecast-only "flight
+simulator"; a negotiation UX where the LLM only translates feedback into constraint edits) were
+generated and scored against this app's real constraints — solo maintainer, the mission's own "not a
+re-skin of Intervals.icu" line, the review-before-write ritual as a deliberately-built explainability
+feature (not legacy cruft), the deterministic infra already working (focus selector, durability
+templates, execution EWMA, recovery cadence), and — the decisive fact — the athlete model currently
+running at n=1–8 observations per type, below its own confidence gates, with the first learning-loop
+verdicts maturing ~2026-08-12 (state-of-the-app note, top of this file). **Verdict: P1–P7 already is
+the correctly-sized drastic change** — it strips the LLM of exactly the structural authorship where
+every reviewed-block defect occurred, and most surviving candidates decompose into ingredients P1–P7
+already contains (the three grafts above). Re-architecting toward a data-hungry primitive now would
+reset the exact corpus the app's whole thesis depends on, right as it starts accruing.
+
+**Eliminated outright (don't re-propose without a real reason — same convention as "Decided against"
+below):** a real constraint solver (debugging infeasibility proofs is machinery a solo maintainer
+shouldn't own for a hobby app — the one good idea, refuse-to-silently-arbitrate an over-constrained
+ask, is folded into P2 as a plain pre-check instead); full rolling-horizon generation with no block
+concept (deletes real look-ahead value — "I know week 4 is hell week" — and turns review into
+something that only catches failures after they're ridden); a full backward-from-event planner as the
+*primary* generative move (makes a mostly-empty, self-declared event calendar the highest-authority
+input in the whole system for no real gain over P4's lightweight tier).
+
+**Held for a scheduled reopen, not rejected:** the TrainerRoad-style per-zone progression-level state
+machine (lives as carried state under P5/P6 for now, not yet as the planning engine) — the most
+genuinely interesting drastic option, blocked purely by data thinness, not by design. Reopen once
+per-type observation counts clear the athlete-model's own ≥3-obs gates (watch after the 2026-08-12
+verdict maturation, likely 2–3 more block cycles).
+
+**Tripwire:** if the first block generated *after P2 ships* still produces a structural defect — a
+missed hour target, a missing limiter session, a broken escalation the new narrative critic catches —
+that is real evidence the LLM should not author structure at all, full stop. The next step in that
+case is the terminal composition: a fully deterministic skeleton drawing from parameterized protocol
+templates (never a stored workout library — that's the re-skin risk; parameters must come from the
+athlete model, not a static catalog), with the LLM narrating only. Don't respond to that signal by
+iterating on prompts further.
 
 Tracked debt surfaced by the 2026-07-16 final whole-branch review, none currently worth a dedicated pass:
 - Event-mode peak vs. taper share one `focus: "sharpen"` value → same roadmap color/label; only the

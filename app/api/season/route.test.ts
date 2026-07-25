@@ -100,9 +100,9 @@ describe("GET /api/season", () => {
 });
 
 // season-roadmap-preview §6: GET now also returns a stateless `outlook` projection alongside `plan`.
-// It's null whenever there's a committed arc to show instead (an upcoming A-event) and, independent of
-// that, gated behind SEASON_SHAPES_GENERATION — false as of this task (flips in a later task of this
-// plan), so the rolling case is expected to assert null too, not a populated array, until then.
+// It's null whenever there's a committed arc to show instead (an upcoming A-event); otherwise (the
+// rolling case) it's a real projection of the state-scored chooseNextFocus selector — not the doubted
+// fixed-phase-sequence model, so P1 (2026-07-24) ungated it from SEASON_SHAPES_GENERATION entirely.
 describe("GET /api/season — outlook", () => {
   it("returns a null outlook when there is an upcoming A-event (event mode keeps its committed arc)", async () => {
     stored = { ...base(), events: [{ name: "Gran Fondo", date: "2026-10-01", priority: "A" }] };
@@ -111,11 +111,14 @@ describe("GET /api/season — outlook", () => {
     expect(json.outlook).toBeNull();
   });
 
-  it("returns a null outlook for the rolling case (no upcoming A-event) while SEASON_SHAPES_GENERATION is off", async () => {
+  it("returns a populated outlook for the rolling case (no upcoming A-event) — P1 (2026-07-24)", async () => {
     stored = { ...base(), events: [] };
     const res = await get("?today=2026-07-01");
     const json = await res.json();
-    expect(json.outlook).toBeNull();
+    expect(Array.isArray(json.outlook)).toBe(true);
+    expect(json.outlook.length).toBeGreaterThan(0);
+    expect(json.outlook[0]).toHaveProperty("focus");
+    expect(json.outlook[0]).toHaveProperty("rationale");
   });
 
   it("still returns plan unchanged (existing contract)", async () => {

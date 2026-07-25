@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
-import { findUpcomingAEvent, projectSeasonOutlook, SEASON_SHAPES_GENERATION, validateSeasonPlanInput } from "@/lib/season";
+import { findUpcomingAEvent, projectSeasonOutlook, validateSeasonPlanInput } from "@/lib/season";
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { resolveToday } from "@/lib/date";
 
@@ -9,12 +9,11 @@ export async function GET(req: Request) {
   const plan = await readSeasonPlan();
   // Roadmap preview (season-roadmap-preview §6): a stateless projection, computed fresh on every
   // request, never persisted. Only for the rolling case (no upcoming A-event — event mode already
-  // shows a real, committed arc from `plan.periods`) and only while SEASON_SHAPES_GENERATION is on
-  // (this is exactly the "phase-derived opinion" the flag exists to gate — centralizing the check here
-  // means every consumer (SeasonRoadmap, PlanView) gets it for free instead of re-checking the flag
-  // itself).
+  // shows a real, committed arc from `plan.periods`). P1 (2026-07-24): this projects the rolling,
+  // state-scored chooseNextFocus selector, not the doubted fixed-phase-sequence model, so it's no
+  // longer gated behind SEASON_SHAPES_GENERATION — that flag now only covers the event-anchored arc.
   const aEvent = findUpcomingAEvent(plan.events, today);
-  const outlook = SEASON_SHAPES_GENERATION && !aEvent ? projectSeasonOutlook(await gatherFocusInputs({ today }), today) : null;
+  const outlook = !aEvent ? projectSeasonOutlook(await gatherFocusInputs({ today }), today) : null;
   return NextResponse.json({ plan, outlook });
 }
 

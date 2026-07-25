@@ -50,4 +50,19 @@ describe("TRAINING_BLOCK_TOOL", () => {
     expect(schema.$schema).toBeUndefined();
     expect((schema.properties as Record<string, unknown>).weeks).toBeDefined();
   });
+
+  // P2d (2026-07-24 block-generation redesign): `weeks` must be declared before `overview` in the
+  // tool's own input_schema — Claude's tool-use fills JSON fields in declared order, so this ordering
+  // is what makes the model write every day before it writes the summary, instead of committing to a
+  // narrative before the schedule exists (the root cause of a real block's overview promising an
+  // "escalation" its own days never delivered).
+  it("declares weeks before overview in the tool's input_schema, so the summary is written last", () => {
+    const schema = TRAINING_BLOCK_TOOL.input_schema as Record<string, unknown>;
+    const keys = Object.keys(schema.properties as Record<string, unknown>);
+    expect(keys.indexOf("weeks")).toBeLessThan(keys.indexOf("overview"));
+  });
+
+  it("instructs the model to fill weeks first and write overview last", () => {
+    expect(TRAINING_BLOCK_TOOL.description).toMatch(/weeks.*first.*overview.*last/i);
+  });
 });

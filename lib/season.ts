@@ -673,6 +673,42 @@ export function formatFocusContext(choice: FocusChoice, objective: string): stri
 // chance). Merges both old checks: a build focus needs >=1 matching session; aerobic-base needs a
 // duration-weighted hard-share <= 20%. Mirrors validateFocusMatch's matcher table and
 // validateSeasonFit's hard-share math exactly (same thresholds, same "Season fit:" prefix contract).
+export interface FocusSessionMatcher {
+  label: string;
+  match: (d: PlannedDay) => boolean;
+}
+
+// Shared by validateBlockFocus, validateFocusMatch, and formatFocusCoverageLine (P2c, 2026-07-24
+// block-generation redesign) — ONE definition of "what session satisfies focus X" so the requirement
+// injected into the prompt and its post-generation enforcement can never disagree. Previously
+// duplicated verbatim in both validators. aerobic-base/sharpen have no single required session type
+// and are absent (callers treat a missing entry as "no specific type owed").
+export function focusSessionMatchers(ftp: number): Partial<Record<SeasonFocus, FocusSessionMatcher>> {
+  return {
+    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
+    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
+    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
+    durability: {
+      label: "durability-loaded Z2 (embedded threshold+ work)",
+      match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
+    },
+  };
+}
+
+// P2c (2026-07-24 block-generation redesign): the block's chosen focus, injected as a mandatory
+// coverage requirement BEFORE generation — the reviewed live block shipped zero VO2max sessions
+// despite VO2max being the athlete's own profile-flagged FTP limiter, with nothing upfront asking for
+// it. Reuses focusSessionMatchers so this requirement and validateBlockFocus's enforcement can never
+// drift apart. "At least 1 across the whole block," not per loading week — stacking a second
+// per-week requirement alongside RaceSim's existing one risks the exact over-constrained conflict
+// P2a's feasibility check exists to catch. Rolling mode only (event-anchored mode stays behind
+// SEASON_SHAPES_GENERATION, same as the rest of the doubted fixed-phase bundle).
+export function formatFocusCoverageLine(focus: SeasonFocus, ftp: number): string | null {
+  const m = focusSessionMatchers(ftp)[focus];
+  if (!m) return null;
+  return `REQUIRED COVERAGE: this block's focus is ${focus} — include at least 1 ${m.label} session somewhere across the block. Do not substitute a different quality type for this requirement.`;
+}
+
 export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: number): string[] {
   const rides = days.filter((d) => d.type !== "Rest" && d.type !== "Strength");
   if (rides.length === 0) return [];
@@ -688,16 +724,7 @@ export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: 
     return [`Season fit: ${dates[0]} → ${dates[dates.length - 1]} — this block's focus is aerobic-base, but ${Math.round(hardShare * 100)}% of riding time is hard — expected mostly Z2.`];
   }
 
-  const matchers: Partial<Record<SeasonFocus, { label: string; match: (d: PlannedDay) => boolean }>> = {
-    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
-    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
-    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
-    durability: {
-      label: "durability-loaded Z2 (embedded threshold+ work)",
-      match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
-    },
-  };
-  const m = matchers[focus];
+  const m = focusSessionMatchers(ftp)[focus];
   if (!m || rides.some(m.match)) return [];
   return [`Season fit: ${dates[0]} → ${dates[dates.length - 1]} — this block's focus is ${focus} but carries zero ${m.label} sessions.`];
 }
@@ -714,7 +741,13 @@ export function formatUpcomingEventsForBlock(
     .filter((e) => e.priority !== "A" && e.date >= blockRange.startDate && e.date <= blockRange.endDate)
     .sort((a, b) => a.date.localeCompare(b.date));
   if (inRange.length === 0) return null;
-  const lines = inRange.map((e) => `- ${e.date}: ${e.name} (priority ${e.priority}) — protect this day; build the week around it rather than overwriting it with a generic session.`);
+  // P4 (2026-07-24 block-generation redesign): a lightweight taper cue for B/C events, short of full
+  // A-tier backward scheduling — no quality session in the final 2 days before the event, and no more
+  // than 1 other quality session in its own week. Enforced post-generation by validateEventTaper.
+  const lines = inRange.map(
+    (e) =>
+      `- ${e.date}: ${e.name} (priority ${e.priority}) — protect this day; build the week around it rather than overwriting it with a generic session. Taper into it: no quality session (Threshold/VO2max/SIT/RaceSim) in the 2 days before, and at most 1 other quality session that week.`
+  );
   return `UPCOMING EVENTS THIS BLOCK:\n${lines.join("\n")}`;
 }
 
@@ -777,15 +810,7 @@ export function validateSeasonFit(days: PlannedDay[], plan: SeasonPlan, ftp: num
 // fires when the block gives the period a fair chance: the period's bucket must span ≥ 7 calendar days.
 // aerobic-base/sharpen imply no specific quality type and are skipped.
 export function validateFocusMatch(days: PlannedDay[], plan: SeasonPlan, ftp: number): string[] {
-  const matchers: Partial<Record<SeasonFocus, { label: string; match: (d: PlannedDay) => boolean }>> = {
-    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
-    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
-    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
-    durability: {
-      label: "durability-loaded Z2 (embedded threshold+ work)",
-      match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
-    },
-  };
+  const matchers = focusSessionMatchers(ftp);
   const warnings: string[] = [];
   const buckets = new Map<FocusPeriod, PlannedDay[]>();
   for (const d of days) {

@@ -9,7 +9,7 @@
 // validatePlanProtocol. The generate route folds these straight into the plan's warnings array
 // alongside the protocol checks.
 
-import type { BlockSettings, PlannedDay, WorkoutType } from "./types";
+import type { BlockSettings, PlannedDay, SeasonEvent, WorkoutType } from "./types";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { resolveDurabilityInsertEnvelope } from "./calibration";
 
@@ -83,6 +83,50 @@ export function validateSchedule(days: PlannedDay[], settings: BlockSettings, ft
         `SCHEDULE: week ${week} has ${quality.length} quality sessions (${quality
           .map((d) => d.type)
           .join(", ")}) — over the ${budget}/week budget.`
+      );
+    }
+  }
+
+  return warnings;
+}
+
+// P4 (2026-07-24 block-generation redesign): a lightweight taper tier for priority-B/C events, short
+// of full A-tier backward scheduling (`backwardScheduleFromEvent`, which only fires for priority-A —
+// see lib/season.ts). B/C events otherwise get only `formatUpcomingEventsForBlock`'s one-line "protect
+// this day" prompt callout, with zero deterministic load-shaping — which is how a real priority-B KOM
+// attempt ended up with the block's single most quality-dense week landing immediately before it (live
+// review, 2026-07-24). Same warn-only contract as validateSchedule above: never reorders the plan.
+const QUALITY_FREE_DAYS_BEFORE_EVENT = 2;
+const EVENT_WEEK_QUALITY_CAP = 1;
+
+export function validateEventTaper(days: PlannedDay[], events: SeasonEvent[]): string[] {
+  if (days.length === 0 || events.length === 0) return [];
+  const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
+  const byDate = new Map(sorted.map((d) => [d.date, d]));
+  const warnings: string[] = [];
+
+  for (const event of events.filter((e) => e.priority !== "A").sort((a, b) => a.date.localeCompare(b.date))) {
+    const eventDay = byDate.get(event.date);
+    if (!eventDay) continue; // the event falls outside this block's own generated days
+
+    // (a) the final QUALITY_FREE_DAYS_BEFORE_EVENT calendar days before the event must be quality-free.
+    for (const d of sorted) {
+      const gap = daysBetween(d.date, event.date);
+      if (gap >= 1 && gap <= QUALITY_FREE_DAYS_BEFORE_EVENT && isQuality(d)) {
+        warnings.push(
+          `EVENT TAPER: ${event.name} (priority ${event.priority}) on ${event.date} has a quality session (${d.type}) ${gap} day${gap > 1 ? "s" : ""} before it — keep the final ${QUALITY_FREE_DAYS_BEFORE_EVENT} days quality-free so the taper actually protects the event.`
+        );
+      }
+    }
+
+    // (b) the event's own week shouldn't carry more quality work than the cap, beyond the event
+    // session itself (a RaceSim/priority effort ON the event day is the point, not a budget breach).
+    const otherQuality = sorted.filter(
+      (d) => d.weekNumber === eventDay.weekNumber && d.date !== event.date && isQuality(d)
+    );
+    if (otherQuality.length > EVENT_WEEK_QUALITY_CAP) {
+      warnings.push(
+        `EVENT TAPER: ${event.name} (priority ${event.priority}) week carries ${otherQuality.length} other quality session(s) besides the event itself — cap it at ${EVENT_WEEK_QUALITY_CAP} to protect the taper.`
       );
     }
   }

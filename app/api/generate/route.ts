@@ -6,11 +6,13 @@ import {
   buildAthleteDataSection,
   buildSystemPrompt,
   buildUserMessage,
+  critiqueOverview,
   generateTrainingBlock,
   GENERATION_MODEL,
   isAnthropicConfigured,
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
+import { extractBlockFacts } from "@/lib/narrative-critic";
 import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { formatReflectionsForPrompt } from "@/lib/retrospective-schema";
@@ -32,12 +34,13 @@ import {
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { reconcileDurationMin } from "@/lib/prescription";
 import { splitPlanProtocol } from "@/lib/workout-validate";
-import { validateNutrition } from "@/lib/nutrition-validate";
-import { validateSchedule } from "@/lib/schedule-validate";
+import { repairNutrition } from "@/lib/nutrition-validate";
+import { validateEventTaper, validateSchedule } from "@/lib/schedule-validate";
+import { checkBlockFeasibility, computeWeekTargets, validateWeekHours } from "@/lib/block-skeleton";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateBlockFocus, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateBlockFocus, validateFocusMatch, validateSeasonFit } from "@/lib/season";
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan } from "@/lib/types";
@@ -99,6 +102,13 @@ export async function POST(req: Request) {
       readQuirks(),
       readSeasonPlan(),
     ]);
+
+    // P2a (2026-07-24 block-generation redesign): verify the configured settings can jointly fit
+    // inside a week BEFORE spending an LLM call on an impossible ask.
+    const feasibilityConflict = checkBlockFeasibility(blockSettings);
+    if (feasibilityConflict) {
+      return NextResponse.json({ error: feasibilityConflict }, { status: 400 });
+    }
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
     const latestWeight =
@@ -277,24 +287,37 @@ export async function POST(req: Request) {
       const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEnd });
       if (upcomingEventsLine) upcomingEventsContext = `\n${upcomingEventsLine}`;
 
-      if (SEASON_SHAPES_GENERATION) {
-        if (aEventForBlock) {
-          const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEnd });
-          if (line) seasonContext = `\n${line}`;
-        } else if (rollingFocusChoice) {
-          seasonContext = `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
-        }
-        const recoveryLine = formatRecoveryWeeks(recoveryWeekIndices, blockParams.lengthWeeks);
-        if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
+      // P1 (2026-07-24 block-generation redesign): the flag now gates ONLY the doubted, event-
+      // anchored fixed-phase arc (formatSeasonContext, backwardScheduleFromEvent's periods) — the
+      // rolling, state-scored bundle (formatFocusContext/chooseNextFocus, formatRecoveryWeeks,
+      // formatRetestNote below) is NOT the doubted model and always runs. See ROADMAP.md "Season
+      // engine — known debt" for the full split rationale.
+      if (SEASON_SHAPES_GENERATION && aEventForBlock) {
+        const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEnd });
+        if (line) seasonContext = `\n${line}`;
+      } else if (rollingFocusChoice) {
+        seasonContext = `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
+        // P2c (2026-07-24 block-generation redesign): the chosen focus as a mandatory coverage
+        // requirement, not just descriptive context — enforced post-generation by validateBlockFocus.
+        const coverageLine = formatFocusCoverageLine(rollingFocusChoice.focus, profile.performance.ftp);
+        if (coverageLine) seasonContext += `\n${coverageLine}`;
       }
+      const recoveryLine = formatRecoveryWeeks(recoveryWeekIndices, blockParams.lengthWeeks);
+      if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
     }
 
+    // P2b (2026-07-24 block-generation redesign): one exact hour figure per week — loading weeks
+    // target the top of the configured range, recovery weeks (recoveryWeekIndices, computed above)
+    // target a figure DERIVED from that loading target, not a fixed absolute band blind to it.
+    // Computed outside the season try/catch so it degrades safely (recoveryWeekIndices defaults to
+    // []) rather than depending on the season replan succeeding.
+    const weekTargets = computeWeekTargets(blockParams.lengthWeeks, blockSettings, recoveryWeekIndices);
+
     // Retest cadence: a stale tested FTP quietly rots zones and TSS math — nudge the generator to place
-    // a retest in the next lighter week. Additive to seasonContext. Temporarily disabled with the rest
-    // of the phase-derived context (SEASON_SHAPES_GENERATION).
-    if (SEASON_SHAPES_GENERATION && physStore) {
+    // a retest in the next lighter week. Additive to seasonContext. Phase-agnostic (P1): always live.
+    if (physStore) {
       const ftpStaleDays = Math.floor((Date.parse(today) - Date.parse(physStore.current.effectiveFrom)) / 86_400_000);
       const retestNote = formatRetestNote(Number.isFinite(ftpStaleDays) ? ftpStaleDays : null, recoveryWeekIndices, blockParams.startDate);
       if (retestNote) seasonContext += `\n${retestNote}`;
@@ -326,7 +349,7 @@ export async function POST(req: Request) {
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );
-    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings);
+    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings, weekTargets);
 
     // Dedupe identical generations in a short window (P4): a double-click or a second request landing
     // mid-generation shares one Claude call instead of paying twice. A considered regenerate minutes
@@ -361,8 +384,12 @@ export async function POST(req: Request) {
     // HR-19 (2026-07-17 hostile review): make NodeVelo's own durationMin agree with the real
     // step-sum Intervals.icu will display, instead of only warning when they disagree — the
     // mismatch was shipping unchanged to the calendar and every hours total in the app.
-    const days = reconcileDurationMin(rawDays);
-    const warnings: string[] = [];
+    const reconciledDays = reconcileDurationMin(rawDays);
+    // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
+    // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
+    const nutritionRepair = repairNutrition(reconciledDays, nutritionConfig, profile.performance.ftp, weightTrend);
+    const days = nutritionRepair.days;
+    const warnings: string[] = [...nutritionRepair.repairs];
     const expected = weeks.flat();
     if (days.length !== expected.length) {
       warnings.push(`Expected ${expected.length} days, got ${days.length}.`);
@@ -377,16 +404,21 @@ export async function POST(req: Request) {
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
     warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp));
-    // Nutrition check (CR-F): the daily-intake kcal in each description must match the deterministic
-    // reference table the model was told to copy — flag any figure it invented instead.
-    warnings.push(...validateNutrition(days, nutritionConfig, profile.performance.ftp, weightTrend));
+    // Event taper (P4, 2026-07-24): a lightweight check for priority-B/C events inside this block —
+    // no quality session in the final 2 days before the event, and no more than 1 other quality
+    // session that week. A-priority events are excluded (they get the full backward-scheduled arc).
+    warnings.push(...validateEventTaper(days, existingSeason.events));
+    // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
+    // target — the check that was missing entirely (only session counts/spacing were validated).
+    warnings.push(...validateWeekHours(days, weekTargets));
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
     // Season fit (event-anchored) / block focus (rolling): flag intensity or focus-label disagreement
-    // vs the active season structure. Only when the season re-plan above succeeded. Temporarily
-    // disabled with the rest of the phase-derived context (SEASON_SHAPES_GENERATION).
-    if (SEASON_SHAPES_GENERATION && replannedSeason) {
-      if (aEventForBlock) {
+    // vs the active season structure. Only when the season re-plan above succeeded. P1 (2026-07-24):
+    // the event-anchored pair stays behind the doubted-model flag; block-focus (rolling, state-scored)
+    // is not that model and always runs.
+    if (replannedSeason) {
+      if (SEASON_SHAPES_GENERATION && aEventForBlock) {
         warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
         warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
       } else if (rollingFocusChoice) {
@@ -397,10 +429,24 @@ export async function POST(req: Request) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");
     }
 
+    // Narrative-coherence critic (P3c, 2026-07-24): a cheap follow-up check that the written overview
+    // actually matches the generated schedule (the "escalate SIT" contradiction the reviewed block
+    // shipped, and the "4-hour ride" mis-description a live smoke test caught) — only ever corrects
+    // the overview string, never the schedule. Skipped for a truncated/incomplete block: there's
+    // already a bigger, known problem to fix first. Best-effort — never blocks the response.
+    let finalOverview = overview;
+    if (!truncated && days.length === expected.length) {
+      const critic = await critiqueOverview(overview, extractBlockFacts(days, weekTargets));
+      if (critic && !critic.accurate) {
+        finalOverview = critic.overview;
+        warnings.push("Overview auto-corrected: the written summary didn't match the generated schedule.");
+      }
+    }
+
     // Audit trail: store the structured tool JSON when present, else the raw text.
     const rawForAudit = toolInput != null ? JSON.stringify(toolInput, null, 2) : raw;
     const plan: GeneratedPlan = {
-      overview,
+      overview: finalOverview,
       days,
       warnings,
       ...(protocol.violations.length > 0 ? { protocolViolations: protocol.violations } : {}),

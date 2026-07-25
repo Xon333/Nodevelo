@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { StructuredReflection } from "./types";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
+import { buildNarrativeCriticPrompt, NARRATIVE_CRITIC_TOOL, parseNarrativeCriticOutput, type NarrativeCriticOutput, type WeekFacts } from "./narrative-critic";
 import { recordUsage } from "./ai-usage";
 import {
   buildAskCoachPrompt,
@@ -148,6 +149,36 @@ export async function generateStructuredRetrospective(
   if (!toolUse) return [];
   const parsed = RetrospectiveToolSchema.safeParse(toolUse.input);
   return parsed.success ? parsed.data.reflections : [];
+}
+
+// ---------- Narrative-coherence critic (P3c) ----------
+
+// A small, cheap follow-up check — never the generation model, never touches the schedule, only the
+// overview string. Best-effort by design: never throws, returns null on any failure (misconfigured,
+// no tool_use block, malformed response) so a caller can fall back to the original overview untouched
+// — mirroring generateStructuredRetrospective's graceful-degradation contract, not
+// generateTrainingBlock's throw-on-misconfiguration one, since this check is a secondary enhancement
+// to an already-successful generation, not the generation itself.
+export async function critiqueOverview(overview: string, facts: WeekFacts[]): Promise<NarrativeCriticOutput | null> {
+  if (!isAnthropicConfigured()) return null;
+  try {
+    const client = getClient();
+    const response = await client.messages.create({
+      model: QUICK_MODEL,
+      max_tokens: 400,
+      temperature: TEMPERATURE,
+      tools: [NARRATIVE_CRITIC_TOOL],
+      tool_choice: { type: "tool", name: NARRATIVE_CRITIC_TOOL.name },
+      messages: [{ role: "user", content: buildNarrativeCriticPrompt(overview, facts) }],
+    });
+    void recordUsage(QUICK_MODEL, response.usage); // fire-and-forget telemetry
+    const toolUse = response.content.find(
+      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+    );
+    return toolUse ? parseNarrativeCriticOutput(toolUse.input) : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------- Training-block generation ----------

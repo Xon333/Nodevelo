@@ -14,6 +14,53 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
+**Block-generation architecture — research-backed redesign (2026-07-24).** Prompted by a real
+6-week block review (every non-recovery week missed its own explicit hour floor, SIT/neuromuscular
+work vanished from the back half despite the block's own overview claiming otherwise, a loading
+week skipped its standalone Threshold session entirely, zero VO2max sessions despite VO2max being
+the profile-flagged FTP limiter, and a priority-B goal event got no taper support at all). A
+research pass (TrainerRoad/Xert/TrainingPeaks/Intervals.icu/JOIN Cycling, open-source plan-generator
+repos, coaching-forum consensus) plus a full re-audit of `lib/season.ts`/`lib/anthropic-prompts.ts`
+produced a root-cause synthesis and a 7-part plan (P1–P7) — full detail, comparison table, and file/
+line-level scoping → [ROADMAP.md](ROADMAP.md) "Season engine — known debt".
+
+- ☑ P1 `feat` — **Shipped 2026-07-24.** Split `SEASON_SHAPES_GENERATION`: the rolling-focus +
+  recovery-placement + retest + roadmap-preview bundle now runs unconditionally
+  (`app/api/generate/route.ts`, `app/api/season/route.ts`); the doubted fixed-phase event arc stays
+  gated. All 1337 tests pass (9 new/updated), `tsc`/lint clean. Live-smoked twice against the real
+  Anthropic API (AGENTS.md's LLM-backed-path rule) — confirmed `BLOCK FOCUS:`/`RECOVERY:` reach the
+  model and are followed (a real block correctly opened with a recovery week, citing "the ≥4-week gap
+  since the last light week").
+- ☑ P7 (verify) — **Done 2026-07-24, not a fix.** `chooseNextFocus` closes the literal fixed-sequence
+  bug (aerobic-base is no longer an unconditional first phase) but a real gap remains underneath:
+  its urgency signal only sees NodeVelo-generated block history, so a rider new to the app (or whose
+  real base predates its ledger) can still have aerobic-base win via `NEVER_SEEN_URGENCY`. Documented
+  in ROADMAP.md's P7 entry with a concrete fix direction (feed urgency from synced CTL/volume trend
+  instead) — not scheduled, since it wasn't found to be actively hurting this athlete's actual blocks.
+- ☑ P4 `feat` — **Shipped 2026-07-24.** New `validateEventTaper` (`lib/schedule-validate.ts`): no
+  quality session in the 2 days before a priority-B/C event, at most 1 other quality session in its
+  own week. Paired with a strengthened prompt cue in `formatUpcomingEventsForBlock`. 9 new tests, full
+  suite green. Live-smoked against the athlete's real KOM event: the block correctly opened with a
+  recovery week tapering into it (two easy "Recovery" days, zero other quality that week) — the exact
+  opposite of the reviewed plan's 3-quality-session, hard-ride-the-day-before week.
+- ☑ P2 `feat` — **Shipped 2026-07-24, four sub-phases** (new `lib/block-skeleton.ts` +
+  `lib/season.ts`'s `focusSessionMatchers`/`formatFocusCoverageLine` + `lib/plan-schema.ts` field
+  reorder). Full detail + honest live-smoke result → ROADMAP.md's P2 entry. 34 new/updated tests,
+  full suite green (1360 total), live-smoked twice. Net effect: recovery depth now lands within
+  minutes of its derived target and coverage requirements are satisfied, but hour-target and
+  taper-week compliance are narrowed, not perfect — P3 (auto-repair tiering) is the natural next step
+  to close that gap, not another prompt-wording pass.
+- ☑ P3a/b/c `feat` — **Shipped 2026-07-24** (new `lib/nutrition-validate.ts: repairNutrition`,
+  `lib/workout-validate.ts` short-touch exemption, new `lib/narrative-critic.ts` +
+  `lib/anthropic-api.ts: critiqueOverview`). Full detail + honest live-smoke result → ROADMAP.md's P3
+  entry. 20 new/updated tests, full suite green (1380 total), live-smoked. Real auto-repair confirmed
+  live (an invented 3000 kcal figure corrected to 3810); the narrative critic fired and corrected a
+  real overview but still let a "4-hour" mis-description of a 200-minute ride through — helps,
+  doesn't fully close the gap.
+- ☐ P3d–e, P5–P6 `feat` — queued. P3d/e deliberately deferred (see ROADMAP.md: need new
+  forward-projection code / new regen infrastructure, and no live evidence yet justifies either).
+  P5–P6 not yet scoped to file/function detail.
+
 **HR-2026-07-23 — hostile review of the block/sync/archive data flows, prompted by a real bug.**
 The athlete deleted their active block; it vanished from the UI but came back on refresh. Root cause
 (found and fixed same-session, not part of this round): `readJsonFile` treated a legitimately-parsed

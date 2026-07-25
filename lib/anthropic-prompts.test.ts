@@ -10,7 +10,8 @@ import {
   type RetrospectiveInput,
   type RideAnalysisInput,
 } from "./anthropic-prompts";
-import type { BlockParams, IntervalComparison } from "./types";
+import { computeWeekTargets } from "./block-skeleton";
+import { DEFAULT_BLOCK_SETTINGS, type BlockParams, type IntervalComparison } from "./types";
 
 // These prompt builders were inlined in the SDK call functions before the RV-8 split, so they couldn't
 // be tested without mocking the network. Now pure, they're asserted directly.
@@ -156,25 +157,34 @@ describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
     expect(cached).toContain("realistic duration"); // duration still required for time/load estimates
   });
 
-  const userMessage = () =>
-    buildUserMessage(blockParams, blockDates("2026-07-20", 4), "| table |");
+  const userMessage = (weekTargets?: ReturnType<typeof computeWeekTargets>) =>
+    buildUserMessage(blockParams, blockDates("2026-07-20", 4), "| table |", DEFAULT_BLOCK_SETTINGS, weekTargets);
 
-  // A live block came in with 2 of 4 loading weeks BELOW the stated 10h floor: the old wording
-  // ("must reach at least 10h") read as a floor to clear, and easy sessions landed compact. The
-  // rewrite targets the top of the range and names easy-Z2 duration as the volume lever.
-  it("targets the top of the weekly-hours range and names easy-Z2 duration as the lever", () => {
-    const p = userMessage();
-    expect(p).toContain("must total 10–12 hours"); // DEFAULT_BLOCK_SETTINGS interpolated
-    expect(p).toContain("plan toward the TOP of that range (~12h)");
-    expect(p).toContain("Landing at exactly 10h is a shortfall, not a pass");
+  // P2b (2026-07-24 block-generation redesign): a live block undershot its own stated 10-12h range in
+  // every non-recovery week — a range the model could satisfy anywhere inside. Replaced with one exact
+  // figure per week from the deterministic skeleton (lib/block-skeleton.ts), computed from real
+  // recovery-week placement, not a min-max prose rule.
+  it("renders one exact hour figure per week from the computed skeleton, not a range", () => {
+    const targets = computeWeekTargets(4, DEFAULT_BLOCK_SETTINGS, [3]); // week 4 (0-indexed 3) is recovery
+    const p = userMessage(targets);
+    expect(p).toContain("WEEK-BY-WEEK HOUR TARGETS");
+    expect(p).toContain("Week 1 (LOADING): target 12h total");
+    expect(p).toContain("Week 4 (RECOVERY): target 7.2h total"); // 60% of the 12h loading target
     expect(p).toMatch(/LENGTHEN the easy Z2 sessions/);
-    expect(p).not.toContain("must reach at least"); // the old floor-clearing wording is gone
+    expect(p).not.toMatch(/must total \d+–\d+ hours/); // no more min-max ranges for volume
   });
 
-  it("sizes easy Z2 sessions to the volume target instead of capping them at 60–90 min", () => {
-    const p = userMessage();
+  it("falls back to sensible range-based prose when no skeleton is supplied", () => {
+    const p = userMessage(); // no weekTargets — e.g. a caller that hasn't computed one yet
+    expect(p).toContain("no per-week targets supplied");
+    expect(p).toContain("must total 10–12 hours");
+  });
+
+  it("sizes easy Z2 sessions to the per-week hour target instead of capping them at 60–90 min", () => {
+    const targets = computeWeekTargets(4, DEFAULT_BLOCK_SETTINGS, []);
+    const p = userMessage(targets);
     expect(p).not.toContain("(60–90 min each)"); // the old fixed cap that produced compact weeks
-    expect(p).toContain("size them UP, typically 90–120 min, until the week's total hits the WEEKLY VOLUME target");
+    expect(p).toContain("size them UP, typically 90–120 min, until the week's total hits its WEEK-BY-WEEK HOUR TARGET");
     // The rest-day clause still renders correctly after the structure-line rewrite.
     expect(p).toContain("+ 1 rest day per week");
   });

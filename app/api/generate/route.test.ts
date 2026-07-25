@@ -29,6 +29,11 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
     ...actual,
     isAnthropicConfigured: vi.fn(() => true),
     generateTrainingBlock: vi.fn(async () => ({ toolInput: h.toolInput, raw: "", truncated: false, stopReason: null })),
+    // P3c: explicitly mocked (never the real network call — vitest has no ANTHROPIC_API_KEY anyway,
+    // but same-module internal calls bypass a vi.mock override, so critiqueOverview's own internal
+    // isAnthropicConfigured() check isn't actually exercising this file's `true` override above).
+    // Defaults to "no correction needed"; individual tests override per-case.
+    critiqueOverview: vi.fn(async () => null),
   };
 });
 vi.mock("@/lib/generate-cache", () => ({
@@ -130,22 +135,29 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
   const genWithSeason = () =>
     POST(new Request("http://t/api/generate", { method: "POST", body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }) }));
 
-  it("does NOT inject season-phase context into the prompt while SEASON_SHAPES_GENERATION is off (2026-07-16)", async () => {
+  it("does NOT inject the fixed-phase event-arc context (still gated), but DOES inject the rolling BLOCK FOCUS line (P1, 2026-07-24)", async () => {
+    // This fixture has no A-event, so it was always routing through the rolling branch — the
+    // event-arc assertions below were never testing anything the flag-flip touches (formatSeasonContext
+    // only ever fires for aEventForBlock); only the BLOCK FOCUS assertion actually flips here.
     vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
     await genWithSeason();
     const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
     expect(dynamic).not.toContain("spans 2 season periods");
     expect(dynamic).not.toContain("focus aerobic-base");
     expect(dynamic).not.toContain("focus threshold");
-    expect(dynamic).not.toContain("BLOCK FOCUS:");
-    expect(dynamic).not.toContain("RECOVERY:");
-    // Season state must still be tracked underneath even though it's not shown to the model.
+    expect(dynamic).toContain("BLOCK FOCUS:"); // rolling selector — not the doubted model, always live now
+    // Season state must still be tracked underneath even though the event-arc text isn't shown.
     expect(store.updateSeasonPlan).toHaveBeenCalled();
   });
 
-  it("does NOT push Season fit / focus-match warnings while SEASON_SHAPES_GENERATION is off", async () => {
+  it("still does NOT push event-anchored Season-fit/focus-match warnings (still gated); rolling block-focus warnings now run", async () => {
     vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
     const json = await (await genWithSeason()).json();
+    // The fixture's mocked days (a Threshold day + a Z2 day) satisfy whichever focus the real,
+    // unmocked chooseNextFocus scorer picks for this goal ("Build FTP", no history) — so no
+    // "Season fit" warning is expected here either, but for a different reason than before P1:
+    // validateBlockFocus now runs for real and simply finds a matching session, not because the
+    // whole season-validator family is dark.
     expect(json.plan.warnings.some((w: string) => /^Season fit/.test(w))).toBe(false);
   });
 
@@ -182,6 +194,20 @@ describe("POST /api/generate — request validation", () => {
     expect((await (await post({ lengthWeeks: 3, goal: "x", startDate: "2026-06-15" })).json()).error).toMatch(/lengthWeeks/);
     expect((await (await post({ lengthWeeks: 2, goal: "  ", startDate: "2026-06-15" })).json()).error).toMatch(/goal/);
     expect((await (await post({ lengthWeeks: 2, goal: "x", startDate: "15-06-2026" })).json()).error).toMatch(/startDate/);
+  });
+
+  // P2a (2026-07-24 block-generation redesign): refuse an impossible settings combination before
+  // spending an LLM call on it.
+  it("400 when BlockSettings are jointly infeasible, without calling the model", async () => {
+    vi.mocked(store.readBlockSettings).mockResolvedValue({
+      ...DEFAULT_BLOCK_SETTINGS,
+      qualitySessionsPerLoadingWeek: 5,
+      restDaysPerWeek: 2,
+    });
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Settings conflict/);
+    expect(anthropic.generateTrainingBlock).not.toHaveBeenCalled();
   });
 });
 
@@ -257,6 +283,108 @@ describe("POST /api/generate — generation outcomes", () => {
     const res = await gen("Build FTP");
     expect(res.status).toBe(200);
     expect(sawExpected).toBe("v1");
+  });
+});
+
+// P2b (2026-07-24 block-generation redesign): the missing check — nothing validated actual weekly
+// hours against anything before this. The shared 2-week fixture's mocked output (126min in week 1,
+// nothing in week 2) undershoots any real loading target dramatically.
+// P3a (2026-07-24 block-generation redesign): a mismatched kcal figure is auto-corrected in the
+// returned plan, not just flagged.
+// P3c (2026-07-24 block-generation redesign): the critic's correction reaches the final plan, and its
+// call is skipped entirely for a truncated/incomplete block (a bigger, known problem already exists).
+// The shared `h.toolInput` fixture is deliberately incomplete (2 of 14 expected days) for the other
+// describe blocks' purposes — the critic is only ever called for a COMPLETE block, so these tests
+// supply their own full 2-week (14-day) fixture.
+describe("POST /api/generate — narrative-coherence critic (P3c)", () => {
+  const fullToolInput = () => {
+    const dates = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 5, 15 + i));
+      return d.toISOString().slice(0, 10);
+    });
+    const days = (weekNumber: number, weekDates: string[]) =>
+      weekDates.map((date) => ({ date, name: "Easy Z2", type: "Z2" as const, durationMin: 90, workout: "- 90m 65%", description: "x" }));
+    return {
+      overview: "Test build block.",
+      weeks: [
+        { weekNumber: 1, theme: "Build", days: days(1, dates.slice(0, 7)) },
+        { weekNumber: 2, theme: "Build", days: days(2, dates.slice(7, 14)) },
+      ],
+    };
+  };
+
+  it("uses the critic's corrected overview and notes the correction when the critic flags a mismatch", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(), raw: "", truncated: false, stopReason: null } as never);
+    vi.mocked(anthropic.critiqueOverview).mockResolvedValueOnce({ accurate: false, overview: "Corrected overview text." });
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.overview).toBe("Corrected overview text.");
+    expect(json.plan.warnings).toContain("Overview auto-corrected: the written summary didn't match the generated schedule.");
+  });
+
+  it("keeps the original overview when the critic finds it accurate", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(), raw: "", truncated: false, stopReason: null } as never);
+    vi.mocked(anthropic.critiqueOverview).mockResolvedValueOnce({ accurate: true, overview: "Test build block." });
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.overview).toBe("Test build block.");
+    expect(json.plan.warnings.some((w: string) => /Overview auto-corrected/.test(w))).toBe(false);
+  });
+
+  it("skips the critic call entirely for an incomplete block (the shared fixture is 2 of 14 expected days)", async () => {
+    await gen("Build FTP");
+    expect(anthropic.critiqueOverview).not.toHaveBeenCalled();
+  });
+
+  it("skips the critic call entirely for a truncated response, even with a complete day count", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(), raw: "", truncated: true, stopReason: "max_tokens" } as never);
+    await gen("Build FTP");
+    expect(anthropic.critiqueOverview).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/generate — nutrition auto-repair (P3a)", () => {
+  it("overwrites an invented daily-intake figure in the returned day and notes the correction", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({
+      toolInput: {
+        overview: "Test build block.",
+        weeks: [
+          {
+            weekNumber: 1,
+            theme: "Build",
+            days: [
+              { date: "2026-06-15", name: "Easy Z2", type: "Z2", durationMin: 90, workout: "- 90m 65%", description: "Intent: aerobic. Daily intake: 9999 kcal." },
+            ],
+          },
+        ],
+      },
+      raw: "",
+      truncated: false,
+      stopReason: null,
+    } as never);
+    const json = await (await gen("Build FTP")).json();
+    const day = json.plan.days.find((d: { date: string }) => d.date === "2026-06-15");
+    expect(day.description).not.toContain("9999");
+    expect(day.description).toMatch(/Daily intake: \d+ kcal\./);
+    expect(json.plan.warnings.some((w: string) => /auto-corrected daily intake 9999 kcal/.test(w))).toBe(true);
+  });
+});
+
+describe("POST /api/generate — week-hours skeleton wiring (P2b)", () => {
+  it("flags a week whose actual hours miss its computed target", async () => {
+    const json = await (await gen("Build FTP")).json();
+    const hourWarnings = json.plan.warnings.filter((w: string) => /^HOURS:/.test(w));
+    expect(hourWarnings.length).toBeGreaterThan(0);
+    expect(hourWarnings.some((w: string) => /week 1 \(loading\) totals 2\.1h — under its 12h target/.test(w))).toBe(true);
+  });
+});
+
+// P2c (2026-07-24 block-generation redesign): the chosen focus injected as a mandatory coverage
+// requirement, not just descriptive context, for a rolling-mode block (no upcoming A-event).
+describe("POST /api/generate — focus-coverage requirement wiring (P2c)", () => {
+  it("injects a REQUIRED COVERAGE line naming the chosen focus's session type", async () => {
+    await gen("Build FTP");
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(dynamic).toContain("REQUIRED COVERAGE: this block's focus is threshold");
+    expect(dynamic).toContain("include at least 1 Threshold session somewhere across the block");
   });
 });
 

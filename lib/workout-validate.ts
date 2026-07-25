@@ -66,6 +66,15 @@ export function validateDurationConsistency(day: PlannedDay): string | null {
 // ceiling / max duration) is the calibration-framework population default, overridable per athlete.
 const ENDURANCE_TYPES = new Set<WorkoutType>(["Z2", "Recovery"]);
 const DURABILITY_CITE = "KB training §12: durability inserts are threshold/VO2 efforts (≤~120% FTP, ≤~20 min)";
+// P3b (2026-07-24 block-generation redesign): a durability INSERT (this rule's subject) is a
+// threshold/VO2 effort — by definition long enough to be one (VO2max's own protocol floor, above, is
+// 90s). A near-maximal 10-20s effort on an otherwise-easy day is a different, KB-sanctioned pattern —
+// a deliberate neuromuscular/sprint touch (KB training §12 Template D, §4's standing-sprint section) —
+// not a malformed durability insert, and was getting flagged by this same 122%-ceiling rule regardless
+// (confirmed live twice: a Recovery-typed day's 10s touches at 130-140% FTP). Excluding short steps
+// from THIS check doesn't leave them unvalidated by nothing — it leaves them correctly unvalidated by
+// a rule that was never about them.
+const DURABILITY_INSERT_MIN_SEC = 90;
 
 function fmtDur(sec: number): string {
   return sec >= 60 ? `${Math.round(sec / 60)}m` : `${sec}s`;
@@ -86,8 +95,11 @@ export function validateWorkoutProtocol(
   let rule = PROTOCOL[day.type];
   if (!rule && ENDURANCE_TYPES.has(day.type)) {
     // Endurance ride: only the hard inserts (≥ the floor) are "intensity" worth validating; a tempo
-    // block or pure Z2 isn't a durability insert and shouldn't trip the per-type quality rules.
-    steps = steps.filter((s) => s.targetPctFtp >= envelope.embeddedHardPct);
+    // block or pure Z2 isn't a durability insert and shouldn't trip the per-type quality rules. Steps
+    // shorter than DURABILITY_INSERT_MIN_SEC are excluded too (P3b) — a short near-maximal touch is a
+    // neuromuscular/sprint pattern, not a threshold/VO2 durability insert, and this rule's ceiling was
+    // never written for it.
+    steps = steps.filter((s) => s.targetPctFtp >= envelope.embeddedHardPct && s.durationSec >= DURABILITY_INSERT_MIN_SEC);
     rule = { maxEffortSec: envelope.maxEffortMin * 60, maxIntensityPct: envelope.maxIntensityPct, cite: DURABILITY_CITE };
   }
   if (!rule || steps.length === 0) return [];

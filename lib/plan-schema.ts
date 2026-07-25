@@ -23,9 +23,15 @@ const WeekSchema = z.object({
   days: z.array(DaySchema).min(1),
 });
 
+// P2d (2026-07-24 block-generation redesign): `weeks` declared BEFORE `overview` deliberately —
+// Claude's tool-use fills JSON fields in declared order (verified: z.toJSONSchema, used by
+// zodToToolInputSchema below, preserves this object's key order into the tool's input_schema), so the
+// model now commits every day's content before writing its summary, instead of writing the summary
+// first and only then generating (and potentially drifting from) the schedule. structuredToPlannedDays
+// destructures by name, not position, so this reorder needs no change downstream.
 export const PlanToolSchema = z.object({
-  overview: z.string(),
   weeks: z.array(WeekSchema).min(1),
+  overview: z.string(),
 });
 
 export type PlanToolOutput = z.infer<typeof PlanToolSchema>;
@@ -37,7 +43,8 @@ export const TRAINING_BLOCK_TOOL: Anthropic.Tool = {
   description:
     "Submit the finished structured training block. Call this exactly once with every day of the " +
     "block. Put the Intervals.icu workout step syntax in `workout` (or \"Rest\" on rest days); put " +
-    "the intent + nutrition text in `description`.",
+    "the intent + nutrition text in `description`. Fill `weeks` completely first, then write " +
+    "`overview` last, summarising the block you actually built above — not a plan you intend to build.",
   input_schema: zodToToolInputSchema(PlanToolSchema),
 };
 

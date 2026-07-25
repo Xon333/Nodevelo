@@ -34,6 +34,28 @@ describe("validateWorkoutProtocol — durability inserts in Z2/Recovery (CR-1)",
   });
 });
 
+// P3b (2026-07-24 block-generation redesign): a short near-maximal touch (KB training §12 Template D,
+// §4's standing-sprint section) is a different, sanctioned pattern from a genuine durability insert —
+// live-confirmed false positive twice (a Recovery day's 10s touches at 130-140% FTP).
+describe("validateWorkoutProtocol — short neuromuscular touches are exempt from the durability-insert ceiling (P3b)", () => {
+  it("does not flag a 10s near-maximal touch on an otherwise-easy Z2 day", () => {
+    expect(validateWorkoutProtocol(day("Z2", "- 10s 160%"), FTP)).toEqual([]);
+  });
+  it("does not flag a 20s near-maximal touch on a Recovery day", () => {
+    expect(validateWorkoutProtocol(day("Recovery", "- 20s 140%"), FTP)).toEqual([]);
+  });
+  it("still flags a genuine 90s+ embedded effort above the ceiling", () => {
+    const w = validateWorkoutProtocol(day("Z2", "- 90s 140%"), FTP);
+    expect(w.some((m) => /exceeds the 122% ceiling/.test(m))).toBe(true);
+  });
+  it("exempts a short touch even alongside a genuine, otherwise-valid durability insert in the same session", () => {
+    // A 12-min insert at 95% is a valid durability insert (within the 20-min/122% envelope) and
+    // produces no warning; the 15s 200% touch alongside it is exempt for a different reason (too
+    // short to be the kind of insert this rule validates) — neither step should be flagged.
+    expect(validateWorkoutProtocol(day("Z2", "- 12m 95%\n- 15s 200%"), FTP)).toEqual([]);
+  });
+});
+
 describe("validateWorkoutProtocol — durability envelope override (ROADMAP #2 fold-in)", () => {
   const insert = day("Z2", "- 15m 110%"); // a 15-min, 110% FTP embedded effort
 

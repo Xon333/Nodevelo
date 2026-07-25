@@ -423,7 +423,12 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   weeklyHoursMin: 10,
   weeklyHoursMax: 12,
   recoveryWeekHoursMin: 6,
-  recoveryWeekHoursMax: 7,
+  // P2b (2026-07-24 block-generation redesign): widened from 7 to 8 so the derived recovery target
+  // (60% of a 12h loading target = 7.2h, lib/block-skeleton.ts) governs instead of being immediately
+  // clamped back to the old fixed ceiling — the exact interaction that made the old 6-7h band retain
+  // ~72% of loading (a shallower cut than the KB's own 30-50%-reduction rule) once loading itself
+  // undershot its own target.
+  recoveryWeekHoursMax: 8,
   qualitySessionsPerLoadingWeek: 2,
   longRideDurationMinutes: 180,
   restDaysPerWeek: 1,

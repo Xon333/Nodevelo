@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, validateBlockFocus, projectSeasonOutlook, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, formatFocusCoverageLine, validateBlockFocus, projectSeasonOutlook, type SeasonDraftInput } from "./season";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -890,6 +890,32 @@ describe("validateBlockFocus (rolling mode)", () => {
   it("has no matcher for sharpen — never fires", () => {
     const days = [day("2026-07-01", "Z2", 60)];
     expect(validateBlockFocus(days, "sharpen", 250)).toEqual([]);
+  });
+});
+
+// P2c (2026-07-24 block-generation redesign): the requirement and its enforcement (validateBlockFocus,
+// above) share focusSessionMatchers — asserted here so the two can never silently drift apart.
+describe("formatFocusCoverageLine — mandatory coverage requirement (P2c)", () => {
+  it("names the required session type for a build focus", () => {
+    expect(formatFocusCoverageLine("vo2max", 250)).toBe(
+      "REQUIRED COVERAGE: this block's focus is vo2max — include at least 1 VO2max session somewhere across the block. Do not substitute a different quality type for this requirement."
+    );
+    expect(formatFocusCoverageLine("threshold", 250)).toContain("include at least 1 Threshold session");
+    expect(formatFocusCoverageLine("anaerobic", 250)).toContain("include at least 1 SIT (anaerobic) session");
+    expect(formatFocusCoverageLine("durability", 250)).toContain("durability-loaded Z2 (embedded threshold+ work)");
+  });
+
+  it("returns null for aerobic-base/sharpen — no single required session type", () => {
+    expect(formatFocusCoverageLine("aerobic-base", 250)).toBeNull();
+    expect(formatFocusCoverageLine("sharpen", 250)).toBeNull();
+  });
+
+  it("uses the exact same matcher validateBlockFocus enforces — a session it accepts never contradicts a requirement it named", () => {
+    const day = (date: string, type: PlannedDay["type"], durationMin: number): PlannedDay =>
+      ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText: "", description: "" });
+    const line = formatFocusCoverageLine("vo2max", 250);
+    expect(line).not.toBeNull();
+    expect(validateBlockFocus([day("2026-07-01", "VO2max", 60)], "vo2max", 250)).toEqual([]);
   });
 });
 

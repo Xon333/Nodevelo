@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDailyIntakeKcal, validateNutrition } from "./nutrition-validate";
+import { parseDailyIntakeKcal, repairNutrition, validateNutrition } from "./nutrition-validate";
 import { calculateDailyTarget, estimateWorkoutBurnKcal, type AthleteNutritionConfig } from "./nutrition";
 import type { PlannedDay, WorkoutType } from "./types";
 
@@ -80,5 +80,48 @@ describe("validateNutrition (CR-F)", () => {
   it("validates rest-day targets too", () => {
     const warnings = validateNutrition([day("Rest", 0, "Rest. Daily intake: 3500 kcal")], config, FTP, TREND);
     expect(warnings).toHaveLength(1); // restDayTarget is 2600, 3500 is invented
+  });
+});
+
+// P3a (2026-07-24 block-generation redesign): the correct figure is always known — a mismatch has no
+// ambiguity to preserve, so auto-correct it instead of only flagging it.
+describe("repairNutrition (P3a)", () => {
+  it("leaves a matching day untouched", () => {
+    const z2 = correctIntake("Z2", 120);
+    const d = day("Z2", 120, `Intent: aerobic. Daily intake: ${z2} kcal`);
+    const result = repairNutrition([d], config, FTP, TREND);
+    expect(result.days[0]).toBe(d); // same reference — nothing rewritten
+    expect(result.repairs).toEqual([]);
+  });
+
+  it("overwrites an invented figure with the correct one, preserving the surrounding text", () => {
+    const z2 = correctIntake("Z2", 120);
+    const d = day("Z2", 120, "Intent: aerobic. Daily intake: 4200 kcal. Pre-ride: 90g.");
+    const result = repairNutrition([d], config, FTP, TREND);
+    expect(result.days[0].description).toBe(`Intent: aerobic. Daily intake: ${z2} kcal. Pre-ride: 90g.`);
+    expect(result.repairs).toHaveLength(1);
+    expect(result.repairs[0]).toMatch(/auto-corrected daily intake 4200 kcal/);
+    expect(result.repairs[0]).toContain(String(z2));
+  });
+
+  it("does not touch a day within tolerance", () => {
+    const z2 = correctIntake("Z2", 120);
+    const d = day("Z2", 120, `Daily intake: ${z2 + 120} kcal`); // within tolerance, per validateNutrition's own test
+    const result = repairNutrition([d], config, FTP, TREND);
+    expect(result.days[0]).toBe(d);
+    expect(result.repairs).toEqual([]);
+  });
+
+  it("skips days with no daily-intake line", () => {
+    const d = day("Z2", 90, "Intent: spin. Pre-ride: 75g");
+    const result = repairNutrition([d], config, FTP, TREND);
+    expect(result.days[0]).toBe(d);
+    expect(result.repairs).toEqual([]);
+  });
+
+  it("running validateNutrition on the repaired days finds nothing left to flag", () => {
+    const d = day("Z2", 120, "Daily intake: 4200 kcal");
+    const { days } = repairNutrition([d], config, FTP, TREND);
+    expect(validateNutrition(days, config, FTP, TREND)).toEqual([]);
   });
 });

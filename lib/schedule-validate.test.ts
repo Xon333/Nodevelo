@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { validateSchedule } from "./schedule-validate";
-import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type WorkoutType } from "./types";
+import { validateEventTaper, validateSchedule } from "./schedule-validate";
+import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type WorkoutType } from "./types";
 
 // Budget of 2 quality sessions/loading week (the default).
 const SETTINGS: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, qualitySessionsPerLoadingWeek: 2 };
@@ -130,5 +130,65 @@ describe("validateSchedule — edges", () => {
       SETTINGS, 250
     );
     expect(w).toEqual([]);
+  });
+});
+
+// P4 (2026-07-24 block-generation redesign): a lightweight taper tier for priority-B/C events.
+describe("validateEventTaper — B/C-event taper protection", () => {
+  const kom = (): SeasonEvent => ({ name: "Prepih-Vahta KOM Attempt", date: "2026-08-02", priority: "B" });
+
+  it("flags a quality session 1 day before the event", () => {
+    const days = [day("2026-08-01", "RaceSim"), day("2026-08-02", "RaceSim")];
+    const w = validateEventTaper(days, [kom()]);
+    expect(w.some((m) => /EVENT TAPER/.test(m) && /1 day before/.test(m))).toBe(true);
+  });
+
+  it("flags a quality session 2 days before the event", () => {
+    const days = [day("2026-07-31", "Threshold"), day("2026-08-01", "Z2"), day("2026-08-02", "RaceSim")];
+    const w = validateEventTaper(days, [kom()]);
+    expect(w.some((m) => /EVENT TAPER/.test(m) && /2 days before/.test(m))).toBe(true);
+  });
+
+  it("passes when the 2 days before are easy/rest", () => {
+    const days = [day("2026-07-31", "Z2"), day("2026-08-01", "Rest"), day("2026-08-02", "RaceSim")];
+    expect(validateEventTaper(days, [kom()])).toEqual([]);
+  });
+
+  it("does not count the event's own session toward the week's quality cap", () => {
+    // Only the event-day RaceSim is quality this week — fine, that's the point of the event.
+    const days = [day("2026-07-27", "Rest", 1), day("2026-08-02", "RaceSim", 1)];
+    expect(validateEventTaper(days, [kom()])).toEqual([]);
+  });
+
+  it("flags more than 1 other quality session in the event's own week", () => {
+    const days = [
+      day("2026-07-28", "Threshold", 1),
+      day("2026-07-30", "SIT", 1),
+      day("2026-08-02", "RaceSim", 1),
+    ];
+    const w = validateEventTaper(days, [kom()]);
+    expect(w.some((m) => /EVENT TAPER/.test(m) && /other quality session/.test(m))).toBe(true);
+  });
+
+  it("passes at exactly 1 other quality session in the event's week", () => {
+    const days = [day("2026-07-28", "Threshold", 1), day("2026-08-02", "RaceSim", 1)];
+    expect(validateEventTaper(days, [kom()])).toEqual([]);
+  });
+
+  it("ignores priority-A events entirely (they get the full backward-scheduled arc elsewhere)", () => {
+    const days = [day("2026-08-01", "RaceSim"), day("2026-08-02", "RaceSim")];
+    const aEvent: SeasonEvent = { ...kom(), priority: "A" };
+    expect(validateEventTaper(days, [aEvent])).toEqual([]);
+  });
+
+  it("ignores an event whose date falls outside this block's own generated days", () => {
+    const days = [day("2026-08-01", "RaceSim"), day("2026-08-02", "RaceSim")];
+    const laterEvent: SeasonEvent = { ...kom(), date: "2026-09-15" };
+    expect(validateEventTaper(days, [laterEvent])).toEqual([]);
+  });
+
+  it("returns [] for no days or no events", () => {
+    expect(validateEventTaper([], [kom()])).toEqual([]);
+    expect(validateEventTaper([day("2026-08-02", "RaceSim")], [])).toEqual([]);
   });
 });

@@ -23,6 +23,35 @@ export function parseDailyIntakeKcal(description: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Shared by validateNutrition and repairNutrition (P3a, 2026-07-24 block-generation redesign) — ONE
+// computation of "what should this day's kcal say, and does the stated figure disagree" so the check
+// and the fix can never quietly drift apart. Null when the description has no parseable kcal line.
+interface DailyIntakeCheck {
+  stated: number;
+  expected: number;
+  withinTolerance: boolean;
+}
+
+function checkDailyIntake(
+  d: PlannedDay,
+  config: AthleteNutritionConfig,
+  ftp: number,
+  weightTrend7Day: number
+): DailyIntakeCheck | null {
+  const stated = parseDailyIntakeKcal(d.description);
+  if (stated === null) return null;
+  const expected = calculateDailyTarget(
+    estimateWorkoutBurnKcal(d.type, d.durationMin, ftp),
+    d.type === "Rest",
+    config,
+    weightTrend7Day,
+    { type: d.type, durationMin: d.durationMin }
+  ).dailyTarget;
+  // Generous band: rounding + the model copying the closest-duration row must never trip this.
+  const tolerance = toleranceBand(expected, 0.18, 300);
+  return { stated, expected, withinTolerance: Math.abs(stated - expected) <= tolerance };
+}
+
 export function validateNutrition(
   days: PlannedDay[],
   config: AthleteNutritionConfig,
@@ -31,22 +60,45 @@ export function validateNutrition(
 ): string[] {
   const warnings: string[] = [];
   for (const d of days) {
-    const stated = parseDailyIntakeKcal(d.description);
-    if (stated === null) continue;
-    const expected = calculateDailyTarget(
-      estimateWorkoutBurnKcal(d.type, d.durationMin, ftp),
-      d.type === "Rest",
-      config,
-      weightTrend7Day,
-      { type: d.type, durationMin: d.durationMin }
-    ).dailyTarget;
-    // Generous band: rounding + the model copying the closest-duration row must never trip this.
-    const tolerance = toleranceBand(expected, 0.18, 300);
-    if (Math.abs(stated - expected) > tolerance) {
+    const check = checkDailyIntake(d, config, ftp, weightTrend7Day);
+    if (check && !check.withinTolerance) {
+      const tolerance = toleranceBand(check.expected, 0.18, 300);
       warnings.push(
-        `${d.date} (${d.type}): stated daily intake ${stated} kcal differs from the computed ${expected} kcal (tolerance ±${Math.round(tolerance)}) — verify it was copied from the reference table, not invented.`
+        `${d.date} (${d.type}): stated daily intake ${check.stated} kcal differs from the computed ${check.expected} kcal (tolerance ±${Math.round(tolerance)}) — verify it was copied from the reference table, not invented.`
       );
     }
   }
   return warnings;
+}
+
+// Replace just the numeric figure in a "Daily intake: X kcal" (or "Daily target X") line, keeping the
+// surrounding text verbatim.
+function replaceDailyIntakeKcal(description: string, newValue: number): string {
+  return description.replace(/(daily\s+(?:intake|target)[^\d]*)([\d,]{2,6})/i, (_m, prefix: string) => `${prefix}${Math.round(newValue)}`);
+}
+
+export interface NutritionRepairResult {
+  days: PlannedDay[];
+  repairs: string[];
+}
+
+// P3a (2026-07-24 block-generation redesign): the reference table's whole guarantee is that the
+// model never invents a kcal figure — but nothing enforced that beyond warning. The correct number is
+// always known (the same deterministic formula the reference table itself is built from), so a
+// mismatch has no ambiguity to preserve: auto-correct it, and say so (calibrated honesty — the fix
+// stays visible as a `repairs` note, never a silent rewrite).
+export function repairNutrition(
+  days: PlannedDay[],
+  config: AthleteNutritionConfig,
+  ftp: number,
+  weightTrend7Day: number
+): NutritionRepairResult {
+  const repairs: string[] = [];
+  const repairedDays = days.map((d) => {
+    const check = checkDailyIntake(d, config, ftp, weightTrend7Day);
+    if (!check || check.withinTolerance) return d;
+    repairs.push(`${d.date} (${d.type}): auto-corrected daily intake ${check.stated} kcal → ${check.expected} kcal (didn't match the reference table).`);
+    return { ...d, description: replaceDailyIntakeKcal(d.description, check.expected) };
+  });
+  return { days: repairedDays, repairs };
 }
