@@ -75,35 +75,21 @@ describe("validateSessionRequirements", () => {
     expect(validateSessionRequirements([day("Z2")], deriveSessionRequirements("flat TT", []))).toEqual([]);
   });
 
-  it("flags a loading week (≥2 quality, no RaceSim) but not one that has a RaceSim (CR-12)", () => {
-    const d = (type: PlannedDay["type"], weekNumber: number): PlannedDay => ({ date: "2026-06-15", weekNumber, weekTheme: "", name: type, type, durationMin: type === "Rest" ? 0 : 90, workoutText: "", description: "" });
-    const days = [d("Threshold", 1), d("VO2max", 1), d("RaceSim", 2), d("Threshold", 2)];
-    const w = validateSessionRequirements(days, terrain);
-    expect(w.some((m) => /week 1/.test(m))).toBe(true);
-    expect(w.some((m) => /week 2/.test(m))).toBe(false);
-  });
+  // P5 (2026-07-24 block-generation redesign): relaxed from "≥1 per loading week" to "≥1 sporadically
+  // across the whole block" — structured interval work (the block's primary quality) takes priority
+  // over RaceSim for the shared weekly quality-session budget, per athlete direction.
+  const wd = (type: PlannedDay["type"], weekNumber: number): PlannedDay => ({ date: "2026-06-15", weekNumber, weekTheme: "", name: type, type, durationMin: type === "Rest" ? 0 : 90, workoutText: "", description: "" });
 
-  const wd = (type: PlannedDay["type"], weekNumber: number, weekTheme = ""): PlannedDay => ({ date: "2026-06-15", weekNumber, weekTheme, name: type, type, durationMin: type === "Rest" ? 0 : 90, workoutText: "", description: "" });
-
-  it("consolidates multiple offending loading weeks into ONE warning naming them all (RR-8)", () => {
-    // weeks 1 & 3 are loading and RaceSim-less; week 2 carries the RaceSim.
+  it("does not require RaceSim in every week — one RaceSim anywhere in a multi-week block passes", () => {
+    // Weeks 1 and 3 have no RaceSim at all; only week 2 does. No longer a violation (P5).
     const days = [wd("Threshold", 1), wd("VO2max", 1), wd("RaceSim", 2), wd("Threshold", 2), wd("Threshold", 3), wd("SIT", 3)];
-    const w = validateSessionRequirements(days, terrain);
-    expect(w).toHaveLength(1); // one consolidated warning, NOT one per week
-    expect(w[0]).toMatch(/weeks 1, 3 are loading weeks/);
+    expect(validateSessionRequirements(days, terrain)).toEqual([]);
   });
 
-  it("does not flag a recovery/deload week even with ≥2 quality (RR-3)", () => {
-    const days = [wd("Threshold", 2, "Recovery week"), wd("VO2max", 2, "Recovery week")];
+  it("still warns when the whole block ships zero RaceSim across multiple weeks", () => {
+    const days = [wd("Threshold", 1), wd("VO2max", 1), wd("Threshold", 2), wd("SIT", 2)];
     const w = validateSessionRequirements(days, terrain);
-    expect(w).toHaveLength(1); // block-level floor still fires (zero RaceSim in the block)…
-    expect(w[0]).not.toMatch(/loading week/); // …but it is NOT the per-week loading-week flag
-    expect(w[0]).toMatch(/no RaceSim session was prescribed/);
-  });
-
-  it("falls back to the block-level floor when no loading week exists (RR-9)", () => {
-    const w = validateSessionRequirements([wd("Threshold", 1), wd("Z2", 1)], terrain); // only 1 quality → not loading
     expect(w).toHaveLength(1);
-    expect(w[0]).toMatch(/no RaceSim session was prescribed/);
+    expect(w[0]).toMatch(/no RaceSim session was prescribed anywhere in the block/);
   });
 });

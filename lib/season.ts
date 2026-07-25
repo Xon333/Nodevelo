@@ -6,6 +6,7 @@ import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, Se
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { execFor } from "./intervention";
+import type { WeekTarget } from "./block-skeleton";
 
 // Season phase/deload/retest context + the two season-fit/focus-match validators are TEMPORARILY
 // DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
@@ -698,15 +699,19 @@ export function focusSessionMatchers(ftp: number): Partial<Record<SeasonFocus, F
 // P2c (2026-07-24 block-generation redesign): the block's chosen focus, injected as a mandatory
 // coverage requirement BEFORE generation — the reviewed live block shipped zero VO2max sessions
 // despite VO2max being the athlete's own profile-flagged FTP limiter, with nothing upfront asking for
-// it. Reuses focusSessionMatchers so this requirement and validateBlockFocus's enforcement can never
-// drift apart. "At least 1 across the whole block," not per loading week — stacking a second
-// per-week requirement alongside RaceSim's existing one risks the exact over-constrained conflict
-// P2a's feasibility check exists to catch. Rolling mode only (event-anchored mode stays behind
+// it. Reuses focusSessionMatchers so this requirement and validateBlockFocus's/
+// validatePrimaryQualityCadence's enforcement can never drift apart.
+// P5 (2026-07-24, athlete direction): upgraded from "at least 1 somewhere in the block" to "every
+// loading week" — this was originally held back because stacking it alongside RaceSim's own
+// per-loading-week ask risked over-constraining the shared quality-session budget (P2a's concern).
+// That's resolved now: RaceSim is relaxed to a sporadic, block-wide ask (lib/session-requirements.ts),
+// explicitly subordinate to structured interval work for the same budget — so the primary quality can
+// safely claim every loading week. Rolling mode only (event-anchored mode stays behind
 // SEASON_SHAPES_GENERATION, same as the rest of the doubted fixed-phase bundle).
 export function formatFocusCoverageLine(focus: SeasonFocus, ftp: number): string | null {
   const m = focusSessionMatchers(ftp)[focus];
   if (!m) return null;
-  return `REQUIRED COVERAGE: this block's focus is ${focus} — include at least 1 ${m.label} session somewhere across the block. Do not substitute a different quality type for this requirement.`;
+  return `REQUIRED COVERAGE: this block's focus is ${focus} — include at least 1 ${m.label} session in EVERY loading week (not just once across the block). This is the block's primary quality work — it takes priority over RaceSim for the week's quality-session slots; RaceSim is sporadic and fills a slot only when it doesn't crowd this out. Do not substitute a different quality type for this requirement.`;
 }
 
 export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: number): string[] {
@@ -727,6 +732,40 @@ export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: 
   const m = focusSessionMatchers(ftp)[focus];
   if (!m || rides.some(m.match)) return [];
   return [`Season fit: ${dates[0]} → ${dates[dates.length - 1]} — this block's focus is ${focus} but carries zero ${m.label} sessions.`];
+}
+
+// P5a (2026-07-24 block-generation redesign): validateBlockFocus's block-wide floor ("at least 1
+// somewhere") doesn't catch the actual defects found live — Week 3 silently dropped its standalone
+// Threshold session, and SIT vanished entirely in weeks 5-6 despite the overview claiming escalation.
+// Both are "primary quality disappeared mid-block," which a block-wide minimum of 1 can't see. This
+// checks every LOADING week specifically (recovery weeks are exempt — the KB's own "quality is
+// minimal" framing applies there), reusing the same matcher table so this can never disagree with
+// formatFocusCoverageLine's prompt instruction or validateBlockFocus's own floor.
+export function validatePrimaryQualityCadence(
+  days: PlannedDay[],
+  focus: SeasonFocus,
+  weekTargets: WeekTarget[],
+  ftp: number
+): string[] {
+  const m = focusSessionMatchers(ftp)[focus];
+  if (!m) return []; // aerobic-base/sharpen have no single required session type
+  const byWeek = new Map<number, PlannedDay[]>();
+  for (const d of days) {
+    const list = byWeek.get(d.weekNumber);
+    if (list) list.push(d);
+    else byWeek.set(d.weekNumber, [d]);
+  }
+  const warnings: string[] = [];
+  for (const t of weekTargets) {
+    if (t.isRecovery) continue;
+    const weekDays = byWeek.get(t.weekNumber) ?? [];
+    if (!weekDays.some(m.match)) {
+      warnings.push(
+        `PRIMARY QUALITY: week ${t.weekNumber} (loading) — this block's focus is ${focus} but has no ${m.label} session this week. The primary quality should appear every loading week, not skip weeks.`
+      );
+    }
+  }
+  return warnings;
 }
 
 // B/C-priority events inside this block's own date range — surfaced so a real planned test/race

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateEventTaper, validateSchedule } from "./schedule-validate";
+import { validateEventTaper, validateSchedule, validateWeekSequencing } from "./schedule-validate";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type WorkoutType } from "./types";
 
 // Budget of 2 quality sessions/loading week (the default).
@@ -190,5 +190,56 @@ describe("validateEventTaper — B/C-event taper protection", () => {
   it("returns [] for no days or no events", () => {
     expect(validateEventTaper([], [kom()])).toEqual([]);
     expect(validateEventTaper([day("2026-08-02", "RaceSim")], [])).toEqual([]);
+  });
+});
+
+// P5b (2026-07-24 block-generation redesign): freshness-dependent quality (VO2max/SIT) should land
+// earlier in the week than fatigue-tolerant quality (Threshold/RaceSim).
+describe("validateWeekSequencing — freshness-priority ordering (P5b)", () => {
+  it("flags Threshold landing before SIT in the same week — the pattern every live smoke test has shown", () => {
+    const days = [day("2026-07-28", "Threshold", 1), day("2026-07-30", "SIT", 1)];
+    const w = validateWeekSequencing(days);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/SEQUENCING: week 1/);
+    expect(w[0]).toMatch(/Threshold on 2026-07-28 lands before SIT on 2026-07-30/);
+  });
+
+  it("flags Threshold before VO2max the same way", () => {
+    const days = [day("2026-07-28", "Threshold", 1), day("2026-07-30", "VO2max", 1)];
+    expect(validateWeekSequencing(days)).toHaveLength(1);
+  });
+
+  it("flags RaceSim before SIT too (both fatigue-tolerant vs freshness-priority)", () => {
+    const days = [day("2026-07-28", "RaceSim", 1), day("2026-07-30", "SIT", 1)];
+    expect(validateWeekSequencing(days)).toHaveLength(1);
+  });
+
+  it("passes when the freshness-priority session lands first", () => {
+    const days = [day("2026-07-28", "SIT", 1), day("2026-07-30", "Threshold", 1)];
+    expect(validateWeekSequencing(days)).toEqual([]);
+  });
+
+  it("passes a week with only one quality type — nothing to sequence", () => {
+    expect(validateWeekSequencing([day("2026-07-28", "Threshold", 1), day("2026-07-30", "Z2", 1)])).toEqual([]);
+  });
+
+  it("ignores durability-template embedded efforts — only standalone quality types count", () => {
+    // A Z2 day (even a long durability-template ride) is never a standalone quality type for this check.
+    const days = [day("2026-07-28", "Z2", 1), day("2026-07-30", "SIT", 1)];
+    expect(validateWeekSequencing(days)).toEqual([]);
+  });
+
+  it("checks each week independently", () => {
+    const days = [
+      day("2026-07-28", "SIT", 1), day("2026-07-30", "Threshold", 1), // week 1: correct order
+      day("2026-08-04", "Threshold", 2), day("2026-08-06", "VO2max", 2), // week 2: backwards
+    ];
+    const w = validateWeekSequencing(days);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/week 2/);
+  });
+
+  it("returns [] for an empty block", () => {
+    expect(validateWeekSequencing([])).toEqual([]);
   });
 });

@@ -133,3 +133,38 @@ export function validateEventTaper(days: PlannedDay[], events: SeasonEvent[]): s
 
   return warnings;
 }
+
+// P5b (2026-07-24 block-generation redesign): within-week temporal sequencing. Applied-sports-science
+// consensus: freshness-dependent quality (VO2max/SIT — the stimulus needs genuinely fresh legs) should
+// land earlier in the week than fatigue-tolerant quality (Threshold — explicitly trainable "on some
+// fatigue" per the consensus; RaceSim by the KB's own design, which deliberately puts its hardest move
+// on already-tired legs). Every live smoke test so far has this backwards — Threshold on Tuesday (the
+// week's freshest day), SIT/RaceSim on Thursday — because nothing has ever told the model otherwise.
+// Standalone quality-typed days only: a durability template's tired-legs embedded efforts (Saturday's
+// long ride) are deliberately fatigue-seeking by KB design, a different thing entirely, and untouched
+// by this check.
+const FRESHNESS_PRIORITY_TYPES = new Set<WorkoutType>(["VO2max", "SIT"]);
+const FATIGUE_TOLERANT_TYPES = new Set<WorkoutType>(["Threshold", "RaceSim"]);
+
+export function validateWeekSequencing(days: PlannedDay[]): string[] {
+  const byWeek = new Map<number, PlannedDay[]>();
+  for (const d of days) {
+    const list = byWeek.get(d.weekNumber);
+    if (list) list.push(d);
+    else byWeek.set(d.weekNumber, [d]);
+  }
+  const warnings: string[] = [];
+  for (const [week, weekDays] of [...byWeek.entries()].sort((a, b) => a[0] - b[0])) {
+    const fresh = weekDays.filter((d) => FRESHNESS_PRIORITY_TYPES.has(d.type)).sort((a, b) => a.date.localeCompare(b.date));
+    const tolerant = weekDays.filter((d) => FATIGUE_TOLERANT_TYPES.has(d.type)).sort((a, b) => a.date.localeCompare(b.date));
+    if (fresh.length === 0 || tolerant.length === 0) continue;
+    const earliestFresh = fresh[0];
+    const earliestTolerant = tolerant[0];
+    if (earliestTolerant.date < earliestFresh.date) {
+      warnings.push(
+        `SEQUENCING: week ${week} — ${earliestTolerant.type} on ${earliestTolerant.date} lands before ${earliestFresh.type} on ${earliestFresh.date}. Place freshness-dependent quality (VO2max/SIT) earlier in the week than fatigue-tolerant quality (Threshold/RaceSim) — the stimulus depends on fresh legs.`
+      );
+    }
+  }
+  return warnings;
+}

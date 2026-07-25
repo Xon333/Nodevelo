@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, formatFocusCoverageLine, validateBlockFocus, projectSeasonOutlook, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, formatFocusCoverageLine, validateBlockFocus, validatePrimaryQualityCadence, projectSeasonOutlook, type SeasonDraftInput } from "./season";
+import type { WeekTarget } from "./block-skeleton";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
 describe("FOCUS_LABELS", () => {
@@ -895,14 +896,15 @@ describe("validateBlockFocus (rolling mode)", () => {
 
 // P2c (2026-07-24 block-generation redesign): the requirement and its enforcement (validateBlockFocus,
 // above) share focusSessionMatchers — asserted here so the two can never silently drift apart.
-describe("formatFocusCoverageLine — mandatory coverage requirement (P2c)", () => {
-  it("names the required session type for a build focus", () => {
+describe("formatFocusCoverageLine — mandatory coverage requirement (P2c/P5)", () => {
+  it("names the required session type for a build focus, every loading week, with priority over RaceSim", () => {
     expect(formatFocusCoverageLine("vo2max", 250)).toBe(
-      "REQUIRED COVERAGE: this block's focus is vo2max — include at least 1 VO2max session somewhere across the block. Do not substitute a different quality type for this requirement."
+      "REQUIRED COVERAGE: this block's focus is vo2max — include at least 1 VO2max session in EVERY loading week (not just once across the block). This is the block's primary quality work — it takes priority over RaceSim for the week's quality-session slots; RaceSim is sporadic and fills a slot only when it doesn't crowd this out. Do not substitute a different quality type for this requirement."
     );
     expect(formatFocusCoverageLine("threshold", 250)).toContain("include at least 1 Threshold session");
     expect(formatFocusCoverageLine("anaerobic", 250)).toContain("include at least 1 SIT (anaerobic) session");
     expect(formatFocusCoverageLine("durability", 250)).toContain("durability-loaded Z2 (embedded threshold+ work)");
+    expect(formatFocusCoverageLine("threshold", 250)).toContain("priority over RaceSim");
   });
 
   it("returns null for aerobic-base/sharpen — no single required session type", () => {
@@ -916,6 +918,47 @@ describe("formatFocusCoverageLine — mandatory coverage requirement (P2c)", () 
     const line = formatFocusCoverageLine("vo2max", 250);
     expect(line).not.toBeNull();
     expect(validateBlockFocus([day("2026-07-01", "VO2max", 60)], "vo2max", 250)).toEqual([]);
+  });
+});
+
+// P5a (2026-07-24 block-generation redesign): stricter than validateBlockFocus's block-wide floor —
+// the primary quality must appear in EVERY loading week, catching the exact live defects (Week 3
+// dropped Threshold, SIT vanished in weeks 5-6) a block-wide minimum of 1 couldn't see.
+describe("validatePrimaryQualityCadence (P5a)", () => {
+  const day = (date: string, weekNumber: number, type: PlannedDay["type"], durationMin = 60): PlannedDay =>
+    ({ date, weekNumber, weekTheme: "", name: type, type, durationMin, workoutText: "", description: "" });
+  const targets = (overrides: Partial<WeekTarget>[]): WeekTarget[] =>
+    overrides.map((o, i) => ({ weekNumber: i + 1, isRecovery: false, targetHours: 12, ...o }));
+
+  it("flags a loading week missing the primary quality's matching session", () => {
+    const days = [day("2026-07-01", 1, "VO2max"), day("2026-07-08", 2, "Z2")];
+    const w = validatePrimaryQualityCadence(days, "vo2max", targets([{}, {}]), 250);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/PRIMARY QUALITY: week 2 \(loading\)/);
+    expect(w[0]).toMatch(/no VO2max session this week/);
+  });
+
+  it("passes when every loading week has a matching session", () => {
+    const days = [day("2026-07-01", 1, "VO2max"), day("2026-07-08", 2, "VO2max")];
+    expect(validatePrimaryQualityCadence(days, "vo2max", targets([{}, {}]), 250)).toEqual([]);
+  });
+
+  it("exempts recovery weeks from the requirement", () => {
+    const days = [day("2026-07-01", 1, "VO2max"), day("2026-07-08", 2, "Z2")];
+    const w = validatePrimaryQualityCadence(days, "vo2max", targets([{}, { isRecovery: true }]), 250);
+    expect(w).toEqual([]);
+  });
+
+  it("has no matcher for aerobic-base/sharpen — never fires", () => {
+    const days = [day("2026-07-01", 1, "Z2")];
+    expect(validatePrimaryQualityCadence(days, "aerobic-base", targets([{}]), 250)).toEqual([]);
+    expect(validatePrimaryQualityCadence(days, "sharpen", targets([{}]), 250)).toEqual([]);
+  });
+
+  it("treats a week with zero generated days as missing the requirement too", () => {
+    const days = [day("2026-07-01", 1, "VO2max")];
+    const w = validatePrimaryQualityCadence(days, "vo2max", targets([{}, {}]), 250);
+    expect(w.some((m) => /week 2/.test(m))).toBe(true);
   });
 });
 

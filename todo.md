@@ -57,9 +57,17 @@ line-level scoping → [ROADMAP.md](ROADMAP.md) "Season engine — known debt".
   live (an invented 3000 kcal figure corrected to 3810); the narrative critic fired and corrected a
   real overview but still let a "4-hour" mis-description of a 200-minute ride through — helps,
   doesn't fully close the gap.
-- ☐ P3d–e, P5–P6 `feat` — queued. P3d/e deliberately deferred (see ROADMAP.md: need new
-  forward-projection code / new regen infrastructure, and no live evidence yet justifies either).
-  P5–P6 not yet scoped to file/function detail.
+- ☑ P5 `feat` — **Shipped 2026-07-24** (RaceSim relaxed to sporadic in `lib/session-requirements.ts`;
+  new `lib/season.ts: validatePrimaryQualityCadence` (P5a); new `lib/schedule-validate.ts:
+  validateWeekSequencing` (P5b)). Full detail + honest live-smoke result → ROADMAP.md's P5 entry. 24
+  new/updated tests, full suite green (1394 total), live-smoked. Real wins: the model correctly
+  reordered SIT-before-Threshold on the very next generation, and the narrative critic's correction
+  was fully accurate this time. Real gap found: the KOM event's own week still stacked 3 quality
+  sessions and a hard embedded-effort long ride still landed the day before the event — P4's taper
+  rule doesn't yet cover embedded-effort Z2 days, only standalone quality types.
+- ☐ P3d–e, P6 `feat` — queued. P3d/e deliberately deferred (see ROADMAP.md: need new
+  forward-projection code / new regen infrastructure, and no live evidence yet justifies either). P6
+  not yet scoped to file/function detail.
 
 **HR-2026-07-23 — hostile review of the block/sync/archive data flows, prompted by a real bug.**
 The athlete deleted their active block; it vanished from the UI but came back on refresh. Root cause

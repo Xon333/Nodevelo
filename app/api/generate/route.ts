@@ -35,12 +35,12 @@ import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { reconcileDurationMin } from "@/lib/prescription";
 import { splitPlanProtocol } from "@/lib/workout-validate";
 import { repairNutrition } from "@/lib/nutrition-validate";
-import { validateEventTaper, validateSchedule } from "@/lib/schedule-validate";
+import { validateEventTaper, validateSchedule, validateWeekSequencing } from "@/lib/schedule-validate";
 import { checkBlockFeasibility, computeWeekTargets, validateWeekHours } from "@/lib/block-skeleton";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateBlockFocus, validateFocusMatch, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateBlockFocus, validateFocusMatch, validatePrimaryQualityCadence, validateSeasonFit } from "@/lib/season";
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan } from "@/lib/types";
@@ -411,6 +411,9 @@ export async function POST(req: Request) {
     // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
     // target — the check that was missing entirely (only session counts/spacing were validated).
     warnings.push(...validateWeekHours(days, weekTargets));
+    // Sequencing check (P5b, 2026-07-24): freshness-dependent quality (VO2max/SIT) should land
+    // earlier in the week than fatigue-tolerant quality (Threshold/RaceSim).
+    warnings.push(...validateWeekSequencing(days));
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
     // Season fit (event-anchored) / block focus (rolling): flag intensity or focus-label disagreement
@@ -423,6 +426,9 @@ export async function POST(req: Request) {
         warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
       } else if (rollingFocusChoice) {
         warnings.push(...validateBlockFocus(days, rollingFocusChoice.focus, profile.performance.ftp));
+        // P5a (2026-07-24): stricter than the block-wide floor above — the primary quality must
+        // appear in EVERY loading week, not just once somewhere in the block.
+        warnings.push(...validatePrimaryQualityCadence(days, rollingFocusChoice.focus, weekTargets, profile.performance.ftp));
       }
     }
     if (truncated) {

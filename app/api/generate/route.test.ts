@@ -384,7 +384,52 @@ describe("POST /api/generate — focus-coverage requirement wiring (P2c)", () =>
     await gen("Build FTP");
     const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
     expect(dynamic).toContain("REQUIRED COVERAGE: this block's focus is threshold");
-    expect(dynamic).toContain("include at least 1 Threshold session somewhere across the block");
+    expect(dynamic).toContain("include at least 1 Threshold session in EVERY loading week");
+  });
+});
+
+// P5a (2026-07-24 block-generation redesign): the shared 2-week fixture's mocked output only covers
+// week 1 (a Threshold day) — week 2 has zero generated days, so it's missing the chosen focus
+// ("threshold") entirely. Confirms the stricter per-loading-week check actually reaches the route.
+describe("POST /api/generate — primary-quality cadence wiring (P5a)", () => {
+  it("flags the week missing the primary quality's matching session", async () => {
+    const json = await (await gen("Build FTP")).json();
+    const primaryWarnings = json.plan.warnings.filter((w: string) => /^PRIMARY QUALITY:/.test(w));
+    expect(primaryWarnings.some((w: string) => /week 2 \(loading\)/.test(w) && /no Threshold session/.test(w))).toBe(true);
+  });
+});
+
+// P5b (2026-07-24 block-generation redesign): the sequencing rule reaches the user message, and a
+// backwards-ordered week (Threshold before SIT) gets flagged post-generation.
+describe("POST /api/generate — within-week sequencing wiring (P5b)", () => {
+  it("injects the freshness-priority sequencing rule into the user message", async () => {
+    await gen("Build FTP");
+    const userMessage = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][2];
+    expect(userMessage).toMatch(/Within-week sequencing/);
+    expect(userMessage).toContain("place the freshness-dependent one EARLIER in the week");
+  });
+
+  it("flags a backwards-ordered week (Threshold before SIT)", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({
+      toolInput: {
+        overview: "Test build block.",
+        weeks: [
+          {
+            weekNumber: 1,
+            theme: "Build",
+            days: [
+              { date: "2026-06-15", name: "Threshold", type: "Threshold", durationMin: 60, workout: "- 60m 95%", description: "x" },
+              { date: "2026-06-17", name: "SIT", type: "SIT", durationMin: 30, workout: "- 30s 160%", description: "x" },
+            ],
+          },
+        ],
+      },
+      raw: "",
+      truncated: false,
+      stopReason: null,
+    } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.warnings.some((w: string) => /^SEQUENCING: week 1/.test(w))).toBe(true);
   });
 });
 
