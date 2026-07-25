@@ -33,7 +33,7 @@ One line per file that matters. The authoritative per-file table — README keep
 
 | Module | ~Lines | Purpose |
 |---|---|---|
-| `season.ts` | 925 | Rolling coverage selector + event-anchored backward scheduling + validators + prompt formatters ([atlas](../systems/season-engine.md)) |
+| `season.ts` | 925 | Rolling coverage selector + event-anchored backward scheduling + validators + prompt formatters ([systems/05-season.md](systems/05-season.md)) |
 | `season-signals.ts` | 83 | Single assembler of `chooseNextFocus` inputs (generate & season routes share it) |
 | `block-skeleton.ts` | 116 | Exact per-week hour targets + feasibility pre-gate + week-hours validator |
 | `block-events.ts` | 31 | Which calendar event ids to delete on block discard/replace |
@@ -148,6 +148,6 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `athlete-quirks.json` | quirks | — | Mined quirks (fully regenerated each sync) |
 | `ai-usage.json` | ai-usage | — | Token/cost telemetry |
 
-## `components/` — see [systems/frontend.md](../systems/frontend.md) for the ownership map
+## `components/` — see [systems/08-frontend.md](systems/08-frontend.md) for the ownership map
 
-Shell: `Nav`, `SyncProvider`, `SyncNotice`, `QueryProvider` · Primitives: `ui.tsx` (Card, PrimaryButton, StatTile, Skeleton, MetricTip, useMountLoad…), `athlete-state-ui.tsx` · Page modules: `dashboard/` (TodayView, PlanView, today.tsx, plan.tsx, BlockGenerator, shared.tsx), `trends/` (sections, verdict, types) · The rest are single-feature PascalCase components listed in the frontend atlas.
+Shell: `Nav`, `SyncProvider`, `SyncNotice`, `QueryProvider` · Primitives: `ui.tsx` (Card, PrimaryButton, StatTile, Skeleton, MetricTip, useMountLoad…), `athlete-state-ui.tsx` · Page modules: `dashboard/` (TodayView, PlanView, today.tsx, plan.tsx, BlockGenerator, shared.tsx), `trends/` (sections, verdict, types) · The rest are single-feature PascalCase components listed in [systems/08-frontend.md](systems/08-frontend.md).

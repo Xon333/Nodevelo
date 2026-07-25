@@ -1,8 +1,8 @@
 # NodeVelo — feature catalogue
 
 What the app can do today, grouped by area. This is the **capability map**; for *how* it works see
-[README.md](README.md) (architecture), for *what's next* see [ROADMAP.md](ROADMAP.md), and for the
-*work log* see [ARCHIVE.md](ARCHIVE.md). Everything here is deterministic TypeScript unless noted as
+[docs/systems/](docs/systems/) (via [docs/COMPASS.md](docs/COMPASS.md)), for *what's next* see
+[ROADMAP.md](ROADMAP.md), and for the *work log* see [ARCHIVE.md](ARCHIVE.md). Everything here is deterministic TypeScript unless noted as
 AI — and the AI only ever phrases numbers the code already computed.
 
 ---

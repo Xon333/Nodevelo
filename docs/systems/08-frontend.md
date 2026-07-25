@@ -1,4 +1,6 @@
-# Frontend
+# 08 · Frontend — the surface over everything
+
+**Why this exists:** the athlete meets the whole pipeline through seven pages built for glanceability — verdict first, evidence behind disclosures, one question per screen (the UX-Constitution's law). **Where it sits:** the presentation layer over every numbered system; all data arrives via one React context + a handful of queries — no component talks to Intervals.icu or the LLM directly. **Tradeoff:** a deliberate house fetch idiom (`useMountLoad`) forgoes React Query's caching for most page-local data in exchange for simple, explicit failure states.
 
 Next.js 16 App Router + React 19 + Tailwind v4. Visual rules live in [DESIGN.md](../../DESIGN.md) (tokens, component vocabulary) under [UX-CONSTITUTION.md](../../UX-CONSTITUTION.md) (decision rules); this doc covers structure and data flow.
 

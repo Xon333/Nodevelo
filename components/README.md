@@ -1,13 +1,13 @@
 # components/ — the UI layer
 
-Structure, ownership, and data flow: [docs/systems/frontend.md](../docs/systems/frontend.md). Visual rules: [DESIGN.md](../DESIGN.md) under [UX-CONSTITUTION.md](../UX-CONSTITUTION.md).
+Structure, ownership, and data flow: [docs/systems/08-frontend.md](../docs/systems/08-frontend.md). Visual rules: [DESIGN.md](../DESIGN.md) under [UX-CONSTITUTION.md](../UX-CONSTITUTION.md).
 
 ## Orientation
 
 - **Naming is bimodal and deliberate**: PascalCase file = single default-export component; lowercase file = named-export helper module (`dashboard/today.tsx`, `trends/sections.tsx`, `athlete-state-ui.tsx` — not legacy leftovers).
 - **App shell**: `Nav`, `QueryProvider`, `SyncProvider` (the one cross-page store), `SyncNotice`.
 - **Primitives**: `ui.tsx` — Card, PrimaryButton, StatTile, Skeleton, MetricTip/InfoDot, `useMountLoad`, `LoadFailed`. DESIGN.md §6 sanctions these as the component vocabulary; build with them, not fresh chrome.
-- **Page modules**: `dashboard/` (Today + Plan), `trends/`; the rest are single-feature components mapped in the frontend atlas.
+- **Page modules**: `dashboard/` (Today + Plan), `trends/`; the rest are single-feature components mapped in [docs/systems/08-frontend.md](../docs/systems/08-frontend.md).
 
 ## House rules
 

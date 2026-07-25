@@ -1,6 +1,14 @@
-# Data layer & sync
+# 01 · Sync & data — how ride data enters and where everything lives
 
-No database. JSON files under `data/` (gitignored), guarded by a crash-safe substrate, synced against Intervals.icu. Per-file inventory: [../reference/FILE_INDEX.md](../reference/FILE_INDEX.md#data-files).
+**Why this exists:** the whole loop starts here — Intervals.icu owns the athlete's physiological truth, and this layer pulls it in safely, reconciles it, and persists everything as crash-safe JSON on disk (the filesystem *is* the database — see [DECISIONS](../DECISIONS.md) ADR-0001). **Where it sits:** the pipeline's intake; everything downstream ([02-scoring](02-scoring-and-learning.md) onward) reads what this layer wrote. **Tradeoff:** crash-safety and concurrency had to be hand-built (atomic writes, locks, CAS) instead of inherited from a database.
+
+Per-file inventory: [../FILE_INDEX.md](../FILE_INDEX.md#data-files).
+
+## The read/write contract
+
+`GET /api/sync` is **pure** — it returns cached app state and never hits Intervals.icu. `POST /api/sync` is the **only** path that fetches from Intervals.icu, reconciles, re-derives, and persists. Page loads stay instant; every network call is explicit and athlete-triggered (or gated by `autoSyncOnOpen`).
+
+**The window:** a full sync pulls **182 days** of activities/wellness — deliberate depth (CTL has a 42-day time constant; baselines are 90-day; the learning loop wants several blocks of history) and cheap (a wider window is a longer JSON list, not more requests — per-activity stream fetches happen only for *today's* ride). The generation prompt's "last 8 weeks" summary is scoped to 56 days regardless, so plans anchor to current form, not the whole cache.
 
 ## The persistence substrate (`lib/json-store.ts`)
 
@@ -38,7 +46,7 @@ flowchart TD
   LS --> BK[backup.snapshotBackup → NODEVELO_BACKUP_DIR, best-effort, keeps 14]
 ```
 
-Safety properties worth knowing: every Intervals.icu request has a 20s abort timeout; the all-time power curve merges **monotonically** so a partial fetch can't false-report a PR drop; a suspect-empty sync is refused, not written; the LLM step is deferred to `/api/analyze` so sync stays fast and an Anthropic hiccup is isolated ([ADR-0005](../adr/0005-deferred-llm-analyze.md)).
+Safety properties worth knowing: every Intervals.icu request has a 20s abort timeout; the all-time power curve merges **monotonically** so a partial fetch can't false-report a PR drop; a suspect-empty sync is refused, not written; the LLM step is deferred to `/api/analyze` so sync stays fast and an Anthropic hiccup is isolated ([ADR-0005](../DECISIONS.md)).
 
 ## Calendar mirror (`lib/calendar-mirror.ts`)
 
@@ -63,4 +71,4 @@ Every block-mutating route (`write`, `sync` DELETE, `reschedule`, `retrospective
 
 - `block-settings.json` / `loading-log.json` may not exist — code falls back to defaults until first write (this is the migration-flag `undefined` case in the wild).
 - `score-log.json.pre-rebuild-<epoch>.bak` — a **manual** pre-migration snapshot; no code writes this pattern.
-- `data/*.md` don't exist — the markdown corpus lives in `knowledge-base*/` ([knowledge-system.md](knowledge-system.md)).
+- `data/*.md` don't exist — the markdown corpus lives in `knowledge-base*/` ([knowledge-system.md](04-knowledge.md)).

@@ -1,4 +1,6 @@
-# Season engine (macro-periodization)
+# 05 · Season — which system to train next, and why
+
+**Why this exists:** blocks generated in isolation drift into repetition or neglect; the season layer is the general "why" above each block's specific "what" — it picks the next focus from measured reality (what's actually been trained, what's decaying, what the goal demands) instead of a fixed rotation. **Where it sits:** consumes [02-scoring](02-scoring-and-learning.md)'s model + [04-knowledge](04-knowledge.md)'s goals; its focus choice and context feed [06-generation](06-generation.md). **Tradeoff:** the full event-anchored phase machinery is built but flag-gated off — the athlete chose block-level honesty over imposed macro-shapes.
 
 `lib/season.ts` (925 lines — the largest engine) + `lib/season-signals.ts` (its IO assembler). Surface: Plan page (`SeasonSection`, `SeasonRoadmap`), `/api/season`.
 
@@ -32,6 +34,10 @@
 ## Persistence rules
 
 `data/season-plan.json`. `/api/generate` persists a season re-plan **only after a successful generation**, CAS-guarded on `updatedAt` (HR-58). `/api/season` PUT owns objective/events CRUD. `settleSeasonHistory` reconciles past periods; `projectSeasonOutlook` powers the roadmap preview (stateless).
+
+## Season → Plan-page conveniences
+
+`suggestedBlockWeeks` pre-fills the generator's length selector (2/4/6/8) by ceiling-rounding the current period's remaining weeks; `filterGoalsByFocus` narrows the goal-textarea pre-fill to goals tagged with the current focus plus `"general"`-tagged ones — both are overridable pre-fills, never locks. Once a block's `endDate` passes, the Today page proactively nudges "generate the next block" (`isBlockFinished`, a pure date check) instead of sitting on stale copy.
 
 ## Known debt & the flag decision
 

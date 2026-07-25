@@ -1,6 +1,8 @@
-# Knowledge system
+# 04 · Knowledge — the corpus that grounds generation
 
-The markdown corpus that grounds every generation, and the feedback channels that make blocks learn from each other. Owner module: `lib/kb-loader.ts` (always reads fresh from disk — never memoized, so KB edits apply on the next generation).
+**Why this exists:** the app splits memory into two kinds treated oppositely — **durable intent** (goals, weakpoints, PRs, coaching notes: athlete-owned, hand-edited, never recomputed) and **synced physiology** (FTP, zones, weight: Intervals.icu-owned, never hand-edited, always reconciled). This layer holds the intent side plus the sports-science reference the LLM reads, and the feedback channels that let blocks learn from each other. **Where it sits:** feeds [06-generation](06-generation.md)'s prompt; written by the retrospective flow; edited on the Knowledge page. **Tradeoff:** markdown is athlete-friendly but structurally fragile — hence the parsers, strippers, and the JSON migration of goals/weakpoints.
+
+Owner module: `lib/kb-loader.ts` (always reads fresh from disk — never memoized, so KB edits apply on the next generation). Goals/weakpoints migrated out of the markdown into structured `AthleteProfile.goals`/`weakpoints` JSON (edited on `/profile`, seeded once from the old tables); the markdown's own GOALS/WEAKPOINTS sections are stripped pre-prompt so a stale copy can never leak alongside the live data. `athlete_profile.md` keeps only true manual input — personal data, all-time PRs, coaching notes — and its header says exactly what is synced from where.
 
 ## The two directories
 
@@ -35,4 +37,4 @@ Debugging "what prior-block context fed this generation" therefore requires chec
 
 - KB files are the athlete's voice — agents don't rewrite `knowledge-base/` content on their own initiative.
 - `knowledge-base-defaults/` **is** in docs-sweep scope (real user-facing copy, not fixture).
-- Protocol numbers in `training_knowledge.md` have two hand-synced shadows (prompt hard rules, validator bands) — see [INVARIANTS](../reference/INVARIANTS.md).
+- Protocol numbers in `training_knowledge.md` have two hand-synced shadows (prompt hard rules, validator bands) — see [INVARIANTS](../INVARIANTS.md).

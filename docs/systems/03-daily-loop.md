@@ -1,6 +1,8 @@
-# Daily loop (readiness → ride → debrief)
+# 03 · Daily loop — readiness → ride → debrief
 
-What happens between waking up and reading the post-ride coach note. Surface: the Today page (auto-switches pre-ride ↔ post-ride when a synced ride matches today's **local** date — always `localToday()`/`resolveToday()` from `lib/date.ts`, never UTC).
+**Why this exists:** a block is a plan; a day is a negotiation. This layer answers "should I actually do today's session, and how did it go?" — deterministic readiness signals, an athlete-confirmed override path, and a post-ride debrief the athlete can trust. **Where it sits:** reads [02-scoring](02-scoring-and-learning.md)'s model and today's sync; feeds dispositions back into the ledger; surfaces on the Today page ([08-frontend](08-frontend.md)). **Tradeoff:** signals never auto-mutate the plan — only the athlete-confirmed morning-check path does; advisory-by-default costs automation but preserves trust.
+
+Surface: the Today page (auto-switches pre-ride ↔ post-ride when a synced ride matches today's **local** date — always `localToday()`/`resolveToday()` from `lib/date.ts`, never UTC).
 
 ## Morning (pre-ride)
 
@@ -12,9 +14,11 @@ What happens between waking up and reading the post-ride coach note. Surface: th
 
 ## After the ride
 
-`doSync()` (SyncProvider) → `POST /api/sync` computes everything deterministic — zones, interval match, PRs (`lib/pr.ts`, curve-to-curve), execution score, advised intake — into `data/today-analysis.json`, then returns `analysisPending: true`. The client then calls `POST /api/analyze` (the deferred LLM step) for the coach note ([ADR-0005](../adr/0005-deferred-llm-analyze.md)); with `autoPostCoachNote` on, the note is also posted to Intervals.icu as a NOTE event.
+`doSync()` (SyncProvider) → `POST /api/sync` computes everything deterministic — zones, interval match, PRs (`lib/pr.ts`, curve-to-curve), execution score, advised intake — into `data/today-analysis.json`, then returns `analysisPending: true`. The client then calls `POST /api/analyze` (the deferred LLM step) for the coach note ([ADR-0005](../DECISIONS.md)); with `autoPostCoachNote` on, the note is also posted to Intervals.icu as a NOTE event.
 
 Post-ride surfaces on Today: `TodayRideCard` (rep breakdown, `RideTrace` power chart, PR banner, coach note), **session disposition** chips (`SessionDisposition.tsx` — "compromised" is the one that changes learning), **fuel prompt** (`lib/fuel-prompt.ts` nudges logging when a long/interval ride has no carbs logged), and **Ask Coach** (`AskCoach.tsx`, streamed haiku, grounded in the same coach snapshot so it cannot disagree with the card).
+
+**Nutrition is code, not AI** ([DECISIONS](../DECISIONS.md) ADR-0002 applied to food): `lib/nutrition.ts` computes daily targets deterministically (base + session kJ + a buffer that self-adjusts ±150 kcal against the synced 7-day weight trend, capped 0–600; flat target on rest days) plus pre/in/post-ride carbs. The fuel prompt's rules are pure code too: a logged `0` is a real "fasted" data point, never nudged; the logged-vs-optimum gap only surfaces once the athlete's derived `carbsOptimum` reaches medium/high confidence — a population default never masquerades as personalized. The LLM phrases these numbers verbatim; it never computes them.
 
 ## Missed/failed sessions
 

@@ -6,9 +6,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Orient first
 
-Read [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) before exploring the codebase — it maps the systems,
-indexes every file/route/prompt, and lists the traps; it replaces most exploratory file reads.
-Hard contracts: [docs/reference/INVARIANTS.md](docs/reference/INVARIANTS.md).
+Read [docs/COMPASS.md](docs/COMPASS.md) before exploring the codebase — it is the single navigation
+hub (mental model, task router, file index pointers, traps) and replaces most exploratory file
+reads. Hard contracts: [docs/INVARIANTS.md](docs/INVARIANTS.md).
 
 # Recurring bug classes — check before shipping
 

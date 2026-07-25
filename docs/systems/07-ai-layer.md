@@ -1,6 +1,19 @@
-# AI layer (Anthropic integration)
+# 07 · AI layer (Anthropic integration)
 
-Everything that touches the model. The call-site table lives in [../reference/PROMPT_INDEX.md](../reference/PROMPT_INDEX.md); the generation flow in [generation-pipeline.md](generation-pipeline.md).
+**Why this exists:** LLMs confabulate numbers and drift from instructions, so the model is caged: pure prompt builders (testable offline), forced structured output, deterministic validators, and one resolved-numbers bundle it must copy from — the machinery that makes "AI coach" trustworthy. **Where it sits:** cross-cutting — [06-generation](06-generation.md) is its biggest client; the daily coach note and ask-coach are the others. **Tradeoff:** prompt text and protocol numbers live in multiple hand-synced places (see scatter list at bottom).
+
+## Every LLM call site
+
+The complete set — exactly six. Adding a seventh? Follow the pattern: prompt builder in `anthropic-prompts.ts` (pure), call function in `anthropic-api.ts`, zod schema bundled with its tool if structured, usage recorded, one live smoke run before "done".
+
+| # | Trigger | Call | Model | Structured? | Prompt owner | Validation |
+|---|---|---|---|---|---|---|
+| 1 | `POST /api/generate` | `generateTrainingBlock` | sonnet, temp 0.3, 8–16k tokens by length, cached prefix | ✅ forced `TRAINING_BLOCK_TOOL` | `buildSystemPrompt` + `buildUserMessage` | zod `PlanToolSchema` → repairs → 7 warn-only validators |
+| 2 | same request, after 1 | `critiqueOverview` | haiku | ✅ forced `NARRATIVE_CRITIC_TOOL` | `narrative-critic.ts` | zod; best-effort, overview-only |
+| 3 | `POST /api/analyze` (deferred from sync) | `analyseRide` | sonnet | free text | `buildRideAnalysisPrompt` | none |
+| 4 | `POST /api/retrospective` | `generateRetrospective` | sonnet | free text | `buildRetrospectivePrompt` | none |
+| 5 | same request, after 4 | `generateStructuredRetrospective` | sonnet | ✅ forced `RETROSPECTIVE_TOOL` | `buildStructuredRetrospectivePrompt` | zod; degrades to `[]` |
+| 6 | `POST /api/ask` | `streamAskCoach` | haiku, **streamed** | free text | `buildAskCoachPrompt` (no `system` param; excludes the ledger, <1200 chars) | none |
 
 ## Module layout (deliberate split)
 
@@ -27,7 +40,7 @@ Everything that touches the model. The call-site table lives in [../reference/PR
 
 ## Validation philosophy
 
-Structural output is zod-validated; content is checked by warn-only validators; only two deterministic repairs mutate output (durationMin reconcile, nutrition kcal). A missing/malformed tool call is a hard 502 — no self-repair loop, by design. Details: [generation-pipeline.md](generation-pipeline.md).
+Structural output is zod-validated; content is checked by warn-only validators; only two deterministic repairs mutate output (durationMin reconcile, nutrition kcal). A missing/malformed tool call is a hard 502 — no self-repair loop, by design. Details: [06-generation.md](06-generation.md).
 
 ## Cost tracking
 
@@ -48,6 +61,6 @@ There is **no LLM trace module** (`lib/trace.ts` is the ride power chart). The d
 
 ## Known scatter (accepted, documented)
 
-- Interval-protocol numbers exist in three hand-synced places: KB prose, `buildUserMessage` hard rules, `workout-validate.PROTOCOL`. See [INVARIANTS](../reference/INVARIANTS.md).
+- Interval-protocol numbers exist in three hand-synced places: KB prose, `buildUserMessage` hard rules, `workout-validate.PROTOCOL`. See [INVARIANTS](../INVARIANTS.md).
 - Ask-coach sends no `system` param at all (persona lives in its user message) — inconsistent with other call sites but intentional-ish; know it before "fixing" it.
 - `ask-coach.test.ts` / `system-prompt.test.ts` test code that lives in `anthropic-prompts.ts` — there are no modules by those names.

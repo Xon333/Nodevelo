@@ -50,7 +50,7 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 | **Disposition** | Post-hoc self-attribution of a session (completed/partial/missed/**compromised**); only "compromised" changes what teaches the model. |
 | **Morning check** | Pre-ride, same-day ill/extreme-fatigue/injury flag with a deterministic downgrade decision. Injury always → rest (motion is the hazard); metabolic flags downgrade quality days. |
 | **Quirks** | Recurring patterns mined from ride-note free text (`lib/quirks.ts`, NLP + lexicon, needs ≥2 distinct rides) — injected into prompts as *hints*, never facts. |
-| **Seeds vs reflections** | The two feedback channels from a block retrospective into the next generation: `next_block_seeds` (athlete-editable YAML in the retrospective markdown) and `structuredReflections` (persisted on `BlockHistoryEntry`). See [systems/knowledge-system.md](systems/knowledge-system.md). |
+| **Seeds vs reflections** | The two feedback channels from a block retrospective into the next generation: `next_block_seeds` (athlete-editable YAML in the retrospective markdown) and `structuredReflections` (persisted on `BlockHistoryEntry`). See [systems/04-knowledge.md](systems/04-knowledge.md). |
 
 ## Naming traps
 

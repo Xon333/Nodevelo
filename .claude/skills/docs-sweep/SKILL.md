@@ -17,7 +17,7 @@ context — applies them the same way.
 | ROADMAP.md | **Forward-only**: open work only. Anything shipped moves out to ARCHIVE.md. Keep stable cross-ref IDs (`#1–4`, `§5–7`, `Track A–C`) — other docs link to these; append new IDs, never renumber. |
 | ARCHIVE.md | Everything shipped, grouped by theme, one-line record plus enough detail to find the commit. |
 | todo.md | Lean live punch-list only. Legend: Status `☐`/`◑`/`☑`, Priority `P1` correctness/data-integrity > `P2` UX/feature > `P3` polish. On ship, move the line to ARCHIVE.md. |
-| README.md | Architectural manual. Keep the "Documentation map" table in sync whenever a doc is added or removed. |
+| README.md | Landing page: what/why, core-idea pillars, setup, routing tables. Deep subsystem content lives in `docs/systems/`, the doc-set listing in `docs/COMPASS.md` §"The full doc set" — keep the Compass listing (not a README table) in sync whenever a doc is added or removed. |
 | CONTINUE.md | Session-handoff only. Don't touch during a docs sweep unless asked — use the `handoff` skill instead. |
 
 ## Full-repo sweep scope
@@ -28,13 +28,14 @@ context — applies them the same way.
 `docs/specs/*.md`, `docs/superpowers/specs/*.md` (design specs — stamp `Status: Shipped` + a date
 once built; don't leave them saying "Approved design (pre-implementation)" forever),
 `knowledge-base-defaults/*.md` (the committed KB skeleton — real user-facing copy, not just a
-fixture), and the docs system added 2026-07-25: `docs/START_HERE.md`, `docs/ATLAS.md`,
-`docs/GLOSSARY.md`, `docs/AI_CONTEXT.md`, `docs/workflows.md`, `docs/systems/*.md`,
-`docs/reference/*.md` (FILE_INDEX/PROMPT_INDEX/INVARIANTS), `docs/adr/*.md` (append new ADRs;
-existing ones are decision records — amend with a dated note, don't rewrite), and the folder
-READMEs `lib/README.md`, `components/README.md`, `app/README.md`. Ownership rules for which doc
-owns which fact: `docs/START_HERE.md` §"Ownership rules" — enforce them during a sweep (a fact
-duplicated across docs gets one owner + links, not copies).
+fixture), and the docs system (2026-07-25, consolidated same day): `docs/COMPASS.md` (the single
+navigation hub — keep its task table and doc-set listing current), `docs/systems/01–08-*.md` (the
+numbered pipeline docs), `docs/RECIPES.md`, `docs/FILE_INDEX.md`, `docs/INVARIANTS.md`,
+`docs/GLOSSARY.md`, `docs/DECISIONS.md` (append new ADR sections; existing ones are decision
+records — amend with a dated note, don't rewrite), and the folder READMEs `lib/README.md`,
+`components/README.md`, `app/README.md`. Ownership rules for which doc owns which fact:
+`docs/COMPASS.md` §"Session rituals" closing table + §"The full doc set" — enforce them during a
+sweep (a fact duplicated across docs gets one owner + links, not copies).
 
 **Out of scope:** CONTINUE.md (see table above), CLAUDE.md/AGENTS.md (agent operating instructions
 — a different category from project docs; flag as excluded rather than silently touching or
