@@ -48,6 +48,7 @@ Five design decisions define the whole app — everything else follows from them
 |---|---|
 | `README.md` (this) | How the app works — the architectural manual (the *why*; per-subsystem *how* lives in `docs/systems/`) |
 | [docs/START_HERE.md](docs/START_HERE.md) | **The docs front door**: repository atlas, per-subsystem docs, file/prompt indexes, invariants, workflows, ADRs, glossary, AI-agent context |
+| [docs/DEV_QUICKSTART.md](docs/DEV_QUICKSTART.md) | **Coding right now?** One-page lookup table — no reading, just "I'm about to do X → open Y" |
 | [FEATURES.md](FEATURES.md) | Capability catalogue — what the app can do, by area |
 | [ROADMAP.md](ROADMAP.md) | Forward backlog: what's next, prioritized |
 | [ARCHIVE.md](ARCHIVE.md) | Completed work, grouped by theme |

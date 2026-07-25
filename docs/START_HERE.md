@@ -4,6 +4,8 @@ The front door to NodeVelo's documentation. Every doc has one job; this page tel
 
 **What is NodeVelo?** A local-first AI cycling coach for one athlete. Next.js 16 app, no database — JSON files + markdown knowledge base on disk. Deterministic TypeScript engines compute every number; Claude only arranges sessions and phrases advice. Syncs with Intervals.icu.
 
+**Coding right now, not reading for pleasure?** Skip everything below and go straight to **[DEV_QUICKSTART.md](DEV_QUICKSTART.md)** — a one-page lookup table, not a doc to read through.
+
 ## Where do I go?
 
 | Your question | Read |
