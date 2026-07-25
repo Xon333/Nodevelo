@@ -24,29 +24,35 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 
 | I need to… | Open | The files |
 |---|---|---|
-| understand the project from zero | [../README.md](../README.md), then the flow above | — |
-| rebuild context after weeks away | This page top-to-bottom once (~5 min), then `git log --oneline -20` | — |
-| find where anything lives / who imports it | [FILE_INDEX.md](FILE_INDEX.md), Ctrl+F | — |
-| understand why a workout came out the way it did | [07-ai-layer § Debugging](systems/07-ai-layer.md#debugging-a-bad-generation) | `GeneratedPlan.raw`, `warnings[]`, `anthropic-prompts.test.ts` |
-| debug generation | same as above | `app/api/generate/route.ts`, `lib/anthropic-prompts.ts` |
-| change prompts / prompt rules | [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape) | `lib/anthropic-prompts.ts` (+ bump `PROMPT_VERSION`) |
-| change season logic | [05-season](systems/05-season.md) | `lib/season.ts`, `lib/season-signals.ts` |
-| modify block generation | [06-generation](systems/06-generation.md) | `app/api/generate/route.ts`, `lib/block-skeleton.ts`, `lib/plan-schema.ts` |
-| add a workout type | [RECIPES § workout type](RECIPES.md#add-a-workout-type) | `lib/types.ts`, `lib/workout-types.ts`, `lib/workout-validate.ts` |
-| understand the athlete model / learning | [02-scoring-and-learning](systems/02-scoring-and-learning.md) | `lib/athlete-model.ts`, `lib/score-log.ts`, `lib/calibration.ts` |
-| change scoring | [RECIPES § scoring](RECIPES.md#change-scoring) | `lib/execution-score.ts` (ledger stays frozen!) |
-| add a readiness/state signal | [RECIPES § readiness](RECIPES.md#add-a-readinessstate-signal) | `lib/readiness.ts` → `athlete-state.ts` → `coach-snapshot.ts` |
-| debug sync / data / a store file | [01-sync-and-data](systems/01-sync-and-data.md) | `app/api/sync/route.ts`, `lib/json-store.ts`, `npm run reset:today` |
-| debug an API route | [FILE_INDEX § routes](FILE_INDEX.md#appapi--routes) for the route → its lib modules | `lib/log.ts` output, `lib/client-api.ts` on the client side |
-| build or change UI | [08-frontend](systems/08-frontend.md) + [../DESIGN.md](../DESIGN.md) | `components/ui.tsx` primitives first |
-| add a page / route / validator / test | [RECIPES.md](RECIPES.md) — find the recipe, follow it in order | — |
-| decode a term or a weird file name | [GLOSSARY.md](GLOSSARY.md), Ctrl+F (naming traps live there too) | — |
-| know what I must never break | [INVARIANTS.md](INVARIANTS.md) — scan the 30 numbered contracts | — |
-| understand why it's built this way | [DECISIONS.md](DECISIONS.md) — 10 decision records, one file | — |
-| know what the app can do (user-facing) | [../FEATURES.md](../FEATURES.md) | — |
-| know what to work on next | [../ROADMAP.md](../ROADMAP.md) "State of the app" banner, then [../todo.md](../todo.md) | — |
-| find something that already shipped | [../ARCHIVE.md](../ARCHIVE.md) — grep by ID (HR-nn, UXA-nn, P1–P7, SUB-n) | — |
-| run / verify / commands | [../WORKFLOW.md](../WORKFLOW.md) cheat sheet | `npm run dev` · `npm run check` · `npm test` |
+| **understand** the project from zero | [../README.md](../README.md), then the flow above | — |
+| **rebuild** context after weeks away | Away >2 weeks: re-read the mental model + diagram above (~2 min), then `git log --oneline -20`. Shorter gaps: the Opening ritual below | — |
+| **find** where anything lives / who imports it | [FILE_INDEX.md](FILE_INDEX.md), Ctrl+F | — |
+| **debug / understand** a bad generated block | [07-ai-layer § Debugging](systems/07-ai-layer.md#debugging-a-bad-generation) | `GeneratedPlan.raw`, `warnings[]`, `app/api/generate/route.ts` |
+| **change** prompts / prompt rules | [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape) | `lib/anthropic-prompts.ts` (+ bump `PROMPT_VERSION`) |
+| **change** season logic | [05-season](systems/05-season.md) | `lib/season.ts`, `lib/season-signals.ts` |
+| **modify** block generation | [06-generation](systems/06-generation.md) | `app/api/generate/route.ts`, `lib/block-skeleton.ts`, `lib/plan-schema.ts` |
+| **understand** why season picked this focus | [05-season § coverage selector](systems/05-season.md#the-coverage-selector) | `lib/season.ts`, `lib/season-signals.ts` |
+| **add** a workout type | [RECIPES § workout type](RECIPES.md#add-a-workout-type) | `lib/types.ts`, `lib/workout-types.ts`, `lib/workout-validate.ts` |
+| **understand** the athlete model / learning | [02-scoring-and-learning](systems/02-scoring-and-learning.md) | `lib/athlete-model.ts`, `lib/score-log.ts`, `lib/calibration.ts` |
+| **change** scoring | [RECIPES § scoring](RECIPES.md#change-scoring) | `lib/execution-score.ts` (ledger stays frozen!) |
+| **add** a readiness/state signal | [RECIPES § readiness](RECIPES.md#add-a-readinessstate-signal) | `lib/readiness.ts` → `athlete-state.ts` → `coach-snapshot.ts` |
+| **debug** sync / data / a store file | [01-sync-and-data](systems/01-sync-and-data.md) | `app/api/sync/route.ts`, `lib/json-store.ts`, `npm run reset:today` |
+| **debug** an API route | [FILE_INDEX § routes](FILE_INDEX.md#appapi--routes) for the route → its lib modules | `lib/log.ts` output, `lib/client-api.ts` on the client side |
+| **build** or change UI | [08-frontend](systems/08-frontend.md) + [../DESIGN.md](../DESIGN.md) | `components/ui.tsx` primitives first |
+| **add** a page | [RECIPES § page](RECIPES.md#add-a-page) | `app/`, `components/`, `Nav.tsx` |
+| **add** an API route | [RECIPES § API route](RECIPES.md#add-an-api-route) | `app/api/`, logic in `lib/` |
+| **add** a validator | [RECIPES § validator](RECIPES.md#add-or-change-a-validator) | `schedule-validate.ts` / `workout-validate.ts` |
+| **add** a calibratable parameter | [RECIPES § calibration](RECIPES.md#add-a-calibratable-parameter) | `lib/calibration.ts`, `lib/correlation.ts` |
+| **change** physiology / zones | [RECIPES § physiology](RECIPES.md#change-physiology--zones) | `lib/physiology.ts`, `lib/zones.ts` |
+| **add** tests | [RECIPES § tests](RECIPES.md#add-tests) | colocated `*.test.ts` |
+| **turn over** a block (end → retro → next) | [RECIPES § block turnover](RECIPES.md#turn-over-a-block-end--retrospective--next-block) | — |
+| **decode** a term or a weird file name | [GLOSSARY.md](GLOSSARY.md), Ctrl+F (naming traps live there too) | — |
+| **know** what I must never break | [INVARIANTS.md](INVARIANTS.md) — scan the numbered contracts | — |
+| **understand** why it's built this way | [DECISIONS.md](DECISIONS.md) — all decision records, one file | — |
+| **know** what the app can do (user-facing) | [../FEATURES.md](../FEATURES.md) | — |
+| **know** what to work on next | [../ROADMAP.md](../ROADMAP.md) "State of the app" banner, then [../todo.md](../todo.md) | — |
+| **find** something that already shipped | [../ARCHIVE.md](../ARCHIVE.md) — grep by ID (HR-nn, UXA-nn, P1–P7, SUB-n) | — |
+| **run** / verify / commands | [../WORKFLOW.md](../WORKFLOW.md) cheat sheet | `npm run dev` · `npm run check` · `npm test` |
 
 ## Session rituals
 
@@ -67,28 +73,19 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 
 Never CONTINUE.md (that's `/handoff`'s), never `docs/superpowers/plans/` (immutable records).
 
-## The repo at a glance
+## Critical files & red flags
 
-| Where | What |
-|---|---|
-| `lib/` | The brain — 68 flat engine modules, tests colocated. Everything numeric happens here |
-| `app/` | 7 thin pages + 21 API routes (routes are IO shells over `lib/`) |
-| `components/` | UI. PascalCase = one component; lowercase = named-export module |
-| `data/` | The database: JSON files, gitignored, atomic writes + `.bak`. Don't hand-edit while judging behavior |
-| `knowledge-base/` | The athlete's coaching corpus (gitignored; committed skeleton in `knowledge-base-defaults/`) |
-| `docs/` | You are here. `systems/` = the pipeline; the rest is this page's one-click targets |
-| `proxy.ts` (root) | Next 16's middleware — CSRF guard on all `/api/*` |
-| `prototypes/`, `i-have-adhd/` | Bounded spike (fine); vestigial untracked clone (pending delete decision) |
+Repo layout: the seven-line table in [../README.md](../README.md). Folder rules: each folder's own README.
 
-**Critical files** (widest blast radius): `lib/types.ts` (999 lines, 54 importers) · `lib/json-store.ts` + `data-store.ts` (all persistence) · `lib/execution-score.ts` + `score-log.ts` (the frozen ledger) · `lib/season.ts` (925) · `app/api/sync/route.ts` (905) · `lib/anthropic-prompts.ts` (all prompt text) · `lib/coach-snapshot.ts` (the numbers every LLM surface reads).
+**Widest blast radius** (sizes/importers: [FILE_INDEX.md](FILE_INDEX.md)): `lib/types.ts` · `lib/json-store.ts` + `data-store.ts` · `lib/execution-score.ts` + `score-log.ts` (the frozen ledger) · `lib/season.ts` · `app/api/sync/route.ts` · `lib/anthropic-prompts.ts` · `lib/coach-snapshot.ts`.
 
-**Red flags — scan [INVARIANTS.md](INVARIANTS.md) before touching:** the ledger (append-only, frozen) · migration flags (truthy, never `=== null`) · "today" (must be `lib/date.ts` local, never UTC) · prompts (protocol numbers exist in 3 hand-synced copies) · `types.ts` (everything moves when it moves) · anything under `data/`'s shape.
+**Scan [INVARIANTS.md](INVARIANTS.md) before touching:** the ledger · migration flags · "today" dates · prompts (three-copy rule) · `types.ts` · `data/` shapes.
 
 ## For AI agents
 
-This page + [INVARIANTS.md](INVARIANTS.md) is your orientation; [FILE_INDEX.md](FILE_INDEX.md) replaces exploratory file reads; [GLOSSARY.md](GLOSSARY.md) has the naming traps (`trace.ts` ≠ tracing, `loading.ts` ≠ training load, model ≠ state, `system-prompt.test.ts` has no matching module). Operating law — concurrency, commit policy, recurring bug classes — is [../AGENTS.md](../AGENTS.md)/[../CLAUDE.md](../CLAUDE.md), not this file. Stack warning: Next.js **16** — read `node_modules/next/dist/docs/` before trusting training-data conventions. Verify with `npm run check`; changed AI paths additionally need one live smoke run.
+Orientation = this page + [INVARIANTS.md](INVARIANTS.md). Lookups: [FILE_INDEX.md](FILE_INDEX.md) (files), [RECIPES.md](RECIPES.md) (change procedures), [GLOSSARY.md § naming traps](GLOSSARY.md#naming-traps) (e.g. `trace.ts` ≠ LLM tracing). Operating law — concurrency, commit policy, recurring bug classes — is [../AGENTS.md](../AGENTS.md)/[../CLAUDE.md](../CLAUDE.md). Stack is Next.js **16** (check `node_modules/next/dist/docs/`); verify with `npm run check`; a changed AI path needs one live smoke run ([how](systems/07-ai-layer.md#debugging-a-bad-generation)).
 
 ## The full doc set (one question each)
 
 **Root:** README (what/why + setup) · FEATURES (what it does) · ROADMAP (what's next, stable IDs) · ARCHIVE (what shipped) · todo (live bugs) · DESIGN (visual tokens/rules) · UX-CONSTITUTION (UX decision law) · UX-MASTERPLAN (shipped UX redesign record) · WORKFLOW (daily commands/runbooks) · research (spikes, not commitments) · CONTINUE (session handoff, `/handoff` only) · AGENTS/CLAUDE (agent law).
-**docs/:** COMPASS (this) · [systems/01–08](systems/) (the pipeline) · RECIPES (how to make changes) · FILE_INDEX (where everything is) · INVARIANTS (what never breaks) · DECISIONS (why it's built this way) · GLOSSARY (terms + traps) · specs/ (design specs) · superpowers/ (immutable plans + stamped specs).
+**docs/:** COMPASS (this) · [systems/01–08](systems/) (the pipeline) · RECIPES (how to make changes) · FILE_INDEX (where everything is) · INVARIANTS (what never breaks) · DECISIONS (why it's built this way) · GLOSSARY (terms + traps) · specs/ (design specs) · superpowers/ (immutable plans + stamped specs) · folder READMEs (`lib/`, `app/`, `components/`, `knowledge-base-defaults/`) — local rules, read alongside FILE_INDEX.

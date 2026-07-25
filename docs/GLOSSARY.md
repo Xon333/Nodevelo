@@ -25,7 +25,7 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 | **Block** | The unit the athlete generates and trains through: 2/4/6/8 weeks, one season focus, exact per-week hour targets, day-by-day prescriptions. Stored in `data/current-block.json`. |
 | **Focus period / mesocycle** | `season.ts`'s `FocusPeriod` — 1–4 weeks, the season engine's unit. A block can span or sit inside periods. |
 | **Season focus** | One of aerobic-base / threshold / vo2max / anaerobic / durability / sharpen. |
-| **Rolling mode** | No upcoming A-event: each block's focus is chosen fresh by the scored **coverage selector** (`chooseNextFocus`: goal-relevance × decay-urgency × trainability × execution-quality + limiter bonus). |
+| **Rolling mode** | No upcoming A-event: each block's focus is chosen fresh by the scored coverage selector — see [05-season § coverage selector](systems/05-season.md#the-coverage-selector). |
 | **Event-anchored mode** | An A-priority event exists: taper→peak→build are backward-scheduled from race day. Currently **feature-flagged off** (`SEASON_SHAPES_GENERATION = false` in `lib/season.ts`, since 2026-07-16). |
 | **Deload / recovery week** | ~60% of loading-week hours, due every 3–4 weeks — derived from *real ride history* (`realWeeksSinceLastRecovery`), not a counter. |
 | **Durability template (A–E)** | Five hardwired long-ride structures (`lib/durability.ts`), each training a different fatigue-resistance mechanism; selected deterministically per block. |
@@ -41,7 +41,7 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 | **Execution score** | The deterministic 1–10 quality grade for every ride (`lib/execution-score.ts`) — interval adherence, intensity-vs-type bands, easy-day discipline, durability delivery, pacing, RPE gap. |
 | **Compliance** | Duration completed ÷ prescribed, **capped by execution** (the trust guarantee: a sub-5/10 session can never show 100%). |
 | **Adherence** | Interval-day specific: average rep power vs prescribed target (`lib/interval-match.ts`, matched by duration to resist surge false-matches). |
-| **Ledger** | The append-only `RideScoreEntry[]` in `data/score-log.json`. Past entries are frozen with provenance stamps (FTP used, calibration, fuel, form state); only today keeps re-deriving. Capped at 400 entries. |
+| **Ledger** | The append-only `RideScoreEntry[]` in `data/score-log.json`. Past entries are frozen with provenance stamps — see [02-scoring](systems/02-scoring-and-learning.md); only today keeps re-deriving. |
 | **Athlete model** | Slow-moving learned model from the whole ledger (`lib/athlete-model.ts`): per-type EWMA execution quality, trends, behaviour → ranked `Insight[]`. |
 | **Athlete state** | Fast "right now" 0–100 fused score (`lib/athlete-state.ts`): TSB + ACWR + execution EWMA + aerobic efficiency + behaviour, with a lived-signal override that caps a fresh-looking score when corroborated fatigue contradicts it. Spec: [specs/athlete-state.md](specs/athlete-state.md). |
 | **Coach snapshot** | The one resolved-numbers bundle (`lib/coach-snapshot.ts`) every LLM surface reads, so Ask-Coach and generation can't disagree and the model never invents a number. |

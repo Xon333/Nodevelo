@@ -28,15 +28,23 @@ flowchart TD
 
 ### Design details worth knowing (defensive by intent)
 
+#### Adherence & compliance mechanics
+
 - **Adherence reads average watts, not NP** — NP overstates short/variable efforts by 20%+; average power is what the athlete actually held. NP is still used to *filter* warm-up/recovery laps out of the work band.
 - **Duration-aware completion** — a rep nailed on watts but cut short isn't a full rep; only reps holding ≥90% of prescribed duration count as completed.
 - **Structural-mismatch guard** — when every rep ran ~half its prescribed length but power and rep count matched, that's a plan-definition-vs-detection mismatch (e.g. a SIT day stored as 1-min reps, ridden as 30s): the untrustworthy duration penalty is dropped, and the UI explains why. Extra efforts beyond the prescribed count surface as bonus context, never silently dropped.
 - **Easy rides are judged on HR, not power.** Outdoor Z2 *power* is unholdable (descents, corners spike watts), so power-zone time and VI are reward-only on Z2/Recovery days. The judge is `mergedEasyRead`: the HR-zone read (time above the aerobic ceiling — terrain-immune) merged with the ride's Pw:HR efficiency vs the athlete's own 90-day baseline. Dialed HR earns +1 unless efficiency is hollow (0); drift is neutral unless efficiency corroborates it (−2); running hot is always −4 (the overtraining guardrail). Never applied off-plan or to durability templates B–E, where embedded efforts are the point.
 - **Interval days are born interval-aware** — a bounded birth-time fetch at sync (≤6 dates, newest first, best-effort) picks up late-synced rides so a quality day isn't frozen with a coarse score forever; the adherence signal is frozen onto the entry (`RideScoreEntry.intervals`) so a rebuild can re-score without re-fetching.
+
+#### PR & FTP handling
+
 - **PRs are curve-vs-curve** (`lib/pr.ts`): the fresh power curve against the previous sync's curve, per standard duration — both sides Intervals.icu's own math, so no stream-vs-curve mismatch (which used to manufacture fake +1W PRs).
-- **The model's numbers**: EWMA α = 0.35 (adaptive via calibration), trend = split-half mean comparison with an epsilon band, minimum 3 observations before any pattern fires.
 - **FTP anchoring**: each ledger entry prefers the ride's own `icu_ftp` (Intervals.icu's per-activity record — exact even when an FTP change synced late), falling back to `physiologyAsOf(rideDate)`. Zones store as **% of FTP** so one FTP change updates every zone coherently — scalar/zone drift is structurally impossible.
+
+#### Long-term markers & model numbers
+
 - **FTP-independent markers are the long-term backbone** (they survive FTP redefinition): Pw:HR/EF — deliberately like-for-like: **outdoor** rides only (indoor ERG flattens power:HR), steady endurance band, ≥45 min; and the fueling/weight graph aggregates **complete weeks only** (an in-progress week's totals are misleadingly low).
+- **The model's numbers**: EWMA α = 0.35 (adaptive via calibration), trend = split-half mean comparison with an epsilon band, minimum 3 observations before any pattern fires.
 
 ## The ledger (`lib/score-log.ts`, 411 lines)
 
@@ -58,7 +66,7 @@ Replaces population magic numbers with athlete-derived values *only when honestl
 
 ## Where each piece runs
 
-Scoring happens inside `POST /api/sync` (see [data-and-sync.md](01-sync-and-data.md)); the model/insights are computed on demand by `/api/trends`, `/api/generate`, `/api/write`; interventions are recorded at write time and validated at sync time.
+Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-data.md)); the model/insights are computed on demand by `/api/trends`, `/api/generate`, `/api/write`; interventions are recorded at write time and validated at sync time.
 
 ## Common modifications
 

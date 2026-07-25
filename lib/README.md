@@ -5,7 +5,8 @@ Every number, decision, and validation in NodeVelo is computed here. Flat on pur
 - **Per-file map**: [docs/FILE_INDEX.md](../docs/FILE_INDEX.md)
 - **How the subsystems fit together**: [docs/COMPASS.md](../docs/COMPASS.md) → [docs/systems/](../docs/COMPASS.md#the-mental-model-60-seconds)
 - **Hard contracts before you edit**: [docs/INVARIANTS.md](../docs/INVARIANTS.md)
-- **Name traps**: `loading.ts` = carb-loading · `trace.ts` = ride chart, not LLM tracing · `athlete-model` (history) vs `athlete-state` (today) · `durability` (select) vs `durability-score` (grade). Full list: [docs/GLOSSARY.md](../docs/GLOSSARY.md#naming-traps)
+- **Shared types**: almost every module imports `lib/types.ts` (999 lines, 54 importers) — check whether your field/type belongs there before defining locally, and expect wide ripples when touching it. New/renamed module → update its row in [docs/FILE_INDEX.md](../docs/FILE_INDEX.md) (hand-maintained).
+- **Name traps**: `loading.ts` = carb-loading, `trace.ts` = ride chart — full list: [docs/GLOSSARY.md](../docs/GLOSSARY.md#naming-traps)
 
 ## House rules
 

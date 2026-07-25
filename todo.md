@@ -28,4 +28,6 @@ through HR-59) fixed → [ARCHIVE.md](ARCHIVE.md) "Hostile review — block/sync
 
 ---
 
+- ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
+
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).

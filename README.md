@@ -40,21 +40,13 @@ The full rationale behind these (and five more standing decisions) lives in
 
 ## How it works — one loop
 
-```mermaid
-flowchart LR
-  A[Rides sync in] --> B[Scored → immutable ledger\n→ athlete model]
-  B --> C[Daily readiness &\ntoday's guidance]
-  B --> E[Season picks the\nnext focus]
-  E --> F[Claude writes the block —\nvalidators check it]
-  F --> G[You accept → calendar\nevents on Intervals.icu]
-  G --> A
-```
+**Rides sync in → every ride is scored into an immutable ledger → the ledger teaches a per-athlete model → the season engine picks the next focus → Claude writes the training block (the plan) inside hard numeric constraints → validators check it → you accept → calendar events land on Intervals.icu → repeat.** The canonical diagram of this loop lives at the top of [docs/COMPASS.md](docs/COMPASS.md#the-mental-model-60-seconds).
 
 Each stage is one numbered doc in [docs/systems/](docs/systems/) — read them in order
 (`01-sync-and-data` → `06-generation`, plus cross-cutting `07-ai-layer` and `08-frontend`) and you
 have the whole architecture. Every doc opens with *why the system exists* before *how it works*.
 
-## The repository in eight lines
+## The repository in seven lines
 
 | | |
 |---|---|
@@ -65,7 +57,8 @@ have the whole architecture. Every doc opens with *why the system exists* before
 | `knowledge-base/` | Your coaching corpus (gitignored; committed skeleton in `knowledge-base-defaults/`) |
 | `docs/` | The knowledge system — start at [COMPASS.md](docs/COMPASS.md) |
 | `proxy.ts` | Next 16 middleware: CSRF guard on every `/api/*` route |
-| Each folder has a `README.md` answering "what is this, what are the rules here" | |
+
+Each of the four code/data folders has its own `README.md` stating what it is and the rules that apply inside it.
 
 ## Setup
 
@@ -97,9 +90,9 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 
 ```bash
 npm run check     # tsc + lint + vitest — the verification loop
-npm test          # vitest only; nearly every lib/ module has a colocated *.test.ts
-npm run reset:today  # dev-only: clear today's analysis, re-sync to recompute
 ```
+
+Full command table (dev servers, reset, skills): [WORKFLOW.md](WORKFLOW.md).
 
 Making a change? [docs/RECIPES.md](docs/RECIPES.md) has the exact steps per change type.
 Touching persistence, prompts, dates, or the ledger? Scan
@@ -110,7 +103,8 @@ Touching persistence, prompts, dates, or the ledger? Scan
 | You are… | Go to |
 |---|---|
 | New here, want the full picture | [docs/COMPASS.md](docs/COMPASS.md) → the numbered [docs/systems/](docs/systems/) in order (~30 min) |
-| Here to change something specific | [docs/COMPASS.md](docs/COMPASS.md) "I need to…" table |
-| Wondering what the app can do | [FEATURES.md](FEATURES.md) |
-| Looking for what's next / what shipped | [ROADMAP.md](ROADMAP.md) / [ARCHIVE.md](ARCHIVE.md) |
+| Here to change something | [docs/COMPASS.md](docs/COMPASS.md) "I need to…" table |
+| Running it day-to-day | [WORKFLOW.md](WORKFLOW.md) — commands, skills, runbooks |
 | An AI coding agent | [AGENTS.md](AGENTS.md), then [docs/COMPASS.md](docs/COMPASS.md) |
+
+Capabilities live in [FEATURES.md](FEATURES.md), the forward backlog in [ROADMAP.md](ROADMAP.md), shipped history in [ARCHIVE.md](ARCHIVE.md), live bugs in [todo.md](todo.md).

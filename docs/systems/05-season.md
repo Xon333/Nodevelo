@@ -39,10 +39,19 @@
 
 `suggestedBlockWeeks` pre-fills the generator's length selector (2/4/6/8) by ceiling-rounding the current period's remaining weeks; `filterGoalsByFocus` narrows the goal-textarea pre-fill to goals tagged with the current focus plus `"general"`-tagged ones — both are overridable pre-fills, never locks. Once a block's `endDate` passes, the Today page proactively nudges "generate the next block" (`isBlockFinished`, a pure date check) instead of sitting on stale copy.
 
-## Known debt & the flag decision
+## Known rough edges
+
+#### Known debt & the flag decision
 
 Open items and the residual `exposureFromSessions` gap are tracked in [ROADMAP.md](../../ROADMAP.md) ("Season engine" section + P7 entry) — that file, not this one, is current for open work. The `SEASON_SHAPES_GENERATION` rollout decision record: `docs/superpowers/specs/2026-07-17-season-architecture-redesign-design.md`.
 
-## Splitting warning
+#### Splitting warning
 
 `season.ts` carries four concerns side by side (coverage selector, event backward-scheduling, validators, prompt formatters) — a natural 4-way split if it grows further. Don't extract partially; the validators and formatters share internal helpers with the selectors.
+
+## Common modifications
+
+| Change | Where |
+|---|---|
+| Focus selection weights | `season.ts` — `scoreFocusCandidates` |
+| New focus input | `season-signals.ts` |

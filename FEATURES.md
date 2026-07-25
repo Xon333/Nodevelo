@@ -57,8 +57,9 @@ AI — and the AI only ever phrases numbers the code already computed.
 
 ## Block generation (Plan page)
 - **Goal-driven, KB-grounded generation** — knowledge base + live zones + athlete-model insights +
-  retrospective seeds + season context + a deterministic nutrition table → `claude-sonnet-4-6` via
-  **structured tool-use** → validated `PlannedDay[]`. `app/api/generate`, `lib/anthropic-api.ts`, `lib/plan-schema.ts`
+  retrospective seeds + season context + a deterministic nutrition table → the generation model (see
+  [07-ai-layer](docs/systems/07-ai-layer.md)) via **structured tool-use** → validated `PlannedDay[]`.
+  `app/api/generate`, `lib/anthropic-api.ts`, `lib/plan-schema.ts`
 - **Feasibility pre-check + deterministic week targets** — `checkBlockFeasibility` refuses an
   infeasible `BlockSettings` combination with a 400 before spending an LLM call; `computeWeekTargets`
   sets one exact hour figure per week (recovery depth derived from the loading target, clamped 6–8h),

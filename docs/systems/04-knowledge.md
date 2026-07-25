@@ -37,4 +37,11 @@ Debugging "what prior-block context fed this generation" therefore requires chec
 
 - KB files are the athlete's voice — agents don't rewrite `knowledge-base/` content on their own initiative.
 - `knowledge-base-defaults/` **is** in docs-sweep scope (real user-facing copy, not fixture).
-- Protocol numbers in `training_knowledge.md` have two hand-synced shadows (prompt hard rules, validator bands) — see [INVARIANTS](../INVARIANTS.md).
+- Protocol numbers in `training_knowledge.md` have three hand-synced copies — KB prose, prompt hard rules, validator bands (INVARIANTS #17) — see [INVARIANTS](../INVARIANTS.md).
+
+## Common modifications
+
+| Change | Where |
+|---|---|
+| KB file set / order | `lib/kb-loader.ts` — `KB_ORDER` |
+| Retrospective schema | The frontmatter contract above + `kb-loader.ts` parsers |

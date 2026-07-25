@@ -58,7 +58,7 @@ Why NodeVelo is built the way it is — ten standing architectural decisions in 
 
 **Decision.** `lib/physiology.ts` keeps an effective-dated history (`data/physiology.json`), reconciled from Intervals.icu sport settings on each sync. Consumers resolve values *as of a date* (`physiologyAsOf`); the ledger additionally freezes `ftpUsed` onto each entry at scoring time.
 
-**Consequences.** Past rides stay judged by the rules that were live then — the ledger's immutability (ADR-0007 (below/above)) is meaningful because its inputs are pinned too. `physiology.json` is the FTP/zones source of truth; `athlete.json`'s performance numbers are an overlay at read time, and the KB markdown is prose, not the source.
+**Consequences.** Past rides stay judged by the rules that were live then — the ledger's immutability (ADR-0007, below) is meaningful because its inputs are pinned too. `physiology.json` is the FTP/zones source of truth; `athlete.json`'s performance numbers are an overlay at read time, and the KB markdown is prose, not the source.
 
 ---
 
@@ -66,7 +66,7 @@ Why NodeVelo is built the way it is — ten standing architectural decisions in 
 
 **Context.** The learning loop (athlete model, calibration, interventions) is only honest if its evidence can't shift under it. If improving the scorer retro-scored history, every trend would be an artifact of the latest code.
 
-**Decision.** `data/score-log.json` is append-only: one entry per date, frozen once the day passes, stamped with the exact inputs used (FTP, calibration values, fuel, NP fallback, form state). Scoring changes apply forward. Named invariants LEDGER-1 (a rebuild can never un-plan a frozen entry) and LEDGER-2 (append-only merge) are enforced in `score-log.ts`; the one-shot corrective rebuild is gated by `data/ledger-rebuild.json` (truthy check) and was run once, with a manual pre-rebuild snapshot kept on disk.
+**Decision.** `data/score-log.json` is append-only: one entry per date, frozen once the day passes, stamped with the exact inputs used (see [02-scoring-and-learning](systems/02-scoring-and-learning.md) § The ledger). Scoring changes apply forward. Named invariants LEDGER-1 (a rebuild can never un-plan a frozen entry) and LEDGER-2 (append-only merge) are enforced in `score-log.ts`; the one-shot corrective rebuild is gated by `data/ledger-rebuild.json` (truthy check) and was run once, with a manual pre-rebuild snapshot kept on disk.
 
 **Consequences.** Trends are comparable across scorer versions; "compromised" dispositions exclude entries from teaching without erasing them. Cost: schema evolution needs idempotent backfills (`sync-ledger.ts`) instead of rewrites, and old entries carry old logic's scores forever — by design.
 
@@ -98,7 +98,7 @@ Why NodeVelo is built the way it is — ten standing architectural decisions in 
 
 **Decision.** One precedence rule, implemented once (`calibration.trustedCalibration`): **manual override** (athlete says so) beats **derived** (only when the ledger honestly *discriminates* — the derived edge must separate failures from successes by a margin, via `correlation.ts`'s guarded derivers) beats **population default**. Non-discriminating signals fall back to the default rather than pretending. Import direction is one-way: calibration consumes correlation, never the reverse.
 
-**Consequences.** Every calibrated parameter carries confidence/provenance and is contestable in the UI (`CalibrationPanel`). New "magic numbers" should enter as calibratable parameters through this path, not as fresh literals. The derivations re-run on each sync from the frozen ledger (ADR-0007 (below/above)), so they're reproducible.
+**Consequences.** Every calibrated parameter carries confidence/provenance and is contestable in the UI (`CalibrationPanel`). New "magic numbers" should enter as calibratable parameters through this path, not as fresh literals. The derivations re-run on each sync from the frozen ledger (ADR-0007, above), so they're reproducible.
 
 ---
 

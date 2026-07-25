@@ -47,6 +47,13 @@ Navigation (`components/Nav.tsx`): three tiers — primary (Today/Plan/Trends), 
 
 Component tests exist only around the Plan/generation flow (8 files: PlanPreview, PowerCurveChart, RescheduleBanner, SeasonRoadmap, SyncProvider, BlockGenerator, PlanView, dashboard/plan). Today/Model/Profile/Settings/Knowledge components have none — but their underlying `lib/` logic is thoroughly unit-tested. Component tests use per-file `/** @vitest-environment jsdom */` docblocks (infra added 2026-07-23).
 
-## Big files (split candidates, in order)
+## Known rough edges
 
-`dashboard/today.tsx` (740 — `TodayRideCard` alone ~385), `AthleteProfileForm.tsx` (712, five distinct sections), `dashboard/plan.tsx` (604). Precedent for extraction: `SeasonSection` was already split out of the profile form.
+- **Big files (split candidates, in order):** `dashboard/today.tsx` (740 — `TodayRideCard` alone ~385), `AthleteProfileForm.tsx` (712, five distinct sections), `dashboard/plan.tsx` (604). Precedent for extraction: `SeasonSection` was already split out of the profile form.
+
+## Common modifications
+
+| Change | Where |
+|---|---|
+| New page | [RECIPES § page](../RECIPES.md#add-a-page) |
+| New shared primitive | `components/ui.tsx` |

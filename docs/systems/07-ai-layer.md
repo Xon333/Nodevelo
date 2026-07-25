@@ -59,8 +59,17 @@ There is **no LLM trace module** (`lib/trace.ts` is the ride power chart). The d
 
 **Standing rule (AGENTS.md):** unit tests + green build only prove the deterministic scaffolding. Any new/changed AI path needs **one live smoke run** with the real API before it's "done".
 
-## Known scatter (accepted, documented)
+**What a smoke run is:** run the feature once against the live API — `npm run dev`, trigger the actual flow (generate a block / re-analyse today / ask the coach), then READ the output and check `data/ai-usage.json` recorded the call. A green build is not a smoke run.
+
+## Known rough edges
 
 - Interval-protocol numbers exist in three hand-synced places: KB prose, `buildUserMessage` hard rules, `workout-validate.PROTOCOL`. See [INVARIANTS](../INVARIANTS.md).
 - Ask-coach sends no `system` param at all (persona lives in its user message) — inconsistent with other call sites but intentional-ish; know it before "fixing" it.
 - `ask-coach.test.ts` / `system-prompt.test.ts` test code that lives in `anthropic-prompts.ts` — there are no modules by those names.
+
+## Common modifications
+
+| Change | Where |
+|---|---|
+| Prompts | [RECIPES § generation](../RECIPES.md#change-generation-behavior-prompt-rules-output-shape) |
+| New LLM call site | Follow the six-call-site pattern above |

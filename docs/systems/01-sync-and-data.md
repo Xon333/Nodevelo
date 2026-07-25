@@ -67,8 +67,16 @@ Every block-mutating route (`write`, `sync` DELETE, `reschedule`, `retrospective
 - **Logging**: `lib/log.ts` — one JSON line per error/warn with `{route, step, status}`; no framework.
 - **Client fetch**: `lib/client-api.ts` (`api<T>()` unwraps `{error}` payloads into thrown Errors).
 
-## Oddities you'll meet in `data/`
+## Known rough edges
 
 - `block-settings.json` / `loading-log.json` may not exist — code falls back to defaults until first write (this is the migration-flag `undefined` case in the wild).
 - `score-log.json.pre-rebuild-<epoch>.bak` — a **manual** pre-migration snapshot; no code writes this pattern.
-- `data/*.md` don't exist — the markdown corpus lives in `knowledge-base*/` ([knowledge-system.md](04-knowledge.md)).
+- `data/*.md` don't exist — the markdown corpus lives in `knowledge-base*/` ([04-knowledge.md](04-knowledge.md)).
+
+## Common modifications
+
+| Change | Where |
+|---|---|
+| New persisted store | `lib/data-store.ts` + `json-store.ts` — decide CRITICAL (`.bak`) or derived |
+| New sync pipeline stage | `app/api/sync/route.ts`; extract pure logic into `lib/` for testability |
+| Calendar behavior | `lib/calendar-mirror.ts` |

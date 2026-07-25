@@ -24,9 +24,25 @@ One recipe per change type: the files, the order, the trap. (Distinct from root 
 Read [systems/06-generation.md](systems/06-generation.md) first.
 - **Wording/rules** → `lib/anthropic-prompts.ts` (pure — iterate offline in its tests). Bump `PROMPT_VERSION` in `anthropic-api.ts` for structural changes.
 - **Output shape** → `lib/plan-schema.ts` (`weeks` stays before `overview`).
-- **Interval-protocol numbers** → the three-copy trap: KB + hard rules + `workout-validate.PROTOCOL`, together.
+- **Interval-protocol numbers** → the three-copy trap: KB + hard rules + `workout-validate.PROTOCOL`, together ([INVARIANTS #17](INVARIANTS.md)).
 - **Volume/week logic** → `lib/block-skeleton.ts` (keep the feasibility gate and `validateWeekHours` in agreement).
 - Finish with **one live generation** and read the output (AGENTS.md rule).
+
+## Turn over a block (end → retrospective → next block)
+
+The first turnover happened and was confirmed clean (2026-07-22 → ARCHIVE.md) — `block-history.json`
+and `intervention-log.json` both exist with real entries. Kept as a reusable reference for any
+future turnover, attended or not.
+
+1. **Backup first:** `GET /api/export` → save the bundle off-machine. The retro clears `current-block.json` — this is the undo.
+2. Sync (`POST /api/sync`) so the final rides are scored into the ledger.
+3. `POST /api/retrospective` — **read the generated retro** (live LLM smoke run per AGENTS.md; judge the narrative + seeds for sanity).
+4. Verify: `data/block-history.json` has a new entry, `days` non-empty, `nextBlockSeeds` non-empty.
+5. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` land on the NEW
+   block's `current-block.json` here, not on the retrospective's `block-history.json` entry.
+6. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.
+7. Confirm `/today` shows the new block's first session; the block-completion nudge is gone.
+   - **If any step fails:** stop, `POST /api/import` the backup, report — do not improvise against live data.
 
 ## Add or change a validator
 
@@ -72,7 +88,7 @@ Follow the closing ritual's ownership table in [COMPASS.md](COMPASS.md#session-r
 
 1. `lib/types.ts` — extend the `WorkoutType` union (widest blast radius in the repo; `npm run check` will surface every switch that needs a case).
 2. `lib/workout-types.ts` — add its `TYPE_STYLES` entry (badge/cell/accent classes; literal Tailwind strings).
-3. `lib/workout-validate.ts` — a `PROTOCOL` entry if it's a quality type with intensity/duration bands. Remember the three-copy rule: the same bands must appear in the KB prose and `buildUserMessage`'s hard rules.
+3. `lib/workout-validate.ts` — a `PROTOCOL` entry if it's a quality type with intensity/duration bands. Remember the three-copy rule: the same bands must appear in the KB prose and `buildUserMessage`'s hard rules ([INVARIANTS #17](INVARIANTS.md)).
 4. `lib/anthropic-prompts.ts` — teach the generation rules when/how to prescribe it; bump `PROMPT_VERSION`.
 5. Check the type-sensitive engines: `execution-score.ts` (how is it graded?), `schedule-validate.ts` (freshness class for sequencing), `ride-classify.ts` (off-plan inference), `session-requirements.ts` (can goals require it?).
 6. One live generation smoke run; verify the new type renders on Plan/Today with its styles.
