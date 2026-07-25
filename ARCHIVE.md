@@ -12,6 +12,188 @@ exact commits.
 
 ---
 
+## Block-generation architecture redesign — P1–P7 (2026-07-24)
+
+Prompted by a real 6-week block review: every non-recovery week missed its own explicit hour floor,
+SIT/neuromuscular work vanished from the back half despite the block's own overview claiming
+otherwise, a loading week skipped its standalone Threshold session entirely, zero VO2max sessions
+fired despite VO2max being the profile-flagged FTP limiter, and a priority-B goal event got no taper
+support at all. A research pass (TrainerRoad/Xert/TrainingPeaks/Intervals.icu/JOIN Cycling,
+open-source plan-generator repos, coaching-forum consensus) plus a full re-audit of `lib/season.ts`/
+`lib/anthropic-prompts.ts` found root cause: `SEASON_SHAPES_GENERATION` bundled two independent
+things — the doubted fixed-phase event arc AND the *not*-doubted, already-tested rolling/support
+layer (`chooseNextFocus`, `validateBlockFocus`, etc.) — so disabling one disabled both. Produced a
+7-part plan (P1–P7). Commits `b478e84` (P1, P4, P2a-d, P3a-c) and `5ba1797` (P5).
+
+- **P1 — split the flag.** Kept the event-anchored bundle (`formatSeasonContext`,
+  `validateSeasonFit`/`validateFocusMatch`) behind `SEASON_SHAPES_GENERATION`; reconnected the
+  rolling/support bundle (`formatFocusContext`, `formatRecoveryWeeks`, `formatRetestNote`,
+  `validateBlockFocus`, `/api/season`'s outlook) unconditionally in `app/api/generate/route.ts` and
+  `app/api/season/route.ts`. 1337 tests, live-smoked twice (a real block correctly opened with a
+  recovery week, citing "the ≥4-week gap since the last light week").
+- **P2 — deterministic per-block skeleton, 4 sub-phases** (new `lib/block-skeleton.ts`). P2a
+  `checkBlockFeasibility` refuses an infeasible `BlockSettings` combo with a 400 before spending an
+  LLM call. P2b `computeWeekTargets`/`formatWeekTargets`/`validateWeekHours` — one exact hour figure
+  per week (replacing the old min-max range), recovery depth derived from the loading target (60%,
+  clamped to a widened 6–8h) instead of blind to it. P2c `lib/season.ts:
+  focusSessionMatchers`/`formatFocusCoverageLine` — the chosen focus injects a mandatory "include ≥1
+  {type} session" requirement. P2d `lib/plan-schema.ts` — `weeks` declared before `overview` so
+  Claude fills every day before writing the summary. 34 new/updated tests (1360 total), live-smoked
+  twice. Net effect: recovery depth and coverage requirements land reliably; hour-target and
+  taper-week compliance are narrowed, not perfect (tracked open → [ROADMAP.md](ROADMAP.md)).
+- **P3a/b/c — tiered post-generation validators** (P3d/e deliberately deferred, tracked open in
+  ROADMAP). P3a new `lib/nutrition-validate.ts: repairNutrition` auto-corrects a kcal mismatch
+  instead of warn-only (live-confirmed: an invented 3000 kcal figure corrected to 3810). P3b
+  `lib/workout-validate.ts` exempts sub-90s VO2max touches from the 122%/20-min durability-insert
+  ceiling check (a KB-sanctioned neuromuscular pattern, not a malformed insert). P3c new
+  `lib/narrative-critic.ts` + `lib/anthropic-api.ts: critiqueOverview` — a cheap follow-up call
+  fact-checks the written overview against deterministically-extracted per-week facts and rewrites it
+  if it disagrees. 20 new/updated tests (1380 total), live-smoked: fired and corrected a real
+  overview, but a later run still let a "4-hour" mis-description of a 200-minute ride through —
+  inconsistent, not proven broken.
+- **P4 — a lightweight taper tier for priority-B/C events.** New `lib/schedule-validate.ts:
+  validateEventTaper` — no quality session in the final 2 days before the event, capped quality
+  budget for its own week; paired with a strengthened prompt cue in `formatUpcomingEventsForBlock`. 9
+  new tests, live-smoked against the athlete's real KOM event (the block opened with a recovery week,
+  zero other quality that week).
+- **P5 — temporal sequencing + one primary quality per block.** RaceSim relaxed from a
+  per-loading-week requirement to sporadic/block-wide (`lib/session-requirements.ts`) — athlete
+  direction: the block's primary quality takes priority over RaceSim for the shared weekly budget.
+  P5a `lib/season.ts: validatePrimaryQualityCadence` — the chosen focus's matching session must
+  appear in every loading week. P5b `lib/schedule-validate.ts: validateWeekSequencing` —
+  freshness-dependent quality (VO2max/SIT) must land earlier in the week than fatigue-tolerant quality
+  (Threshold/RaceSim). 24 new/updated tests (1394 total), live-smoked: the model correctly reordered
+  SIT-before-Threshold, and the narrative critic's correction was fully accurate. Real gap found: the
+  KOM event's own week still stacked 3 quality sessions and a hard embedded-effort long ride still
+  landed the day before the event — `validateEventTaper`'s 2-day rule only covers standalone quality
+  types, not embedded-effort Z2 days (tracked open → ROADMAP).
+- **P7 (verify, not a fix).** `chooseNextFocus` closes the literal fixed-sequence bug —
+  `aerobic-base` is no longer an unconditional first phase, it's one of five scored candidates every
+  block, so the athlete's literal worry ("always assigning base regardless of existing fitness") no
+  longer happens by construction. A narrower residual gap survives: the urgency signal only sees
+  NodeVelo-generated block history (tracked open, not scheduled → ROADMAP).
+
+**Was a more drastic re-architecture warranted instead of P1–P7?** Evaluated explicitly: 11 candidate
+architectures (LLM-as-copywriter over a fully deterministic skeleton; a library+guided-search engine;
+a hard constraint solver; a two-clock macro-envelope/weekly-fill split; full rolling-horizon
+generation with no block concept; a TrainerRoad-style per-zone progression-level state machine; a
+Xert-style soft-phase+daily-override hybrid; a backward-from-event planner with block length as an
+output; a generate→LLM-critique→repair loop; a forecast-only "flight simulator"; a negotiation UX
+where the LLM only translates feedback into constraint edits) were scored against this app's real
+constraints — solo maintainer, the mission's own "not a re-skin of Intervals.icu" line, the
+review-before-write ritual as a deliberately-built explainability feature, the deterministic infra
+already working, and the decisive fact: the athlete model runs at n=1–8 observations per type, below
+its own confidence gates, with first learning-loop verdicts maturing ~2026-08-12. **Verdict: P1–P7
+already is the correctly-sized drastic change** — it strips the LLM of exactly the structural
+authorship where every reviewed-block defect occurred, and most surviving candidates decompose into
+ingredients P1–P7 already contains. Re-architecting toward a data-hungry primitive now would reset
+the exact corpus the app's whole thesis depends on, right as it starts accruing.
+
+**Held for a scheduled reopen, not rejected:** the TrainerRoad-style per-zone progression-level state
+machine — the most genuinely interesting drastic option from this evaluation, blocked purely by data
+thinness. Reopen once per-type observation counts clear the athlete-model's own ≥3-obs gates (watch
+after the 2026-08-12 verdict maturation).
+
+**Eliminated outright (don't re-propose without a real reason):** a full constraint solver (the one
+good idea — refuse to silently arbitrate an over-constrained ask — is already in P2a as a plain
+pre-check); full rolling-horizon generation with no block concept (deletes real look-ahead value,
+turns review into something that only catches failures after they're ridden); a full
+backward-from-event planner as the *primary* generative move (makes a mostly-empty, self-declared
+event calendar the highest-authority input for no real gain over P4's lightweight tier).
+
+All `tsc`/lint clean throughout. Remaining open gaps (P3d/e, P6, the P4/P5 event-week overstack, P7's
+urgency-signal gap) and full file/line-level scoping → [ROADMAP.md](ROADMAP.md) "Season engine —
+known debt."
+
+---
+
+## Hostile review — block/sync/archive data flows (HR-2026-07-23)
+
+Prompted by a real bug: the athlete deleted their active block; it vanished from the UI but came back
+on refresh. Root cause (found and fixed same-session, not part of this round): `readJsonFile` treated
+a legitimately-parsed `null` — exactly what `current-block.json` holds when there's no active block —
+as a failed read, and silently fell back to the `.bak` snapshot (the pre-write content, i.e. the just-
+deleted block). This round: 4 parallel review passes (data-store mechanics, API route correctness,
+client-side state, block-history archival) hunting the same *class* of bug — silent data loss/
+resurrection in the read-modify-write paths around blocks, sync, and archiving. 35 raw findings,
+deduped to 29 (6 pairs found independently by two agents). Continues the HR- series (append, not
+renumber). All 29 fixed same session. Commits `6dffb3a`..`a8df100`.
+
+**P1 — correctness / data-integrity**
+- **HR-31** — `mergeCurrentBlockDays` (`lib/data-store.ts`) no longer falls back to the caller's
+  pre-write snapshot when the on-disk block reads back `null` — a cleared block stays cleared. Dropped
+  the now-pointless `fallback` parameter (4 call sites). Regression test reproduces the exact
+  resurrection sequence (write → delete → merge).
+- **HR-32** — All 3 archive sites (sync DELETE, write-replace, retrospective) now accept a
+  client-supplied `today` (`resolveToday`) instead of hardcoding `utcToday()`, threaded from
+  `PlanView.tsx`'s `localToday()`.
+- **HR-33** — `/api/retrospective` POST now accepts `expectedBlockCreatedAt` and reuses
+  `lib/block-version.ts`'s CAS check before the live LLM call.
+- **HR-34** — `PlanPreview` gets its own `writeError` prop instead of `PlanView.tsx` misusing
+  `generateError`.
+
+**P2 — high-value correctness**
+- **HR-35** — `updateCurrentBlock`/`mergeCurrentBlockDays` take an optional `expectedCreatedAt`,
+  re-compared INSIDE the per-file lock — a real compare-and-swap, threaded through all 4
+  block-mutating routes (sync DELETE, write, reschedule, retrospective).
+- **HR-36** — New locked `updateInterventionLog` (`lib/data-store.ts`); removed the orphaned unlocked
+  `writeInterventionLog`.
+- **HR-37** — `appendBlockHistory` now checks inside the lock whether the entry it's about to displace
+  carries a `retrospective` the incoming one lacks — the richer entry always wins.
+- **HR-38** — `app/api/write/route.ts` snapshots the OLD block's live calendar descriptions before the
+  write loop, so a partial-failure rollback restores a shared date's real content instead of deleting
+  it.
+- **HR-39** — `app/api/reschedule/route.ts` POST now 400s onto an occupied day (matching PUT/PATCH),
+  instead of overwriting it.
+- **HR-40** — `updateScoreLog` accepts an async mutate; sync moved its dispositions read inside the
+  lock, immediately before applying.
+- **HR-41** — `atomicWrite` (`lib/json-store.ts`) rethrows genuine `.bak`-copy failures and skips
+  rotation on a corrupt live-file parse, instead of silently swallowing/clobbering.
+- **HR-42** — New `readJsonFileWithStatus` signals `corruptFallback`; `updateJsonFile` now refuses to
+  persist a CRITICAL store derived from a corrupt fallback.
+- **HR-43** — New `shapeMergeProfile` (`lib/data-store.ts`) merges raw `athlete.json` over
+  `DEFAULT_PROFILE` before any downstream migration/overlay runs.
+- **HR-44** — `GET /api/reschedule` returns `blockCreatedAt`; `RescheduleBanner.tsx` captures it at
+  fetch time and sends that (not a click-time re-read) as `expectedBlockCreatedAt`. First component
+  interaction test in the repo (added `@testing-library/react` + `jsdom`).
+- **HR-45** — `doSync` (`SyncProvider.tsx`) now invalidates the sync query cache after its manual
+  merge, matching `DayAction.tsx`'s existing idiom.
+- **HR-46** — `RescheduleBanner.apply`'s post-apply refresh replaced a raw UTC-defaulting GET + full-
+  state overwrite with a query-cache invalidate.
+- **HR-47** — `DayAction`'s `onMoved` reports `{ mirrorFailed }`; `plan.tsx` only closes the popover on
+  a real success.
+- **HR-48** — `PlanView.tsx`'s `write()` now surfaces `rolledBack`/`rollbackFailed` per day in
+  `PlanPreview` instead of showing "✓ written" on a rolled-back day.
+
+**P3 — polish / smaller correctness**
+- **HR-49** — Fixed incidentally by HR-43; `goals`/`weakpoints` on a fallback-derived profile now
+  clone (`[...p.goals]`) instead of sharing `DEFAULT_PROFILE` references.
+- **HR-50** — New locked `updateAthleteProfile`; `app/api/profile/route.ts` PUT validates before the
+  lock, merges the raw shape inside it.
+- **HR-51** — Sync's calibration re-derive now routes through `updateCalibration` instead of an
+  unlocked read/write pair; removed the orphaned `writeCalibration`.
+- **HR-52** — New locked `updateBlockSettings`/`updatePhysiology`; removed the orphaned unlocked
+  writers.
+- **HR-53** — Ledger-rebuild marker check now uses `Boolean(rebuildMarker.rebuiltAt)` instead of
+  `!== null` (the AGENTS.md migration-flag anti-pattern).
+- **HR-54** — 4 sub-fixes: removed 2 more zero-caller unlocked writers; `atomicWrite` throws on
+  `undefined` instead of serializing `"undefined"`; disposition GET resolves via `resolveToday`;
+  `autoSyncOnOpen`/`polarisedApproach` heal to their documented default instead of reading `undefined`
+  as falsy.
+- **HR-55** — Archive-the-old-block step now guards on `livedDays.length > 0`, matching DELETE's own
+  check.
+- **HR-56** — `deleteBlock` surfaces partial calendar-cleanup failures and refetches Plan history
+  after every delete.
+- **HR-57** — `/api/retrospective`'s live LLM call now has its own try/catch, returning a 502 instead
+  of an uncaught rejection.
+- **HR-58** — New CAS-guarded `updateSeasonPlan`; `/api/generate` defers season-plan persistence to
+  after a successful generation instead of writing speculatively before the LLM call.
+- **HR-59** — `RescheduleBanner.apply` separates the move-failure boundary (preserves the real thrown
+  message, e.g. a 409) from the post-move cache-refresh boundary (best-effort, never surfaces a false
+  error).
+
+---
+
 ## First loop turnover — SUB-5 complete (confirmed 2026-07-22)
 
 The event the SUB-5 runbook (`WORKFLOW.md`) was written for has happened: `data/block-history.json`

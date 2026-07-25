@@ -22,10 +22,15 @@ AI — and the AI only ever phrases numbers the code already computed.
   intro copy + objective label state the season↔block relationship explicitly ("blocks are generated
   *against* it") rather than reading as a vague freeform box. `GET`/`PUT /api/season`, `lib/season.ts`,
   `components/SeasonSection.tsx`
-- **Macro-periodization engine** — a rolling base→build→realize cycle (deload cadence + ACWR-capped
-  load ramp) is the live default with no event on the calendar; a fully-built event-anchored mode
-  (backward taper→peak→build scheduling) activates automatically the moment a future A-event exists.
-  `replanSeasonArc`, `validateSeasonFit` — `lib/season.ts`
+- **Macro-periodization engine** — `chooseNextFocus` scores the next block's focus fresh from real
+  data every `/api/generate` call (goal-relevance, decay-urgency, trainability, execution quality) —
+  the rolling default with no event on the calendar; a fully-built event-anchored mode (backward
+  taper→peak→build scheduling) activates automatically the moment a future A-event exists. The
+  event-anchored phase text/warnings (`formatSeasonContext`, `validateSeasonFit`/`validateFocusMatch`)
+  stay behind `SEASON_SHAPES_GENERATION` (default `false`) — season shaping doesn't currently gate
+  block generation; `season-plan.json` keeps evolving underneath regardless, and a roadmap-preview
+  (`projectSeasonOutlook`) re-runs the selector forward for display on `/plan`. `chooseNextFocus`,
+  `replanEventArc` — `lib/season.ts`
 - **Honest focus labels** — `FOCUS_LABELS` maps a goal's `"general"` tag to **"all phases"** display
   text instead of a meaningless-looking default (stored value unchanged; display-only). Shared by the
   Profile goals grouping below. `lib/season.ts`
@@ -54,17 +59,30 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Goal-driven, KB-grounded generation** — knowledge base + live zones + athlete-model insights +
   retrospective seeds + season context + a deterministic nutrition table → `claude-sonnet-4-6` via
   **structured tool-use** → validated `PlannedDay[]`. `app/api/generate`, `lib/anthropic-api.ts`, `lib/plan-schema.ts`
-- **Deterministic session selection (Track B)** — a terrain/race goal *requires* a RaceSim quality
-  session: the requirement is injected into the prompt and enforced post-generation (warning if missing).
-  `lib/session-requirements.ts`
+- **Feasibility pre-check + deterministic week targets** — `checkBlockFeasibility` refuses an
+  infeasible `BlockSettings` combination with a 400 before spending an LLM call; `computeWeekTargets`
+  sets one exact hour figure per week (recovery depth derived from the loading target, clamped 6–8h),
+  checked post-generation (`validateWeekHours`). `lib/block-skeleton.ts`
+- **Deterministic session selection (Track B)** — a terrain/race goal makes RaceSim a sporadic/
+  block-wide requirement rather than competing weekly with the block's primary quality; the block's
+  chosen focus must show its matching session in every loading week
+  (`validatePrimaryQualityCadence`). `lib/session-requirements.ts`, `lib/season.ts`
 - **Durability templates (Track B)** — durability is a category of 5 rotating long-ride templates
   (A pure accumulation … E mixed density), picked limiter-driven from the athlete model else rotated,
   and stamped on the block. KB §12 + `lib/durability.ts`
 - **KB-grounded protocol validation** — every generated workout checked against KB interval bands
   (SIT 4–6×20–30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); drift surfaces as a warning.
   `lib/workout-validate.ts`
-- **Schedule-placement validation** — flags back-to-back hard days and any week over the quality budget.
-  `lib/schedule-validate.ts`
+- **Schedule-placement validation** — flags back-to-back hard days, any week over the quality budget,
+  a capped/no-quality taper window ahead of a priority-B/C event (`validateEventTaper`), and
+  freshness-dependent quality (VO2max/SIT) landing later in the week than fatigue-tolerant quality
+  (Threshold/RaceSim) (`validateWeekSequencing`). `lib/schedule-validate.ts`
+- **Nutrition auto-repair** — a generated day's kcal figure is checked against the deterministic
+  formula; a mismatch is auto-corrected (not just warned), with a visible `repairs` note.
+  `lib/nutrition-validate.ts`
+- **Narrative-coherence critic** — a cheap follow-up call fact-checks the written block overview
+  against deterministically-extracted per-week facts and rewrites it on disagreement; never touches
+  the schedule itself. `lib/narrative-critic.ts`, `lib/anthropic-api.ts: critiqueOverview`
 - **Execution cues** — each day can carry one KB-/weakpoint-grounded pacing or technique cue.
 - **Preview → write** — `PlanPreview` shows every day before anything is written; `POST /api/write`
   posts to the Intervals.icu calendar and freezes the block (with the FTP used). `app/api/write`
