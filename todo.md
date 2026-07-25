@@ -16,7 +16,8 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 **Block-generation architecture — research-backed redesign (2026-07-24).** P1, P2, P3a-c, P4, P5, and
 P7(verify) all shipped → [ARCHIVE.md](ARCHIVE.md) "Block-generation architecture redesign — P1–P7
-(2026-07-24)". Full plan detail + known gaps → [ROADMAP.md](ROADMAP.md) "Season engine — known debt".
+(2026-07-24)". Full plan detail + known gaps →
+[docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
 
 - ☐ P3d–e, P6 `feat` — queued. P3d/e deliberately deferred (need new forward-projection code / new
   regen infrastructure, and no live evidence yet justifies either). P6 not yet scoped to
@@ -25,6 +26,24 @@ P7(verify) all shipped → [ARCHIVE.md](ARCHIVE.md) "Block-generation architectu
 **HR-2026-07-23 — hostile review of the block/sync/archive data flows.** All 29 findings (HR-31
 through HR-59) fixed → [ARCHIVE.md](ARCHIVE.md) "Hostile review — block/sync/archive data flows
 (HR-2026-07-23)". Nothing open from this round.
+
+---
+
+**Post-2026-07-22-audit: shipped but not exercised live yet.** Not bugs — just never run against real
+data/hardware in the sweep that shipped them. Try when convenient, then check off.
+
+- ☐ `audit` Cross-tab guard (UXA-24) — open Plan in two tabs on the same block, mutate in one, try
+  the same action in the other. Expect a "changed in another tab, reload" message, not a silent
+  overwrite.
+- ☐ `audit` Keyboard shortcuts (UXA-48) — `1`–`7` nav, `s` sync, `?` legend, from a real keyboard;
+  decide if they're worth a touch equivalent on mobile/tablet (currently just absent there).
+- ☐ `audit` Unconfigured-Intervals.icu branch (UXA-2) — Today's "not connected yet" copy, live.
+- ☐ `audit` The 9 newly-`<form>`-wrapped forms (UXA-21) — Enter-to-submit, with real values.
+- ☐ `audit` Nutrition range hints (UXA-51) — confirm the Profile "Edit" disclosure numbers read
+  sensibly against your own real values.
+- ☐ `ux` P2 Nutrition input bounds (UXA-51) — `baseCalories`/`restDayTarget`/`targetWeightKg` have a
+  floor of 0 and no ceiling (no authoritative one exists in code); decide if any deserve a real
+  sanity ceiling.
 
 ---
 

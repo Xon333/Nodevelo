@@ -14,4 +14,5 @@ Structure, ownership, and data flow: [docs/systems/08-frontend.md](../docs/syste
 - Best-effort feature components use the `useMountLoad` + `loadFailed` idiom (see MorningCheckIn et al.); shared/cache-sensitive data uses `useQuery` with a shared key. Mutations invalidate `['sync']` — no optimistic merges.
 - Every surface satisfies dark/light pairing and the UX-Constitution §11 pre-ship checklist.
 - Shared styling logic gets one home (`athlete-state-ui.tsx` exists so two cards can't drift).
+- Widening a shared primitive (e.g. `ui.tsx`'s `Card` gaining attribute-spreading for one caller) is fine additive/backward-compatible, but it's drift risk for every other consumer — worth a second look if a primitive picks up a second caller-specific reason to widen.
 - Component tests: colocated `.test.tsx` with `/** @vitest-environment jsdom */`.

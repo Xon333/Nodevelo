@@ -60,6 +60,8 @@ Invariant: **one NodeVelo-owned event per block date**, keyed `external_id = nod
 
 Every block-mutating route (`write`, `sync` DELETE, `reschedule`, `retrospective`) uses compare-and-swap on the block's `createdAt` (`lib/block-version.ts` → 409). Known accepted exception: `/api/morning-check` PUT (same-day scope, documented in code).
 
+The version token is `CurrentBlock.createdAt` itself, not a dedicated version/etag field — cheap and sufficient in practice, but a manual edit to `current-block.json` (e.g. via a backup restore) that doesn't touch `createdAt` wouldn't be detected as "changed." Unlikely in practice, worth knowing before debugging a stale-write mystery.
+
 ## Cross-cutting
 
 - **CSRF** (`lib/csrf.ts` via root `proxy.ts` — Next 16's renamed middleware): same-origin guard on all `/api/*` writes. This is the app's **only** request-level defense — there is no auth; the app binds to localhost.

@@ -1,6 +1,6 @@
 # Decisions
 
-Why NodeVelo is built the way it is — ten standing architectural decisions in one scrollable file (recorded retrospectively 2026-07-25 from code, commits, and ARCHIVE closeouts). Each: context → decision → consequences. The *how* lives in [systems/](systems/); this file is the *why*. New decision? Append ADR-0011 in the same shape.
+Why NodeVelo is built the way it is — standing architectural decisions in one scrollable file (recorded retrospectively 2026-07-25 from code, commits, and ARCHIVE closeouts). Each: context → decision → consequences. The *how* lives in [systems/](systems/); this file is the *why*. New decision? Append the next ADR number in the same shape.
 
 ## ADR-0001 · Local-first JSON files, no database
 
@@ -101,4 +101,31 @@ Why NodeVelo is built the way it is — ten standing architectural decisions in 
 **Consequences.** Every calibrated parameter carries confidence/provenance and is contestable in the UI (`CalibrationPanel`). New "magic numbers" should enter as calibratable parameters through this path, not as fresh literals. The derivations re-run on each sync from the frozen ledger (ADR-0007, above), so they're reproducible.
 
 ---
+
+## ADR-0011 · Design tooling stays workflow-level, DESIGN.md is canonical
+
+**Context.** External design tooling (idea-kits, browser-verify MCP servers, a11y/quality skills) is useful for catching issues and proposing directions, but the app already has an opinionated, hand-tuned visual language ([DESIGN.md](../DESIGN.md)) — an external kit's generic suggestion could quietly drag the UI toward a templated default.
+
+**Decision.** Design tooling is adopted **workflow-level only** — it never becomes an app runtime dependency. **Source-of-truth rule:** DESIGN.md is canonical; external kits *propose*, DESIGN.md *disposes* — any conflicting token/aesthetic suggestion is rejected. **Revert trigger:** on request, drop the idea-kits from config; the app itself doesn't change, because nothing from them ever entered the app.
+
+**Consequences.** Tooling can be added/removed freely without an app migration. A tool's suggestion is only ever a starting point for a DESIGN.md-conformant implementation, never applied verbatim.
+
+---
+
+## ADR-0012 · Rejected alternatives (a running log)
+
+**Context.** Recurring proposals (a database, a vector store, a reactive-DB layer, various UI libraries) keep resurfacing without new evidence. A standing rejection log stops the re-litigation.
+
+**Decision.** Each entry below was evaluated and rejected; revisit only on the stated trigger, not by default.
+
+- **Postgres/Supabase + RLS · blob KB storage · auth middleware** — assumed a multi-tenant SaaS; NodeVelo is local-first single-user (ADR-0001), so `fs`/JSON *is* the store. Revisit only on a deliberate hosted pivot.
+- **pgvector RAG for the knowledge base** — small markdown files fit cheaply in the prompt; the context-dump ([04-knowledge](systems/04-knowledge.md)) is intentional, not a scaling compromise.
+- **RxDB reactive-DB rewrite** — contradicts local-first JSON (ADR-0001); the desync it targeted is fixed with refetch-on-sync.
+- **SQLite (`better-sqlite3` + Drizzle + `sqlite-vec`) — deferred, not rejected.** Wins are mostly theoretical at single-user scale and its standout unlock (`sqlite-vec`) is gated on semantic RAG (also deferred). Reconsider when semantic RAG is committed or data volume/multi-user justifies it.
+- **uPlot / canvas charting** — `buildRideTrace` ([02-scoring-and-learning](systems/02-scoring-and-learning.md)) already downsamples to ~240 points; no chart renders raw 1 Hz data.
+- **Cytoscape / knowledge-graph UI** — a heavyweight dependency re-presenting data the app already has.
+- **Post-ride structured survey** — RPE/feel already syncs from Intervals.icu (`icu_rpe`); a second manual survey would duplicate a signal that's already objective-adjacent.
+- **Subjective-wellness morning sync** — removed 2026-06-26 (latent/dead, un-utilitarian); a wearable gives strictly better objective morning-readiness ([03-daily-loop](systems/03-daily-loop.md)). Spec: `docs/superpowers/specs/2026-06-26-remove-subjective-wellness-manual-flag-design.md`.
+
+**Consequences.** New proposals matching an entry above get a fast, evidence-based no instead of a re-debate. Append new rejections here rather than scattering them across other docs.
 
