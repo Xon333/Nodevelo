@@ -1,4 +1,7 @@
 "use client";
+// AI: a named-export module, not a component file (see components/README.md) -- already flagged
+// as a split candidate (docs/systems/08-frontend.md#known-rough-edges). Growing TodayRideCard
+// further is the thing to avoid; prefer extracting before adding to it.
 
 import type {
   AcwrResult,

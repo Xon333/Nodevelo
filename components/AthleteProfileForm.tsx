@@ -1,4 +1,7 @@
 "use client";
+// AI: already flagged as a split candidate (docs/systems/08-frontend.md#known-rough-edges) --
+// five distinct sections in one file. SeasonSection was already extracted from here; prefer the
+// same move over growing this file further.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";

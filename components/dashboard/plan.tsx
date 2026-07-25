@@ -1,4 +1,6 @@
 "use client";
+// AI: a named-export module (see components/README.md), already flagged as a split candidate
+// (docs/systems/08-frontend.md#known-rough-edges) -- prefer extracting before adding to it.
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";

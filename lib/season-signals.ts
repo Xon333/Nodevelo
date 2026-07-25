@@ -72,6 +72,9 @@ export async function gatherFocusInputs(
     lastFocus,
     signals: {
       goalText: combinedGoalText,
+      // AI: known limitation (P7) -- this only sees NodeVelo-generated block history, so a focus
+      // with zero in-app exposure gets an inflated urgency spike. See
+      // docs/systems/05-season.md#known-rough-edges before changing this signal's inputs.
       exposure: exposureFromSessions(
         [...(currentBlock?.days ?? []), ...blockHistory.flatMap((h) => h.days ?? [])].filter((d) => d.date <= today),
         profile.performance.ftp,

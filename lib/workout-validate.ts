@@ -26,6 +26,9 @@ export interface ProtocolRule {
 // Only the structured "quality" types carry a protocol worth validating; Z2/Recovery/Strength/
 // Rest have no fixed interval shape. Bands include tolerance past the KB edges. Exported as the
 // single source of truth for lib/session-level.ts's within-type band normalisation.
+// AI: this table is one of three hand-synced copies (KB prose + anthropic-prompts.ts's
+// buildUserMessage hard rules + here) -- see docs/INVARIANTS.md#ai-provenance--cost item 17.
+// A number changed here without the other two drifting is a bug, not a fix.
 export const PROTOCOL: Partial<Record<WorkoutType, ProtocolRule>> = {
   SIT: { maxEffortSec: 45, minIntensityPct: 130, cite: "KB training §4: SIT is 4–6×30s all-out at 130–200% FTP" },
   VO2max: { minEffortSec: 90, maxEffortSec: 600, minIntensityPct: 100, maxIntensityPct: 130, cite: "KB database Z5: VO2max is 3–8 min at 106–120% FTP" },

@@ -250,6 +250,9 @@ BLOCK PARAMETERS
   return { cached, dynamic };
 }
 
+// AI: the interval-protocol bands below are one of three hand-synced copies (KB prose +
+// here + workout-validate.ts's PROTOCOL table) -- see docs/INVARIANTS.md#ai-provenance--cost
+// item 17. Changing a protocol number here without changing the other two is a bug, not a fix.
 export function buildUserMessage(
   blockParams: BlockParams,
   weeks: string[][],
@@ -662,6 +665,9 @@ export interface AskCoachContext {
 
 // Pure prompt builder — injects the resolved CoachSnapshot plus the exact session prescriptions,
 // but NOT the full historical ledger, so spot-checks stay cheap. Deterministic + unit-testable.
+// AI: this call site sends no `system` param at all (persona lives in the user message below) --
+// inconsistent with every other call site in anthropic-api.ts, but intentional-ish. See
+// docs/systems/07-ai-layer.md#known-rough-edges before "fixing" the inconsistency.
 export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string {
   const lines: string[] = [
     "You are the athlete's cycling coach. Answer their question in 2–4 short, practical, decisive sentences. Use the situation below plus whatever they tell you in the question (e.g. weather, how they feel) — don't ask for more data.",

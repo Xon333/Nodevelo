@@ -10,13 +10,20 @@ import type { WeekTarget } from "./block-skeleton";
 
 // Season phase/deload/retest context + the two season-fit/focus-match validators are TEMPORARILY
 // DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
-// phase-sequence model itself is a separate, deferred question (see ROADMAP.md "Season architecture
-// doubt": whether always prescribing a phase sequence regardless of a rider's existing base is even
-// the right model). Season state keeps being tracked underneath this flag (settleSeasonHistory/
-// replanEventArc still run, season-plan.json still updates, B/C-priority event surfacing still
-// injects -- those are calendar facts, not phase opinion) -- only the PHASE-DERIVED opinion about
-// what a week should emphasise, and the validators that grade generated days against it, are
-// switched off. Flip back to true once the season model is revisited.
+// phase-sequence model itself is a separate, deferred question (see docs/systems/05-season.md
+// "Known rough edges": whether always prescribing a phase sequence regardless of a rider's existing
+// base is even the right model). Season state keeps being tracked underneath this flag
+// (settleSeasonHistory/replanEventArc still run, season-plan.json still updates, B/C-priority event
+// surfacing still injects -- those are calendar facts, not phase opinion) -- only the PHASE-DERIVED
+// opinion about what a week should emphasise, and the validators that grade generated days against
+// it, are switched off. Flip back to true once the season model is revisited.
+//
+// AI: this file carries a live tripwire and several eliminated/held-for-reopen alternatives (a
+// constraint solver, full rolling-horizon generation, a backward-from-event primary planner) --
+// see docs/systems/05-season.md#known-rough-edges before proposing a redesign here. If an edit here
+// reproduces the tripwire condition (a missed hour target, a missing limiter session, an escalation
+// the narrative critic misses), say so explicitly -- that's the signal the LLM shouldn't author
+// structure at all.
 export const SEASON_SHAPES_GENERATION = false;
 
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus
