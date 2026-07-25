@@ -28,7 +28,13 @@ context — applies them the same way.
 `docs/specs/*.md`, `docs/superpowers/specs/*.md` (design specs — stamp `Status: Shipped` + a date
 once built; don't leave them saying "Approved design (pre-implementation)" forever),
 `knowledge-base-defaults/*.md` (the committed KB skeleton — real user-facing copy, not just a
-fixture).
+fixture), and the docs system added 2026-07-25: `docs/START_HERE.md`, `docs/ATLAS.md`,
+`docs/GLOSSARY.md`, `docs/AI_CONTEXT.md`, `docs/workflows.md`, `docs/systems/*.md`,
+`docs/reference/*.md` (FILE_INDEX/PROMPT_INDEX/INVARIANTS), `docs/adr/*.md` (append new ADRs;
+existing ones are decision records — amend with a dated note, don't rewrite), and the folder
+READMEs `lib/README.md`, `components/README.md`, `app/README.md`. Ownership rules for which doc
+owns which fact: `docs/START_HERE.md` §"Ownership rules" — enforce them during a sweep (a fact
+duplicated across docs gets one owner + links, not copies).
 
 **Out of scope:** CONTINUE.md (see table above), CLAUDE.md/AGENTS.md (agent operating instructions
 — a different category from project docs; flag as excluded rather than silently touching or

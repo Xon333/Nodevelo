@@ -46,7 +46,8 @@ Five design decisions define the whole app — everything else follows from them
 
 | File | What it's for |
 |---|---|
-| `README.md` (this) | How the app works — the architectural manual |
+| `README.md` (this) | How the app works — the architectural manual (the *why*; per-subsystem *how* lives in `docs/systems/`) |
+| [docs/START_HERE.md](docs/START_HERE.md) | **The docs front door**: repository atlas, per-subsystem docs, file/prompt indexes, invariants, workflows, ADRs, glossary, AI-agent context |
 | [FEATURES.md](FEATURES.md) | Capability catalogue — what the app can do, by area |
 | [ROADMAP.md](ROADMAP.md) | Forward backlog: what's next, prioritized |
 | [ARCHIVE.md](ARCHIVE.md) | Completed work, grouped by theme |
@@ -427,20 +428,24 @@ FocusPeriod {
 }
 ```
 
-`lib/season.ts` runs two macro-periodization modes, chosen by whether the athlete has a future
-A/B/C-priority event on their season:
+`lib/season.ts` runs two macro-periodization modes (redesigned 2026-07-24 — full mechanics in
+[docs/systems/season-engine.md](docs/systems/season-engine.md)):
 
-- **Mode C — rolling cycle (the live default).** No event on the calendar → a repeating
-  base→build→realize cycle (`replanSeasonArc`), with deload cadence and an ACWR-capped load ramp
-  between periods. This is what runs today for every athlete without a race entered.
-- **Event-anchored mode (built, dormant).** A future event schedules *backward* from its date —
-  taper → peak → build. Fully built and tested, but nothing writes a `SeasonEvent` until the
-  athlete adds one on `/profile`'s Season section (objective field + add/edit/delete event list,
-  `PUT /api/season`) — it activates automatically the moment a future A-event exists.
+- **Rolling mode (the live default).** No upcoming A-priority event → each block's focus is chosen
+  fresh by the scored **coverage selector** (`chooseNextFocus`: goal-relevance × decay-urgency ×
+  trainability × execution-quality + limiter bonus), with deload cadence derived from real ride
+  history (`realWeeksSinceLastRecovery`), one focus per block.
+- **Event-anchored mode (built, feature-flagged off).** A future A-event schedules *backward* from
+  its date — taper → peak → build (`backwardScheduleFromEvent`/`replanEventArc`). The mechanism is
+  shipped and tested, but phase shapes don't drive generation while
+  `SEASON_SHAPES_GENERATION = false` (2026-07-16 athlete decision; season context still informs the
+  prompt, and event-taper placement is separately validated post-generation).
 
-**Feeding the block generator.** `POST /api/generate` re-plans the arc (`replanSeasonArc` +
-`validateSeasonFit`) and folds a one-line `SEASON CONTEXT` (objective + phase + focus + week-of +
-rationale, `formatSeasonContext`) into the prompt. On `/plan`, `suggestedBlockWeeks` pre-fills the
+**Feeding the block generator.** `POST /api/generate` gathers focus inputs through the single
+shared assembler (`lib/season-signals.gatherFocusInputs`) and folds season/focus context
+(`formatSeasonContext`/`formatFocusContext`) into the prompt; agreement is checked post-generation
+by warn-only validators (`validateBlockFocus`/`validateSeasonFit` et al.). The season re-plan is
+persisted only after a successful generation, CAS-guarded. On `/plan`, `suggestedBlockWeeks` pre-fills the
 generator's length selector (now **2/4/6/8** weeks, not just 2/4) by ceiling-rounding the current
 period's remaining weeks; `filterGoalsByFocus` narrows the goal textarea pre-fill to goals tagged
 with the period's current focus plus every `"general"`-tagged goal — both are pre-fills the athlete
@@ -519,55 +524,38 @@ deliberate cornering practice.
 | `/api/morning-check` | GET / POST / PUT | Proactive check-in: UI state / submit + deterministic decision / apply the downgrade + reschedule |
 | `/api/reschedule` | GET / POST / PUT | Reactive suggestion / confirm the make-up move / manual move (§7) — all three mirror to Intervals.icu |
 | `/api/retrospective`, `/api/history`, `/api/note` | — | Block retro generation, block history, manual note write-back |
+| `/api/loading` | GET / POST | Pre-ride carb-loading prompt + one-tap loaded/skipped attribution (Track C) |
+| `/api/dev/reset-today` | POST | Dev-only (403 in prod): clear today's analysis so the next sync recomputes (`npm run reset:today`) |
 
 ---
 
 ## Module map (`lib/`)
 
-| Module | Responsibility |
-|---|---|
-| `intervals-api.ts` | The only Intervals.icu HTTP client (reads + write-back) |
-| `physiology.ts` | Physiology store: parse sport-settings, resolve zones, effective-dating, reconcile |
-| `data-store.ts` | All other JSON persistence; overlays physiology onto the profile |
-| `anthropic-api.ts` | Prompt assembly + Claude calls (always `claude-sonnet-4-6`) |
-| `plan-schema.ts` | Structured tool-use schema → validated `PlannedDay[]` |
-| `plan-parser.ts` | `planDayToEvent`: a `PlannedDay` → an Intervals.icu event payload |
-| `prescription.ts` | Parse workout syntax into structured target intervals |
-| `workout-validate.ts` | KB-grounded protocol validation of generated workouts (SIT/VO2max/threshold bands) |
-| `interval-match.ts` | Prescription vs. executed-interval adherence (avg-watts, duration-aware, structural-mismatch + extras) |
-| `execution-score.ts` | Deterministic 1–10 ride quality score |
-| `score-log.ts` | Build + immutably merge the per-ride execution ledger + interval-adherence stamps at birth |
-| `disposition.ts` | Apply athlete session attributions (compromised excluded from metrics) onto the ledger |
-| `ride-classify.ts` | Infer a ride's workout type from its intensity/structure |
-| `pr.ts` | Power-PR detection — freshly-synced curve vs the previous sync's curve |
-| `athlete-model.ts` | EWMA model + trend detection + insight derivation |
-| `power-profile.ts` | Rider-type classification from the power-curve *shape* + "easy win" weak point (Track A) |
-| `aerobic.ts` | Z2-isolated Pw:HR (`icu_power_hr_z2`) — intent-independent aerobic read vs the athlete's baseline |
-| `durability-score.ts` | Grade a long ride against its durability template's expected signal (Track B) |
-| `synthesis.ts` | Rank model insights into one coaching-directive block for generation |
-| `intervention.ts` | Snapshot directives at block-write, validate/refute them after maturity |
-| `correlation.ts` | Shared guarded-regression engine (`deriveExecutionEdge`) for auto-derived calibration edges (#2/Track C) |
-| `calibration.ts` | Auto-tuned EWMA alpha + ACWR bands + per-athlete edge resolvers |
-| `readiness.ts` | ACWR, intensity distribution, fatigue/load-ramp signals |
-| `reschedule.ts` | Reschedule missed/compromised quality sessions (reactive) + proactive downgrade/swap onto a rest-or-easy day |
-| `calendar-mirror.ts` | Bidirectional Intervals.icu calendar mirror (§7): outbound event payloads for every app-initiated move (manual/reactive/proactive) + inbound reconciliation of calendar-side moves at sync time |
-| `athlete-state.ts` | §5 signal fusion: one 0–100 athlete-state score + drivers from the fused signals |
-| `coach-snapshot.ts` | Resolved-numbers bundle fed to Ask-Coach + generation so the LLM can't invent figures (#1) |
-| `morning-check.ts` | Proactive check-in decision — subjective strain + objective form → proceed/downgrade (#3) |
-| `session-requirements.ts` | Goal/weakpoint → required session types (terrain/race ⇒ RaceSim), injected + validated (Track B) |
-| `durability.ts` | Durability template taxonomy (A–E) + deterministic, limiter-driven/rotated selection (Track B) |
-| `season.ts` | Macro-periodization engine (see "Season & macro-periodization" above): `replanSeasonArc`, `currentPeriod`/`formatSeasonContext`, `suggestedBlockWeeks`, `filterGoalsByFocus` |
-| `plan-week-character.ts` | Derives the Plan hero's volume-derived per-week character label (no per-week phase exists in the data model) |
-| `zones.ts` | Re-bucket power/HR streams into the athlete's own zones |
-| `ride-analysis.ts` | Build today's analysis from a synced activity — metrics, IF, execution, trace (pure; route does IO) |
-| `sync-analysis.ts` | The single LLM step of a sync (coach note), split out so `/api/sync` returns the deterministic analysis fast |
-| `nutrition.ts` | Deterministic calorie/carb/protein formula + energy-availability proxy |
-| `loading.ts` | Pre-ride loading loop: target, prompt, power-only effect assessment (Track C) |
-| `kb-loader.ts` | Knowledge-base + retrospective IO and parsing |
-| `trends.ts` | Trends time-series transforms (outdoor-only Pw:HR, complete-week energy) |
-| `trends-verdict.ts` | Derives Trends' fold-1 three-axis verdict (engine/delivery/fueling) from existing signals |
-| `trace.ts` | Downsampled + 30s-smoothed ride streams + interval bands for the power chart |
-| `text.ts` | `splitLeadSentences`: truncates the Today coach note to its lead sentences (≤3-sentence-visible rule) |
+The full per-file table (all 68 modules: purpose, size, importers) lives in
+**[docs/reference/FILE_INDEX.md](docs/reference/FILE_INDEX.md)** — that file, not this section, is
+the authoritative index. The grouped shape, for orientation:
+
+- **Persistence & platform** — `json-store` (atomic writes, `.bak`, locks) · `data-store` (typed
+  accessors) · `date` (local-today discipline) · `backup` · `csrf` (enforced by root `proxy.ts`) ·
+  `log` · `client-api` · `stats` · `text` · `types` (all shared interfaces)
+- **Sync & integration** — `intervals-api` · `sync-ledger` · `sync-analysis` · `calendar-mirror` ·
+  `reschedule`
+- **Season & block structure** — `season` · `season-signals` · `block-skeleton` · `block-events` ·
+  `block-version` · `plan-week-character` · `session-requirements` · `session-level` ·
+  `prescription` · `durability`
+- **Scoring & learning** — `execution-score` · `interval-match` · `durability-score` ·
+  `ride-analysis` · `ride-classify` · `score-log` (the ledger) · `athlete-model` · `athlete-state` ·
+  `readiness` · `calibration` · `correlation` · `intervention` · `plan-vs-actual` ·
+  `coach-snapshot` · `disposition` · `morning-check` · `quirks` · `pr` · `power-profile` ·
+  `aerobic` · `zones` · `physiology` · `loading` (carb-loading) · `fuel-prompt` · `nutrition` ·
+  `trends` · `trends-verdict` · `profile-goals` · `trace` (ride chart data)
+- **AI layer** — `anthropic-api` (SDK shell) · `anthropic-prompts` (all prompt text, pure) ·
+  `tool-schema` · `plan-schema` · `retrospective-schema` · `narrative-critic` · `plan-parser`
+  (mostly retired) · `workout-validate` · `schedule-validate` · `nutrition-validate` ·
+  `generate-cache` · `ai-usage` · `kb-loader` · `synthesis`
+
+Name traps (`loading` = carb-loading, `trace` = ride chart, model-vs-state, durability-vs-score):
+[docs/GLOSSARY.md](docs/GLOSSARY.md#naming-traps).
 
 ---
 
@@ -598,7 +586,7 @@ day-before) plus athlete attribution; delivery-grade outcome (power-only), no HR
 ## Development
 
 ```bash
-npm test       # vitest (877 tests across 74 suites: physiology, scoring, interval match, athlete model, interventions, nutrition, energy-availability, plan schema, trends, PR detection, trace, coach-snapshot, morning-check, durability, session-requirements, season, planned-vs-actual, fuel-prompt, trends verdict, week-character derivation, …)
+npm test       # vitest — nearly every lib/ module has a colocated *.test.ts (90+ suites); component tests use per-file jsdom docblocks
 npm run lint
 npm run build
 ```

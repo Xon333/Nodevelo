@@ -4,6 +4,12 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Orient first
+
+Read [docs/AI_CONTEXT.md](docs/AI_CONTEXT.md) before exploring the codebase — it maps the systems,
+indexes every file/route/prompt, and lists the traps; it replaces most exploratory file reads.
+Hard contracts: [docs/reference/INVARIANTS.md](docs/reference/INVARIANTS.md).
+
 # Recurring bug classes — check before shipping
 
 Three defect shapes have shipped more than once. Check for them explicitly on relevant changes:
