@@ -12,8 +12,9 @@ reads. Hard contracts: [docs/INVARIANTS.md](docs/INVARIANTS.md).
 
 # Recurring bug classes — check before shipping
 
-Three defect shapes have shipped more than once. Check for them explicitly on relevant changes:
+Four defect shapes have shipped more than once. Check for them explicitly on relevant changes:
 
 - **Migration flags.** Guard a new `fooMigratedAt` field with a truthy check (`if (profile.fooMigratedAt)`), never `=== null`. A JSON file written before the field existed parses back as `undefined`, not `null` — an equality check misses it and the migration silently never runs.
 - **"Today" must be local, not UTC.** Use `localToday()` / `resolveToday()` from `lib/date.ts` for anything user-facing (what day is it for the athlete right now). Don't inline `new Date().toISOString().slice(0, 10)` — that's UTC and drifts a day off from the athlete's local date near midnight. (Pure day-math like `addDays`/lookback windows can stay UTC-anchored; the risk is specifically in code answering "what day is it *now* for the user.")
 - **LLM-backed paths need one live smoke run.** Unit tests + a green build only prove the deterministic scaffolding around a prompt — they don't exercise the real Anthropic call. Before calling a new or changed AI-generation path "done," run it once against the live API and read the actual output.
+- **Stale doc/comment pointers.** A `// AI:` comment or a doc's cross-reference (e.g. `docs/systems/05-season.md#known-rough-edges`) silently goes stale when the target section is renamed, moved, or removed — this already happened once (`lib/season.ts` pointed at a ROADMAP section a later redesign deleted). When you touch a file carrying a `// AI:` pointer or a systems doc's "Known rough edges" entry, or when you rename/remove a heading anything links to, check that every pointer to it still resolves before committing.
