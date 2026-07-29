@@ -76,11 +76,18 @@ export function validateSchedule(
     }
   }
 
-  // (b) Weekly quality budget, per week. EC-11: this used to apply the flat loading-week budget to
-  // EVERY week, with a comment asserting "a recovery week naturally sits under the budget, so only
-  // over-prescribed weeks fire" — the assumption the 2026-07 reviewed block falsified by keeping a
-  // full loading-week quality skeleton in its recovery week. Event days are excluded so this agrees
-  // with validateEventTaper rather than double-counting a protected race against the budget.
+  // (b) Weekly quality budget, per LOADING week only. EC-11: this used to apply the flat loading-week
+  // budget to EVERY week, with a comment asserting "a recovery week naturally sits under the budget, so
+  // only over-prescribed weeks fire" — the assumption the 2026-07 reviewed block falsified by keeping a
+  // full loading-week quality skeleton in its recovery week. That was then fixed by giving recovery
+  // weeks their own (tighter) cap here — which promptly created a THIRD near-duplicate warning
+  // alongside validatePrimaryQualityCadence's recovery ceiling and validateRecoveryWeekDensity for the
+  // same underlying fact (data fatigue — see this file's header doctrine). 2026-07-29 (Decision 2a):
+  // recovery weeks are now skipped entirely here — validateRecoveryWeekDensity is the sole owner of the
+  // recovery-week composition ceiling, and it has the best message of the three (it names the actual
+  // remedy: drop the extra type, don't shorten every one). `weekTargets` is still required so this can
+  // tell which weeks to skip. Event days are excluded from the loading-week count so this agrees with
+  // validateEventTaper rather than double-counting a protected race against the budget.
   const recoveryWeeks = new Set(weekTargets.filter((t) => t.isRecovery).map((t) => t.weekNumber));
   const eventDates = new Set(events.map((e) => e.date));
   const byWeek = new Map<number, PlannedDay[]>();
@@ -90,14 +97,14 @@ export function validateSchedule(
     else byWeek.set(d.weekNumber, [d]);
   }
   for (const [week, weekDays] of [...byWeek.entries()].sort((a, b) => a[0] - b[0])) {
-    const budget = recoveryWeeks.has(week) ? RECOVERY_QUALITY_CAP : settings.qualitySessionsPerLoadingWeek;
+    if (recoveryWeeks.has(week)) continue; // owned solely by validateRecoveryWeekDensity now
+    const budget = settings.qualitySessionsPerLoadingWeek;
     const quality = weekDays.filter((d) => isQuality(d) && !eventDates.has(d.date));
     if (quality.length > budget) {
-      const label = recoveryWeeks.has(week) ? "recovery" : "loading";
       warnings.push(
         `SCHEDULE: week ${week} has ${quality.length} quality sessions (${quality
           .map((d) => d.type)
-          .join(", ")}) — over the ${budget}/week budget for a ${label} week.`
+          .join(", ")}) — over the ${budget}/week budget for a loading week.`
       );
     }
   }

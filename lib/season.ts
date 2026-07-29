@@ -801,11 +801,21 @@ export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: 
 // checks every LOADING week specifically, reusing the same matcher table so this can never disagree
 // with formatFocusCoverageLine's prompt instruction or validateBlockFocus's own floor.
 //
-// 2026-07-29: now two-sided. Recovery weeks used to be skipped outright, with only a comment
-// recording the intent ("quality is minimal there") — which meant a recovery week could carry any
-// number of focus sessions unchallenged, and did. Loading weeks owe at least 1; recovery weeks owe
-// at most RECOVERY_QUALITY_CAP. The count-and-composition ceiling across ALL quality types lives in
-// validateRecoveryWeekDensity (lib/schedule-validate.ts); this is the focus-type-specific half.
+// Recovery weeks own no floor here (quality is minimal there by design) and — as of 2026-07-29
+// (Decision 2c, triple-warning collapse) — no ceiling here either. A same-day ceiling branch was added
+// and removed within the same review: it created a THIRD near-identical warning alongside
+// validateSchedule's own recovery branch (also removed, same review) and validateRecoveryWeekDensity
+// for the same underlying fact. validateRecoveryWeekDensity (lib/schedule-validate.ts) is the sole
+// owner of the recovery-week composition ceiling now. Dropping the ceiling here is provably lossless,
+// not a silent re-introduction of the old gap:
+//   - vo2max/threshold/anaerobic: `m.match` here is exact type equality, a subset of that validator's
+//     `standalone` set, so matches.length > 1 there always implies standalone.length > 1 there too.
+//   - durability: `m.match` selects embedded Z2/Recovery efforts — exactly that validator's `embedded`
+//     set, which fires at >=1 (strictly stricter than this ceiling's >1 ever was).
+//   - The only case this ceiling ever caught that the density validator doesn't is excess sessions
+//     landing on event dates, which the density validator deliberately excludes (a race inside a
+//     recovery week IS that week's one retained intensity touch) — so that firing here was a false
+//     positive, not real coverage. Removing it is a strict improvement.
 export function validatePrimaryQualityCadence(
   days: PlannedDay[],
   focus: SeasonFocus,
@@ -822,16 +832,9 @@ export function validatePrimaryQualityCadence(
   }
   const warnings: string[] = [];
   for (const t of weekTargets) {
+    if (t.isRecovery) continue; // ceiling owned solely by validateRecoveryWeekDensity — see header comment
     const weekDays = byWeek.get(t.weekNumber) ?? [];
     const matches = weekDays.filter(m.match);
-    if (t.isRecovery) {
-      if (matches.length > RECOVERY_QUALITY_CAP) {
-        warnings.push(
-          `PRIMARY QUALITY: week ${t.weekNumber} (recovery) has ${matches.length} ${m.label} sessions — a recovery week keeps at most ${RECOVERY_QUALITY_CAP}.`
-        );
-      }
-      continue;
-    }
     if (matches.length === 0) {
       warnings.push(
         `PRIMARY QUALITY: week ${t.weekNumber} (loading) — this block's focus is ${focus} but has no ${m.label} session this week. The primary quality should appear every loading week, not skip weeks.`

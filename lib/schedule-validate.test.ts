@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateWeekSequencing } from "./schedule-validate";
+import { validatePrimaryQualityCadence } from "./season";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type WorkoutType } from "./types";
 
 // Budget of 2 quality sessions/loading week (the default).
@@ -123,12 +124,20 @@ describe("validateSchedule — per-week budget (EC-11)", () => {
   const q = (date: string, weekNumber: number, type: "Threshold" | "SIT" | "RaceSim"): PlannedDay =>
     ({ date, weekNumber, weekTheme: "t", name: type, type, durationMin: 60, workoutText: "- 10m 95%", description: "x" });
 
-  it("applies the recovery cap, not the loading budget, to a recovery week", () => {
-    // Two quality sessions is legal in a loading week and over-budget in a recovery week.
+  // 2026-07-29 (Decision 2a, triple-warning collapse): validateSchedule used to apply a recovery-
+  // specific cap here and warn itself. That duplicated validateRecoveryWeekDensity's own ceiling
+  // near-verbatim (data fatigue — see this file's validateRecoveryWeekDensity section and its header
+  // doctrine). This validator now SKIPS recovery weeks entirely and stays silent even when they're
+  // over what would be the recovery cap — validateRecoveryWeekDensity is the sole owner of that
+  // concern (see lib/schedule-validate.test.ts's "validateRecoveryWeekDensity" describe block and
+  // lib/season.test.ts's cross-validator "single owner" test for the moved coverage).
+  it("stays silent on a recovery week's quality count — that concern now belongs solely to validateRecoveryWeekDensity", () => {
+    // Two quality sessions would be legal in a loading week and over the recovery cap — but
+    // validateSchedule no longer polices recovery weeks at all, regardless of count.
     const days = [q("2026-06-16", 1, "Threshold"), q("2026-06-18", 1, "SIT")];
     const targets = [{ weekNumber: 1, isRecovery: true, targetHours: 7.2 }];
     const w = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets);
-    expect(w.some((s) => /week 1 has 2 quality sessions/.test(s))).toBe(true);
+    expect(w).toEqual([]);
   });
 
   it("does not count an event day against the week's quality budget", () => {
@@ -299,6 +308,22 @@ describe("validateRecoveryWeekDensity", () => {
     expect(w.some((s) => /RECOVERY DENSITY/.test(s) && /embedded/i.test(s))).toBe(true);
   });
 
+  // 2026-07-29 (Decision 2a/2b, triple-warning collapse): this ceiling used to be co-owned with
+  // validateSchedule's own recovery-cap branch (removed — see schedule-validate.test.ts's "per-week
+  // budget (EC-11)" describe block) and with validatePrimaryQualityCadence's recovery branch (removed
+  // — see season.test.ts). This is now the sole owner of "how many quality sessions can a recovery
+  // week carry" — coverage moved here, not lost.
+  it("flags a recovery week carrying 2 same-type quality sessions — the standalone ceiling", () => {
+    const days: PlannedDay[] = [
+      { date: "2026-06-16", weekNumber: 1, weekTheme: "t", name: "V1", type: "VO2max", durationMin: 40, workoutText: "- 4m 110%", description: "x" },
+      { date: "2026-06-18", weekNumber: 1, weekTheme: "t", name: "V2", type: "VO2max", durationMin: 40, workoutText: "- 4m 110%", description: "x" },
+    ];
+    const w = validateRecoveryWeekDensity(days, target, DEFAULT_BLOCK_SETTINGS, 250, []);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/RECOVERY DENSITY: week 1 \(recovery\) has 2 quality sessions \(VO2max, VO2max\)/);
+    expect(w[0]).toMatch(/Drop the extra type entirely rather than shortening every one/);
+  });
+
   it("EC-2: does not count a race that falls inside a recovery week", () => {
     // A B-priority event IS the week's one retained intensity touch — not a density breach.
     const days: PlannedDay[] = [
@@ -331,5 +356,32 @@ describe("validateRecoveryWeekDensity", () => {
       { date: "2026-06-22", weekNumber: 1, weekTheme: "t", name: "Rest", type: "Rest", durationMin: 0, workoutText: "", description: "x" },
     ];
     expect(validateRecoveryWeekDensity(days, target, DEFAULT_BLOCK_SETTINGS, 250, [])).toEqual([]);
+  });
+});
+
+// Decision 2 (2026-07-29 owner-approved, whole-branch review): a recovery week carrying 2 sessions of
+// the block's focus type used to trip THREE near-identical warnings — validateSchedule's own recovery
+// branch, validateRecoveryWeekDensity, and validatePrimaryQualityCadence's recovery ceiling — for the
+// same underlying fact. Each concern now has exactly one owner. This is the point of the whole change:
+// pin that the same scenario produces exactly one warning across all three validators combined.
+describe("Decision 2 — single owner per concern (2026-07-29)", () => {
+  it("a recovery week with 2 focus-type quality sessions produces exactly one warning, not three", () => {
+    const days: PlannedDay[] = [
+      { date: "2026-06-16", weekNumber: 1, weekTheme: "t", name: "V1", type: "VO2max", durationMin: 40, workoutText: "- 4m 110%", description: "x" },
+      { date: "2026-06-18", weekNumber: 1, weekTheme: "t", name: "V2", type: "VO2max", durationMin: 40, workoutText: "- 4m 110%", description: "x" },
+    ];
+    const targets = [{ weekNumber: 1, isRecovery: true, targetHours: 7.2 }];
+
+    const scheduleWarnings = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets);
+    const densityWarnings = validateRecoveryWeekDensity(days, targets, DEFAULT_BLOCK_SETTINGS, 250, []);
+    const cadenceWarnings = validatePrimaryQualityCadence(days, "vo2max", targets, 250);
+
+    expect(scheduleWarnings).toEqual([]);
+    expect(cadenceWarnings).toEqual([]);
+    expect(densityWarnings).toHaveLength(1);
+    expect(densityWarnings[0]).toMatch(/RECOVERY DENSITY: week 1 \(recovery\) has 2 quality sessions \(VO2max, VO2max\)/);
+
+    const total = [...scheduleWarnings, ...densityWarnings, ...cadenceWarnings];
+    expect(total).toHaveLength(1);
   });
 });

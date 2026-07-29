@@ -1019,14 +1019,29 @@ describe("validatePrimaryQualityCadence (P5a)", () => {
     expect(w.some((m) => /week 2/.test(m))).toBe(true);
   });
 
-  it("flags a recovery week that carries MORE than the retained primary-quality touch", () => {
-    // The exemption was silent: a recovery week could carry any number of focus sessions unchallenged.
+  // 2026-07-29 (Decision 2c, triple-warning collapse): this recovery-week ceiling was added 2026-07-29
+  // earlier the same day and immediately created a third near-duplicate warning alongside
+  // validateSchedule's recovery branch and validateRecoveryWeekDensity for the identical fact (a
+  // recovery week over its quality ceiling). Removed again — validateRecoveryWeekDensity
+  // (lib/schedule-validate.ts) is the sole owner of the recovery-week ceiling now. This is provably
+  // lossless, not a silent re-introduction of the old gap:
+  //   - vo2max/threshold/anaerobic: the matcher here is exact type equality, a subset of the density
+  //     validator's `standalone` set, so matches.length > 1 always implies standalone.length > 1 there.
+  //   - durability: the matcher selects embedded Z2/Recovery efforts — exactly the density validator's
+  //     `embedded` set, which fires at >=1 (strictly stricter than this ceiling's >1).
+  //   - The only case this ceiling ever caught that the density validator doesn't is excess sessions
+  //     landing on event dates, which the density validator deliberately excludes (a race inside a
+  //     recovery week IS that week's one retained intensity touch) — so that firing was a false
+  //     positive, not real coverage. See validateRecoveryWeekDensity's own test file
+  //     (lib/schedule-validate.test.ts) for the moved/retained coverage and the cross-validator
+  //     "single owner" pinning test proving 3 warnings collapsed to 1.
+  it("no longer polices a recovery week's quality count — silent regardless of how many focus sessions it carries", () => {
     const days: PlannedDay[] = [
       { date: "2026-06-15", weekNumber: 1, weekTheme: "t", name: "V1", type: "VO2max", durationMin: 60, workoutText: "- 4m 110%", description: "x" },
       { date: "2026-06-17", weekNumber: 1, weekTheme: "t", name: "V2", type: "VO2max", durationMin: 60, workoutText: "- 4m 110%", description: "x" },
     ];
     const w = validatePrimaryQualityCadence(days, "vo2max", targets([{ isRecovery: true }]), 250);
-    expect(w.some((s) => /recovery/.test(s) && /at most/.test(s))).toBe(true);
+    expect(w).toEqual([]);
   });
 });
 
