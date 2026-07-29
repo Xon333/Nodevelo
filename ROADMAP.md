@@ -43,6 +43,10 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
   (surgy/mixed, no single zone edge); `/model` offsets are derived-live, not persisted in
   `CalibrationStore` (fine unless a manual override is ever wanted).
 - Carbs g/h optimum is owned by **Track C**, not this item.
+- **Explainability follow-on:** the build-focus selector already computes a decomposed score
+  (`parts: {goal, urgency, trainability, execution, limiter}`, `lib/season.ts:187-230`) but never
+  persists or surfaces it. Stamp it onto the ledger entry alongside this item's other stamps —
+  turns "why Threshold not VO2" into inspectable evidence instead of a black box, for free.
 
 ## Then — unblocked, ranked
 
@@ -82,7 +86,9 @@ touch that code. Full rationale: [docs/systems/05-season.md § Known rough edges
 **Tripwire:** if a future block reproduces a structural defect (a missed hour target, a missing
 limiter session, an escalation the critic misses), that's real evidence the LLM shouldn't author
 structure at all — next step is a deterministic skeleton with parameterized protocol templates.
-Hasn't fired yet.
+**Fired 2026-07-29** — a recovery week kept all three quality types, merely trimmed; root causes
+fixed in Phase A, deterministic-skeleton response scoped as Phase B, not started. Detail:
+[docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
 
 ## Later — scoped, not started
 

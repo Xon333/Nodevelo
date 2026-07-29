@@ -92,8 +92,13 @@ evaluation → [ARCHIVE.md](../../ARCHIVE.md) "Block-generation architecture red
 - **Tripwire:** if a future block reproduces a structural defect (a missed hour target, a missing
   limiter session, an escalation the narrative critic misses), that's real evidence the LLM
   shouldn't author structure at all — next step would be a fully deterministic skeleton with
-  parameterized protocol templates, LLM narrating only. Hasn't fired; the P4/P5 event-week
-  overstack above is the closest call so far.
+  parameterized protocol templates, LLM narrating only.
+  **Fired 2026-07-29** — a reviewed 2-week block's "recovery" week cut volume ~19% against a mandated
+  ~40% AND kept all three quality types (SIT, Threshold, and a long ride with embedded threshold
+  efforts), each merely trimmed. Root causes were a volume-only recovery instruction and a
+  block-scoped durability template with no recovery carve-out; both fixed in the Phase A pass
+  (2026-07-29). The deterministic-skeleton response is scoped as Phase B — see
+  docs/superpowers/plans/2026-07-29-block-generation-phase-a-correctness.md.
 - **Held for a scheduled reopen, not rejected:** the TrainerRoad-style per-zone progression-level
   state machine (→ ARCHIVE for why it's the standout alternative). Reopen once per-type observation
   counts clear the athlete-model's own ≥3-obs gates (watch after the 2026-08-12 verdict
