@@ -240,6 +240,18 @@ export async function POST(req: Request) {
     let rollingFocusChoice: import("@/lib/season").FocusChoice | null = null;
     let aEventForBlock: import("@/lib/types").SeasonEvent | null = null;
     let recoveryWeekIndices: number[] = [];
+    // Tracked underneath the flag, same as season-plan.json itself (SEASON_SHAPES_GENERATION only
+    // gates the prompt/validator OPINION, never the tracking). This must run unconditionally: it used
+    // to sit inside the else of `if (aEventForBlock)` below, so an A-priority event on the calendar
+    // silently skipped focus selection entirely — and with the flag off (today's state) that meant the
+    // event arc was gated AND the rolling focus never ran, so seasonContext stayed "",
+    // validateBlockFocus and validatePrimaryQualityCadence never fired, and GeneratedPlan.seasonFocus
+    // was never stamped (degrading the NEXT block's no-back-to-back rule too). The old comment there
+    // claimed this "always runs regardless of the flag" — true only of the branch it sat in.
+    // Pure, and focusInputs is already resolved above, so it sits outside the season try/catch: a
+    // throw here is a real failure worth a 502, not something to degrade past in silence.
+    rollingFocusChoice = chooseNextFocus(focusInputs);
+
     try {
       const achievedTssFor = (p: import("@/lib/types").FocusPeriod) => achievedTssForPeriod(scoreLog.entries, p);
       aEventForBlock = findUpcomingAEvent(existingSeason.events, today);
@@ -272,11 +284,6 @@ export async function POST(req: Request) {
       } else {
         replannedSeason = settleSeasonHistory(existingSeason, achievedTssFor, today);
         recoveryWeekIndices = allRecoveryIndices;
-        // Tracked underneath the flag, same as season-plan.json itself (SEASON_SHAPES_GENERATION only
-        // gates the prompt/validator opinion, never the tracking) — chooseNextFocus always runs so
-        // GeneratedPlan.seasonFocus (write-time provenance) and the next call's no-back-to-back rule
-        // both stay live regardless of the flag.
-        rollingFocusChoice = chooseNextFocus(focusInputs);
       }
       // HR-58: persistence is deferred until generation actually succeeds (see the updateSeasonPlan
       // call near the final return) — this used to write here unconditionally, so a generation that

@@ -169,6 +169,29 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
     expect(dynamic).toContain("Areh FTP Test");
     expect(dynamic).not.toContain("spans 2 season periods"); // phase text still absent
   });
+
+  it("EC-9: an A-priority event does NOT silently disable rolling focus selection", async () => {
+    // Before this fix, chooseNextFocus lived only in the else-branch of `if (aEventForBlock)`.
+    // With SEASON_SHAPES_GENERATION off, an A-event meant NEITHER the event arc (flag-gated) NOR
+    // the rolling focus ran — the prompt lost its BLOCK FOCUS line, two validators went dark, and
+    // seasonFocus was never stamped (breaking the next block's variety rule too).
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({
+      objective: "",
+      events: [{ name: "Nationals", date: "2026-09-05", priority: "A", type: "road-race" }],
+      periods: [],
+      updatedAt: "",
+    } as never);
+    const res = await POST(
+      new Request("http://t/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+      })
+    );
+    const json = await res.json();
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(dynamic).toContain("BLOCK FOCUS:");
+    expect(json.plan.seasonFocus).toBeTruthy();
+  });
 });
 
 describe("POST /api/generate — request validation", () => {
@@ -438,6 +461,8 @@ describe("POST /api/generate — within-week sequencing wiring (P5b)", () => {
 // its own dependencies (readAthleteProfile/readLastSync/readCurrentBlock/readBlockHistory/readScoreLog/
 // readSeasonPlan) are already fully covered by this file's @/lib/data-store mock, so running it for real
 // is more faithful than hand-rolling a second ChooseNextFocusInput fixture that could drift from it.
+// EC-9: it also runs regardless of an upcoming A-priority event — see the second case below, which
+// used to assert the opposite (that was the bug this task fixed).
 describe("POST /api/generate — seasonFocus stamping (chooseNextFocus wiring)", () => {
   it("stamps plan.seasonFocus/seasonFocusRationale for a rolling-mode block (no upcoming A-event)", async () => {
     vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "" } as never);
@@ -447,7 +472,11 @@ describe("POST /api/generate — seasonFocus stamping (chooseNextFocus wiring)",
     expect(json.plan.seasonFocusRationale.length).toBeGreaterThan(0);
   });
 
-  it("omits plan.seasonFocus/seasonFocusRationale for an event-anchored block (upcoming A-event)", async () => {
+  it("EC-9: also stamps plan.seasonFocus/seasonFocusRationale for an event-anchored block (upcoming A-event)", async () => {
+    // Before EC-9, chooseNextFocus lived only in the else-branch of `if (aEventForBlock)`, so an
+    // upcoming A-priority event silently suppressed seasonFocus stamping too (this test used to
+    // assert `toBeUndefined()` here — that was the bug, not a documented design choice). Hoisting
+    // the call outside the season try/catch (route.ts) makes it run unconditionally.
     vi.mocked(store.readSeasonPlan).mockResolvedValue({
       objective: "",
       events: [{ name: "A Race", date: "2026-10-01", priority: "A" }],
@@ -466,8 +495,9 @@ describe("POST /api/generate — seasonFocus stamping (chooseNextFocus wiring)",
         })
       )
     ).json();
-    expect(json.plan.seasonFocus).toBeUndefined();
-    expect(json.plan.seasonFocusRationale).toBeUndefined();
+    expect(json.plan.seasonFocus).toBeDefined();
+    expect(typeof json.plan.seasonFocusRationale).toBe("string");
+    expect(json.plan.seasonFocusRationale.length).toBeGreaterThan(0);
   });
 });
 
