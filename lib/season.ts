@@ -6,7 +6,7 @@ import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, Se
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { execFor } from "./intervention";
-import type { WeekTarget } from "./block-skeleton";
+import { RECOVERY_QUALITY_CAP, type WeekTarget } from "./block-skeleton";
 
 // Season phase/deload/retest context + the two season-fit/focus-match validators are TEMPORARILY
 // DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
@@ -745,9 +745,14 @@ export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: 
 // somewhere") doesn't catch the actual defects found live — Week 3 silently dropped its standalone
 // Threshold session, and SIT vanished entirely in weeks 5-6 despite the overview claiming escalation.
 // Both are "primary quality disappeared mid-block," which a block-wide minimum of 1 can't see. This
-// checks every LOADING week specifically (recovery weeks are exempt — the KB's own "quality is
-// minimal" framing applies there), reusing the same matcher table so this can never disagree with
-// formatFocusCoverageLine's prompt instruction or validateBlockFocus's own floor.
+// checks every LOADING week specifically, reusing the same matcher table so this can never disagree
+// with formatFocusCoverageLine's prompt instruction or validateBlockFocus's own floor.
+//
+// 2026-07-29: now two-sided. Recovery weeks used to be skipped outright, with only a comment
+// recording the intent ("quality is minimal there") — which meant a recovery week could carry any
+// number of focus sessions unchallenged, and did. Loading weeks owe at least 1; recovery weeks owe
+// at most RECOVERY_QUALITY_CAP. The count-and-composition ceiling across ALL quality types lives in
+// validateRecoveryWeekDensity (lib/schedule-validate.ts); this is the focus-type-specific half.
 export function validatePrimaryQualityCadence(
   days: PlannedDay[],
   focus: SeasonFocus,
@@ -764,9 +769,17 @@ export function validatePrimaryQualityCadence(
   }
   const warnings: string[] = [];
   for (const t of weekTargets) {
-    if (t.isRecovery) continue;
     const weekDays = byWeek.get(t.weekNumber) ?? [];
-    if (!weekDays.some(m.match)) {
+    const matches = weekDays.filter(m.match);
+    if (t.isRecovery) {
+      if (matches.length > RECOVERY_QUALITY_CAP) {
+        warnings.push(
+          `PRIMARY QUALITY: week ${t.weekNumber} (recovery) has ${matches.length} ${m.label} sessions — a recovery week keeps at most ${RECOVERY_QUALITY_CAP}.`
+        );
+      }
+      continue;
+    }
+    if (matches.length === 0) {
       warnings.push(
         `PRIMARY QUALITY: week ${t.weekNumber} (loading) — this block's focus is ${focus} but has no ${m.label} session this week. The primary quality should appear every loading week, not skip weeks.`
       );

@@ -960,6 +960,16 @@ describe("validatePrimaryQualityCadence (P5a)", () => {
     const w = validatePrimaryQualityCadence(days, "vo2max", targets([{}, {}]), 250);
     expect(w.some((m) => /week 2/.test(m))).toBe(true);
   });
+
+  it("flags a recovery week that carries MORE than the retained primary-quality touch", () => {
+    // The exemption was silent: a recovery week could carry any number of focus sessions unchallenged.
+    const days: PlannedDay[] = [
+      { date: "2026-06-15", weekNumber: 1, weekTheme: "t", name: "V1", type: "VO2max", durationMin: 60, workoutText: "- 4m 110%", description: "x" },
+      { date: "2026-06-17", weekNumber: 1, weekTheme: "t", name: "V2", type: "VO2max", durationMin: 60, workoutText: "- 4m 110%", description: "x" },
+    ];
+    const w = validatePrimaryQualityCadence(days, "vo2max", targets([{ isRecovery: true }]), 250);
+    expect(w.some((s) => /recovery/.test(s) && /at most/.test(s))).toBe(true);
+  });
 });
 
 describe("projectSeasonOutlook (season-roadmap-preview §6)", () => {
