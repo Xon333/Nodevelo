@@ -239,7 +239,6 @@ export async function POST(req: Request) {
     let replannedSeason: import("@/lib/types").SeasonPlan | null = null;
     let rollingFocusChoice: import("@/lib/season").FocusChoice | null = null;
     let aEventForBlock: import("@/lib/types").SeasonEvent | null = null;
-    let recoveryWeekIndices: number[] = [];
     // Tracked underneath the flag, same as season-plan.json itself (SEASON_SHAPES_GENERATION only
     // gates the prompt/validator OPINION, never the tracking). This must run unconditionally: it used
     // to sit inside the else of `if (aEventForBlock)` below, so an A-priority event on the calendar
@@ -252,15 +251,30 @@ export async function POST(req: Request) {
     // throw here is a real failure worth a 502, not something to degrade past in silence.
     rollingFocusChoice = chooseNextFocus(focusInputs);
 
+    // EC-3 / EC-12: these three computations depend ONLY on the score log, the rolling baselines and
+    // this block's own params — never on season-plan.json. They used to live inside the try below, so
+    // any throw in the season replan (e.g. a hand-edited malformed date making addWeeks' Date.parse
+    // return NaN) silently produced a block with ZERO recovery weeks and no event callout, announced
+    // by nothing but a server log. The pre-existing comment above computeWeekTargets claimed that
+    // defaulting to [] "degrades safely" — it doesn't; [] is the silent failure. Hoisted so the
+    // correct value survives a season-layer failure.
+    const avgWeeklyTss = baselines.avgTss90d != null ? baselines.avgTss90d * 7 : null;
+    const weeksSinceRecovery = realWeeksSinceLastRecovery(scoreLog.entries, avgWeeklyTss, today);
+    const allRecoveryIndices = planRecoveryWeeks(weeksSinceRecovery, blockParams.lengthWeeks, !!(signals.loadRamp?.triggered));
+    // Default to the UNFILTERED set: the event-arc branch below narrows it to base/build phases, but
+    // if that branch throws we want the plain cadence answer, not none at all.
+    let recoveryWeekIndices: number[] = allRecoveryIndices;
+
+    const blockEndDate = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
+    const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEndDate });
+    if (upcomingEventsLine) upcomingEventsContext = `\n${upcomingEventsLine}`;
+
+    // Athlete-visible record that the season layer degraded — folded into plan.warnings below.
+    const seasonDegradedWarnings: string[] = [];
+
     try {
       const achievedTssFor = (p: import("@/lib/types").FocusPeriod) => achievedTssForPeriod(scoreLog.entries, p);
       aEventForBlock = findUpcomingAEvent(existingSeason.events, today);
-
-      // §5 recovery hard cap — computed once, shared by both branches (it applies to a rolling block
-      // AND the build stretch leading into an event; peak/taper keep their own load-shaping untouched).
-      const avgWeeklyTss = baselines.avgTss90d != null ? baselines.avgTss90d * 7 : null;
-      const weeksSinceRecovery = realWeeksSinceLastRecovery(scoreLog.entries, avgWeeklyTss, today);
-      const allRecoveryIndices = planRecoveryWeeks(weeksSinceRecovery, blockParams.lengthWeeks, !!(signals.loadRamp?.triggered));
 
       if (aEventForBlock) {
         replannedSeason = replanEventArc(
@@ -290,17 +304,13 @@ export async function POST(req: Request) {
       // then failed (or whose proposal the athlete never accepted) still left a phantom future-arc
       // redraft on season-plan.json.
 
-      const blockEnd = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
-      const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEnd });
-      if (upcomingEventsLine) upcomingEventsContext = `\n${upcomingEventsLine}`;
-
       // P1 (2026-07-24 block-generation redesign): the flag now gates ONLY the doubted, event-
       // anchored fixed-phase arc (formatSeasonContext, backwardScheduleFromEvent's periods) — the
       // rolling, state-scored bundle (formatFocusContext/chooseNextFocus, formatRecoveryWeeks,
       // formatRetestNote below) is NOT the doubted model and always runs. See ROADMAP.md "Season
       // engine — known debt" for the full split rationale.
       if (SEASON_SHAPES_GENERATION && aEventForBlock) {
-        const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEnd });
+        const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEndDate });
         if (line) seasonContext = `\n${line}`;
       } else if (rollingFocusChoice) {
         seasonContext = `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
@@ -309,17 +319,25 @@ export async function POST(req: Request) {
         const coverageLine = formatFocusCoverageLine(rollingFocusChoice.focus, profile.performance.ftp);
         if (coverageLine) seasonContext += `\n${coverageLine}`;
       }
-      const recoveryLine = formatRecoveryWeeks(recoveryWeekIndices, blockParams.lengthWeeks);
-      if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
+      seasonDegradedWarnings.push(
+        "SEASON: the season layer failed to update for this block — recovery-week placement and the event callout still applied, but season phase tracking did not. Check data/season-plan.json for a malformed date."
+      );
     }
+
+    // Rendered after the try/catch, not inside it: by this point recoveryWeekIndices holds the
+    // event-arc-filtered set if that branch ran, and the plain cadence set otherwise — including
+    // after a throw. Computing it here means a season-plan failure loses the season PHASE text but
+    // never the recovery-week instruction itself.
+    const recoveryLine = formatRecoveryWeeks(recoveryWeekIndices, blockParams.lengthWeeks);
+    if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
 
     // P2b (2026-07-24 block-generation redesign): one exact hour figure per week — loading weeks
     // target the top of the configured range, recovery weeks (recoveryWeekIndices, computed above)
     // target a figure DERIVED from that loading target, not a fixed absolute band blind to it.
-    // Computed outside the season try/catch so it degrades safely (recoveryWeekIndices defaults to
-    // []) rather than depending on the season replan succeeding.
+    // Computed outside the season try/catch: recoveryWeekIndices is now hoisted and correct-by-default
+    // (EC-3/EC-12) even when the season replan throws, so this never silently sees an empty [].
     const weekTargets = computeWeekTargets(blockParams.lengthWeeks, blockSettings, recoveryWeekIndices);
 
     // Retest cadence: a stale tested FTP quietly rots zones and TSS math — nudge the generator to place
@@ -396,7 +414,7 @@ export async function POST(req: Request) {
     // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
     const nutritionRepair = repairNutrition(reconciledDays, nutritionConfig, profile.performance.ftp, weightTrend);
     const days = nutritionRepair.days;
-    const warnings: string[] = [...nutritionRepair.repairs];
+    const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];
     const expected = weeks.flat();
     if (days.length !== expected.length) {
       warnings.push(`Expected ${expected.length} days, got ${days.length}.`);

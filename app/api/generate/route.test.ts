@@ -541,3 +541,33 @@ describe("POST /api/generate — protocol-violation severity (measurability)", (
     expect(json.plan.warnings.some((w: string) => /prescribed steps/.test(w))).toBe(false);
   });
 });
+
+describe("POST /api/generate — season layer degradation (EC-3)", () => {
+  it("still plans recovery weeks and surfaces a warning when the season replan throws", async () => {
+    // A malformed period date makes addWeeks' Date.parse return NaN, and new Date(NaN).toISOString()
+    // throws RangeError inside settleSeasonHistory. Before this fix, recoveryWeekIndices silently
+    // stayed [] -> zero recovery weeks in the block, no RECOVERY instruction in the prompt, and
+    // validateWeekHours measuring every week against the loading target. Only a server log said so.
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({
+      objective: "",
+      events: [],
+      periods: [
+        { focus: "threshold", phase: "build", startDate: "not-a-date", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "x", source: "derived", confidence: "medium" },
+      ],
+      updatedAt: "",
+    } as never);
+    // weeksSinceRecovery is derived from an empty score log -> hits the lookback cap, so a 4-week
+    // block is guaranteed at least one recovery week (planRecoveryWeeks(n>=0, 4) always fires).
+    const res = await POST(
+      new Request("http://t/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ lengthWeeks: 4, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+      })
+    );
+    const json = await res.json();
+    const [, dynamic, userMessage] = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0];
+    expect(userMessage).toContain("RECOVERY"); // the hour-target table still labels the week
+    expect(dynamic).toContain("RECOVERY:"); // and the recovery instruction still reaches the model
+    expect(json.plan.warnings.some((w: string) => /season/i.test(w))).toBe(true); // athlete-visible
+  });
+});
