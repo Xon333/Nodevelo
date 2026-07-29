@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets, formatWeekTargets, validateWeekHours, type WeekTarget } from "./block-skeleton";
-import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay } from "./types";
+import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type SeasonFocus } from "./types";
+import { addDaysIso } from "./date";
 
 function day(date: string, weekNumber: number, durationMin: number): PlannedDay {
   return { date, weekNumber, weekTheme: "t", name: "s", type: "Z2", durationMin, workoutText: "- 1m 60%", description: "x" };
@@ -251,5 +252,157 @@ describe("computeBlockSkeleton", () => {
     const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, qualitySessionsPerLoadingWeek: 3 };
     const sk = computeBlockSkeleton("2026-08-03", computeWeekTargets(1, settings, [0]), settings, "anaerobic", []);
     expect(sk.weeks[0].qualityBudget).toBe(1);
+  });
+});
+
+// ---------- Phase B task 1 (2026-07-29 review): exhaustive invariant sweep ----------
+// The tests above only ever exercised DEFAULT_BLOCK_SETTINGS (plus two hand-picked clamp cases),
+// which missed four Critical/Important defects that a review proved reachable: an event zeroing an
+// already-allocated day (C1), the arithmetic reading a *budget* instead of what was actually placed
+// when the rest/quality priority lists collide (C2), a Math.max(0, ...) silently discarding a
+// negative deficit (I3), and the long ride going negative (I4). Rather than adding four more
+// one-off cases, this sweeps the settings space and asserts the two invariants
+// computeBlockSkeleton exists to guarantee on every single week produced:
+//   1. every slot satisfies 0 <= minMin <= nominalMin <= maxMin
+//   2. the week's nominalMin values sum EXACTLY to Math.round(targetHours * 60)
+function assertWeekInvariants(sk: ReturnType<typeof computeBlockSkeleton>, label: string, failures: string[]): void {
+  for (const week of sk.weeks) {
+    let sum = 0;
+    for (const day of week.days) {
+      const { minMin, nominalMin, maxMin } = day.duration;
+      if (!(minMin >= 0 && minMin <= nominalMin && nominalMin <= maxMin)) {
+        failures.push(
+          `[${label}] week ${week.weekNumber} ${day.date} (${day.kind}): envelope broken — min=${minMin} nominal=${nominalMin} max=${maxMin}`
+        );
+      }
+      sum += nominalMin;
+    }
+    const target = Math.round(week.targetHours * 60);
+    if (sum !== target) {
+      failures.push(`[${label}] week ${week.weekNumber}: sum=${sum} target=${target} (diff ${sum - target})`);
+    }
+  }
+}
+
+describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => {
+  // Every dimension called out in the brief, using its own suggested extremes. Deliberately NOT
+  // filtered through checkBlockFeasibility first — this function's contract does not state "assumes
+  // pre-validated settings" as a precondition, so the sweep includes combinations feasibility would
+  // reject (that's exactly how I3 and I4 were reproduced) as well as ones it passes (C2's shape).
+  const WEEKLY_HOURS_MAX = [2, 6, 10, 12, 20, 30];
+  const LONG_RIDE_MIN = [10, 120, 180, 300];
+  const REST_DAYS = [0, 1, 2, 3];
+  const QUALITY_SESSIONS = [0, 1, 2, 3, 4];
+  const BLOCK_LENGTHS = [2, 4, 8];
+  const RECOVERY_PRESENT = [false, true];
+  const FOCI: SeasonFocus[] = ["anaerobic", "durability"]; // required-type vs. no-required-type
+
+  it("holds for every combination in the matrix (no events)", () => {
+    const failures: string[] = [];
+    let combos = 0;
+    for (const weeklyHoursMax of WEEKLY_HOURS_MAX) {
+      for (const longRideDurationMinutes of LONG_RIDE_MIN) {
+        for (const restDaysPerWeek of REST_DAYS) {
+          for (const qualitySessionsPerLoadingWeek of QUALITY_SESSIONS) {
+            for (const lengthWeeks of BLOCK_LENGTHS) {
+              for (const recoveryPresent of RECOVERY_PRESENT) {
+                for (const focus of FOCI) {
+                  combos++;
+                  // recoveryWeekHoursMin/Max relaxed to [0, weeklyHoursMax] so a low weeklyHoursMax
+                  // extreme actually propagates into the recovery week's target too, instead of being
+                  // floor-clamped back up by the population-default recovery band.
+                  const settings: BlockSettings = {
+                    ...DEFAULT_BLOCK_SETTINGS,
+                    weeklyHoursMax,
+                    longRideDurationMinutes,
+                    restDaysPerWeek,
+                    qualitySessionsPerLoadingWeek,
+                    recoveryWeekHoursMin: 0,
+                    recoveryWeekHoursMax: weeklyHoursMax,
+                  };
+                  const recoveryIdx = recoveryPresent ? [lengthWeeks - 1] : [];
+                  const targets = computeWeekTargets(lengthWeeks, settings, recoveryIdx);
+                  const sk = computeBlockSkeleton("2026-08-03", targets, settings, focus, []);
+                  assertWeekInvariants(
+                    sk,
+                    `hrs=${weeklyHoursMax} ride=${longRideDurationMinutes} rest=${restDaysPerWeek} q=${qualitySessionsPerLoadingWeek} len=${lengthWeeks} rec=${recoveryPresent} focus=${focus}`,
+                    failures
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    // 6 * 4 * 4 * 5 * 3 * 2 * 2 = 5760 settings combinations, each producing 2/4/8 weeks.
+    expect(combos).toBe(WEEKLY_HOURS_MAX.length * LONG_RIDE_MIN.length * REST_DAYS.length * QUALITY_SESSIONS.length * BLOCK_LENGTHS.length * RECOVERY_PRESENT.length * FOCI.length);
+    if (failures.length > 0) {
+      throw new Error(`${failures.length} invariant violation(s) across ${combos} combos (showing up to 25):\n${failures.slice(0, 25).join("\n")}`);
+    }
+  });
+});
+
+describe("computeBlockSkeleton invariants — events on every day (C1 sweep)", () => {
+  // A few settings shapes layered onto the day-of-week x recovery sweep: the population default, the
+  // C2 priority-collision shape, and the I3/I4 tiny-hours-vs-long-long-ride shape — so an event
+  // interacting with any of those three defect shapes at once is also covered, not just in isolation.
+  const SETTINGS_VARIANTS: { label: string; settings: BlockSettings }[] = [
+    { label: "default", settings: DEFAULT_BLOCK_SETTINGS },
+    { label: "C2 collision shape", settings: { ...DEFAULT_BLOCK_SETTINGS, restDaysPerWeek: 2, qualitySessionsPerLoadingWeek: 3 } },
+    { label: "I3/I4 overshoot shape", settings: { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 2, longRideDurationMinutes: 10 } },
+  ];
+
+  it("an event on each of the seven days, loading and recovery, holds both invariants for every settings shape", () => {
+    const failures: string[] = [];
+    for (const { label, settings } of SETTINGS_VARIANTS) {
+      for (const recovery of [false, true]) {
+        const targets = computeWeekTargets(1, settings, recovery ? [0] : []);
+        for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+          const date = addDaysIso("2026-08-03", dayIdx);
+          const events: SeasonEvent[] = [{ name: "Event", date, priority: "B" }];
+          const sk = computeBlockSkeleton("2026-08-03", targets, settings, "anaerobic", events);
+          assertWeekInvariants(sk, `${label} recovery=${recovery} eventDay=${dayIdx}`, failures);
+        }
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`${failures.length} invariant violation(s):\n${failures.slice(0, 25).join("\n")}`);
+    }
+  });
+
+  it("two events in one week holds both invariants", () => {
+    const failures: string[] = [];
+    const targets = computeWeekTargets(1, DEFAULT_BLOCK_SETTINGS, []);
+    const events: SeasonEvent[] = [
+      { name: "E1", date: addDaysIso("2026-08-03", 1), priority: "B" },
+      { name: "E2", date: addDaysIso("2026-08-03", 5), priority: "A" },
+    ];
+    const sk = computeBlockSkeleton("2026-08-03", targets, DEFAULT_BLOCK_SETTINGS, "anaerobic", events);
+    assertWeekInvariants(sk, "two events in one week", failures);
+    if (failures.length > 0) throw new Error(failures.join("\n"));
+  });
+
+  it("C1 repro: an event on the canonical Saturday long-ride day still sums the week to target", () => {
+    const targets = computeWeekTargets(1, DEFAULT_BLOCK_SETTINGS, []);
+    const events: SeasonEvent[] = [{ name: "KOM Race", date: "2026-08-08", priority: "A" }]; // Saturday = index 5
+    const sk = computeBlockSkeleton("2026-08-03", targets, DEFAULT_BLOCK_SETTINGS, "anaerobic", events);
+    const days = sk.weeks[0].days;
+    const sum = days.reduce((t, d) => t + d.duration.nominalMin, 0);
+    expect(sum).toBe(Math.round(targets[0].targetHours * 60));
+    const ev = days.find((d) => d.date === "2026-08-08")!;
+    expect(ev.kind).toBe("event");
+    expect(ev.duration.nominalMin).toBeGreaterThan(0); // C1: used to be 0, silently losing this day's minutes
+  });
+
+  it("C1 repro: an event on a quality day still sums the week to target", () => {
+    const targets = computeWeekTargets(1, DEFAULT_BLOCK_SETTINGS, []);
+    const events: SeasonEvent[] = [{ name: "Crit", date: "2026-08-04", priority: "B" }]; // Tuesday = index 1 (quality)
+    const sk = computeBlockSkeleton("2026-08-03", targets, DEFAULT_BLOCK_SETTINGS, "anaerobic", events);
+    const days = sk.weeks[0].days;
+    const sum = days.reduce((t, d) => t + d.duration.nominalMin, 0);
+    expect(sum).toBe(Math.round(targets[0].targetHours * 60));
+    const ev = days.find((d) => d.date === "2026-08-04")!;
+    expect(ev.duration.nominalMin).toBeGreaterThan(0);
   });
 });

@@ -189,6 +189,14 @@ function spread(total: number, count: number): number[] {
   return Array.from({ length: count }, (_, i) => base + (i < rem ? 1 : 0));
 }
 
+// Phase B task 1 (2026-07-29 review): the original version drove minute arithmetic off the
+// *budgeted* rest/quality counts and zeroed event days outright, which broke the one guarantee this
+// function exists for (day durations sum exactly to the week's target) in four reachable cases —
+// see the four numbered steps below. The restructured order is: (1) place slot KINDS, (2) allocate
+// minutes from the counts actually PLACED, (3) apply event overrides at render time using the
+// minutes their displaced slot would have drawn, never zero. Two invariants hold unconditionally for
+// every slot this function returns: 0 <= minMin <= nominalMin <= maxMin, and a week's nominalMin
+// values sum exactly to Math.round(targetHours * 60). See block-skeleton.test.ts's "invariant sweep".
 export function computeBlockSkeleton(
   startDate: string,
   weekTargets: WeekTarget[],
@@ -214,8 +222,10 @@ export function computeBlockSkeleton(
     let longRideMin = t.isRecovery
       ? Math.round(settings.longRideDurationMinutes * RECOVERY_RETENTION_PCT)
       : settings.longRideDurationMinutes;
-    const qualityMin = t.isRecovery ? QUALITY_RECOVERY_MIN : QUALITY_NOMINAL_MIN;
+    const qualityBaseMin = t.isRecovery ? QUALITY_RECOVERY_MIN : QUALITY_NOMINAL_MIN;
 
+    // ---- Step 1: place slot KINDS (rest / quality / long ride / easy). Event overrides are applied
+    // later, at render time — placement always reflects the week's underlying shape first. ----
     const kinds: SlotKind[] = Array.from({ length: 7 }, () => "easy");
     kinds[LONG_RIDE_INDEX] = "longRide";
     let placed = 0;
@@ -229,28 +239,95 @@ export function computeBlockSkeleton(
       if (kinds[i] === "easy") { kinds[i] = "quality"; placed++; }
     }
 
-    const easyIdx = kinds.map((k, i) => (k === "easy" ? i : -1)).filter((i) => i >= 0);
-    const easyTotal = totalMin - longRideMin - qualityBudget * qualityMin;
-    let easyMins = spread(Math.max(0, easyTotal), easyIdx.length);
-    // Keep easy days realistic; the long ride absorbs any residual so the week still sums exactly.
-    if (easyIdx.length > 0) {
-      const clamped = easyMins.map((m) => clamp(m, EASY_MIN_MIN, EASY_MAX_MIN));
-      const delta = easyMins.reduce((a, b) => a + b, 0) - clamped.reduce((a, b) => a + b, 0);
-      easyMins = clamped;
-      longRideMin += delta;
-    } else {
-      longRideMin += Math.max(0, easyTotal);
+    // ---- Step 2: allocate minutes from the counts ACTUALLY placed above (C2 fix) — qualityBudget
+    // can exceed what fits once the rest/quality priority lists collide on the same index (e.g.
+    // restDaysPerWeek: 2, qualitySessionsPerLoadingWeek: 3 both want index 3 — REST_PRIORITY runs
+    // first and wins it). Driving the arithmetic off the budget instead of the placed count silently
+    // shorted the week by exactly the unplaced session(s); using the real count fixes it structurally,
+    // for any future priority-list shape too, not just this one collision. ----
+    const qCount = kinds.filter((k) => k === "quality").length;
+    const easyCount = kinds.filter((k) => k === "easy").length;
+
+    let qualityMins: number[] = Array.from({ length: qCount }, () => qualityBaseMin);
+    let fixedTotal = longRideMin + qCount * qualityBaseMin;
+    let easyTotal = totalMin - fixedTotal;
+
+    // ---- I3 fix: the fixed content (long ride + quality) can legitimately exceed the week's target
+    // on its own — e.g. a tiny weeklyHoursMax paired with a long-ride duration that alone eats the
+    // whole week. Shrink the fixed slots down to fit exactly — long ride first (it's already this
+    // function's designated "absorb the residual" lever below), then quality if the long ride alone
+    // can't cover it — instead of silently discarding the overshoot via Math.max(0, ...). Floor at 0
+    // either way (I4): no slot is ever pushed negative to make room. ----
+    if (easyTotal < 0) {
+      let shortfall = -easyTotal;
+      const rideReduction = Math.min(longRideMin, shortfall);
+      longRideMin -= rideReduction;
+      shortfall -= rideReduction;
+      if (shortfall > 0 && qCount > 0) {
+        const shrunkQualityTotal = Math.max(0, qCount * qualityBaseMin - shortfall);
+        qualityMins = spread(shrunkQualityTotal, qCount);
+      }
+      easyTotal = 0;
     }
 
+    // Easy days absorb whatever's left; clamp them to a realistic band and dump the compensating
+    // delta on the long ride — UNLESS doing so would push the long ride below zero (I4), in which
+    // case skip the cosmetic clamp and keep the raw, unclamped split: it still sums exactly and never
+    // goes negative, which is the only thing this function actually promises. A combination extreme
+    // enough to hit this branch (e.g. longRideDurationMinutes: 10 with weeklyHoursMax: 2) has already
+    // given up on "realistic day shapes" the moment Step 2 had to shrink the long ride to 0 above.
+    let easyMins: number[];
+    if (easyCount > 0) {
+      easyMins = spread(easyTotal, easyCount);
+      const clampedEasy = easyMins.map((m) => clamp(m, EASY_MIN_MIN, EASY_MAX_MIN));
+      const delta = easyMins.reduce((a, b) => a + b, 0) - clampedEasy.reduce((a, b) => a + b, 0);
+      if (longRideMin + delta >= 0) {
+        easyMins = clampedEasy;
+        longRideMin += delta;
+      }
+    } else {
+      easyMins = [];
+      longRideMin += easyTotal;
+    }
+
+    // ---- Step 3: render the seven days, applying event overrides last. A day's underlying bucket
+    // (its pre-event kind) still determines the minutes it draws — an event never zeroes a day's
+    // contribution (C1 fix); it just relabels the slot. `qualityMoneyCursor`/`easyCursor` advance for
+    // every day in that bucket regardless of an event landing on it, so the money always lands
+    // somewhere; `renderedQualityCount` advances only for days actually RENDERED as "quality" (event
+    // days excluded), which is what decides the focus-type lock — so if an event displaces the
+    // week's first quality day, the lock correctly falls to the next real quality day instead of
+    // vanishing, preserving the >=1-focus-type-session-per-loading-week guarantee this shape exists
+    // to structurally provide (see the "quality" case below). ----
+    let qualityMoneyCursor = 0;
+    let renderedQualityCount = 0;
     let easyCursor = 0;
-    let qualityCursor = 0;
     const days: DaySlot[] = kinds.map((kind, i) => {
       const date = addDaysIso(startDate, wi * 7 + i);
       const ev = eventByDate.get(date);
+
+      // The minutes this day's bucket draws, independent of whether an event later displaces it.
+      const nominal =
+        kind === "rest" ? 0 :
+        kind === "quality" ? qualityMins[qualityMoneyCursor++] :
+        kind === "longRide" ? longRideMin :
+        (easyMins[easyCursor++] ?? EASY_MIN_MIN);
+
       if (ev) {
+        // C1 fix: carry the duration of whatever slot this event displaced — that's the time the
+        // athlete was going to spend riding this day anyway — instead of zeroing it, so the week's
+        // total still sums to target. (On a day that would have been "rest", that figure is
+        // legitimately 0 — a rest day carries no riding time by design either way — so an event
+        // landing there still sums correctly even though it contributes nothing itself.) maxMin
+        // stays a generous all-day ceiling — a race can run long — regardless of the displaced
+        // slot's own envelope width.
         return {
           date, kind: "event", allowedTypes: ["RaceSim"],
-          duration: { nominalMin: 0, minMin: 0, maxMin: 24 * 60 },
+          duration: {
+            nominalMin: nominal,
+            minMin: Math.max(0, nominal - DURATION_SLACK_MIN),
+            maxMin: Math.max(nominal + DURATION_SLACK_MIN, 24 * 60),
+          },
           maxIntensityPct: null, locked: true,
           reason: `${ev.name} (priority ${ev.priority}) — the athlete's own event; never overwrite this day`,
         };
@@ -276,13 +353,13 @@ export function computeBlockSkeleton(
           // validateSessionRequirements' block-wide >=1-RaceSim floor (lib/session-requirements.ts)
           // unsatisfiable whenever every slot in every week is pinned to the focus type. A recovery
           // week is untouched — it carries at most one quality slot, always the primary.
-          const isFirstQualitySlot = qualityCursor === 0;
-          qualityCursor++;
+          const isFirstQualitySlot = renderedQualityCount === 0;
+          renderedQualityCount++;
           const flexibleSlot = !t.isRecovery && !isFirstQualitySlot;
           return {
             date, kind,
             allowedTypes: flexibleSlot ? ["Threshold", "VO2max", "SIT", "RaceSim"] : focusType ? [focusType] : ["Threshold", "VO2max", "SIT", "RaceSim"],
-            duration: env(qualityMin),
+            duration: env(nominal),
             maxIntensityPct: t.isRecovery ? RECOVERY_QUALITY_CEILING_PCT : null,
             locked: flexibleSlot ? false : !!focusType,
             reason: t.isRecovery
@@ -294,21 +371,19 @@ export function computeBlockSkeleton(
         }
         case "longRide":
           return {
-            date, kind, allowedTypes: ["Z2"], duration: env(longRideMin),
+            date, kind, allowedTypes: ["Z2"], duration: env(nominal),
             maxIntensityPct: t.isRecovery ? RECOVERY_LONG_RIDE_CEILING_PCT : null,
             locked: true,
             reason: t.isRecovery
               ? "recovery week: unbroken Z2, no embedded threshold/VO2 efforts whatever the block's durability template says"
               : "the week's long endurance ride",
           };
-        default: {
-          const m = easyMins[easyCursor++] ?? EASY_MIN_MIN;
+        default: // "easy"
           return {
-            date, kind: "easy", allowedTypes: ["Z2", "Recovery"], duration: env(m),
+            date, kind: "easy", allowedTypes: ["Z2", "Recovery"], duration: env(nominal),
             maxIntensityPct: EASY_CEILING_PCT, locked: false,
             reason: "easy Z2 — the week's volume lever",
           };
-        }
       }
     });
 
