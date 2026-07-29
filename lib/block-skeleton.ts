@@ -62,6 +62,14 @@ export interface WeekTarget {
 // target retaining only ~72% once loading itself undershot to ~9h40, short of even the lenient end.
 const RECOVERY_RETENTION_PCT = 0.6;
 
+// A recovery week's quality-session CEILING (not a target). KB cycling_database.md:225 pairs its
+// 30–50% volume cut with "drop intensity slightly"; TrainerRoad's recovery-week guidance drops high
+// intensity entirely; Friel/Roadman keep at most one short quality touch early in the week. The
+// volume lever (RECOVERY_RETENTION_PCT above) was already enforced; this is the composition lever
+// that was missing entirely — the reviewed 2026-07 block kept all three quality types in its
+// "recovery" week, just trimmed. Imported by schedule-validate.ts and season.ts.
+export const RECOVERY_QUALITY_CAP = 1;
+
 // One exact hour figure per week: loading weeks target the TOP of the configured range (literal, not
 // aspirational); recovery weeks (already correctly placed by realWeeksSinceLastRecovery/
 // planRecoveryWeeks — see lib/season.ts) target a derived fraction of that loading figure, clamped to

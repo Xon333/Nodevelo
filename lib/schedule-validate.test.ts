@@ -100,7 +100,7 @@ describe("validateSchedule — weekly quality budget", () => {
       ],
       SETTINGS, 250
     );
-    const budget = w.find((m) => /over the 2\/week budget/.test(m));
+    const budget = w.find((m) => /over the 2\/week budget for a loading week/.test(m));
     expect(budget).toBeDefined();
     expect(budget).toMatch(/week 1 has 3 quality sessions/);
   });
@@ -116,6 +116,27 @@ describe("validateSchedule — weekly quality budget", () => {
   it("does not flag a recovery week that sits under budget", () => {
     const w = validateSchedule([day("2026-07-06", "Threshold", 4)], SETTINGS, 250);
     expect(w).toEqual([]);
+  });
+});
+
+describe("validateSchedule — per-week budget (EC-11)", () => {
+  const q = (date: string, weekNumber: number, type: "Threshold" | "SIT" | "RaceSim"): PlannedDay =>
+    ({ date, weekNumber, weekTheme: "t", name: type, type, durationMin: 60, workoutText: "- 10m 95%", description: "x" });
+
+  it("applies the recovery cap, not the loading budget, to a recovery week", () => {
+    // Two quality sessions is legal in a loading week and over-budget in a recovery week.
+    const days = [q("2026-06-16", 1, "Threshold"), q("2026-06-18", 1, "SIT")];
+    const targets = [{ weekNumber: 1, isRecovery: true, targetHours: 7.2 }];
+    const w = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets);
+    expect(w.some((s) => /week 1 has 2 quality sessions/.test(s))).toBe(true);
+  });
+
+  it("does not count an event day against the week's quality budget", () => {
+    const days = [q("2026-06-16", 1, "Threshold"), q("2026-06-18", 1, "SIT"), q("2026-06-20", 1, "RaceSim")];
+    const targets = [{ weekNumber: 1, isRecovery: false, targetHours: 12 }];
+    const events = [{ name: "KOM", date: "2026-06-20", priority: "B" as const, type: "road-race" as const }];
+    const w = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets, events);
+    expect(w.some((s) => /quality sessions/.test(s))).toBe(false); // 3 days, but the race isn't budgeted
   });
 });
 

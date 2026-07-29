@@ -12,6 +12,7 @@
 import type { BlockSettings, PlannedDay, SeasonEvent, WorkoutType } from "./types";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { resolveDurabilityInsertEnvelope } from "./calibration";
+import { RECOVERY_QUALITY_CAP, type WeekTarget } from "./block-skeleton";
 
 // The intensity ("hard") sessions: structured quality work that drives adaptation and needs an
 // easy/rest day after it. RaceSim is a peaking/sharpening session (KB §10, whole-session IF
@@ -45,7 +46,13 @@ function daysBetween(isoA: string, isoB: string): number {
 
 // Validate a whole generated block's session *placement*. Returns a (possibly empty) list of
 // human-readable warnings — never throws, never mutates.
-export function validateSchedule(days: PlannedDay[], settings: BlockSettings, ftp: number): string[] {
+export function validateSchedule(
+  days: PlannedDay[],
+  settings: BlockSettings,
+  ftp: number,
+  weekTargets: WeekTarget[] = [],
+  events: SeasonEvent[] = []
+): string[] {
   if (days.length === 0) return [];
   const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
   const warnings: string[] = [];
@@ -66,23 +73,28 @@ export function validateSchedule(days: PlannedDay[], settings: BlockSettings, ft
     }
   }
 
-  // (b) Weekly quality budget: more quality sessions in a week than the loading-week budget. A
-  // recovery week naturally sits under the budget, so only over-prescribed weeks fire — no need
-  // to identify which week is the recovery week.
+  // (b) Weekly quality budget, per week. EC-11: this used to apply the flat loading-week budget to
+  // EVERY week, with a comment asserting "a recovery week naturally sits under the budget, so only
+  // over-prescribed weeks fire" — the assumption the 2026-07 reviewed block falsified by keeping a
+  // full loading-week quality skeleton in its recovery week. Event days are excluded so this agrees
+  // with validateEventTaper rather than double-counting a protected race against the budget.
+  const recoveryWeeks = new Set(weekTargets.filter((t) => t.isRecovery).map((t) => t.weekNumber));
+  const eventDates = new Set(events.map((e) => e.date));
   const byWeek = new Map<number, PlannedDay[]>();
   for (const d of sorted) {
     const list = byWeek.get(d.weekNumber);
     if (list) list.push(d);
     else byWeek.set(d.weekNumber, [d]);
   }
-  const budget = settings.qualitySessionsPerLoadingWeek;
   for (const [week, weekDays] of [...byWeek.entries()].sort((a, b) => a[0] - b[0])) {
-    const quality = weekDays.filter(isQuality);
+    const budget = recoveryWeeks.has(week) ? RECOVERY_QUALITY_CAP : settings.qualitySessionsPerLoadingWeek;
+    const quality = weekDays.filter((d) => isQuality(d) && !eventDates.has(d.date));
     if (quality.length > budget) {
+      const label = recoveryWeeks.has(week) ? "recovery" : "loading";
       warnings.push(
         `SCHEDULE: week ${week} has ${quality.length} quality sessions (${quality
           .map((d) => d.type)
-          .join(", ")}) — over the ${budget}/week budget.`
+          .join(", ")}) — over the ${budget}/week budget for a ${label} week.`
       );
     }
   }

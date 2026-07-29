@@ -428,7 +428,7 @@ export async function POST(req: Request) {
     warnings.push(...protocol.advisories);
     // Placement check (P5): the protocol check validates each session in isolation; this flags
     // where they land — back-to-back hard days and any week over the quality budget.
-    warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp));
+    warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp, weekTargets, existingSeason.events));
     // Event taper (P4, 2026-07-24): a lightweight check for priority-B/C events inside this block —
     // no quality session in the final 2 days before the event, and no more than 1 other quality
     // session that week. A-priority events are excluded (they get the full backward-scheduled arc).
