@@ -90,6 +90,21 @@ describe("formatDurabilityForPrompt", () => {
   });
 });
 
+describe("formatDurabilityForPrompt — recovery-week carve-out", () => {
+  it("adds an explicit recovery-week exception when the block has one", () => {
+    const b = DURABILITY_TEMPLATES.find((t) => t.id === "B")!;
+    const line = formatDurabilityForPrompt(b, true);
+    expect(line).toMatch(/recovery week/i);
+    expect(line).toMatch(/unbroken Z2/i);
+    expect(line).toMatch(/no embedded/i);
+  });
+
+  it("omits the exception when the block has no recovery week", () => {
+    const b = DURABILITY_TEMPLATES.find((t) => t.id === "B")!;
+    expect(formatDurabilityForPrompt(b, false)).not.toMatch(/recovery week/i);
+  });
+});
+
 describe("selectDurabilityTemplate — goal text as a fallback signal (2026-07-16)", () => {
   it("still lets a detected weakness insight win outright, even when goal text points elsewhere", () => {
     const insights: Insight[] = [{ dimension: "SIT", severity: "alert" } as Insight];

@@ -214,7 +214,6 @@ export async function POST(req: Request) {
     const focusInputs = await gatherFocusInputs({ blockGoal: blockParams.goal, weakpoints: blockParams.weakpoints, today });
     const combinedGoalText = focusInputs.signals.goalText ?? "";
     const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null, combinedGoalText);
-    const durabilityContext = `\n${formatDurabilityForPrompt(durability)}`;
     // Carry-forward (CR-6): quality dropped mid-block with no make-up slot — re-prioritise it here.
     const deferredContext = currentBlock?.deferredQuality?.length
       ? `\nCARRY-FORWARD (quality the athlete had to drop last block with no make-up slot — re-prioritise): ${currentBlock.deferredQuality.join("; ")}.`
@@ -337,6 +336,12 @@ export async function POST(req: Request) {
       profile.performance.ftp
     );
     if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
+
+    // Rendered here rather than beside selectDurabilityTemplate above, because the recovery-week
+    // exception needs recoveryWeekIndices — the template is chosen per BLOCK but this line is injected
+    // for every week, so without the carve-out template B tells the model to put threshold efforts in
+    // the recovery week's long ride, contradicting formatRecoveryWeeks' own long-ride rule.
+    const durabilityContext = `\n${formatDurabilityForPrompt(durability, recoveryWeekIndices.length > 0)}`;
 
     // P2b (2026-07-24 block-generation redesign): one exact hour figure per week — loading weeks
     // target the top of the configured range, recovery weeks (recoveryWeekIndices, computed above)

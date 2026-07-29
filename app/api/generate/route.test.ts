@@ -117,6 +117,21 @@ describe("POST /api/generate — Track B wiring", () => {
     const json = await (await gen("Have fun and stay consistent")).json(); // goal text alone matches nothing
     expect(json.plan.durabilityTemplate).toBe("D");
   });
+
+  it("A2: a block containing a recovery week carves the durability template out of it", async () => {
+    // Asserts on the durability line's own EXCEPTION marker specifically. A looser /recovery week/i
+    // match would pass on formatRecoveryWeeks' output alone (Task 7) and prove nothing about Task 8.
+    const res = await POST(
+      new Request("http://t/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ lengthWeeks: 4, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+      })
+    );
+    await res.json();
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(dynamic).toContain("DURABILITY FOCUS THIS BLOCK");
+    expect(dynamic).toMatch(/EXCEPTION — in a RECOVERY week this template does not apply/);
+  });
 });
 
 describe("POST /api/generate — season wiring (multi-period blocks)", () => {
