@@ -35,7 +35,7 @@ import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { reconcileDurationMin } from "@/lib/prescription";
 import { splitPlanProtocol } from "@/lib/workout-validate";
 import { repairNutrition } from "@/lib/nutrition-validate";
-import { validateEventTaper, validateSchedule, validateWeekSequencing } from "@/lib/schedule-validate";
+import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateWeekSequencing } from "@/lib/schedule-validate";
 import { checkBlockFeasibility, computeWeekTargets, validateWeekHours } from "@/lib/block-skeleton";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
@@ -436,6 +436,8 @@ export async function POST(req: Request) {
     // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
     // target — the check that was missing entirely (only session counts/spacing were validated).
     warnings.push(...validateWeekHours(days, weekTargets));
+    // The composition half of the recovery contract — validateWeekHours only checks volume.
+    warnings.push(...validateRecoveryWeekDensity(days, weekTargets, blockSettings, profile.performance.ftp, existingSeason.events));
     // Sequencing check (P5b, 2026-07-24): freshness-dependent quality (VO2max/SIT) should land
     // earlier in the week than fatigue-tolerant quality (Threshold/RaceSim).
     warnings.push(...validateWeekSequencing(days));

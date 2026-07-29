@@ -195,3 +195,50 @@ export function validateWeekSequencing(days: PlannedDay[]): string[] {
   }
   return warnings;
 }
+
+// The composition half of the recovery-week contract. RECOVERY_RETENTION_PCT (block-skeleton.ts)
+// already enforced the VOLUME cut and validateWeekHours already checked it; nothing checked what the
+// week was made OF. The 2026-07 reviewed block cut volume ~19% against a mandated ~40% AND kept all
+// three quality types (SIT, Threshold, and a long ride with embedded threshold efforts) — just
+// trimmed. A recovery week drops quality types entirely; it does not shrink every one slightly.
+//
+// Counts BOTH standalone quality days and endurance days hiding a real dose of threshold/VO2 work —
+// the latter is the evasion route a count-only check can't see. EC-2: a B/C-priority event inside a
+// recovery week IS that week's one retained intensity touch, so its day never counts here.
+export function validateRecoveryWeekDensity(
+  days: PlannedDay[],
+  weekTargets: WeekTarget[],
+  settings: BlockSettings,
+  ftp: number,
+  events: SeasonEvent[] = []
+): string[] {
+  const recoveryWeeks = new Set(weekTargets.filter((t) => t.isRecovery).map((t) => t.weekNumber));
+  if (recoveryWeeks.size === 0) return [];
+  const embeddedHardPct = resolveDurabilityInsertEnvelope(settings.durabilityInsertEnvelope).embeddedHardPct;
+  const eventDates = new Set(events.map((e) => e.date));
+  const warnings: string[] = [];
+
+  for (const week of [...recoveryWeeks].sort((a, b) => a - b)) {
+    const weekDays = days.filter((d) => d.weekNumber === week && !eventDates.has(d.date));
+    const standalone = weekDays.filter(isQuality);
+    const embedded = weekDays.filter(
+      (d) => !isQuality(d) && carriesEmbeddedIntensity(d.workoutText, ftp, embeddedHardPct)
+    );
+
+    if (embedded.length > 0) {
+      warnings.push(
+        `RECOVERY DENSITY: week ${week} (recovery) has an endurance ride carrying embedded threshold/VO2 work (${embedded
+          .map((d) => `${d.type} on ${d.date}`)
+          .join(", ")}). A recovery week's long ride should be unbroken Z2 — no embedded efforts.`
+      );
+    }
+    if (standalone.length > RECOVERY_QUALITY_CAP) {
+      warnings.push(
+        `RECOVERY DENSITY: week ${week} (recovery) has ${standalone.length} quality sessions (${standalone
+          .map((d) => d.type)
+          .join(", ")}) — a recovery week keeps at most ${RECOVERY_QUALITY_CAP}. Drop the extra type entirely rather than shortening every one.`
+      );
+    }
+  }
+  return warnings;
+}

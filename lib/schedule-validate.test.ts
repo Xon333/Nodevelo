@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateEventTaper, validateSchedule, validateWeekSequencing } from "./schedule-validate";
+import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateWeekSequencing } from "./schedule-validate";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type WorkoutType } from "./types";
 
 // Budget of 2 quality sessions/loading week (the default).
@@ -285,5 +285,35 @@ describe("validateWeekSequencing — freshness-priority ordering (P5b)", () => {
 
   it("returns [] for an empty block", () => {
     expect(validateWeekSequencing([])).toEqual([]);
+  });
+});
+
+describe("validateRecoveryWeekDensity", () => {
+  const target = [{ weekNumber: 1, isRecovery: true, targetHours: 7.2 }];
+
+  it("flags an endurance ride carrying embedded threshold work in a recovery week", () => {
+    const days: PlannedDay[] = [
+      { date: "2026-06-20", weekNumber: 1, weekTheme: "t", name: "Long", type: "Z2", durationMin: 160, workoutText: "- 105m 65%\nMain Set 2x\n- 10m 95%\n- 5m 55%", description: "x" },
+    ];
+    const w = validateRecoveryWeekDensity(days, target, DEFAULT_BLOCK_SETTINGS, 250, []);
+    expect(w.some((s) => /RECOVERY DENSITY/.test(s) && /embedded/i.test(s))).toBe(true);
+  });
+
+  it("EC-2: does not count a race that falls inside a recovery week", () => {
+    // A B-priority event IS the week's one retained intensity touch — not a density breach.
+    const days: PlannedDay[] = [
+      { date: "2026-06-20", weekNumber: 1, weekTheme: "t", name: "Race", type: "RaceSim", durationMin: 90, workoutText: "- 90m 85%", description: "x" },
+      { date: "2026-06-17", weekNumber: 1, weekTheme: "t", name: "Opener", type: "Threshold", durationMin: 50, workoutText: "Main Set 3x\n- 3m 95%\n- 3m 55%", description: "x" },
+    ];
+    const events = [{ name: "KOM", date: "2026-06-20", priority: "B" as const, type: "road-race" as const }];
+    expect(validateRecoveryWeekDensity(days, target, DEFAULT_BLOCK_SETTINGS, 250, events)).toEqual([]);
+  });
+
+  it("ignores loading weeks entirely", () => {
+    const days: PlannedDay[] = [
+      { date: "2026-06-16", weekNumber: 1, weekTheme: "t", name: "A", type: "Threshold", durationMin: 60, workoutText: "- 10m 95%", description: "x" },
+      { date: "2026-06-18", weekNumber: 1, weekTheme: "t", name: "B", type: "SIT", durationMin: 50, workoutText: "- 30s 200%", description: "x" },
+    ];
+    expect(validateRecoveryWeekDensity(days, [{ weekNumber: 1, isRecovery: false, targetHours: 12 }], DEFAULT_BLOCK_SETTINGS, 250, [])).toEqual([]);
   });
 });
