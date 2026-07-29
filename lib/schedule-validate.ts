@@ -12,7 +12,7 @@
 import type { BlockSettings, PlannedDay, SeasonEvent, WorkoutType } from "./types";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { resolveDurabilityInsertEnvelope } from "./calibration";
-import { RECOVERY_QUALITY_CAP, type WeekTarget } from "./block-skeleton";
+import { RECOVERY_QUALITY_CAP, type BlockSkeleton, type WeekTarget } from "./block-skeleton";
 
 // The intensity ("hard") sessions: structured quality work that drives adaptation and needs an
 // easy/rest day after it. RaceSim is a peaking/sharpening session (KB §10, whole-session IF
@@ -262,6 +262,40 @@ export function validateRecoveryWeekDensity(
           .map((d) => d.type)
           .join(", ")}) — a recovery week keeps at most ${RECOVERY_QUALITY_CAP}. Drop the extra type entirely rather than shortening every one.`
       );
+    }
+  }
+  return warnings;
+}
+
+// Per-day conformance against the computed skeleton. Deliberately narrow: this owns DAY-level facts
+// only — a missing day, a type outside its slot, a duration outside its envelope. Weekly totals stay
+// with validateWeekHours and recovery composition stays with validateRecoveryWeekDensity, so the
+// athlete never reads two warnings about one fact (the duplication Phase A ended by collapsing).
+//
+// Warn-only for now (plan decision D2): a skeleton that hard-fails on its first outing turns every
+// generation into a 502. Escalate the type-mismatch branch to a throw once real runs show the model
+// complies — that is a one-line change here.
+export function validateSkeletonConformance(days: PlannedDay[], skeleton: BlockSkeleton): string[] {
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const warnings: string[] = [];
+
+  for (const week of skeleton.weeks) {
+    for (const slot of week.days) {
+      const day = byDate.get(slot.date);
+      if (!day) {
+        warnings.push(`SKELETON: ${slot.date} is missing from the plan — the skeleton allocated a ${slot.kind} slot there (${slot.reason}).`);
+        continue;
+      }
+      if (!slot.allowedTypes.includes(day.type)) {
+        warnings.push(
+          `SKELETON: ${slot.date} is typed ${day.type} but its slot allows ${slot.allowedTypes.join(" or ")} — ${slot.reason}.`
+        );
+      }
+      if (day.durationMin < slot.duration.minMin || day.durationMin > slot.duration.maxMin) {
+        warnings.push(
+          `SKELETON: ${slot.date} is ${day.durationMin} min, outside its ${slot.duration.minMin}–${slot.duration.maxMin} min slot (nominal ${slot.duration.nominalMin}).`
+        );
+      }
     }
   }
   return warnings;

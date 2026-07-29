@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateWeekSequencing } from "./schedule-validate";
+import {
+  validateEventTaper,
+  validateRecoveryWeekDensity,
+  validateSchedule,
+  validateSkeletonConformance,
+  validateWeekSequencing,
+} from "./schedule-validate";
 import { validatePrimaryQualityCadence } from "./season";
+import { computeBlockSkeleton, computeWeekTargets } from "./block-skeleton";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type WorkoutType } from "./types";
 
 // Budget of 2 quality sessions/loading week (the default).
@@ -383,5 +390,51 @@ describe("Decision 2 — single owner per concern (2026-07-29)", () => {
 
     const total = [...scheduleWarnings, ...densityWarnings, ...cadenceWarnings];
     expect(total).toHaveLength(1);
+  });
+});
+
+describe("validateSkeletonConformance", () => {
+  const skel = () =>
+    computeBlockSkeleton("2026-08-03", computeWeekTargets(1, DEFAULT_BLOCK_SETTINGS, []), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+
+  const fromSkeleton = (over: Partial<PlannedDay> & { date: string }): PlannedDay[] =>
+    skel().weeks[0].days.map((s) => ({
+      date: s.date,
+      weekNumber: 1,
+      weekTheme: "t",
+      name: "s",
+      type: s.allowedTypes[0],
+      durationMin: s.duration.nominalMin,
+      workoutText: "- 10m 60%",
+      description: "x",
+      ...(s.date === over.date ? over : {}),
+    }));
+
+  it("passes a plan that matches the skeleton exactly", () => {
+    expect(validateSkeletonConformance(fromSkeleton({ date: "none" }), skel())).toEqual([]);
+  });
+
+  it("flags a day whose type is not allowed in its slot", () => {
+    const days = fromSkeleton({ date: "2026-08-04", type: "Threshold" }); // slot is locked to SIT
+    const w = validateSkeletonConformance(days, skel());
+    expect(w.some((s) => /SKELETON/.test(s) && /Threshold/.test(s) && /SIT/.test(s))).toBe(true);
+  });
+
+  it("flags a duration outside its envelope but accepts one inside it", () => {
+    const inside = fromSkeleton({ date: "2026-08-05", durationMin: skel().weeks[0].days[2].duration.maxMin });
+    expect(validateSkeletonConformance(inside, skel())).toEqual([]);
+    const outside = fromSkeleton({ date: "2026-08-05", durationMin: 400 });
+    expect(validateSkeletonConformance(outside, skel()).some((s) => /SKELETON/.test(s))).toBe(true);
+  });
+
+  it("flags a missing day", () => {
+    const days = fromSkeleton({ date: "none" }).filter((d) => d.date !== "2026-08-06");
+    expect(validateSkeletonConformance(days, skel()).some((s) => /2026-08-06/.test(s))).toBe(true);
+  });
+
+  it("does not restate the weekly-total or recovery-composition warnings other validators own", () => {
+    const days = fromSkeleton({ date: "none" });
+    const w = validateSkeletonConformance(days, skel());
+    expect(w.some((s) => /HOURS|RECOVERY DENSITY/.test(s))).toBe(false);
   });
 });
