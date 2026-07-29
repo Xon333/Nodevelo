@@ -23,6 +23,28 @@ P7(verify) all shipped → [ARCHIVE.md](ARCHIVE.md) "Block-generation architectu
   regen infrastructure, and no live evidence yet justifies either). P6 not yet scoped to
   file/function detail.
 
+**Recovery-week composition defect — Phase A (2026-07-29).** ☑ Shipped + live-verified. The season
+tripwire in [docs/systems/05-season.md](docs/systems/05-season.md#known-rough-edges) **fired**: a
+reviewed block's "recovery" week cut volume ~19% against a mandated ~40% *and* kept all three quality
+types, merely trimmed. Two root causes fixed (volume-only prompt instruction; block-scoped durability
+template injected into every week), plus three silent-degradation bugs found while tracing them
+(A-event silently disabled focus selection; recovery weeks vanished on a season-replan throw; event
+taper used the narrow quality check). Plan →
+[docs/superpowers/plans/2026-07-29-block-generation-phase-a-correctness.md](docs/superpowers/plans/2026-07-29-block-generation-phase-a-correctness.md).
+Live smoke run 2026-07-29 on a 4-week block: recovery week landed 7.0h vs 11.2h loading (**38% cut**),
+exactly 1 quality session (the focus type), Threshold/RaceSim dropped entirely, long ride unbroken Z2
+despite template B being selected for the block. Zero recovery warnings.
+
+- ☐ P2 `bug` **Loading weeks still undershoot their hour target** — the one warning class left in an
+  otherwise clean generation. Live 2026-07-29: weeks 2/3/4 came in 11.2/11.5/10.9h against a 12h
+  target (−0.8/−0.5/−1.1h). Recovery weeks now hit theirs. Root cause is structural: the model gets a
+  single weekly total and must solve the per-day arithmetic itself. Fix direction = per-day duration
+  envelopes that sum to the target (Phase B skeleton), not a bigger nag in the prompt.
+- ☐ P2 `feat` **Phase B — deterministic week skeleton.** The tripwire's own prescribed response.
+  Scope + rationale in the Phase A plan's "Out of scope" section and the research report. Composition
+  only (which type, which day, protected-or-flexible, duration envelope, intensity ceiling); the LLM
+  keeps interval prescriptions, exact numbers within envelopes, and all prose.
+
 **HR-2026-07-23 — hostile review of the block/sync/archive data flows.** All 29 findings (HR-31
 through HR-59) fixed → [ARCHIVE.md](ARCHIVE.md) "Hostile review — block/sync/archive data flows
 (HR-2026-07-23)". Nothing open from this round.
@@ -48,5 +70,10 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
+- ☐ P2 `feat` Scope a real day-to-day nutrition system. Flagged as the biggest current training
+  hurdle: off-bike underfuelling is hindering recovery. Needs: better daily calorie accuracy, and
+  cross-referencing weight + calorie intake against calorie expenditure — expenditure today is
+  bike-only (powermeter), so off-bike activity isn't captured. Not yet scoped to file/function
+  detail — do that before promoting to ROADMAP.
 
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).
