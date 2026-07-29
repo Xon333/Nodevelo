@@ -308,21 +308,34 @@ export async function POST(req: Request) {
       // rolling, state-scored bundle (formatFocusContext/chooseNextFocus, formatRecoveryWeeks,
       // formatRetestNote below) is NOT the doubted model and always runs. See ROADMAP.md "Season
       // engine — known debt" for the full split rationale.
+      // Fix 3 (2026-07-29 whole-branch review): the rolling-focus half of this if/else used to live
+      // HERE, inside the try — so a throw anywhere in this block (e.g. settleSeasonHistory/
+      // replanEventArc on a malformed season-plan.json date) skipped it entirely, and the model was
+      // never told BLOCK FOCUS or REQUIRED COVERAGE. It's hoisted below, after the catch, because it
+      // depends only on rollingFocusChoice/existingSeason.objective/ftp — none of which live inside
+      // this try. Only the event-anchored branch stays here: it genuinely needs replannedSeason.
       if (SEASON_SHAPES_GENERATION && aEventForBlock) {
         const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEndDate });
         if (line) seasonContext = `\n${line}`;
-      } else if (rollingFocusChoice) {
-        seasonContext = `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
-        // P2c (2026-07-24 block-generation redesign): the chosen focus as a mandatory coverage
-        // requirement, not just descriptive context — enforced post-generation by validateBlockFocus.
-        const coverageLine = formatFocusCoverageLine(rollingFocusChoice.focus, profile.performance.ftp);
-        if (coverageLine) seasonContext += `\n${coverageLine}`;
       }
     } catch (err) {
       logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
       seasonDegradedWarnings.push(
-        "SEASON: the season layer failed to update for this block — recovery-week placement and the event callout still applied, but season phase tracking did not. Check data/season-plan.json for a malformed date."
+        "SEASON: the season layer failed to update for this block — recovery-week placement, the event callout, and this block's focus requirement (BLOCK FOCUS / REQUIRED COVERAGE) still applied, but the event-anchored season-phase arc did not persist. Check data/season-plan.json for a malformed date."
       );
+    }
+
+    // Fix 3: hoisted out of the try above — rollingFocusChoice, existingSeason.objective and
+    // profile.performance.ftp are all resolved before the try starts, so this survives a season-replan
+    // throw. Mutually exclusive with the event-anchored branch inside the try, using the same two
+    // values (SEASON_SHAPES_GENERATION, aEventForBlock) it gates on — unaffected for the success path,
+    // and now populated on the throw path too (previously silently skipped alongside it).
+    if (!(SEASON_SHAPES_GENERATION && aEventForBlock) && rollingFocusChoice) {
+      seasonContext += `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
+      // P2c (2026-07-24 block-generation redesign): the chosen focus as a mandatory coverage
+      // requirement, not just descriptive context — enforced post-generation by validateBlockFocus.
+      const coverageLine = formatFocusCoverageLine(rollingFocusChoice.focus, profile.performance.ftp);
+      if (coverageLine) seasonContext += `\n${coverageLine}`;
     }
 
     // Rendered after the try/catch, not inside it: by this point recoveryWeekIndices holds the
@@ -440,8 +453,9 @@ export async function POST(req: Request) {
     // where they land — back-to-back hard days and any week over the quality budget.
     warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp, weekTargets, existingSeason.events));
     // Event taper (P4, 2026-07-24): a lightweight check for priority-B/C events inside this block —
-    // no quality session in the final 2 days before the event, and no more than 1 other quality
-    // session that week. A-priority events are excluded (they get the full backward-scheduled arc).
+    // no HARD day (isHardDay: a quality type OR an endurance ride carrying embedded threshold/VO2
+    // work — hardLabel names which) in the final 2 days before the event, and no more than 1 other
+    // quality session that week. A-priority events are excluded (they get the full backward-scheduled arc).
     warnings.push(...validateEventTaper(days, existingSeason.events, profile.performance.ftp, blockSettings));
     // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
     // target — the check that was missing entirely (only session counts/spacing were validated).
@@ -454,19 +468,22 @@ export async function POST(req: Request) {
     // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
     warnings.push(...validateSessionRequirements(days, requirements));
     // Season fit (event-anchored) / block focus (rolling): flag intensity or focus-label disagreement
-    // vs the active season structure. Only when the season re-plan above succeeded. P1 (2026-07-24):
-    // the event-anchored pair stays behind the doubted-model flag; block-focus (rolling, state-scored)
-    // is not that model and always runs.
-    if (replannedSeason) {
-      if (SEASON_SHAPES_GENERATION && aEventForBlock) {
-        warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
-        warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
-      } else if (rollingFocusChoice) {
-        warnings.push(...validateBlockFocus(days, rollingFocusChoice.focus, profile.performance.ftp));
-        // P5a (2026-07-24): stricter than the block-wide floor above — the primary quality must
-        // appear in EVERY loading week, not just once somewhere in the block.
-        warnings.push(...validatePrimaryQualityCadence(days, rollingFocusChoice.focus, weekTargets, profile.performance.ftp));
-      }
+    // vs the active season structure. P1 (2026-07-24): the event-anchored pair stays behind the
+    // doubted-model flag; block-focus (rolling, state-scored) is not that model and always runs.
+    // Fix 3 (2026-07-29 whole-branch review): the rolling branch used to be gated on the OUTER
+    // `if (replannedSeason)` too, even though validateBlockFocus/validatePrimaryQualityCadence take
+    // rollingFocusChoice, not replannedSeason — so a season-replan throw (replannedSeason stays null)
+    // silently skipped both, dark exactly when the prompt-side fix above needed them most to check its
+    // own work. Only the event-anchored branch actually needs replannedSeason (a non-null SeasonPlan
+    // argument), so it alone stays gated on it.
+    if (SEASON_SHAPES_GENERATION && aEventForBlock && replannedSeason) {
+      warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
+      warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
+    } else if (rollingFocusChoice) {
+      warnings.push(...validateBlockFocus(days, rollingFocusChoice.focus, profile.performance.ftp));
+      // P5a (2026-07-24): stricter than the block-wide floor above — the primary quality must
+      // appear in EVERY loading week, not just once somewhere in the block.
+      warnings.push(...validatePrimaryQualityCadence(days, rollingFocusChoice.focus, weekTargets, profile.performance.ftp));
     }
     if (truncated) {
       warnings.unshift("The AI response hit the token limit and may be incomplete.");

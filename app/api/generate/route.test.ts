@@ -585,8 +585,11 @@ describe("POST /api/generate — season layer degradation (EC-3)", () => {
       ],
       updatedAt: "",
     } as never);
-    // weeksSinceRecovery is derived from an empty score log -> hits the lookback cap, so a 4-week
-    // block is guaranteed at least one recovery week (planRecoveryWeeks(n>=0, 4) always fires).
+    // weeksSinceRecovery: readRollingBaselines is mocked to {} (see beforeEach above), so
+    // baselines.avgTss90d is undefined, avgWeeklyTss is null, and realWeeksSinceLastRecovery returns 0
+    // via its own first early-return (avgWeeklyTss === null) — it never reaches the lookback loop.
+    // Either way, a 4-week block is guaranteed at least one recovery week (planRecoveryWeeks(n>=0, 4)
+    // always fires within 4 weeks), so the outcome asserted below doesn't depend on which path fired.
     const res = await POST(
       new Request("http://t/api/generate", {
         method: "POST",
@@ -597,6 +600,53 @@ describe("POST /api/generate — season layer degradation (EC-3)", () => {
     const [, dynamic, userMessage] = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0];
     expect(userMessage).toContain("RECOVERY"); // the hour-target table still labels the week
     expect(dynamic).toContain("RECOVERY:"); // and the recovery instruction still reaches the model
+    // Fix 3 (2026-07-29 whole-branch review): formatFocusContext/formatFocusCoverageLine used to sit
+    // INSIDE the season try — a throw here (this test's malformed period date) skipped them entirely,
+    // so the model was told to keep a short recovery-week session of the block's focus type without
+    // ever being told what that focus IS, and validateBlockFocus/validatePrimaryQualityCadence never
+    // ran (both gated on replannedSeason, which stays null on this path). Hoisted out: this must
+    // survive the throw.
+    expect(dynamic).toContain("BLOCK FOCUS:");
     expect(json.plan.warnings.some((w: string) => /season/i.test(w))).toBe(true); // athlete-visible
+  });
+
+  it("still runs validateBlockFocus/validatePrimaryQualityCadence on the throw path (gate is rollingFocusChoice, not replannedSeason)", async () => {
+    // Same malformed-date throw as above, but the generated plan carries ZERO Threshold sessions —
+    // this test's default chosen focus (given the cold, empty mocked history) is "threshold" (see the
+    // BLOCK FOCUS test above, which shows the SHORT session named is Threshold). Before this fix, both
+    // focus validators sat behind the outer `if (replannedSeason)`, which is null on this throw path —
+    // so a plan violating the block's own focus requirement passed silently. A plan with no Threshold
+    // session at all must now surface a "Season fit" warning even though the season replan threw.
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({
+      objective: "",
+      events: [],
+      periods: [
+        { focus: "threshold", phase: "build", startDate: "not-a-date", plannedWeeks: 3, intensitySplit: "80/20", targetWeeklyTss: null, deloadWeek: false, rationale: "x", source: "derived", confidence: "medium" },
+      ],
+      updatedAt: "",
+    } as never);
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({
+      toolInput: {
+        overview: "Test build block, no Threshold.",
+        weeks: [
+          {
+            weekNumber: 1,
+            theme: "Build",
+            days: [{ date: "2026-06-15", name: "Endurance", type: "Z2", durationMin: 90, workout: "- 90m 65%", description: "x" }],
+          },
+        ],
+      },
+      raw: "",
+      truncated: false,
+      stopReason: null,
+    } as never);
+    const res = await POST(
+      new Request("http://t/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ lengthWeeks: 4, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+      })
+    );
+    const json = await res.json();
+    expect(json.plan.warnings.some((w: string) => /Season fit:.*focus is threshold.*zero Threshold/.test(w))).toBe(true);
   });
 });
