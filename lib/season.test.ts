@@ -723,13 +723,23 @@ describe("planRecoveryWeeks", () => {
 });
 
 describe("formatRecoveryWeeks", () => {
-  it("returns null when nothing is due", () => {
-    expect(formatRecoveryWeeks([], 4)).toBeNull();
+  it("returns null when there are no recovery weeks", () => {
+    expect(formatRecoveryWeeks([], 4, "vo2max", 250)).toBeNull();
   });
-  it("names the week(s) and the hard-cap rationale", () => {
-    const line = formatRecoveryWeeks([2], 6);
+
+  it("names the volume cut, the cap, the surviving type, and what is dropped entirely", () => {
+    const line = formatRecoveryWeeks([2], 6, "vo2max", 250)!;
     expect(line).toContain("week 3");
-    expect(line).toContain("6-week block");
+    expect(line).toMatch(/30–50%/);
+    expect(line).toMatch(/at most 1/i);
+    expect(line).toContain("VO2max"); // the focus type is the one that survives
+    expect(line).toMatch(/dropped entirely, not shortened/i);
+    expect(line).toMatch(/no embedded/i); // the long ride carve-out
+  });
+
+  it("asks for zero quality when the focus has no single required session type", () => {
+    const line = formatRecoveryWeeks([0], 2, "aerobic-base", 250)!;
+    expect(line).toMatch(/no quality sessions/i);
   });
 });
 

@@ -330,7 +330,12 @@ export async function POST(req: Request) {
     // event-arc-filtered set if that branch ran, and the plain cadence set otherwise — including
     // after a throw. Computing it here means a season-plan failure loses the season PHASE text but
     // never the recovery-week instruction itself.
-    const recoveryLine = formatRecoveryWeeks(recoveryWeekIndices, blockParams.lengthWeeks);
+    const recoveryLine = formatRecoveryWeeks(
+      recoveryWeekIndices,
+      blockParams.lengthWeeks,
+      rollingFocusChoice?.focus ?? "aerobic-base",
+      profile.performance.ftp
+    );
     if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
 
     // P2b (2026-07-24 block-generation redesign): one exact hour figure per week — loading weeks

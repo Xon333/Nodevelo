@@ -414,11 +414,32 @@ export function planRecoveryWeeks(weeksSinceRecovery: number, lengthWeeks: numbe
   return indices;
 }
 
-// Prompt-injectable recovery-week callout — additive to formatFocusContext/formatSeasonContext (Task 5).
-export function formatRecoveryWeeks(indices: number[], lengthWeeks: number): string | null {
+// Prompt-injectable recovery-week callout. Until 2026-07-29 this carried VOLUME only ("cut volume
+// ~30–50%"), and the prompt's only structural section is headed "WEEKLY STRUCTURE (loading weeks)"
+// with no recovery counterpart — so the model's most literal reading was that loading structure still
+// applies and only hours change. It did exactly that: the reviewed block's "recovery" week kept SIT,
+// Threshold AND a long ride with embedded threshold efforts, each merely trimmed. Composition is now
+// stated explicitly: a cap, which type survives, and what is dropped ENTIRELY rather than shortened.
+export function formatRecoveryWeeks(
+  indices: number[],
+  lengthWeeks: number,
+  focus: SeasonFocus,
+  ftp: number
+): string | null {
   if (indices.length === 0) return null;
   const label = indices.map((i) => `week ${i + 1}`).join(", ");
-  return `RECOVERY: cut volume ~30–50% in ${label} of this ${lengthWeeks}-week block (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`;
+  const m = focusSessionMatchers(ftp)[focus];
+  const composition = m
+    ? `Keep at most ${RECOVERY_QUALITY_CAP} quality session — a SHORT ${m.label} session early in the week, at the BOTTOM of its intensity band. Every other quality type (SIT, VO2max, RaceSim, and any second ${m.label}) is dropped entirely, not shortened.`
+    : `Prescribe no quality sessions at all in ${label} — this block's focus has no single required session type, so a recovery week carries none.`;
+  return [
+    `RECOVERY: ${label} of this ${lengthWeeks}-week block ${indices.length > 1 ? "are" : "is"} a recovery week (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`,
+    `- VOLUME: cut ~30–50% versus a loading week — the exact figure is in the WEEK-BY-WEEK HOUR TARGETS table; hit it.`,
+    `- COMPOSITION: ${composition}`,
+    `- LONG RIDE: unbroken Z2 at its duration target — no embedded threshold/VO2 efforts this week, whatever this block's durability template says.`,
+    `- Add one extra rest day versus a loading week.`,
+    `A recovery week is a different SHAPE of week, not a smaller copy of a loading week.`,
+  ].join("\n");
 }
 
 // Execution EWMA per build focus, via the intervention loop's own accessor (execFor) so focus
