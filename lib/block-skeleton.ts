@@ -392,3 +392,58 @@ export function computeBlockSkeleton(
 
   return { focus, weeks };
 }
+
+// ---------- Phase B task 2: render the skeleton for the prompt ----------
+// Consumed by Task 4 in place of formatWeekTargets' single weekly figure — a filled per-day table
+// means the model picks a duration inside each stated envelope instead of solving a 7-day allocation
+// problem itself (the live run this whole redesign responds to undershot every loading week by
+// 0.5-1.1h doing exactly that). Pure string formatting only: no IO, no randomness, same input -> same
+// output, and it introduces no output mutation (ADR-0004's warn-only contract is unaffected — this
+// function only ever reads a BlockSkeleton, it never rewrites planned days).
+
+const ALL_QUALITY: WorkoutType[] = ["Threshold", "VO2max", "SIT", "RaceSim"];
+
+function slotTypeLabel(d: DaySlot): string {
+  return d.allowedTypes.length === 1 ? d.allowedTypes[0] : d.allowedTypes.join(" or ");
+}
+
+function slotDurationLabel(d: DaySlot): string {
+  if (d.kind === "rest") return "0";
+  // An event day carries a real, non-zero nominal duration (Task 1's C1 fix) that already counts
+  // toward the week's total below — show that figure instead of hiding it behind prose, so the model
+  // can still check this row against the footer sum; the caveat explains why it may not land exactly.
+  if (d.kind === "event") {
+    return `${d.duration.nominalMin} min planned (actual length is whatever the event demands — do not shorten or pad it to force a fit)`;
+  }
+  return `${d.duration.nominalMin} min (${d.duration.minMin}–${d.duration.maxMin} ok)`;
+}
+
+// Replaces formatWeekTargets' single weekly figure. Rendering the whole week as a filled table means
+// the model picks a number inside each envelope instead of solving a 7-day allocation problem.
+export function formatBlockSkeleton(skeleton: BlockSkeleton): string {
+  const blocks = skeleton.weeks.map((w) => {
+    const total = w.days.reduce((t, d) => t + d.duration.nominalMin, 0);
+    const rows = w.days.map((d) => {
+      const ceiling = d.maxIntensityPct === null ? "—" : `≤${d.maxIntensityPct}% FTP`;
+      return `| ${d.date} | ${d.kind} | ${slotTypeLabel(d)} | ${slotDurationLabel(d)} | ${ceiling} | ${d.reason} |`;
+    });
+    // Derived from the skeleton itself, not hardcoded: a quality type counts as "kept" only if some
+    // day this week actually allows it. A hardcoded enumeration was the real defect this task calls
+    // out — it once named the surviving type as dropped and omitted a type that was genuinely absent.
+    const dropped = w.isRecovery ? ALL_QUALITY.filter((qt) => !w.days.some((d) => d.allowedTypes.includes(qt))) : [];
+    const notThisWeek = dropped.length > 0 ? `\nNOT this week: ${dropped.join(", ")} — dropped entirely, not shortened.` : "";
+    return [
+      `WEEK ${w.weekNumber} — ${w.isRecovery ? "RECOVERY" : "LOADING"} · target ${w.targetHours}h.`,
+      `| Date | Slot | Type | Duration | Ceiling | Why |`,
+      `|---|---|---|---|---|---|`,
+      ...rows,
+      `The nominal durations above already sum to ${total} min. Stay inside each range and the week's total lands on its target.${notThisWeek}`,
+    ].join("\n");
+  });
+
+  return [
+    `WEEK SKELETON (FIXED — fill each slot, do NOT add, drop, move, merge or retype any day).`,
+    `Each row is one calendar day. Pick a duration inside the stated range. Never place any effort above a row's intensity ceiling, including efforts embedded inside an otherwise-easy ride.`,
+    ...blocks,
+  ].join("\n\n");
+}
