@@ -89,6 +89,8 @@ export function validateSchedule(
   // tell which weeks to skip. Event days are excluded from the loading-week count so this agrees with
   // validateEventTaper rather than double-counting a protected race against the budget.
   const recoveryWeeks = new Set(weekTargets.filter((t) => t.isRecovery).map((t) => t.weekNumber));
+  // Same unconditional, priority-blind event-date exclusion as validateEventTaper — see that
+  // function's eventDates comment for the accepted-tradeoff rationale.
   const eventDates = new Set(events.map((e) => e.date));
   const byWeek = new Map<number, PlannedDay[]>();
   for (const d of sorted) {
@@ -135,6 +137,16 @@ export function validateEventTaper(
   const embeddedHardPct = resolveDurabilityInsertEnvelope(settings.durabilityInsertEnvelope).embeddedHardPct;
   // EC-1: every event's own day is protected training, not a taper breach. A second race in the same
   // week must never read as "a quality session N days before" the first, in either direction.
+  //
+  // 2026-07-29 (Decision 1, owner-approved, accepted tradeoff — verified by running the code): this
+  // exclusion is deliberately UNCONDITIONAL and priority-blind — any day sharing a date with any event
+  // is skipped, whatever that day's content. The obvious tightening ("skip only when isQuality(d) is
+  // also true") does not close the gap: the case it's meant to catch is genuine Threshold training
+  // landing on an event date, and Threshold is itself a quality type, so the tightened condition still
+  // skips it. The only variant that would close it — keying on `d.type === "RaceSim"` — false-positives
+  // on this repo's own season fixture, where an FTP test is a priority-B event plausibly typed
+  // Threshold. Preferring the miss over the false positive follows this file's header doctrine. Kept
+  // as-is; see ROADMAP.md "Watch" for the tracked entry.
   const eventDates = new Set(events.map((e) => e.date));
 
   for (const event of events.filter((e) => e.priority !== "A").sort((a, b) => a.date.localeCompare(b.date))) {
@@ -225,6 +237,8 @@ export function validateRecoveryWeekDensity(
   const recoveryWeeks = new Set(weekTargets.filter((t) => t.isRecovery).map((t) => t.weekNumber));
   if (recoveryWeeks.size === 0) return [];
   const embeddedHardPct = resolveDurabilityInsertEnvelope(settings.durabilityInsertEnvelope).embeddedHardPct;
+  // Same unconditional, priority-blind event-date exclusion as validateEventTaper — see that
+  // function's eventDates comment for the accepted-tradeoff rationale.
   const eventDates = new Set(events.map((e) => e.date));
   const warnings: string[] = [];
 

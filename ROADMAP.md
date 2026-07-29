@@ -82,6 +82,7 @@ touch that code. Full rationale: [docs/systems/05-season.md § Known rough edges
 | **P2 · hour-target precision** | Narrowed, not exact (up to ~1.5h off on recovery weeks) |
 | **P7 · urgency signal blind to pre-app fitness** | Masked by goal-driven blocks in practice; not structurally closed |
 | **P3d / P3e / P6** | Deliberately not built — need new code, no evidence yet justifies the investment |
+| **Event-date exclusion is unconditional & priority-blind (3 validators)** | Accepted 2026-07-29 — `isQuality` tightening false-positives on a real Threshold-typed test day; see `lib/schedule-validate.ts`'s `validateEventTaper` `eventDates` comment |
 
 **Tripwire:** if a future block reproduces a structural defect (a missed hour target, a missing
 limiter session, an escalation the critic misses), that's real evidence the LLM shouldn't author
