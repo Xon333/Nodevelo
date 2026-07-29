@@ -132,6 +132,20 @@ describe("POST /api/generate — Track B wiring", () => {
     expect(dynamic).toContain("DURABILITY FOCUS THIS BLOCK");
     expect(dynamic).toMatch(/EXCEPTION — in a RECOVERY week this template does not apply/);
   });
+
+  it("A2 inverse: a block with no recovery week omits the EXCEPTION marker", async () => {
+    // The route's `recoveryWeekIndices.length > 0` call site is otherwise unpinned in this direction —
+    // mutation testing confirmed that hardcoding it to `true` passed the whole suite silently (the A2
+    // test above only proves the marker CAN appear, not that it's conditional). `gen` builds a 2-week
+    // block; with the mocked empty score log/baselines, realWeeksSinceLastRecovery -> 0 and
+    // planRecoveryWeeks(0, 2, ...) -> [] (deload cadence is every 3-4 weeks), so this block has no
+    // recovery week and the EXCEPTION clause must be absent.
+    const json = await (await gen("Build FTP")).json();
+    const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
+    expect(json.plan.durabilityTemplate).toBeTruthy();
+    expect(dynamic).toContain("DURABILITY FOCUS THIS BLOCK");
+    expect(dynamic).not.toMatch(/EXCEPTION — in a RECOVERY week this template does not apply/);
+  });
 });
 
 describe("POST /api/generate — season wiring (multi-period blocks)", () => {
