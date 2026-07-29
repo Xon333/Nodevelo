@@ -432,7 +432,7 @@ export async function POST(req: Request) {
     // Event taper (P4, 2026-07-24): a lightweight check for priority-B/C events inside this block —
     // no quality session in the final 2 days before the event, and no more than 1 other quality
     // session that week. A-priority events are excluded (they get the full backward-scheduled arc).
-    warnings.push(...validateEventTaper(days, existingSeason.events));
+    warnings.push(...validateEventTaper(days, existingSeason.events, profile.performance.ftp, blockSettings));
     // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
     // target — the check that was missing entirely (only session counts/spacing were validated).
     warnings.push(...validateWeekHours(days, weekTargets));

@@ -139,25 +139,25 @@ describe("validateEventTaper — B/C-event taper protection", () => {
 
   it("flags a quality session 1 day before the event", () => {
     const days = [day("2026-08-01", "RaceSim"), day("2026-08-02", "RaceSim")];
-    const w = validateEventTaper(days, [kom()]);
+    const w = validateEventTaper(days, [kom()], 250, DEFAULT_BLOCK_SETTINGS);
     expect(w.some((m) => /EVENT TAPER/.test(m) && /1 day before/.test(m))).toBe(true);
   });
 
   it("flags a quality session 2 days before the event", () => {
     const days = [day("2026-07-31", "Threshold"), day("2026-08-01", "Z2"), day("2026-08-02", "RaceSim")];
-    const w = validateEventTaper(days, [kom()]);
+    const w = validateEventTaper(days, [kom()], 250, DEFAULT_BLOCK_SETTINGS);
     expect(w.some((m) => /EVENT TAPER/.test(m) && /2 days before/.test(m))).toBe(true);
   });
 
   it("passes when the 2 days before are easy/rest", () => {
     const days = [day("2026-07-31", "Z2"), day("2026-08-01", "Rest"), day("2026-08-02", "RaceSim")];
-    expect(validateEventTaper(days, [kom()])).toEqual([]);
+    expect(validateEventTaper(days, [kom()], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
   });
 
   it("does not count the event's own session toward the week's quality cap", () => {
     // Only the event-day RaceSim is quality this week — fine, that's the point of the event.
     const days = [day("2026-07-27", "Rest", 1), day("2026-08-02", "RaceSim", 1)];
-    expect(validateEventTaper(days, [kom()])).toEqual([]);
+    expect(validateEventTaper(days, [kom()], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
   });
 
   it("flags more than 1 other quality session in the event's own week", () => {
@@ -166,30 +166,53 @@ describe("validateEventTaper — B/C-event taper protection", () => {
       day("2026-07-30", "SIT", 1),
       day("2026-08-02", "RaceSim", 1),
     ];
-    const w = validateEventTaper(days, [kom()]);
+    const w = validateEventTaper(days, [kom()], 250, DEFAULT_BLOCK_SETTINGS);
     expect(w.some((m) => /EVENT TAPER/.test(m) && /other quality session/.test(m))).toBe(true);
   });
 
   it("passes at exactly 1 other quality session in the event's week", () => {
     const days = [day("2026-07-28", "Threshold", 1), day("2026-08-02", "RaceSim", 1)];
-    expect(validateEventTaper(days, [kom()])).toEqual([]);
+    expect(validateEventTaper(days, [kom()], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
   });
 
   it("ignores priority-A events entirely (they get the full backward-scheduled arc elsewhere)", () => {
     const days = [day("2026-08-01", "RaceSim"), day("2026-08-02", "RaceSim")];
     const aEvent: SeasonEvent = { ...kom(), priority: "A" };
-    expect(validateEventTaper(days, [aEvent])).toEqual([]);
+    expect(validateEventTaper(days, [aEvent], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
   });
 
   it("ignores an event whose date falls outside this block's own generated days", () => {
     const days = [day("2026-08-01", "RaceSim"), day("2026-08-02", "RaceSim")];
     const laterEvent: SeasonEvent = { ...kom(), date: "2026-09-15" };
-    expect(validateEventTaper(days, [laterEvent])).toEqual([]);
+    expect(validateEventTaper(days, [laterEvent], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
   });
 
   it("returns [] for no days or no events", () => {
-    expect(validateEventTaper([], [kom()])).toEqual([]);
-    expect(validateEventTaper([day("2026-08-02", "RaceSim")], [])).toEqual([]);
+    expect(validateEventTaper([], [kom()], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
+    expect(validateEventTaper([day("2026-08-02", "RaceSim")], [], 250, DEFAULT_BLOCK_SETTINGS)).toEqual([]);
+  });
+});
+
+describe("validateEventTaper — embedded intensity + multi-event weeks", () => {
+  const ev = (date: string, name: string) => ({ name, date, priority: "B" as const, type: "road-race" as const });
+
+  it("A7: flags a durability long ride with embedded threshold work the day before an event", () => {
+    // isQuality() only sees the TYPE (Z2), missing 3x10min @ 95% buried in the workout text.
+    const days: PlannedDay[] = [
+      { date: "2026-06-19", weekNumber: 1, weekTheme: "t", name: "Long", type: "Z2", durationMin: 240, workoutText: "- 120m 65%\nMain Set 3x\n- 10m 95%\n- 5m 55%", description: "x" },
+      { date: "2026-06-20", weekNumber: 1, weekTheme: "t", name: "Race", type: "RaceSim", durationMin: 120, workoutText: "- 120m 85%", description: "x" },
+    ];
+    const w = validateEventTaper(days, [ev("2026-06-20", "KOM")], 250, DEFAULT_BLOCK_SETTINGS);
+    expect(w.some((s) => /EVENT TAPER/.test(s) && /embedded/i.test(s))).toBe(true);
+  });
+
+  it("EC-1: back-to-back race days do not flag each other as taper violations", () => {
+    const days: PlannedDay[] = [
+      { date: "2026-06-20", weekNumber: 1, weekTheme: "t", name: "Sat race", type: "RaceSim", durationMin: 120, workoutText: "- 120m 85%", description: "x" },
+      { date: "2026-06-21", weekNumber: 1, weekTheme: "t", name: "Sun race", type: "RaceSim", durationMin: 120, workoutText: "- 120m 85%", description: "x" },
+    ];
+    const w = validateEventTaper(days, [ev("2026-06-20", "Sat"), ev("2026-06-21", "Sun")], 250, DEFAULT_BLOCK_SETTINGS);
+    expect(w).toEqual([]);
   });
 });
 

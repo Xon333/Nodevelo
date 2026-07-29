@@ -99,30 +99,45 @@ export function validateSchedule(days: PlannedDay[], settings: BlockSettings, ft
 const QUALITY_FREE_DAYS_BEFORE_EVENT = 2;
 const EVENT_WEEK_QUALITY_CAP = 1;
 
-export function validateEventTaper(days: PlannedDay[], events: SeasonEvent[]): string[] {
+export function validateEventTaper(
+  days: PlannedDay[],
+  events: SeasonEvent[],
+  ftp: number,
+  settings: BlockSettings
+): string[] {
   if (days.length === 0 || events.length === 0) return [];
   const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
   const byDate = new Map(sorted.map((d) => [d.date, d]));
   const warnings: string[] = [];
+  // Same resolved floor validateSchedule uses, so the two agree on what counts as embedded.
+  const embeddedHardPct = resolveDurabilityInsertEnvelope(settings.durabilityInsertEnvelope).embeddedHardPct;
+  // EC-1: every event's own day is protected training, not a taper breach. A second race in the same
+  // week must never read as "a quality session N days before" the first, in either direction.
+  const eventDates = new Set(events.map((e) => e.date));
 
   for (const event of events.filter((e) => e.priority !== "A").sort((a, b) => a.date.localeCompare(b.date))) {
     const eventDay = byDate.get(event.date);
     if (!eventDay) continue; // the event falls outside this block's own generated days
 
-    // (a) the final QUALITY_FREE_DAYS_BEFORE_EVENT calendar days before the event must be quality-free.
+    // (a) the final QUALITY_FREE_DAYS_BEFORE_EVENT calendar days before the event must carry no hard
+    // work. A7: isHardDay, not isQuality — an endurance ride with embedded threshold/VO2 efforts is
+    // exactly what a taper must exclude, and the narrow type-only check missed it (live-confirmed).
     for (const d of sorted) {
+      if (eventDates.has(d.date)) continue; // another event's own day — not a training breach
       const gap = daysBetween(d.date, event.date);
-      if (gap >= 1 && gap <= QUALITY_FREE_DAYS_BEFORE_EVENT && isQuality(d)) {
+      if (gap >= 1 && gap <= QUALITY_FREE_DAYS_BEFORE_EVENT && isHardDay(d, ftp, embeddedHardPct)) {
         warnings.push(
-          `EVENT TAPER: ${event.name} (priority ${event.priority}) on ${event.date} has a quality session (${d.type}) ${gap} day${gap > 1 ? "s" : ""} before it — keep the final ${QUALITY_FREE_DAYS_BEFORE_EVENT} days quality-free so the taper actually protects the event.`
+          `EVENT TAPER: ${event.name} (priority ${event.priority}) on ${event.date} has a hard session (${hardLabel(d)}) ${gap} day${gap > 1 ? "s" : ""} before it — keep the final ${QUALITY_FREE_DAYS_BEFORE_EVENT} days free of hard work so the taper actually protects the event.`
         );
       }
     }
 
     // (b) the event's own week shouldn't carry more quality work than the cap, beyond the event
     // session itself (a RaceSim/priority effort ON the event day is the point, not a budget breach).
+    // EC-1: exclude EVERY event day, not just this one — two legitimate same-week races previously
+    // counted against each other.
     const otherQuality = sorted.filter(
-      (d) => d.weekNumber === eventDay.weekNumber && d.date !== event.date && isQuality(d)
+      (d) => d.weekNumber === eventDay.weekNumber && !eventDates.has(d.date) && isQuality(d)
     );
     if (otherQuality.length > EVENT_WEEK_QUALITY_CAP) {
       warnings.push(
