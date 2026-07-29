@@ -9,8 +9,9 @@
 // Pure + deterministic, same contract as workout-validate.ts/schedule-validate.ts: computation and
 // prompt-formatting never throw or invent data; the post-generation check only warns, never rewrites.
 
-import type { BlockSettings, PlannedDay } from "./types";
+import type { BlockSettings, PlannedDay, SeasonEvent, SeasonFocus, WorkoutType } from "./types";
 import { clamp, round1 } from "./stats";
+import { addDaysIso } from "./date";
 
 const DAYS_PER_WEEK = 7;
 // Conservative floors for the feasibility check — real quality/easy sessions are rarely shorter than
@@ -121,4 +122,182 @@ export function validateWeekHours(days: PlannedDay[], targets: WeekTarget[]): st
     }
   }
   return warnings;
+}
+
+// ---------- Phase B: the deterministic week skeleton ----------
+// Composition (which type, which day, how long, what intensity ceiling) is computed here and handed
+// to the model as a filled table; the model supplies interval prescriptions, exact durations inside
+// each envelope, and prose. The 2026-07-29 live run showed why: given one weekly hour figure the
+// model must solve the per-day split itself, and undershot every loading week by 0.5-1.1h.
+
+export type SlotKind = "quality" | "longRide" | "easy" | "rest" | "event";
+
+export interface DaySlot {
+  date: string;
+  kind: SlotKind;
+  /** Allowed WorkoutType values. length === 1 ⇒ locked to that type. */
+  allowedTypes: WorkoutType[];
+  /** nominalMin is the figure that makes the week sum to target; the envelope is the model's leeway. */
+  duration: { nominalMin: number; minMin: number; maxMin: number };
+  /** %FTP ceiling for ANY work step this day, including steps embedded in an otherwise-easy ride. */
+  maxIntensityPct: number | null;
+  locked: boolean;
+  /** One-line WHY — rendered into the prompt AND quoted back by the conformance validator. */
+  reason: string;
+}
+
+export interface WeekSkeleton extends WeekTarget {
+  qualityBudget: number;
+  days: DaySlot[];
+}
+
+export interface BlockSkeleton {
+  focus: SeasonFocus;
+  weeks: WeekSkeleton[];
+}
+
+// Nominal session lengths. Easy days absorb the remainder, so these only need to be realistic.
+const QUALITY_NOMINAL_MIN = 75;
+const QUALITY_RECOVERY_MIN = 45; // "SHORT" — the recovery week's single retained touch
+const EASY_MIN_MIN = 45;
+const EASY_MAX_MIN = 150;
+const DURATION_SLACK_MIN = 15; // envelope half-width around each nominal
+const EASY_CEILING_PCT = 75;   // easy days stay genuinely easy
+const RECOVERY_LONG_RIDE_CEILING_PCT = 75; // recovery long ride: unbroken Z2, no embedded work
+const RECOVERY_QUALITY_CEILING_PCT = 95;   // retained touch sits at the bottom of its band
+
+// Day-of-week placement priorities (index 0 = the week's first day). See D3 in the plan.
+const REST_PRIORITY = [0, 3, 6];
+const QUALITY_PRIORITY = [1, 3, 4];
+const LONG_RIDE_INDEX = 5;
+
+/** The single session type that satisfies a focus, or null when the focus has no required type. */
+function focusWorkoutType(focus: SeasonFocus): WorkoutType | null {
+  switch (focus) {
+    case "threshold": return "Threshold";
+    case "vo2max": return "VO2max";
+    case "anaerobic": return "SIT";
+    default: return null; // aerobic-base, durability, sharpen — no single required type
+  }
+}
+
+/** Spread `total` across `count` integer slots so they sum EXACTLY to total. */
+function spread(total: number, count: number): number[] {
+  if (count <= 0) return [];
+  const base = Math.floor(total / count);
+  const rem = total - base * count;
+  return Array.from({ length: count }, (_, i) => base + (i < rem ? 1 : 0));
+}
+
+export function computeBlockSkeleton(
+  startDate: string,
+  weekTargets: WeekTarget[],
+  settings: BlockSettings,
+  focus: SeasonFocus,
+  events: SeasonEvent[]
+): BlockSkeleton {
+  const eventByDate = new Map(events.map((e) => [e.date, e]));
+  const focusType = focusWorkoutType(focus);
+
+  const weeks = weekTargets.map((t, wi) => {
+    const totalMin = Math.round(t.targetHours * 60);
+    const restCount = settings.restDaysPerWeek + (t.isRecovery ? 1 : 0);
+    // Recovery: at most the shared cap, and zero when the focus has no required type (a durability
+    // recovery week can't keep its own quality touch — that type carries embedded work by definition).
+    const qualityBudget = t.isRecovery
+      ? focusType
+        ? Math.min(RECOVERY_QUALITY_CAP, Math.max(0, settings.qualitySessionsPerLoadingWeek - 1))
+        : 0
+      : settings.qualitySessionsPerLoadingWeek;
+
+    // D1: a recovery week scales its long ride by the same retention fraction as its weekly figure.
+    let longRideMin = t.isRecovery
+      ? Math.round(settings.longRideDurationMinutes * RECOVERY_RETENTION_PCT)
+      : settings.longRideDurationMinutes;
+    const qualityMin = t.isRecovery ? QUALITY_RECOVERY_MIN : QUALITY_NOMINAL_MIN;
+
+    const kinds: SlotKind[] = Array.from({ length: 7 }, () => "easy");
+    kinds[LONG_RIDE_INDEX] = "longRide";
+    let placed = 0;
+    for (const i of REST_PRIORITY) {
+      if (placed >= restCount) break;
+      if (kinds[i] === "easy") { kinds[i] = "rest"; placed++; }
+    }
+    placed = 0;
+    for (const i of QUALITY_PRIORITY) {
+      if (placed >= qualityBudget) break;
+      if (kinds[i] === "easy") { kinds[i] = "quality"; placed++; }
+    }
+
+    const easyIdx = kinds.map((k, i) => (k === "easy" ? i : -1)).filter((i) => i >= 0);
+    const easyTotal = totalMin - longRideMin - qualityBudget * qualityMin;
+    let easyMins = spread(Math.max(0, easyTotal), easyIdx.length);
+    // Keep easy days realistic; the long ride absorbs any residual so the week still sums exactly.
+    if (easyIdx.length > 0) {
+      const clamped = easyMins.map((m) => clamp(m, EASY_MIN_MIN, EASY_MAX_MIN));
+      const delta = easyMins.reduce((a, b) => a + b, 0) - clamped.reduce((a, b) => a + b, 0);
+      easyMins = clamped;
+      longRideMin += delta;
+    } else {
+      longRideMin += Math.max(0, easyTotal);
+    }
+
+    let easyCursor = 0;
+    const days: DaySlot[] = kinds.map((kind, i) => {
+      const date = addDaysIso(startDate, wi * 7 + i);
+      const ev = eventByDate.get(date);
+      if (ev) {
+        return {
+          date, kind: "event", allowedTypes: ["RaceSim"],
+          duration: { nominalMin: 0, minMin: 0, maxMin: 24 * 60 },
+          maxIntensityPct: null, locked: true,
+          reason: `${ev.name} (priority ${ev.priority}) — the athlete's own event; never overwrite this day`,
+        };
+      }
+      const env = (n: number) => ({
+        nominalMin: n,
+        minMin: Math.max(0, n - DURATION_SLACK_MIN),
+        maxMin: n + DURATION_SLACK_MIN,
+      });
+      switch (kind) {
+        case "rest":
+          return {
+            date, kind, allowedTypes: ["Rest"], duration: { nominalMin: 0, minMin: 0, maxMin: 0 },
+            maxIntensityPct: null, locked: true,
+            reason: t.isRecovery ? "recovery week: one extra rest day" : "weekly rest day",
+          };
+        case "quality":
+          return {
+            date, kind, allowedTypes: focusType ? [focusType] : ["Threshold", "VO2max", "SIT", "RaceSim"],
+            duration: env(qualityMin),
+            maxIntensityPct: t.isRecovery ? RECOVERY_QUALITY_CEILING_PCT : null,
+            locked: !!focusType,
+            reason: t.isRecovery
+              ? `the ONE retained quality touch — short, early, at the bottom of its band`
+              : `the block's primary quality (focus: ${focus})`,
+          };
+        case "longRide":
+          return {
+            date, kind, allowedTypes: ["Z2"], duration: env(longRideMin),
+            maxIntensityPct: t.isRecovery ? RECOVERY_LONG_RIDE_CEILING_PCT : null,
+            locked: true,
+            reason: t.isRecovery
+              ? "recovery week: unbroken Z2, no embedded threshold/VO2 efforts whatever the block's durability template says"
+              : "the week's long endurance ride",
+          };
+        default: {
+          const m = easyMins[easyCursor++] ?? EASY_MIN_MIN;
+          return {
+            date, kind: "easy", allowedTypes: ["Z2", "Recovery"], duration: env(m),
+            maxIntensityPct: EASY_CEILING_PCT, locked: false,
+            reason: "easy Z2 — the week's volume lever",
+          };
+        }
+      }
+    });
+
+    return { ...t, qualityBudget, days };
+  });
+
+  return { focus, weeks };
 }

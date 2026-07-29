@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkBlockFeasibility, computeWeekTargets, formatWeekTargets, validateWeekHours, type WeekTarget } from "./block-skeleton";
+import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets, formatWeekTargets, validateWeekHours, type WeekTarget } from "./block-skeleton";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay } from "./types";
 
 function day(date: string, weekNumber: number, durationMin: number): PlannedDay {
@@ -102,5 +102,120 @@ describe("validateWeekHours", () => {
   it("treats a week with no generated days as a full shortfall", () => {
     const w = validateWeekHours([], targets);
     expect(w[0]).toMatch(/totals 0h — under its 12h target by 12h/);
+  });
+});
+
+describe("computeBlockSkeleton", () => {
+  const weeks = (n: number, recoveryIdx: number[] = []) =>
+    computeWeekTargets(n, DEFAULT_BLOCK_SETTINGS, recoveryIdx);
+
+  it("allocates exactly 7 day slots per week, dated from the block start", () => {
+    const sk = computeBlockSkeleton("2026-08-03", weeks(2), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    expect(sk.weeks).toHaveLength(2);
+    expect(sk.weeks[0].days).toHaveLength(7);
+    expect(sk.weeks[0].days[0].date).toBe("2026-08-03");
+    expect(sk.weeks[1].days[6].date).toBe("2026-08-16");
+  });
+
+  it("day durations sum EXACTLY to the week's hour target — the whole point", () => {
+    for (const target of weeks(4)) {
+      const sk = computeBlockSkeleton("2026-08-03", [target], DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+      const sum = sk.weeks[0].days.reduce((t, d) => t + d.duration.nominalMin, 0);
+      expect(sum).toBe(Math.round(target.targetHours * 60));
+    }
+  });
+
+  it("uses the canonical loading shape: Mon rest, Tue+Thu quality, Sat long", () => {
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    expect(sk.weeks[0].days.map((d) => d.kind)).toEqual([
+      "rest", "quality", "easy", "quality", "easy", "longRide", "easy",
+    ]);
+  });
+
+  it("a recovery week gets one extra rest day, one quality slot, and a scaled long ride (D1)", () => {
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    const w = sk.weeks[0];
+    expect(w.days.map((d) => d.kind)).toEqual([
+      "rest", "quality", "easy", "rest", "easy", "longRide", "easy",
+    ]);
+    expect(w.qualityBudget).toBe(1);
+    // 180 * 0.6 = 108 — scaled, not kept at full length
+    expect(w.days[5].duration.nominalMin).toBe(108);
+  });
+
+  it("locks the quality slot to the block's focus type, and never to a dropped type", () => {
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    const q = sk.weeks[0].days.filter((d) => d.kind === "quality");
+    expect(q[0].allowedTypes).toEqual(["SIT"]);
+    expect(q[0].allowedTypes).not.toContain("Threshold");
+  });
+
+  it("a recovery week's long ride carries an intensity ceiling; a loading week's does not", () => {
+    const rec = computeBlockSkeleton("2026-08-03", weeks(1, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    const load = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    expect(rec.weeks[0].days[5].maxIntensityPct).not.toBeNull();
+    expect(load.weeks[0].days[5].maxIntensityPct).toBeNull();
+  });
+
+  it("gives a focus with no required session type zero quality slots in a recovery week", () => {
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1, [0]), DEFAULT_BLOCK_SETTINGS, "durability", []);
+    expect(sk.weeks[0].qualityBudget).toBe(0);
+    expect(sk.weeks[0].days.some((d) => d.kind === "quality")).toBe(false);
+  });
+
+  it("marks an event day as a locked event slot", () => {
+    const events = [{ name: "KOM", date: "2026-08-08", priority: "B" as const, type: "road-race" as const }];
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", events);
+    const ev = sk.weeks[0].days.find((d) => d.date === "2026-08-08")!;
+    expect(ev.kind).toBe("event");
+    expect(ev.locked).toBe(true);
+  });
+
+  // Supplementary coverage: DEFAULT_BLOCK_SETTINGS' own numbers (12h loading week, 2×75min quality,
+  // 180min long ride, 1 rest day, 3 easy days) work out to exactly 130min/easy day — comfortably
+  // inside the [45,150] clamp band, so none of the tests above ever actually exercise the
+  // clamp-and-residual path the brief calls "the whole point." These two force it in each direction.
+  it("clamps easy days DOWN to the ceiling and grows the long ride by exactly what they gave up", () => {
+    // easyTotal = 1200 - 180 - 150 = 870min / 3 easy days = 290min each, over the 150min ceiling.
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 20 };
+    const target = computeWeekTargets(1, settings, [])[0];
+    const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
+    const days = sk.weeks[0].days;
+    const easyDays = days.filter((d) => d.kind === "easy");
+    expect(easyDays.map((d) => d.duration.nominalMin)).toEqual([150, 150, 150]);
+    // 3 * (290 - 150) = 420min given up by the easy days must land on the long ride: 180 + 420 = 600.
+    const longRide = days.find((d) => d.kind === "longRide")!;
+    expect(longRide.duration.nominalMin).toBe(600);
+    const sum = days.reduce((t, d) => t + d.duration.nominalMin, 0);
+    expect(sum).toBe(Math.round(target.targetHours * 60));
+  });
+
+  it("clamps easy days UP to the floor and shrinks the long ride by exactly what they took", () => {
+    // easyTotal = 360 - 180 - 150 = 30min / 3 easy days = 10min each, under the 45min floor.
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 6 };
+    const target = computeWeekTargets(1, settings, [])[0];
+    const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
+    const days = sk.weeks[0].days;
+    const easyDays = days.filter((d) => d.kind === "easy");
+    expect(easyDays.map((d) => d.duration.nominalMin)).toEqual([45, 45, 45]);
+    // 3 * (45 - 10) = 105min taken by the easy days must come OFF the long ride: 180 - 105 = 75.
+    const longRide = days.find((d) => d.kind === "longRide")!;
+    expect(longRide.duration.nominalMin).toBe(75);
+    const sum = days.reduce((t, d) => t + d.duration.nominalMin, 0);
+    expect(sum).toBe(Math.round(target.targetHours * 60));
+  });
+
+  it("maps each required-type focus to its own quality session type (not a neighbour's)", () => {
+    const t = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "threshold", []);
+    const v = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "vo2max", []);
+    expect(t.weeks[0].days.find((d) => d.kind === "quality")!.allowedTypes).toEqual(["Threshold"]);
+    expect(v.weeks[0].days.find((d) => d.kind === "quality")!.allowedTypes).toEqual(["VO2max"]);
+  });
+
+  it("caps a recovery week's quality budget at RECOVERY_QUALITY_CAP even when more sessions are configured", () => {
+    // qualitySessionsPerLoadingWeek: 3 means (sessions - 1) = 2, which must still be capped down to 1.
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, qualitySessionsPerLoadingWeek: 3 };
+    const sk = computeBlockSkeleton("2026-08-03", computeWeekTargets(1, settings, [0]), settings, "anaerobic", []);
+    expect(sk.weeks[0].qualityBudget).toBe(1);
   });
 });
