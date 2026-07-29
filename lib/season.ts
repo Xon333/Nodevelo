@@ -430,10 +430,10 @@ export function formatRecoveryWeeks(
   const label = indices.map((i) => `week ${i + 1}`).join(", ");
   const m = focusSessionMatchers(ftp)[focus];
   const composition = m
-    ? `Keep at most ${RECOVERY_QUALITY_CAP} quality session — a SHORT ${m.label} session early in the week, at the BOTTOM of its intensity band. Every other quality type (SIT, VO2max, RaceSim, and any second ${m.label}) is dropped entirely, not shortened.`
+    ? `Keep at most ${RECOVERY_QUALITY_CAP} quality session — a SHORT ${m.label} session early in the week, on a separate ride from the long ride (never embedded in it), at the BOTTOM of its intensity band. Every other quality type (SIT, VO2max, RaceSim, and any second ${m.label}) is dropped entirely, not shortened.`
     : `Prescribe no quality sessions at all in ${label} — this block's focus has no single required session type, so a recovery week carries none.`;
   return [
-    `RECOVERY: ${label} of this ${lengthWeeks}-week block ${indices.length > 1 ? "are" : "is"} a recovery week (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`,
+    `RECOVERY: ${label} of this ${lengthWeeks}-week block ${indices.length > 1 ? "are recovery weeks" : "is a recovery week"} (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`,
     `- VOLUME: cut ~30–50% versus a loading week — the exact figure is in the WEEK-BY-WEEK HOUR TARGETS table; hit it.`,
     `- COMPOSITION: ${composition}`,
     `- LONG RIDE: unbroken Z2 at its duration target — no embedded threshold/VO2 efforts this week, whatever this block's durability template says.`,

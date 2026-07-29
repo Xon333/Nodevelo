@@ -741,6 +741,20 @@ describe("formatRecoveryWeeks", () => {
     const line = formatRecoveryWeeks([0], 2, "aerobic-base", 250)!;
     expect(line).toMatch(/no quality sessions/i);
   });
+
+  it("makes the surviving quality session an explicitly separate ride from the long ride — durability's own matcher label mentions embedded threshold+ work, which reads contradictory against the LONG RIDE carve-out without this", () => {
+    const line = formatRecoveryWeeks([1], 8, "durability", 250)!;
+    const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
+    // Scoped to the COMPOSITION bullet only — the LONG RIDE bullet already contains the words
+    // "long ride" on its own, so a whole-string match could pass without the fix actually applied.
+    expect(compositionLine).toMatch(/separate ride from (?:the )?long ride/i);
+  });
+
+  it("keeps verb and noun in agreement for a multi-week header (are recovery weeks, not are a recovery week)", () => {
+    const line = formatRecoveryWeeks([1, 5], 8, "vo2max", 250)!;
+    expect(line).toContain("are recovery weeks");
+    expect(line).not.toContain("are a recovery week");
+  });
 });
 
 describe("formatRetestNote (new signature — season-continuous-focus-selection §5)", () => {
