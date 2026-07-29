@@ -243,6 +243,7 @@ export function computeBlockSkeleton(
     }
 
     let easyCursor = 0;
+    let qualityCursor = 0;
     const days: DaySlot[] = kinds.map((kind, i) => {
       const date = addDaysIso(startDate, wi * 7 + i);
       const ev = eventByDate.get(date);
@@ -266,16 +267,31 @@ export function computeBlockSkeleton(
             maxIntensityPct: null, locked: true,
             reason: t.isRecovery ? "recovery week: one extra rest day" : "weekly rest day",
           };
-        case "quality":
+        case "quality": {
+          // Only the FIRST quality slot in a loading week is the block's primary focus session —
+          // that's what structurally guarantees validatePrimaryQualityCadence's >=1-per-loading-week
+          // floor (lib/season.ts). Locking every quality slot to the focus type over-constrains the
+          // week: it leaves no room for formatFocusCoverageLine's own "RaceSim fills a slot when it
+          // doesn't crowd out the primary" allowance, and makes deriveSessionRequirements'/
+          // validateSessionRequirements' block-wide >=1-RaceSim floor (lib/session-requirements.ts)
+          // unsatisfiable whenever every slot in every week is pinned to the focus type. A recovery
+          // week is untouched — it carries at most one quality slot, always the primary.
+          const isFirstQualitySlot = qualityCursor === 0;
+          qualityCursor++;
+          const flexibleSlot = !t.isRecovery && !isFirstQualitySlot;
           return {
-            date, kind, allowedTypes: focusType ? [focusType] : ["Threshold", "VO2max", "SIT", "RaceSim"],
+            date, kind,
+            allowedTypes: flexibleSlot ? ["Threshold", "VO2max", "SIT", "RaceSim"] : focusType ? [focusType] : ["Threshold", "VO2max", "SIT", "RaceSim"],
             duration: env(qualityMin),
             maxIntensityPct: t.isRecovery ? RECOVERY_QUALITY_CEILING_PCT : null,
-            locked: !!focusType,
+            locked: flexibleSlot ? false : !!focusType,
             reason: t.isRecovery
               ? `the ONE retained quality touch — short, early, at the bottom of its band`
-              : `the block's primary quality (focus: ${focus})`,
+              : flexibleSlot
+                ? `complementary quality slot — flexible across Threshold/VO2max/SIT/RaceSim; may be RaceSim when the block goal calls for it, since the week's primary focus session already covers the required coverage`
+                : `the block's primary quality (focus: ${focus})`,
           };
+        }
         case "longRide":
           return {
             date, kind, allowedTypes: ["Z2"], duration: env(longRideMin),

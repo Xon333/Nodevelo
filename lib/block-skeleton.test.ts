@@ -143,11 +143,45 @@ describe("computeBlockSkeleton", () => {
     expect(w.days[5].duration.nominalMin).toBe(108);
   });
 
-  it("locks the quality slot to the block's focus type, and never to a dropped type", () => {
+  it("locks only the FIRST loading-week quality slot to the block's focus type; later slots stay flexible", () => {
+    // DEFAULT_BLOCK_SETTINGS.qualitySessionsPerLoadingWeek is 2 — this is the over-constraint defect:
+    // locking BOTH quality slots to the focus type contradicts validatePrimaryQualityCadence (which
+    // only requires >=1 focus-type session per loading week), forecloses formatFocusCoverageLine's own
+    // "RaceSim fills a slot when it doesn't crowd out the primary" allowance, and makes
+    // deriveSessionRequirements'/validateSessionRequirements' block-wide >=1-RaceSim floor
+    // unsatisfiable when the goal is terrain/race-driven (lib/season.ts, lib/session-requirements.ts).
     const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
     const q = sk.weeks[0].days.filter((d) => d.kind === "quality");
+    expect(q).toHaveLength(2);
+    // First slot: locked to the focus type — this structurally guarantees the >=1-per-week floor.
     expect(q[0].allowedTypes).toEqual(["SIT"]);
-    expect(q[0].allowedTypes).not.toContain("Threshold");
+    expect(q[0].locked).toBe(true);
+    // Second slot: flexible across all four quality types, including RaceSim, and NOT locked.
+    expect(q[1].allowedTypes).toEqual(["Threshold", "VO2max", "SIT", "RaceSim"]);
+    expect(q[1].allowedTypes).toContain("RaceSim");
+    expect(q[1].locked).toBe(false);
+  });
+
+  it("keeps a recovery week's single quality slot locked to the focus type", () => {
+    // A recovery week has at most one quality slot (RECOVERY_QUALITY_CAP); the loading-week
+    // second-slot flexibility must not leak into it — the single retained touch stays the primary.
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    const q = sk.weeks[0].days.filter((d) => d.kind === "quality");
+    expect(q).toHaveLength(1);
+    expect(q[0].allowedTypes).toEqual(["SIT"]);
+    expect(q[0].locked).toBe(true);
+  });
+
+  it("leaves every loading-week quality slot flexible when the focus has no required session type", () => {
+    // durability (like aerobic-base/sharpen) has no single required type — focusWorkoutType returns
+    // null — so there is no "primary" slot to lock in the first place; every slot stays flexible.
+    const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "durability", []);
+    const q = sk.weeks[0].days.filter((d) => d.kind === "quality");
+    expect(q).toHaveLength(2);
+    for (const slot of q) {
+      expect(slot.allowedTypes).toEqual(["Threshold", "VO2max", "SIT", "RaceSim"]);
+      expect(slot.locked).toBe(false);
+    }
   });
 
   it("a recovery week's long ride carries an intensity ceiling; a loading week's does not", () => {
