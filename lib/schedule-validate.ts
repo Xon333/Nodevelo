@@ -19,7 +19,10 @@ import { RECOVERY_QUALITY_CAP, type WeekTarget } from "./block-skeleton";
 // ~0.80–0.88) and counts toward the quality budget + spacing the same as the interval types —
 // keeping intervals primary while race-sim breaks indoor-ladder monotony (see ROADMAP goal-driven
 // selection). Z2, Recovery, Strength and Rest are not hard and never trip these checks.
-const QUALITY_TYPES = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
+// Exported: lib/season.ts's formatRecoveryWeeks derives its "what's dropped entirely" enumeration
+// from this same Set (minus the surviving type) rather than hardcoding its own copy — the two used to
+// drift (season.ts's list was correct only for `threshold`; whole-branch review, 2026-07-29).
+export const QUALITY_TYPES = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
 
 function isQuality(day: PlannedDay): boolean {
   return QUALITY_TYPES.has(day.type);

@@ -742,12 +742,46 @@ describe("formatRecoveryWeeks", () => {
     expect(line).toMatch(/no quality sessions/i);
   });
 
-  it("makes the surviving quality session an explicitly separate ride from the long ride — durability's own matcher label mentions embedded threshold+ work, which reads contradictory against the LONG RIDE carve-out without this", () => {
+  // Fix 1 (2026-07-29 whole-branch review): durability HAS a focusSessionMatchers entry, but its
+  // label describes a Z2 ride carrying embedded threshold+ work — exactly what this same message's
+  // LONG RIDE bullet forbids ("no embedded threshold/VO2 efforts this week"). Asking for that
+  // composition contradicted the long-ride carve-out in the same instruction, and the validator-side
+  // fix (validateRecoveryWeekDensity flags ANY non-quality day with embedded intensity, not just the
+  // long ride) meant a plan that followed the COMPOSITION bullet exactly still got flagged. A
+  // durability block's recovery week must carry zero embedded work — same "no quality at all" branch
+  // as aerobic-base/sharpen.
+  it("asks for zero quality sessions for a durability focus, same as aerobic-base/sharpen — a durability recovery week must carry zero embedded work, not a disguised one", () => {
     const line = formatRecoveryWeeks([1], 8, "durability", 250)!;
     const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
-    // Scoped to the COMPOSITION bullet only — the LONG RIDE bullet already contains the words
-    // "long ride" on its own, so a whole-string match could pass without the fix actually applied.
-    expect(compositionLine).toMatch(/separate ride from (?:the )?long ride/i);
+    expect(compositionLine).toMatch(/no quality sessions/i);
+    expect(compositionLine).not.toMatch(/embedded/i);
+  });
+
+  // Fix 2: the dropped-type enumeration used to be a single hardcoded string
+  // "(SIT, VO2max, RaceSim, and any second ${m.label})" for every focus — correct only for
+  // `threshold`. For vo2max/anaerobic it named the SURVIVOR as dropped and never named Threshold as
+  // droppable at all. Now derived from QUALITY_TYPES minus the survivor.
+  it("names Threshold as droppable and does not list the survivor as dropped — vo2max focus", () => {
+    const line = formatRecoveryWeeks([2], 6, "vo2max", 250)!;
+    const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
+    // Isolate the dropped-types list from the trailing "and any second <survivor>" clause (still
+    // inside the same parenthetical) — the survivor's name legitimately appears THERE, so matching
+    // the whole parenthetical would pass without the fix actually applied.
+    const parenthetical = compositionLine.match(/Every other quality type \(([^)]*)\)/)?.[1] ?? "";
+    const droppedList = parenthetical.split(", and any second")[0];
+    const namedTypes = droppedList.split(",").map((s) => s.trim());
+    expect(namedTypes).toContain("Threshold");
+    expect(namedTypes).not.toContain("VO2max");
+  });
+
+  it("names Threshold as droppable and does not list the survivor as dropped — anaerobic focus", () => {
+    const line = formatRecoveryWeeks([2], 6, "anaerobic", 250)!;
+    const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
+    const parenthetical = compositionLine.match(/Every other quality type \(([^)]*)\)/)?.[1] ?? "";
+    const droppedList = parenthetical.split(", and any second")[0];
+    const namedTypes = droppedList.split(",").map((s) => s.trim());
+    expect(namedTypes).toContain("Threshold");
+    expect(namedTypes).not.toContain("SIT");
   });
 
   it("keeps verb and noun in agreement for a multi-week header (are recovery weeks, not are a recovery week)", () => {

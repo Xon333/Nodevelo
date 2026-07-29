@@ -316,4 +316,20 @@ describe("validateRecoveryWeekDensity", () => {
     ];
     expect(validateRecoveryWeekDensity(days, [{ weekNumber: 1, isRecovery: false, targetHours: 12 }], DEFAULT_BLOCK_SETTINGS, 250, [])).toEqual([]);
   });
+
+  // Fix 1 (2026-07-29 whole-branch review, season.ts formatRecoveryWeeks): a durability-focus block's
+  // COMPOSITION instruction used to ask for a "durability-loaded Z2 (embedded threshold+ work)"
+  // session as the recovery week's one surviving quality session — a plan that followed that
+  // instruction literally still tripped this validator's embedded-intensity check below, because the
+  // Z2 ride carrying the embedded work isn't the long ride but isn't quality-typed either. This is the
+  // integration check: a durability recovery week that instead follows the FIXED instruction (zero
+  // quality sessions, zero embedded work anywhere, an unbroken long Z2 ride) must produce no warning.
+  it("a durability-focus recovery week that follows the fixed 'no quality at all' instruction produces no warning", () => {
+    const days: PlannedDay[] = [
+      { date: "2026-06-20", weekNumber: 1, weekTheme: "t", name: "Long Z2", type: "Z2", durationMin: 180, workoutText: "- 180m 65%", description: "x" },
+      { date: "2026-06-21", weekNumber: 1, weekTheme: "t", name: "Recovery spin", type: "Recovery", durationMin: 45, workoutText: "- 45m 55%", description: "x" },
+      { date: "2026-06-22", weekNumber: 1, weekTheme: "t", name: "Rest", type: "Rest", durationMin: 0, workoutText: "", description: "x" },
+    ];
+    expect(validateRecoveryWeekDensity(days, target, DEFAULT_BLOCK_SETTINGS, 250, [])).toEqual([]);
+  });
 });

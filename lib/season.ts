@@ -7,6 +7,7 @@ import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { execFor } from "./intervention";
 import { RECOVERY_QUALITY_CAP, type WeekTarget } from "./block-skeleton";
+import { QUALITY_TYPES } from "./schedule-validate";
 
 // Season phase/deload/retest context + the two season-fit/focus-match validators are TEMPORARILY
 // DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
@@ -420,6 +421,17 @@ export function planRecoveryWeeks(weeksSinceRecovery: number, lengthWeeks: numbe
 // applies and only hours change. It did exactly that: the reviewed block's "recovery" week kept SIT,
 // Threshold AND a long ride with embedded threshold efforts, each merely trimmed. Composition is now
 // stated explicitly: a cap, which type survives, and what is dropped ENTIRELY rather than shortened.
+// The quality types NOT covered by a focus's own required session — i.e. what a recovery week must
+// drop entirely rather than shorten. Derived from QUALITY_TYPES (schedule-validate.ts's own
+// definition of "quality", reused here so the two can't drift apart again) minus the survivor.
+// Previously a single hardcoded string correct only for `threshold`; vo2max/anaerobic each named
+// their OWN survivor as dropped and never named Threshold as droppable at all (Fix 2, 2026-07-29
+// whole-branch review — the live defect this whole change set exists to fix had a Threshold session
+// surface in its recovery week, yet Threshold was never in the enumerated drop list).
+function otherQualityTypes(survivor: WorkoutType): string {
+  return [...QUALITY_TYPES].filter((t) => t !== survivor).join(", ");
+}
+
 export function formatRecoveryWeeks(
   indices: number[],
   lengthWeeks: number,
@@ -428,9 +440,23 @@ export function formatRecoveryWeeks(
 ): string | null {
   if (indices.length === 0) return null;
   const label = indices.map((i) => `week ${i + 1}`).join(", ");
-  const m = focusSessionMatchers(ftp)[focus];
+  // durability HAS a focusSessionMatchers entry (used elsewhere: formatFocusCoverageLine,
+  // validateBlockFocus) — but its label describes a Z2 ride carrying embedded threshold+ work, which
+  // is exactly what the LONG RIDE bullet below forbids ("no embedded threshold/VO2 efforts this
+  // week"). Asking for that composition in the same message it's forbidden in is self-contradictory,
+  // and a plan that followed it literally still tripped validateRecoveryWeekDensity (which correctly
+  // flags ANY non-quality day carrying embedded intensity, not just the long ride). A durability
+  // block's recovery week must carry zero embedded work — explicitly routed into the same "no quality
+  // at all" branch aerobic-base/sharpen already use (Fix 1, 2026-07-29 whole-branch review), rather
+  // than left to fall there only by accident of a missing matcher.
+  const m = focus === "durability" ? undefined : focusSessionMatchers(ftp)[focus];
+  // Non-null assertion: every focus that can reach this branch (threshold/vo2max/anaerobic —
+  // durability is excluded explicitly above, aerobic-base/sharpen have no matcher entry at all) sets
+  // `type` in focusSessionMatchers. If a future focus is added there without a `type`, this renders a
+  // garbled "and any second undefined" rather than failing loudly — the same silent-gap failure mode
+  // Fix 1/2 exist to close, so keep focusSessionMatchers and this exclusion in sync by hand.
   const composition = m
-    ? `Keep at most ${RECOVERY_QUALITY_CAP} quality session — a SHORT ${m.label} session early in the week, on a separate ride from the long ride (never embedded in it), at the BOTTOM of its intensity band. Every other quality type (SIT, VO2max, RaceSim, and any second ${m.label}) is dropped entirely, not shortened.`
+    ? `Keep at most ${RECOVERY_QUALITY_CAP} quality session — a SHORT ${m.label} session early in the week, on a separate ride from the long ride (never embedded in it), at the BOTTOM of its intensity band. Every other quality type (${otherQualityTypes(m.type!)}, and any second ${m.type}) is dropped entirely, not shortened.`
     : `Prescribe no quality sessions at all in ${label} — this block's focus has no single required session type, so a recovery week carries none.`;
   return [
     `RECOVERY: ${label} of this ${lengthWeeks}-week block ${indices.length > 1 ? "are recovery weeks" : "is a recovery week"} (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`,
@@ -705,6 +731,12 @@ export function formatFocusContext(choice: FocusChoice, objective: string): stri
 export interface FocusSessionMatcher {
   label: string;
   match: (d: PlannedDay) => boolean;
+  // The canonical WorkoutType this focus's required session renders as — set only when that survivor
+  // is itself one of schedule-validate.ts's QUALITY_TYPES (threshold/vo2max/anaerobic). Absent for
+  // durability: its matcher describes a Z2 ride carrying embedded work, not a QUALITY_TYPES member, so
+  // formatRecoveryWeeks routes durability through its "no quality at all" branch instead of using this
+  // field (see Fix 1/2, 2026-07-29 whole-branch review).
+  type?: WorkoutType;
 }
 
 // Shared by validateBlockFocus, validateFocusMatch, and formatFocusCoverageLine (P2c, 2026-07-24
@@ -714,9 +746,9 @@ export interface FocusSessionMatcher {
 // and are absent (callers treat a missing entry as "no specific type owed").
 export function focusSessionMatchers(ftp: number): Partial<Record<SeasonFocus, FocusSessionMatcher>> {
   return {
-    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
-    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
-    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
+    vo2max: { label: "VO2max", type: "VO2max", match: (d) => d.type === "VO2max" },
+    threshold: { label: "Threshold", type: "Threshold", match: (d) => d.type === "Threshold" },
+    anaerobic: { label: "SIT (anaerobic)", type: "SIT", match: (d) => d.type === "SIT" },
     durability: {
       label: "durability-loaded Z2 (embedded threshold+ work)",
       match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
