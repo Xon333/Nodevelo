@@ -12,6 +12,41 @@ exact commits.
 
 ---
 
+## Block generation — recovery-week defect + deterministic skeleton (Phase A + B, 2026-07-29)
+
+The season tripwire ([05-season.md](docs/systems/05-season.md#known-rough-edges)) **fired** and its
+prescribed response shipped the same day. A hand-reviewed 2-week block's "recovery" week cut volume
+~19% against a mandated ~40% *and* kept all three quality types (SIT, Threshold, and a long ride with
+threshold efforts embedded in it), each merely trimmed rather than dropped.
+
+**Phase A — correctness** ([plan](docs/superpowers/plans/2026-07-29-block-generation-phase-a-correctness.md), 16 commits).
+Two root causes: the recovery-week prompt instruction specified volume only, with no composition rule,
+while the prompt's only structural section was headed "loading weeks"; and the durability template
+that shapes the long ride is chosen per *block* but was injected for every *week*, so a recovery week's
+long ride was explicitly instructed to carry threshold efforts. Tracing those surfaced three
+silent-degradation bugs, all fixed: an A-priority event on the calendar skipped focus selection
+entirely (no focus context, two validators dark, no `seasonFocus` stamp, next block's variety rule
+degraded); recovery weeks vanished on any season-replan exception (a malformed `season-plan.json` date
+reaches `addWeeks` → `RangeError`), announced only in a server log; and `validateEventTaper` used the
+narrow quality-type check, so a long ride with embedded threshold work the day before a race passed
+clean. Live-verified: recovery week 7.0h vs 11.2h loading (**38% cut**), one quality session, other
+types absent, long ride unbroken despite template B being selected.
+
+**Phase B — deterministic week skeleton** ([plan](docs/superpowers/plans/2026-07-29-block-generation-phase-b-skeleton.md), 8 commits).
+`computeBlockSkeleton` allocates seven typed day-slots per week whose durations sum **exactly** to the
+week's hour target, rendered as a per-day table that supersedes the bare hour figure, plus
+`validateSkeletonConformance` (warn-only by staged decision). Loading weeks went from 1/4 inside the
+30-min tolerance to 3/4. Details + the traps → [06-generation.md § The week skeleton](docs/systems/06-generation.md#the-week-skeleton-composition-authority).
+
+**Worth remembering from this pass:** four of the defects were caught only by *running* the code with
+adversarial inputs or by *printing* the output, not by reading diffs — a Saturday event zeroed the
+long-ride slot; the arithmetic was driven by a configured budget rather than the slots actually
+placed; every loading-week quality slot was locked to the focus type, producing two identical sessions
+and making the block-wide RaceSim floor unsatisfiable; and a flat quality-slot size flagged correct
+~55min SIT sessions every single week. Example-based tests missed all of them because they only
+exercised `DEFAULT_BLOCK_SETTINGS`; an invariant sweep over tens of thousands of settings
+combinations is what actually pinned the guarantees.
+
 ## Block-generation architecture redesign — P1–P7 (2026-07-24)
 
 Prompted by a real 6-week block review: every non-recovery week missed its own explicit hour floor,

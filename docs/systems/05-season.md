@@ -93,12 +93,19 @@ evaluation → [ARCHIVE.md](../../ARCHIVE.md) "Block-generation architecture red
   limiter session, an escalation the narrative critic misses), that's real evidence the LLM
   shouldn't author structure at all — next step would be a fully deterministic skeleton with
   parameterized protocol templates, LLM narrating only.
-  **Fired 2026-07-29** — a reviewed 2-week block's "recovery" week cut volume ~19% against a mandated
-  ~40% AND kept all three quality types (SIT, Threshold, and a long ride with embedded threshold
-  efforts), each merely trimmed. Root causes were a volume-only recovery instruction and a
-  block-scoped durability template with no recovery carve-out; both fixed in the Phase A pass
-  (2026-07-29). The deterministic-skeleton response is scoped as Phase B — see
-  docs/superpowers/plans/2026-07-29-block-generation-phase-a-correctness.md.
+  **Fired 2026-07-29, and the response has now SHIPPED.** A reviewed 2-week block's "recovery" week
+  cut volume ~19% against a mandated ~40% AND kept all three quality types (SIT, Threshold, and a long
+  ride with embedded threshold efforts), each merely trimmed. Root causes were a volume-only recovery
+  instruction and a block-scoped durability template with no recovery carve-out — both fixed in
+  **Phase A** ([plan](../superpowers/plans/2026-07-29-block-generation-phase-a-correctness.md)),
+  live-verified the same day: the recovery week landed 7.0h against 11.2h loading (a 38% cut), one
+  quality session, other types dropped entirely, long ride unbroken despite template B being selected.
+  **Phase B** ([plan](../superpowers/plans/2026-07-29-block-generation-phase-b-skeleton.md)) then
+  built the deterministic skeleton the tripwire called for — see
+  [06-generation.md § The week skeleton](06-generation.md#the-week-skeleton-composition-authority).
+  Note what did NOT happen: the LLM still authors interval prescriptions, exact durations inside each
+  slot's envelope, and all prose. The tripwire's "LLM narrating only" was deliberately not taken that
+  far — composition is where it was wrong; content is where it was right.
 - **Held for a scheduled reopen, not rejected:** the TrainerRoad-style per-zone progression-level
   state machine (→ ARCHIVE for why it's the standout alternative). Reopen once per-type observation
   counts clear the athlete-model's own ≥3-obs gates (watch after the 2026-08-12 verdict

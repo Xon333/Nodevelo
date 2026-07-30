@@ -36,12 +36,34 @@ flowchart TD
 |---|---|---|
 | Focus selection | `season-signals.gatherFocusInputs` → `season.chooseNextFocus` (or event arc) | The block's `seasonFocus` + season context text |
 | Week targets | `block-skeleton.computeWeekTargets` (+ `checkBlockFeasibility` pre-gate) | One **exact** hour figure per week (loading = top of range; recovery = derived retention %) |
+| **Week skeleton** | `block-skeleton.computeBlockSkeleton` → `formatBlockSkeleton` | Seven typed day-slots per week — see below. This supersedes the bare hour figure in the prompt |
 | Durability template | `durability.selectDurabilityTemplate` (limiter → goal text → rotation) | Template A–E for the long ride |
 | Session requirements | `session-requirements.deriveSessionRequirements` | e.g. "≥1 RaceSim" from goal/terrain text |
 | Coaching directives | `athlete-model.deriveInsights` + `intervention.summariseValidation` → `synthesis.synthesizeCoachingDirectives` | ONE ranked, deduped directives block; proven-poor directives (≤34% hit-rate over ≥3 decisive blocks) demoted, never hidden |
 | Athlete facts | `coach-snapshot.resolveCoachSignals` / `formatFormFuelLine`, live zones from `physiology.ts`, power profile, quirks, deferred quality, goals/weakpoints (JSON, not the markdown) | Prompt fragments |
 | Nutrition table | `nutrition.buildNutritionReferenceRows` | A table the model must **copy from**, never compute |
 | Prior-block feedback | `kb-loader.latestRetrospectiveSeeds` + `retrospective-schema.formatReflectionsForPrompt` | The two feedback channels ([04-knowledge.md](04-knowledge.md)) |
+
+#### The week skeleton (composition authority)
+
+**Why it exists:** given one hour figure per week, the model had to solve the per-day split itself, and undershot every time — a live 4-week generation on 2026-07-29 produced loading weeks of 11.2 / 11.5 / 10.9h against a 12h target. `computeBlockSkeleton` (Phase B, [plan](../superpowers/plans/2026-07-29-block-generation-phase-b-skeleton.md)) does that arithmetic deterministically instead.
+
+**What it decides** — seven `DaySlot`s per week, each with a `kind` (`quality` / `longRide` / `easy` / `rest` / `event`), an `allowedTypes` list, a duration envelope, an optional `%FTP` ceiling, and a one-line `reason` that is rendered into the prompt *and* quoted back by the validator, so instruction and failure message are one value.
+
+**Two invariants it guarantees**, both swept over tens of thousands of settings combinations in `block-skeleton.test.ts`:
+1. A week's `nominalMin` values sum **exactly** to `round(targetHours × 60)`.
+2. Every slot satisfies `0 ≤ minMin ≤ nominalMin ≤ maxMin`.
+
+**Things that are easy to get wrong here, all of which were:**
+- Allocation is driven by the slots **actually placed**, never by the configured budget — the rest/quality placement priorities can collide, and driving arithmetic off the budget shorted the week by exactly the unplaced session.
+- An **event** day carries the duration of whatever slot it displaced rather than zero, or its week can never reach target (a Saturday race collides with the canonical long-ride day).
+- Only the **first** quality slot of a loading week is locked to the block's focus type. Locking all of them produced two identical session types in a week and made `session-requirements`' block-wide RaceSim floor unsatisfiable.
+- Quality slot length is **per session type** (SIT 55, VO2max 75, Threshold 80, RaceSim 100), not a flat figure. A 5×30s SIT protocol is ~55 min and cannot fill a 75-min slot without artificial padding; a flat slot flagged correct sessions every week.
+- The flexible second quality slot's envelope spans **every type it allows**, or a legitimate SIT and a legitimate RaceSim both fail the same slot.
+
+**What the LLM still owns:** interval prescriptions, the exact duration inside each envelope, and all prose. Composition moved; content did not.
+
+⚠️ **Duration is measured from the workout steps.** `reconcileDurationMin` overwrites the model's stated `durationMin` with the real step-sum, so a session only fills its slot if its *steps* add up — the prompt says this explicitly because the model otherwise wrote a correct-looking number above steps totalling less.
 
 ### 2. The AI seam
 
@@ -53,7 +75,9 @@ flowchart TD
 
 - **Structural failure = hard throw** (502, manual retry). A truncation is distinguished from malformed output; there is deliberately no auto-repair loop for structure.
 - **Deterministic repair (the only mutations)**: `reconcileDurationMin` (stated duration ↔ real step-sum) and `nutrition-validate.repairNutrition` (kcal figure rewritten to the formula's value, with a visible `repairs` note).
-- **Warn-only validators** (append to `warnings[]`, never rewrite — [ADR-0004](../DECISIONS.md)): `workout-validate.splitPlanProtocol` (KB-grounded intensity/duration bands; quality-type breaches surface separately as `protocolViolations`), `schedule-validate` (back-to-back hard days, quality budget, event taper, freshness-first sequencing), `block-skeleton.validateWeekHours`, `session-requirements.validateSessionRequirements`, season-fit/focus validators from `season.ts`.
+- **Warn-only validators** (append to `warnings[]`, never rewrite — [ADR-0004](../DECISIONS.md)): `workout-validate.splitPlanProtocol` (KB-grounded intensity/duration bands; quality-type breaches surface separately as `protocolViolations`), `schedule-validate` (back-to-back hard days, quality budget, event taper, freshness-first sequencing, `validateRecoveryWeekDensity`, `validateSkeletonConformance`), `block-skeleton.validateWeekHours`, `session-requirements.validateSessionRequirements`, season-fit/focus validators from `season.ts`.
+- **One fact, one owner.** These validators overlap by subject and were deliberately de-duplicated: `validateSkeletonConformance` owns *per-day* facts (missing day, type outside its slot, duration outside its envelope); `validateWeekHours` owns the *weekly total*; `validateRecoveryWeekDensity` owns recovery-week composition. Before adding a warning, check no existing validator already states that fact — a recovery week once produced three near-identical warnings for one problem, and this codebase treats redundant warnings as a real defect ("false warnings cause data fatigue", `workout-validate.ts`).
+- **Skeleton conformance is warn-only *by staged decision*, not oversight.** Hard-failing a locked-type mismatch was the original design; it is deferred until real runs show the model complies, because a skeleton too rigid on its first outing turns every generation into a 502. The escalation is a one-line change in `validateSkeletonConformance`.
 - **Narrative critic** (`lib/narrative-critic.ts`, haiku, forced tool-use): checks the model's written overview against deterministically-extracted real facts of the schedule; may rewrite the **overview only**, never the schedule. Best-effort — a critic failure never blocks the response.
 
 ## Provenance & regeneration semantics

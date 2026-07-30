@@ -79,7 +79,7 @@ touch that code. Full rationale: [docs/systems/05-season.md § Known rough edges
 |---|---|
 | **P4/P5 · event-week overstack** | Live-confirmed; dormant until event mode is active |
 | **P3c · narrative critic reliability** | Inconsistent — caught a bad overview once, missed one once |
-| **P2 · hour-target precision** | Narrowed, not exact (up to ~1.5h off on recovery weeks) |
+| **P2 · hour-target precision** | Much improved, not closed. Phase B's per-day skeleton took loading weeks from 1/4 inside the 30-min tolerance to 3/4 (measured 2026-07-29: −20/−34/−10 min vs 12h; recovery week −4). The residual mis-sized-slot cause was fixed after that measurement, so the next live run should read better — unverified. |
 | **P7 · urgency signal blind to pre-app fitness** | Masked by goal-driven blocks in practice; not structurally closed |
 | **P3d / P3e / P6** | Deliberately not built — need new code, no evidence yet justifies the investment |
 | **Event-date exclusion is unconditional & priority-blind (3 validators)** | Accepted 2026-07-29 — `isQuality` tightening false-positives on a real Threshold-typed test day; see `lib/schedule-validate.ts`'s `validateEventTaper` `eventDates` comment |
