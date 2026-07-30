@@ -3,7 +3,7 @@
 // PRs), then hands the already-fetched results to buildTodayAnalysis, which computes the metrics and
 // assembles the TodayAnalysis. Splitting it out makes the hardest part of the sync (execution scoring,
 // compliance capping, advised intake, coach-note preservation) unit-testable without mocking HTTP.
-import { adjustBuffer } from "./nutrition";
+import { calculateDailyTarget, type NutritionModel } from "./nutrition";
 import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
 import { gradeDurabilityDelivery, EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
@@ -52,15 +52,16 @@ export interface AdvisedIntake {
 // buffer. Same buffer formula block generation uses, so the Today card and the plan never disagree.
 export function computeAdvisedIntake(
   rideKj: number | null,
-  baseCalories: number,
-  buffer: number,
-  weightTrend7Day: number
+  model: NutritionModel,
+  bufferApplied: number
 ): AdvisedIntake {
-  const { bufferApplied } = adjustBuffer(buffer, weightTrend7Day);
   const advisedRideFuelKcal = rideKj ?? 0;
+  // Delegates to THE formula rather than re-deriving base + burn + buffer, so the Today card and the
+  // generated plan can never disagree. isRestDay is false: this path only runs for a completed ride.
+  const plan = calculateDailyTarget(advisedRideFuelKcal, model, bufferApplied, false);
   return {
-    advisedIntakeKcal: Math.round(baseCalories + advisedRideFuelKcal + bufferApplied),
-    advisedBaseKcal: baseCalories,
+    advisedIntakeKcal: plan.dailyTarget,
+    advisedBaseKcal: plan.maintenanceKcal - advisedRideFuelKcal,
     advisedBufferKcal: bufferApplied,
     advisedRideFuelKcal,
   };
@@ -71,8 +72,7 @@ export interface TodayAnalysisInputs {
   activity: ActivitySummary;
   plannedDay: Pick<CurrentBlockDay, "name" | "type" | "durationMin" | "durabilityTemplate"> | null;
   ftp: number;
-  nutrition: { baseCalories: number; buffer: number };
-  weightTrend7Day: number;
+  nutrition: { model: NutritionModel; bufferApplied: number };
   // Already re-bucketed by the route from the raw streams (falls back to Intervals' own times).
   powerZoneTimes: number[] | null;
   hrZoneTimes: number[] | null;
@@ -104,12 +104,7 @@ export interface TodayAnalysisResult {
 export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisResult {
   const { activity, plannedDay, ftp, intervalComparison } = input;
   const metrics = computeRideMetrics(activity, plannedDay?.durationMin ?? null, ftp);
-  const intake = computeAdvisedIntake(
-    activity.kj,
-    input.nutrition.baseCalories,
-    input.nutrition.buffer,
-    input.weightTrend7Day
-  );
+  const intake = computeAdvisedIntake(activity.kj, input.nutrition.model, input.nutrition.bufferApplied);
 
   // On interval days, power-target adherence is the primary execution signal; otherwise duration
   // compliance. A structural plan/detection mismatch drops adherence so a correct session isn't

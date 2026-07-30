@@ -43,7 +43,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { weightTrendFromWellness } from "@/lib/nutrition";
+import { adjustBuffer, resolveNutritionModel, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -668,6 +668,21 @@ export async function POST(req: Request) {
           const todayAerobicEffPct = aerobicEffPct(todayActivity, z2PwHrBaselineBefore(lastSync.activities, todayActivity.date));
           const todayAboveAerobicHrFrac = timeAboveAerobicHrFraction(hrZoneTimes);
 
+          // Resolve the model + buffer ONCE here, the same way the profile route does, so the Today
+          // card's advised intake can never disagree with the reference table block generation built.
+          const latestWeightKgForToday =
+            lastSync.wellness
+              .filter((w) => w.weightKg !== null)
+              .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
+          const todayNutritionModel = resolveNutritionModel(profile, latestWeightKgForToday, today);
+          const todayBufferStatus = adjustBuffer(
+            profile.nutrition.buffer,
+            weightTrendFromWellness(lastSync.wellness),
+            weightTrendFromWellness(lastSync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS),
+            latestWeightKgForToday,
+            profile.nutrition.targetWeightKg
+          );
+
           // --- Pure: assemble the deterministic analysis (metrics, execution score, capped
           // compliance, advised intake, coach-note preservation) — extracted + unit-tested (CR-G).
           const { todayAnalysis: built, executionScore, resolvedCompliancePct } = buildTodayAnalysis({
@@ -675,8 +690,7 @@ export async function POST(req: Request) {
             activity: todayActivity,
             plannedDay,
             ftp: profile.performance.ftp,
-            nutrition: { baseCalories: profile.nutrition.baseCalories, buffer: profile.nutrition.buffer },
-            weightTrend7Day: weightTrendFromWellness(lastSync.wellness) ?? 0,
+            nutrition: { model: todayNutritionModel, bufferApplied: todayBufferStatus.bufferApplied },
             powerZoneTimes,
             hrZoneTimes,
             // The athlete's synced zone tops (%FTP) as-of the ride — the IF band label's boundaries, so it

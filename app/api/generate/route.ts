@@ -26,10 +26,12 @@ import { buildCoachSnapshot, formatFormFuelLine, resolveCoachSignals } from "@/l
 import { resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride } from "@/lib/calibration";
 import type { Zone } from "@/lib/zones";
 import {
+  adjustBuffer,
   buildNutritionReferenceRows,
   nutritionTableMarkdown,
+  resolveNutritionModel,
   weightTrendFromWellness,
-  type AthleteNutritionConfig,
+  WEIGHT_TREND_LONG_WINDOW_DAYS,
 } from "@/lib/nutrition";
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { reconcileDurationMin } from "@/lib/prescription";
@@ -117,15 +119,18 @@ export async function POST(req: Request) {
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ??
       profile.performance.weightKg;
 
-    const nutritionConfig: AthleteNutritionConfig = {
-      baseCalories: profile.nutrition.baseCalories,
-      restDayTarget: profile.nutrition.restDayTarget,
-      buffer: profile.nutrition.buffer,
-      weight: latestWeight,
-      targetWeight: profile.nutrition.targetWeightKg,
-    };
+    // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
+    // re-deriving from the raw body or inlining a UTC date.
+    const nutritionModel = resolveNutritionModel(profile, latestWeight, today);
+    const bufferStatus = adjustBuffer(
+      profile.nutrition.buffer,
+      weightTrend,
+      weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
+      latestWeight,
+      profile.nutrition.targetWeightKg
+    );
     const nutritionTable = nutritionTableMarkdown(
-      buildNutritionReferenceRows(nutritionConfig, profile.performance.ftp, weightTrend)
+      buildNutritionReferenceRows(nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied)
     );
 
     const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);
@@ -445,7 +450,10 @@ export async function POST(req: Request) {
     const reconciledDays = reconcileDurationMin(rawDays);
     // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
     // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
-    const nutritionRepair = repairNutrition(reconciledDays, nutritionConfig, profile.performance.ftp, weightTrend);
+    // Task 6 (lib/nutrition-validate.ts) still owns repairNutrition's own signature/logic — this call
+    // site is updated only enough to pass the resolved model + the buffer applied once above, instead
+    // of the now-removed AthleteNutritionConfig shape.
+    const nutritionRepair = repairNutrition(reconciledDays, nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied);
     const days = nutritionRepair.days;
     const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];
     const expected = weeks.flat();

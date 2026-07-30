@@ -10,12 +10,13 @@ import {
   estimateWorkoutBurnKcal,
   inRideCarbTarget,
   preRideCarbTarget,
+  resolveNutritionModel,
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
   weightTrendFromWellness,
   type NutritionModel,
 } from "./nutrition";
-import type { WellnessEntry, WorkoutType } from "./types";
+import type { AthleteProfile, WellnessEntry, WorkoutType } from "./types";
 
 
 describe("desiredWeightTrend", () => {
@@ -432,5 +433,48 @@ describe("restingMetabolicRate", () => {
 
   it("exposes a NEAT prior that excludes structured exercise", () => {
     expect(DEFAULT_NEAT_MULTIPLIER).toBe(1.2);
+  });
+});
+
+describe("resolveNutritionModel", () => {
+  const profile = (perf: Partial<AthleteProfile["performance"]>) =>
+    ({
+      performance: {
+        ftp: 250, maxHr: 190, thresholdHr: 170, weightKg: 75,
+        weeklyHoursMin: 6, weeklyHoursMax: 10,
+        dateOfBirth: null, heightCm: null, sex: null, ...perf,
+      },
+      nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 78 },
+    }) as unknown as AthleteProfile;
+
+  it("derives once all three RMR inputs are present", () => {
+    const m = resolveNutritionModel(
+      profile({ dateOfBirth: "1996-03-14", heightCm: 180, sex: "male" }), 74, "2026-07-30"
+    );
+    expect(m.kind).toBe("derived");
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.rmr).toBe(restingMetabolicRate(74, 180, 30, "male"));
+    expect(m.weightKg).toBe(74); // synced weight wins over the manual profile figure
+  });
+
+  // The gotcha this project has already been bitten by: a profile JSON written before these fields
+  // existed parses them back as `undefined`, which `=== null` misses.
+  it("stays legacy when the RMR fields are undefined, not just null", () => {
+    const p = profile({});
+    delete (p.performance as unknown as Record<string, unknown>).dateOfBirth;
+    delete (p.performance as unknown as Record<string, unknown>).heightCm;
+    delete (p.performance as unknown as Record<string, unknown>).sex;
+    expect(resolveNutritionModel(p, 74, "2026-07-30").kind).toBe("legacy");
+  });
+
+  it("stays legacy when only some inputs are present", () => {
+    expect(resolveNutritionModel(profile({ heightCm: 180 }), 74, "2026-07-30").kind).toBe("legacy");
+  });
+
+  it("stays legacy when the date of birth cannot yield a plausible age", () => {
+    const m = resolveNutritionModel(
+      profile({ dateOfBirth: "not-a-date", heightCm: 180, sex: "male" }), 74, "2026-07-30"
+    );
+    expect(m.kind).toBe("legacy");
   });
 });

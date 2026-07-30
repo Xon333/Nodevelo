@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { buildTodayAnalysis, computeAdvisedIntake, computeRideMetrics } from "./ride-analysis";
+import type { NutritionModel } from "./nutrition";
 import type { ActivitySummary, ExecutedInterval, TodayAnalysis } from "./types";
+
+// Legacy model: baseCalories 2000, restDayTarget 2600 — matches the pre-existing 2900 = 2000 + 600 + 300
+// expectation exactly (calculateDailyTarget's legacy path floors at restDayTarget, which 2900 clears).
+const LEGACY_MODEL: NutritionModel = {
+  kind: "legacy",
+  baseCalories: 2000,
+  restDayTarget: 2600,
+  weightKg: 75,
+  targetWeightKg: 78,
+  buffer: 300,
+};
 
 const activity = (over: Partial<ActivitySummary> = {}): ActivitySummary => ({
   id: "a1",
@@ -58,12 +70,12 @@ describe("computeRideMetrics", () => {
 
 describe("computeAdvisedIntake", () => {
   it("sums base + ride kJ + weight-adjusted buffer", () => {
-    const i = computeAdvisedIntake(600, 2000, 300, 0); // stable weight → buffer unchanged
+    const i = computeAdvisedIntake(600, LEGACY_MODEL, 300); // bufferApplied already resolved
     expect(i).toEqual({ advisedIntakeKcal: 2900, advisedBaseKcal: 2000, advisedBufferKcal: 300, advisedRideFuelKcal: 600 });
   });
 
   it("treats a null ride kJ as zero fuel", () => {
-    expect(computeAdvisedIntake(null, 2000, 300, 0).advisedRideFuelKcal).toBe(0);
+    expect(computeAdvisedIntake(null, LEGACY_MODEL, 300).advisedRideFuelKcal).toBe(0);
   });
 });
 
@@ -73,8 +85,7 @@ describe("buildTodayAnalysis (CR-G)", () => {
     activity: activity(),
     plannedDay: { name: "Threshold 3x12", type: "Threshold" as const, durationMin: 60 },
     ftp: 250,
-    nutrition: { baseCalories: 2000, buffer: 300 },
-    weightTrend7Day: 0,
+    nutrition: { model: LEGACY_MODEL, bufferApplied: 300 },
     powerZoneTimes: [10, 20] as number[] | null,
     hrZoneTimes: null,
     powerZoneTopsPct: null as number[] | null,

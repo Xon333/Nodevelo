@@ -3,7 +3,15 @@ import { readAthleteProfile, readLastSync, updateAthleteProfile } from "@/lib/da
 import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
-import { adjustBuffer, weightTrendFromWellness } from "@/lib/nutrition";
+import {
+  adjustBuffer,
+  resolveNutritionModel,
+  weightTrendFromWellness,
+  WEIGHT_TREND_LONG_WINDOW_DAYS,
+  BUFFER_MIN_KCAL,
+  BUFFER_MAX_KCAL,
+} from "@/lib/nutrition";
+import { localToday, ageYearsFrom } from "@/lib/date";
 import type { AthleteProfile } from "@/lib/types";
 import type { Zone } from "@/lib/zones";
 
@@ -51,6 +59,7 @@ export async function GET() {
     .filter((w) => w.weightKg !== null)
     .sort((a, b) => b.date.localeCompare(a.date));
   const weightTrend7Day = sync ? weightTrendFromWellness(sync.wellness) : null;
+  const weightTrendLong = sync ? weightTrendFromWellness(sync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS) : null;
 
   const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
   const recentRpes = (sync?.activities ?? [])
@@ -105,7 +114,18 @@ export async function GET() {
       lastKcalConsumed: lastKcal?.kcalConsumed ?? null,
       lastKcalDate: lastKcal?.date ?? null,
     },
-    bufferStatus: adjustBuffer(profile.nutrition.buffer, weightTrend7Day ?? 0),
+    bufferStatus: adjustBuffer(
+      profile.nutrition.buffer,
+      weightTrend7Day,
+      weightTrendLong,
+      weighIns[0]?.weightKg ?? profile.performance.weightKg,
+      profile.nutrition.targetWeightKg
+    ),
+    nutritionModel: resolveNutritionModel(
+      profile,
+      weighIns[0]?.weightKg ?? profile.performance.weightKg,
+      localToday()
+    ),
   });
 }
 
@@ -130,8 +150,12 @@ export async function PUT(req: Request) {
     if (!pos(baseCalories)) return NextResponse.json({ error: "baseCalories must be a positive number." }, { status: 400 });
     if (!pos(restDayTarget)) return NextResponse.json({ error: "restDayTarget must be a positive number." }, { status: 400 });
     if (!pos(targetWeightKg)) return NextResponse.json({ error: "targetWeightKg must be a positive number." }, { status: 400 });
-    if (typeof buffer !== "number" || !Number.isFinite(buffer) || buffer < 0 || buffer > 600) {
-      return NextResponse.json({ error: "buffer must be between 0 and 600 kcal." }, { status: 400 });
+    // Signed: a negative buffer is how a deficit is expressed at all (previously impossible).
+    if (typeof buffer !== "number" || !Number.isFinite(buffer) || buffer < BUFFER_MIN_KCAL || buffer > BUFFER_MAX_KCAL) {
+      return NextResponse.json(
+        { error: `buffer must be between ${BUFFER_MIN_KCAL} and ${BUFFER_MAX_KCAL} kcal.` },
+        { status: 400 }
+      );
     }
     nutrition = {
       baseCalories: baseCalories as number,
@@ -139,6 +163,35 @@ export async function PUT(req: Request) {
       buffer: buffer as number,
       targetWeightKg: targetWeightKg as number,
     };
+  }
+
+  // RMR inputs live on `performance`, saved independently of the nutrition block.
+  let performancePatch: Partial<AthleteProfile["performance"]> | undefined;
+  if (b.performance !== undefined) {
+    const input = b.performance as Record<string, unknown>;
+    const patch: Partial<AthleteProfile["performance"]> = {};
+    if (input.dateOfBirth !== undefined) {
+      const dob = input.dateOfBirth;
+      if (dob !== null && (typeof dob !== "string" || ageYearsFrom(dob, localToday()) === null)) {
+        return NextResponse.json({ error: "dateOfBirth must be a valid past YYYY-MM-DD date, or null." }, { status: 400 });
+      }
+      patch.dateOfBirth = dob as string | null;
+    }
+    if (input.heightCm !== undefined) {
+      const h = input.heightCm;
+      if (h !== null && !(typeof h === "number" && Number.isFinite(h) && h > 50 && h < 260)) {
+        return NextResponse.json({ error: "heightCm must be between 50 and 260, or null." }, { status: 400 });
+      }
+      patch.heightCm = h as number | null;
+    }
+    if (input.sex !== undefined) {
+      const s = input.sex;
+      if (s !== null && s !== "male" && s !== "female") {
+        return NextResponse.json({ error: 'sex must be "male", "female", or null.' }, { status: 400 });
+      }
+      patch.sex = s as "male" | "female" | null;
+    }
+    performancePatch = patch;
   }
 
   const VALID_FOCUS = new Set(["aerobic-base", "threshold", "vo2max", "anaerobic", "durability", "sharpen", "general"]);
@@ -176,11 +229,17 @@ export async function PUT(req: Request) {
   // baking physiology-sync-derived FTP/HR back into athlete.json as if it were saved user input was
   // the actual bug. Locked, so a concurrent PUT (or the goals-migration self-heal write) can't
   // clobber this one.
-  const updated = await updateAthleteProfile((profile) => ({
-    ...profile,
+  const updated = await updateAthleteProfile((current) => ({
+    ...current,
     ...(nutrition !== undefined ? { nutrition } : {}),
     ...(goals !== undefined ? { goals } : {}),
     ...(weakpoints !== undefined ? { weakpoints } : {}),
+    performance: performancePatch ? { ...current.performance, ...performancePatch } : current.performance,
   }));
-  return NextResponse.json({ nutrition: updated.nutrition, goals: updated.goals, weakpoints: updated.weakpoints });
+  return NextResponse.json({
+    nutrition: updated.nutrition,
+    goals: updated.goals,
+    weakpoints: updated.weakpoints,
+    performance: updated.performance,
+  });
 }

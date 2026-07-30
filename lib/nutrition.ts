@@ -1,7 +1,8 @@
 // Deterministic nutrition formula. Pure TypeScript — no AI involvement.
 // The AI receives this module's output as pre-computed values and only
 // rephrases them in natural language inside workout descriptions.
-import type { ActivitySummary, WellnessEntry, WorkoutType } from "./types";
+import { ageYearsFrom } from "./date";
+import type { ActivitySummary, AthleteProfile, WellnessEntry, WorkoutType } from "./types";
 import { median } from "./stats";
 
 export interface ActiveBurn {
@@ -316,6 +317,44 @@ export function calculateDailyTarget(
     maintenanceKcal: Math.round(model.baseCalories + activeBurnKcal),
     ...carbs,
     bufferApplied,
+  };
+}
+
+/**
+ * Pick the model for this athlete. The presence of all three RMR inputs IS the migration gate — there is
+ * no separate timestamp flag to keep in sync.
+ *
+ * Truthy checks, never `=== null`: a profile JSON written before these fields existed parses them back as
+ * `undefined`, and an equality check against null misses it, so the migration silently never runs. This
+ * project has shipped that bug before.
+ */
+export function resolveNutritionModel(
+  profile: AthleteProfile,
+  latestWeightKg: number,
+  today: string
+): NutritionModel {
+  const p = profile.performance;
+  const shared = {
+    weightKg: latestWeightKg,
+    targetWeightKg: profile.nutrition.targetWeightKg,
+    buffer: profile.nutrition.buffer,
+  };
+  if (p.dateOfBirth && p.heightCm && p.sex) {
+    const ageYears = ageYearsFrom(p.dateOfBirth, today);
+    if (ageYears !== null) {
+      return {
+        kind: "derived",
+        rmr: restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex),
+        neatMultiplier: DEFAULT_NEAT_MULTIPLIER, // per-athlete calibration is Phase 3
+        ...shared,
+      };
+    }
+  }
+  return {
+    kind: "legacy",
+    baseCalories: profile.nutrition.baseCalories,
+    restDayTarget: profile.nutrition.restDayTarget,
+    ...shared,
   };
 }
 

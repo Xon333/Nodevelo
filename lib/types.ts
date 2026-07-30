@@ -43,10 +43,12 @@ export interface PerformanceData {
 }
 
 export interface NutritionSettings {
-  baseCalories: number; // default 2000
-  restDayTarget: number; // default 2600
-  buffer: number; // kcal added on training days, default 300
+  buffer: number; // SIGNED goal-directed surplus/deficit, kcal/day; range BUFFER_MIN_KCAL..BUFFER_MAX_KCAL
   targetWeightKg: number;
+  // DEPRECATED — read only by resolveNutritionModel's legacy branch, for profiles that predate the
+  // dateOfBirth/heightCm/sex RMR inputs. Never written by new code; delete once no profile needs them.
+  baseCalories: number;
+  restDayTarget: number;
 }
 
 export interface AthleteProfile {
