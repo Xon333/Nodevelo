@@ -13,6 +13,7 @@ import {
   resolveNutritionModel,
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
+  smoothedCurrentWeightKg,
   weightTrendFromWellness,
   type NutritionModel,
 } from "./nutrition";
@@ -116,6 +117,40 @@ describe("adjustBuffer", () => {
   it("still applies a real cut when BOTH windows confirm a sustained overshoot", () => {
     const r = adjustBuffer(300, 1.5, 1.5, 70, 78);
     expect(r.delta).toBeLessThan(-100);
+  });
+});
+
+// I1: the ±MAX_ADJUSTMENT_STEP_KCAL clamp was invisible — an athlete losing 2 kg/week and one losing
+// 0.3 kg/week both landed on the identical +250 with identical wording. stepClipped surfaces that this
+// correction hit the per-adjustment size limit, distinct from `capped` (the outer BUFFER_MIN/MAX rails).
+describe("adjustBuffer — stepClipped", () => {
+  const AT_TARGET = { current: 75, target: 75 };
+
+  it("flags stepClipped when the raw correction exceeds the per-adjustment step limit", () => {
+    // err = -0.5 kg/7d → raw = +275 kcal/day, which exceeds the ±250 step limit.
+    const r = adjustBuffer(300, -0.5, -0.5, AT_TARGET.current, AT_TARGET.target);
+    expect(r.delta).toBe(250);
+    expect(r.stepClipped).toBe(true);
+    expect(r.reason).toMatch(/clip/i);
+    expect(r.reason).toMatch(/model/i);
+  });
+
+  it("does NOT flag stepClipped when the raw correction is within the step limit", () => {
+    // err = -0.4 kg/7d → raw = +220 kcal/day, inside the ±250 step limit.
+    const r = adjustBuffer(300, -0.4, 0, AT_TARGET.current, AT_TARGET.target);
+    expect(r.delta).toBe(220);
+    expect(r.stepClipped).toBe(false);
+  });
+
+  it("does not flag stepClipped when there is no trend to act on (delta 0)", () => {
+    const r = adjustBuffer(300, null, null, AT_TARGET.current, AT_TARGET.target);
+    expect(r.stepClipped).toBe(false);
+  });
+
+  it("keeps stepClipped and capped as independent facts — a step-clipped correction need not hit a rail", () => {
+    const r = adjustBuffer(300, -0.5, -0.5, AT_TARGET.current, AT_TARGET.target);
+    expect(r.stepClipped).toBe(true);
+    expect(r.capped).toBe(false); // 550 is well inside [-500, 600]
   });
 });
 
@@ -320,6 +355,64 @@ describe("weightTrendFromWellness windowing", () => {
   });
 });
 
+// I2: a raw single weigh-in was sizing the GOAL comparison while the trend used a robust estimator —
+// so the daily target could jump across the deadband boundary depending on which weigh-in happened to
+// be last. smoothedCurrentWeightKg fixes that by taking the median of the trailing window instead.
+describe("smoothedCurrentWeightKg", () => {
+  const w = (date: string, weightKg: number | null): WellnessEntry => ({
+    date, weightKg, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: null, ctl: null, atl: null,
+  });
+
+  it("returns the median of the trailing window, not the latest single reading", () => {
+    const wellness = [
+      w("2026-07-15", 62.0),
+      w("2026-07-17", 62.3),
+      w("2026-07-19", 61.9),
+      w("2026-07-22", 62.5),
+      w("2026-07-24", 62.0),
+    ];
+    // sorted: 61.9, 62.0, 62.0, 62.3, 62.5 → median 62.0 (NOT the raw latest reading, 62.0 here too,
+    // but see the next test for the case where latest genuinely differs from the median).
+    expect(smoothedCurrentWeightKg(wellness, "2026-07-24")).toBe(62.0);
+  });
+
+  it("does not swing with whichever weigh-in happened to land last (the live D-1 bug)", () => {
+    // Same 5 underlying readings as the live data (61.7–62.5), just with the LAST one varied. The raw
+    // latest-reading approach flips between these two ends; the median must not.
+    const commonEarlier = [
+      w("2026-07-15", 61.7),
+      w("2026-07-17", 62.3),
+      w("2026-07-19", 61.9),
+    ];
+    const endsHigh = [...commonEarlier, w("2026-07-22", 62.0), w("2026-07-24", 62.5)];
+    const endsLow = [...commonEarlier, w("2026-07-22", 62.5), w("2026-07-24", 62.0)];
+    // Both sets contain the identical 5 values {61.7, 62.3, 61.9, 62.0, 62.5} — only which one is
+    // dated last differs — so the median must be identical regardless.
+    expect(smoothedCurrentWeightKg(endsHigh, "2026-07-24")).toBe(
+      smoothedCurrentWeightKg(endsLow, "2026-07-24")
+    );
+  });
+
+  it("falls back to the latest single reading when the trailing window is empty", () => {
+    const wellness = [w("2026-05-01", 70.0)]; // far outside any reasonable trailing window
+    expect(smoothedCurrentWeightKg(wellness, "2026-07-24")).toBe(70.0);
+  });
+
+  it("returns null when there are no weigh-ins at all", () => {
+    expect(smoothedCurrentWeightKg([w("2026-07-24", null)], "2026-07-24")).toBeNull();
+    expect(smoothedCurrentWeightKg([], "2026-07-24")).toBeNull();
+  });
+
+  it("ignores weigh-ins outside the requested window", () => {
+    const wellness = [
+      w("2026-06-01", 80.0), // way outside a 14-day window
+      w("2026-07-20", 62.0),
+      w("2026-07-24", 62.4),
+    ];
+    expect(smoothedCurrentWeightKg(wellness, "2026-07-24")).toBe(62.2); // median of {62.0, 62.4} only
+  });
+});
+
 describe("computeEnergyAvailability", () => {
   const w = (date: string, kcalConsumed: number | null, weightKg: number | null = 60): WellnessEntry => ({
     date, weightKg, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed, ctl: null, atl: null,
@@ -361,6 +454,40 @@ describe("computeEnergyAvailability", () => {
     ];
     const ea = computeEnergyAvailability(wellness, [], "2026-06-15")!;
     expect(ea.eaKcalPerKg).toBe(50); // 3000 / 60 (prior); the most-recent 70 kg would give 43
+  });
+
+  // Minor 2: a day whose only activity has an UNRESOLVABLE burn (neither activeBurnKcal nor kj) must
+  // be excluded from the mean entirely — treating it as burn 0 makes it read exactly like a rest day,
+  // which INFLATES the EA figure and hides underfuelling (the wrong error direction for this athlete).
+  it("excludes a day with an unresolvable activity burn entirely, rather than zeroing it", () => {
+    const wellness = [
+      w("2026-06-10", 3000), w("2026-06-11", 3000), w("2026-06-12", 3000),
+      w("2026-06-13", 3000), // this day's activity has neither activeBurnKcal nor kj
+      w("2026-06-14", 3000),
+    ];
+    const acts = [
+      { date: "2026-06-10", kj: 1200, activeBurnKcal: null },
+      { date: "2026-06-11", kj: 1200, activeBurnKcal: null },
+      { date: "2026-06-12", kj: 1200, activeBurnKcal: null },
+      { date: "2026-06-13", kj: null, activeBurnKcal: null }, // unresolved — NOT a rest day
+      { date: "2026-06-14", kj: 1200, activeBurnKcal: null },
+    ];
+    const ea = computeEnergyAvailability(wellness, acts, "2026-06-15")!;
+    // Without the fix, 06-13 folds in at (3000 − 0)/60 = 50, dragging the mean up to 32 over 5 days.
+    expect(ea.eaKcalPerKg).toBe(30); // (3000 − 1200)/60 over the 4 RESOLVED days only
+    expect(ea.daysUsed).toBe(4);
+  });
+
+  it("still counts a genuine rest day (no activity at all) at burn 0", () => {
+    const wellness = [
+      w("2026-06-10", 3000), w("2026-06-11", 3000), w("2026-06-12", 3000),
+      w("2026-06-13", 3000), // no activity this day at all — a real rest day
+    ];
+    const acts = ["2026-06-10", "2026-06-11", "2026-06-12"].map((d) => ride(d, 1200));
+    const ea = computeEnergyAvailability(wellness, acts, "2026-06-14")!;
+    // 3 training days at (3000−1200)/60=30, plus one genuine rest day at (3000−0)/60=50.
+    expect(ea.daysUsed).toBe(4);
+    expect(ea.eaKcalPerKg).toBe(Math.round((30 * 3 + 50) / 4));
   });
 
   it("reports the trend vs the prior equal window", () => {
@@ -416,6 +543,15 @@ describe("activeBurn", () => {
 
   it("treats a zero active-burn figure as real, not missing", () => {
     expect(activeBurn({ ...base, activeBurnKcal: 0, kj: 500 })).toEqual({ kcal: 0, legacy: false });
+  });
+
+  // Minor 1 / AGENTS.md migration-flag gotcha: a synced activity written before activeBurnKcal existed
+  // parses back with the key simply ABSENT (undefined), not null. `undefined !== null` is true, so a
+  // `!== null` check would fall through to `{ kcal: undefined }` (NaN downstream) instead of the legacy
+  // kj branch.
+  it("falls back to the legacy kj branch when activeBurnKcal is entirely absent (undefined), not NaN", () => {
+    const activityWithoutField = { kj: 800 } as unknown as Parameters<typeof activeBurn>[0];
+    expect(activeBurn(activityWithoutField)).toEqual({ kcal: 800, legacy: true });
   });
 });
 

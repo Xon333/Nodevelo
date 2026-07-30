@@ -6,6 +6,7 @@ import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiol
 import {
   adjustBuffer,
   resolveNutritionModel,
+  smoothedCurrentWeightKg,
   weightTrendFromWellness,
   WEIGHT_TREND_LONG_WINDOW_DAYS,
   BUFFER_MIN_KCAL,
@@ -60,6 +61,12 @@ export async function GET() {
     .sort((a, b) => b.date.localeCompare(a.date));
   const weightTrend7Day = sync ? weightTrendFromWellness(sync.wellness) : null;
   const weightTrendLong = sync ? weightTrendFromWellness(sync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS) : null;
+  // GOAL comparisons (adjustBuffer's currentKg) use the smoothed figure, not the latest single
+  // weigh-in — a raw reading swings ±0.5–1 kg and was flipping the buffer across the deadband
+  // boundary depending on which weigh-in happened to be last (I2). resolveNutritionModel's
+  // latestWeightKg below is DELIBERATELY left on the raw latest reading — RMR should track current mass.
+  const smoothedWeightKgForGoal =
+    smoothedCurrentWeightKg(sync?.wellness ?? [], localToday()) ?? profile.performance.weightKg;
 
   const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
   const recentRpes = (sync?.activities ?? [])
@@ -126,7 +133,7 @@ export async function GET() {
       profile.nutrition.buffer,
       weightTrend7Day,
       weightTrendLong,
-      weighIns[0]?.weightKg ?? profile.performance.weightKg,
+      smoothedWeightKgForGoal,
       profile.nutrition.targetWeightKg
     ),
     nutritionModel: resolveNutritionModel(

@@ -69,13 +69,15 @@ describe("computeRideMetrics", () => {
 });
 
 describe("computeAdvisedIntake", () => {
-  it("sums base + ride kJ + weight-adjusted buffer", () => {
+  it("sums base + resolved ride burn + weight-adjusted buffer", () => {
     const i = computeAdvisedIntake(600, LEGACY_MODEL, 300); // bufferApplied already resolved
     expect(i).toEqual({ advisedIntakeKcal: 2900, advisedBaseKcal: 2000, advisedBufferKcal: 300, advisedRideFuelKcal: 600 });
   });
 
-  it("treats a null ride kJ as zero fuel", () => {
-    expect(computeAdvisedIntake(null, LEGACY_MODEL, 300).advisedRideFuelKcal).toBe(0);
+  // C1: a null resolved burn must WITHHOLD the advised intake entirely, not fall back to zero fuel —
+  // zero fuel is indistinguishable from a rest day and understates a real ride's need.
+  it("withholds (returns null) rather than zeroing an unresolved burn", () => {
+    expect(computeAdvisedIntake(null, LEGACY_MODEL, 300)).toBeNull();
   });
 });
 
@@ -108,6 +110,33 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.compliancePct).toBe(resolvedCompliancePct);
     // Compliance is capped by execution, so it can never exceed 100.
     expect(resolvedCompliancePct! <= 100).toBe(true);
+  });
+
+  // C1 regression: the Today card must read activeBurnKcal, not fall through to kj. A ride synced
+  // with a real active-burn figure and no kj must drive advisedIntakeKcal off that figure, not read
+  // like a rest day (the live bug: kj null → 0 fuel → the card showed the REST-day number on a real
+  // training day).
+  it("drives advisedIntakeKcal off activeBurnKcal when kj is absent", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      activity: activity({ kj: null, activeBurnKcal: 2007 }),
+    });
+    expect(todayAnalysis.advisedRideFuelKcal).toBe(2007);
+    // Legacy path rounds to the nearest 10: 2000 + 2007 + 300 = 4307 → 4310.
+    expect(todayAnalysis.advisedIntakeKcal).toBe(4310);
+  });
+
+  // C1: when NEITHER activeBurnKcal nor kj resolves (both null), the advised intake must be withheld
+  // (null), never silently zeroed to the rest-day figure.
+  it("withholds advisedIntakeKcal (and its breakdown) when burn is unresolved", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      activity: activity({ kj: null, activeBurnKcal: null }),
+    });
+    expect(todayAnalysis.advisedIntakeKcal).toBeNull();
+    expect(todayAnalysis.advisedBaseKcal).toBeNull();
+    expect(todayAnalysis.advisedBufferKcal).toBeNull();
+    expect(todayAnalysis.advisedRideFuelKcal).toBeNull();
   });
 
   it("applies the VI pacing read to an off-plan ride (infers a type so steady ≠ surgy)", () => {

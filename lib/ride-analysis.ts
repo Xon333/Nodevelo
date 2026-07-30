@@ -3,7 +3,7 @@
 // PRs), then hands the already-fetched results to buildTodayAnalysis, which computes the metrics and
 // assembles the TodayAnalysis. Splitting it out makes the hardest part of the sync (execution scoring,
 // compliance capping, advised intake, coach-note preservation) unit-testable without mocking HTTP.
-import { calculateDailyTarget, type NutritionModel } from "./nutrition";
+import { activeBurn, calculateDailyTarget, type NutritionModel } from "./nutrition";
 import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
 import { gradeDurabilityDelivery, EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
@@ -48,22 +48,29 @@ export interface AdvisedIntake {
   advisedRideFuelKcal: number;
 }
 
-// Advised daily intake for a completed ride: base + ride kJ (≈ kcal for cyclists) + weight-adjusted
+// Advised daily intake for a completed ride: base + the ride's resolved active burn + weight-adjusted
 // buffer. Same buffer formula block generation uses, so the Today card and the plan never disagree.
+//
+// Takes the already-resolved burn (activeBurn(activity)?.kcal), not a raw kj/activeBurnKcal field —
+// callers must go through activeBurn() so kj-only legacy activities and activeBurnKcal-only activities
+// are both handled the one way the codebase agrees on. Returns null — never a fallback number — when
+// the burn itself is unknown: a completed ride with no resolvable energy figure must WITHHOLD the
+// advised intake, not silently read as a rest day (0 kcal of ride fuel), which understates the card by
+// the entire burn and is exactly the wrong direction for an athlete who is chronically underfuelled.
 export function computeAdvisedIntake(
-  rideKj: number | null,
+  rideBurnKcal: number | null,
   model: NutritionModel,
   bufferApplied: number
-): AdvisedIntake {
-  const advisedRideFuelKcal = rideKj ?? 0;
+): AdvisedIntake | null {
+  if (rideBurnKcal === null) return null;
   // Delegates to THE formula rather than re-deriving base + burn + buffer, so the Today card and the
   // generated plan can never disagree. isRestDay is false: this path only runs for a completed ride.
-  const plan = calculateDailyTarget(advisedRideFuelKcal, model, bufferApplied, false);
+  const plan = calculateDailyTarget(rideBurnKcal, model, bufferApplied, false);
   return {
     advisedIntakeKcal: plan.dailyTarget,
-    advisedBaseKcal: plan.maintenanceKcal - advisedRideFuelKcal,
+    advisedBaseKcal: plan.maintenanceKcal - rideBurnKcal,
     advisedBufferKcal: bufferApplied,
-    advisedRideFuelKcal,
+    advisedRideFuelKcal: rideBurnKcal,
   };
 }
 
@@ -104,7 +111,13 @@ export interface TodayAnalysisResult {
 export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisResult {
   const { activity, plannedDay, ftp, intervalComparison } = input;
   const metrics = computeRideMetrics(activity, plannedDay?.durationMin ?? null, ftp);
-  const intake = computeAdvisedIntake(activity.kj, input.nutrition.model, input.nutrition.bufferApplied);
+  // Resolved burn, not the raw kj field: the highest-visibility consumer of activeBurnKcal must not
+  // bypass the one accessor that knows how to read it (C1). withheld (null), never 0, when unknown.
+  const intake = computeAdvisedIntake(
+    activeBurn(activity)?.kcal ?? null,
+    input.nutrition.model,
+    input.nutrition.bufferApplied
+  );
 
   // On interval days, power-target adherence is the primary execution signal; otherwise duration
   // compliance. A structural plan/detection mismatch drops adherence so a correct session isn't
@@ -180,10 +193,10 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     plannedDurationMin: plannedDay?.durationMin ?? null,
     compliancePct: resolvedCompliancePct,
     intensityFactor: metrics.intensityFactor,
-    advisedIntakeKcal: intake.advisedIntakeKcal,
-    advisedBaseKcal: intake.advisedBaseKcal,
-    advisedBufferKcal: intake.advisedBufferKcal,
-    advisedRideFuelKcal: intake.advisedRideFuelKcal,
+    advisedIntakeKcal: intake?.advisedIntakeKcal ?? null,
+    advisedBaseKcal: intake?.advisedBaseKcal ?? null,
+    advisedBufferKcal: intake?.advisedBufferKcal ?? null,
+    advisedRideFuelKcal: intake?.advisedRideFuelKcal ?? null,
     activityDescription: activity.description,
     powerZoneTimes: input.powerZoneTimes,
     hrZoneTimes: input.hrZoneTimes,

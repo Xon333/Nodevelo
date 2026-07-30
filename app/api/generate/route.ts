@@ -30,6 +30,7 @@ import {
   buildNutritionReferenceRows,
   nutritionTableMarkdown,
   resolveNutritionModel,
+  smoothedCurrentWeightKg,
   weightTrendFromWellness,
   WEIGHT_TREND_LONG_WINDOW_DAYS,
 } from "@/lib/nutrition";
@@ -118,6 +119,11 @@ export async function POST(req: Request) {
         .filter((w) => w.weightKg !== null)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ??
       profile.performance.weightKg;
+    // GOAL comparison (adjustBuffer's currentKg) uses the smoothed figure, not the raw latest weigh-in
+    // — a single reading swings ±0.5–1 kg and was flipping the buffer across the deadband boundary
+    // depending on which weigh-in happened to be last (I2). `latestWeight` above feeds
+    // resolveNutritionModel unchanged — RMR should track current mass, not a smoothed goal figure.
+    const smoothedWeight = smoothedCurrentWeightKg(sync?.wellness ?? [], today) ?? latestWeight;
 
     // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
     // re-deriving from the raw body or inlining a UTC date.
@@ -126,7 +132,7 @@ export async function POST(req: Request) {
       profile.nutrition.buffer,
       weightTrend,
       weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
-      latestWeight,
+      smoothedWeight,
       profile.nutrition.targetWeightKg
     );
     const nutritionTable = nutritionTableMarkdown(

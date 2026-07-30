@@ -24,8 +24,11 @@ export interface ActiveBurn {
  * rest day.
  */
 export function activeBurn(a: Pick<ActivitySummary, "activeBurnKcal" | "kj">): ActiveBurn | null {
-  if (a.activeBurnKcal !== null) return { kcal: a.activeBurnKcal, legacy: false };
-  if (a.kj !== null) return { kcal: a.kj, legacy: true };
+  // `!= null`, never `!== null`: a synced activity written before activeBurnKcal existed parses the
+  // field back as `undefined`, not `null` — an equality check against null alone would miss it and
+  // fall through with `{ kcal: undefined }`, producing NaN downstream instead of the legacy branch.
+  if (a.activeBurnKcal != null) return { kcal: a.activeBurnKcal, legacy: false };
+  if (a.kj != null) return { kcal: a.kj, legacy: true };
   return null;
 }
 
@@ -96,6 +99,11 @@ export interface BufferAdjustment {
   delta: number; // kcal added to / removed from the configured buffer
   reason: string; // human-readable, shown in the profile UI
   capped: boolean; // true when a rail was hit — surfaced, never swallowed
+  // true when MAX_ADJUSTMENT_STEP_KCAL bound the per-adjustment correction. Distinct from `capped`
+  // (the outer BUFFER_MIN/MAX_KCAL rails): this fires on the SIZE of a single correction, regardless of
+  // where the resulting buffer lands, so a large shortfall reads identically to a small one unless this
+  // is checked separately.
+  stepClipped: boolean;
 }
 
 export interface WorkoutContext {
@@ -161,17 +169,25 @@ export function adjustBuffer(
   currentKg: number,
   targetKg: number
 ): BufferAdjustment {
-  const settle = (delta: number, reason: string): BufferAdjustment => {
+  const settle = (delta: number, reason: string, stepClipped = false): BufferAdjustment => {
     const unclamped = buffer + delta;
     const bufferApplied = Math.min(BUFFER_MAX_KCAL, Math.max(BUFFER_MIN_KCAL, unclamped));
     const capped = bufferApplied !== unclamped;
+    // Two independent facts, never merged: stepClipped fires on the SIZE of this one correction
+    // (MAX_ADJUSTMENT_STEP_KCAL), capped fires on where the resulting buffer LANDS (the outer
+    // BUFFER_MIN/MAX_KCAL rails). Either, both, or neither can be true for a given call.
+    let reasonWithNotes = stepClipped
+      ? `${reason} Clipped to the ±${MAX_ADJUSTMENT_STEP_KCAL} kcal per-adjustment limit — a persistent shortfall this large needs the model revisited, not the buffer.`
+      : reason;
+    if (capped) {
+      reasonWithNotes = `${reasonWithNotes} Capped at ${bufferApplied} kcal (allowed range ${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}) — a pinned rail means the model, not the athlete, needs revisiting.`;
+    }
     return {
       bufferApplied,
       delta: bufferApplied - buffer,
       capped,
-      reason: capped
-        ? `${reason} Capped at ${bufferApplied} kcal (allowed range ${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}) — a pinned rail means the model, not the athlete, needs revisiting.`
-        : reason,
+      stepClipped,
+      reason: reasonWithNotes,
     };
   };
 
@@ -217,11 +233,13 @@ export function adjustBuffer(
   const imbalanceKcalPerDay = (err * KCAL_PER_KG_TISSUE) / 7;
   const raw = -imbalanceKcalPerDay * damping;
   const stepped = Math.max(-MAX_ADJUSTMENT_STEP_KCAL, Math.min(MAX_ADJUSTMENT_STEP_KCAL, raw));
+  const stepClipped = stepped !== raw;
   const delta = Math.round(stepped / 10) * 10;
   const direction = delta > 0 ? "increased" : delta < 0 ? "decreased" : "unchanged";
   return settle(
     delta,
-    `Weight trending ${fmtKg(reportedTrend)} kg/week while ${goalNote} — buffer ${direction}${delta === 0 ? "" : ` by ${Math.abs(delta)} kcal`}.`
+    `Weight trending ${fmtKg(reportedTrend)} kg/week while ${goalNote} — buffer ${direction}${delta === 0 ? "" : ` by ${Math.abs(delta)} kcal`}.`,
+    stepClipped
   );
 }
 
@@ -393,6 +411,30 @@ export function weightTrendFromWellness(
   return Math.round(median(slopes) * 7 * 10) / 10; // express as kg/7d, 1 decimal
 }
 
+export const SMOOTHED_WEIGHT_WINDOW_DAYS = 14;
+
+/**
+ * Body mass for GOAL comparisons, smoothed. A single weigh-in swings ±0.5–1 kg on water and glycogen —
+ * the same reason weightTrendFromWellness uses a robust estimator — so sizing the goal gap from one
+ * reading made the daily target jump across the deadband boundary depending on which weigh-in happened
+ * to be last. Median of the trailing window; falls back to the latest single reading when the window is
+ * empty, and null when there are no weigh-ins at all.
+ */
+export function smoothedCurrentWeightKg(
+  wellness: WellnessEntry[],
+  today: string,
+  windowDays: number = SMOOTHED_WEIGHT_WINDOW_DAYS
+): number | null {
+  const weighIns = wellness
+    .filter((w): w is WellnessEntry & { weightKg: number } => w.weightKg !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (weighIns.length === 0) return null;
+  const cutoff = new Date(Date.parse(today) - windowDays * 86_400_000).toISOString().slice(0, 10);
+  const windowed = weighIns.filter((w) => w.date >= cutoff && w.date <= today);
+  if (windowed.length === 0) return weighIns[weighIns.length - 1].weightKg; // fallback: latest single reading
+  return median(windowed.map((w) => w.weightKg));
+}
+
 // ---------- Energy availability (deterministic proxy) ----------
 
 export interface EnergyAvailability {
@@ -405,7 +447,9 @@ const EA_MIN_DAYS = 3; // a few logged days before a trailing EA means anything 
 
 // Energy-availability PROXY: per-kg-body-mass energy left after exercise, averaged over recent COMPLETE
 // days. Deliberately simple ((intake − exercise burn)/kg, kJ≈kcal as elsewhere — burn sums ALL activities
-// carrying an active-burn figure, not only rides; activities with no energy data contribute 0) and honest about limits:
+// carrying a resolvable active-burn figure, not only rides; a day whose activity has NO resolvable burn
+// is excluded from the mean entirely, never folded in at 0 — 0 reads identically to a genuine rest day
+// and would silently inflate EA, hiding underfuelling) and honest about limits:
 //   - TODAY is excluded — its intake is still being logged, so a partial day would read falsely low.
 //   - it uses body weight, not fat-free mass, so it is NOT the clinical 30/45 kcal/kg·FFM threshold — it's
 //     a trend signal ("am I fuelling more or less than usual?"), which is why this returns a delta, not a band.
@@ -418,9 +462,17 @@ export function computeEnergyAvailability(
   windowDays = 7,
 ): EnergyAvailability | null {
   const burnByDate = new Map<string, number>();
+  // A date lands here when SOME activity on it has a burn that can't be resolved (activeBurn → null).
+  // That day must be excluded from the mean entirely, not folded in at burn 0 — 0 is indistinguishable
+  // from a genuine rest day and silently INFLATES the EA reading (hides underfuelling), which is the
+  // wrong error direction for an athlete whose presenting problem is chronic underfuelling.
+  const unresolvedBurnDates = new Set<string>();
   for (const a of activities) {
     const burn = activeBurn(a);
-    if (burn === null) continue; // unknown, not zero
+    if (burn === null) {
+      unresolvedBurnDates.add(a.date);
+      continue;
+    }
     burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
   }
   // Weigh-ins ascending; a day with intake but no weight anchors to the nearest weigh-in ON OR BEFORE it
@@ -453,6 +505,7 @@ export function computeEnergyAvailability(
     // counting it would give a misleading negative EA that drags the mean. (Differs from FUEL-1, which keeps a
     // logged 0 g of *per-ride* carbs — you can ride fasted, but you can't have a 0-kcal day.)
     if (w.date >= today || w.kcalConsumed === null || w.kcalConsumed <= 0) continue;
+    if (unresolvedBurnDates.has(w.date)) continue; // burn unknown for this day — exclude, don't zero it
     const weight = w.weightKg ?? weightAsOf(w.date);
     if (weight <= 0) continue;
     const ea = (w.kcalConsumed - (burnByDate.get(w.date) ?? 0)) / weight;
