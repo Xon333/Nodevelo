@@ -13,17 +13,10 @@ import {
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
   weightTrendFromWellness,
-  type AthleteNutritionConfig,
+  type NutritionModel,
 } from "./nutrition";
-import type { WellnessEntry } from "./types";
+import type { WellnessEntry, WorkoutType } from "./types";
 
-const config: AthleteNutritionConfig = {
-  baseCalories: 2000,
-  restDayTarget: 2600,
-  buffer: 300,
-  weight: 75,
-  targetWeight: 72,
-};
 
 describe("desiredWeightTrend", () => {
   it("is zero inside the deadband, so rounding never nudges forever", () => {
@@ -125,33 +118,88 @@ describe("adjustBuffer", () => {
   });
 });
 
-describe("calculateDailyTarget", () => {
-  it("uses the flat rest day target with no buffer or ride carbs", () => {
-    const plan = calculateDailyTarget(0, true, config, 0);
-    expect(plan).toEqual({
-      dailyTarget: 2600,
-      preRideCarbs: 0,
-      inRideCarbsPerHour: 0,
-      bufferApplied: 0,
+const DERIVED: NutritionModel = {
+  kind: "derived",
+  rmr: 1800,
+  neatMultiplier: 1.2,
+  weightKg: 75,
+  targetWeightKg: 78,
+  buffer: 300,
+};
+const LEGACY: NutritionModel = {
+  kind: "legacy",
+  baseCalories: 2000,
+  restDayTarget: 2600,
+  weightKg: 75,
+  targetWeightKg: 78,
+  buffer: 300,
+};
+
+describe("calculateDailyTarget (derived)", () => {
+  it("is maintenance plus buffer on a rest day, with no rest-day branch", () => {
+    const p = calculateDailyTarget(0, DERIVED, 300, true);
+    expect(p.maintenanceKcal).toBe(2160); // 1.2 × 1800
+    expect(p.dailyTarget).toBe(2460);
+  });
+
+  it("adds the synced active burn verbatim on a training day", () => {
+    const p = calculateDailyTarget(843, DERIVED, 300, false);
+    expect(p.dailyTarget).toBe(3300); // 2160 + 843 + 300, rounded to 10
+  });
+
+  it("carries a negative buffer through as a real deficit", () => {
+    const p = calculateDailyTarget(0, DERIVED, -400, true);
+    expect(p.dailyTarget).toBe(1760);
+  });
+
+  it("fills session carb targets only when a workout is supplied", () => {
+    const bare = calculateDailyTarget(900, DERIVED, 300, false);
+    expect(bare.preRideCarbs).toBe(0);
+    const withWorkout = calculateDailyTarget(900, DERIVED, 300, false, { type: "Z2", durationMin: 150 });
+    expect(withWorkout.preRideCarbs).toBeGreaterThan(0);
+    expect(withWorkout.inRideCarbsPerHour).toBeGreaterThan(0);
+  });
+});
+
+// The D1 regression. Every one of these cases prescribed LESS than a rest day before this change.
+describe("no training day may fall below the same athlete's rest day", () => {
+  const CASES: Array<{ type: WorkoutType; durationMin: number }> = [
+    { type: "Strength", durationMin: 45 },
+    { type: "Strength", durationMin: 60 },
+    { type: "Recovery", durationMin: 45 },
+    { type: "Recovery", durationMin: 60 },
+    { type: "Z2", durationMin: 60 },
+    { type: "Threshold", durationMin: 60 },
+    { type: "VO2max", durationMin: 75 },
+  ];
+
+  for (const model of [DERIVED, LEGACY]) {
+    describe(model.kind, () => {
+      const rest = calculateDailyTarget(0, model, 300, true).dailyTarget;
+      for (const c of CASES) {
+        it(`${c.type} ${c.durationMin}min >= rest day`, () => {
+          const burn = estimateWorkoutBurnKcal(c.type, c.durationMin, 250);
+          const training = calculateDailyTarget(burn, model, 300, false, c).dailyTarget;
+          expect(training).toBeGreaterThanOrEqual(rest);
+        });
+      }
     });
+  }
+});
+
+describe("calculateDailyTarget (legacy, pre-migration)", () => {
+  it("preserves the athlete's hand-set rest-day number unchanged", () => {
+    expect(calculateDailyTarget(0, LEGACY, 300, true).dailyTarget).toBe(2600);
   });
 
-  it("sums base + activity burn + buffer on training days", () => {
-    const plan = calculateDailyTarget(700, false, config, 0);
-    expect(plan.dailyTarget).toBe(3000); // 2000 + 700 + 300
-    expect(plan.bufferApplied).toBe(300);
+  it("floors a training day at the rest-day number rather than lowering rest days to fix the inversion", () => {
+    // Strength 45min ≈ 225 kcal: 2000 + 225 + 300 = 2525, below the 2600 rest day.
+    const p = calculateDailyTarget(225, LEGACY, 300, false);
+    expect(p.dailyTarget).toBe(2600);
   });
 
-  it("applies the weight-adjusted buffer to the daily target", () => {
-    const plan = calculateDailyTarget(700, false, config, -0.5);
-    expect(plan.bufferApplied).toBe(450);
-    expect(plan.dailyTarget).toBe(3150); // 2000 + 700 + 450
-  });
-
-  it("fills pre/in-ride carbs from the workout context", () => {
-    const plan = calculateDailyTarget(900, false, config, 0, { type: "Z2", durationMin: 150 });
-    expect(plan.inRideCarbsPerHour).toBe(75);
-    expect(plan.preRideCarbs).toBe(115); // 1.5 g/kg (long ride) × 75 kg, rounded to 5 g
+  it("is unchanged from previous behaviour once burn clears the rest-day figure", () => {
+    expect(calculateDailyTarget(700, LEGACY, 300, false).dailyTarget).toBe(3000);
   });
 });
 

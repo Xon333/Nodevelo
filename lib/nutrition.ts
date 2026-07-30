@@ -55,19 +55,39 @@ export function restingMetabolicRate(
 // inflate every training day.
 export const DEFAULT_NEAT_MULTIPLIER = 1.2;
 
-export interface AthleteNutritionConfig {
-  baseCalories: number; // default: 2000
-  restDayTarget: number; // default: 2600
-  buffer: number; // configurable; adjusts based on weight trend
-  weight: number; // kg, from last sync
-  targetWeight: number; // kg, from athlete profile
-}
+/**
+ * `derived` is the real model: dailyTarget = (neatMultiplier × rmr) + activeBurnKcal + buffer. Exactly one
+ * term is estimated; the burn is measured and the buffer is an explicit goal choice.
+ *
+ * `legacy` preserves a pre-migration profile's hand-set baseCalories/restDayTarget until the athlete
+ * supplies date of birth, height and sex. Guessing an equivalence between the two shapes would be worse
+ * than keeping current behaviour, so the old numbers are honoured verbatim — with one cheap, strictly
+ * food-increasing correction for D1 (see calculateDailyTarget).
+ */
+export type NutritionModel =
+  | {
+      kind: "derived";
+      rmr: number;
+      neatMultiplier: number;
+      weightKg: number;
+      targetWeightKg: number;
+      buffer: number;
+    }
+  | {
+      kind: "legacy";
+      baseCalories: number;
+      restDayTarget: number;
+      weightKg: number;
+      targetWeightKg: number;
+      buffer: number;
+    };
 
 export interface WorkoutNutritionPlan {
   dailyTarget: number; // total kcal for the day
+  maintenanceKcal: number; // the pre-buffer figure, surfaced so the buffer's effect is auditable
   preRideCarbs: number; // grams
   inRideCarbsPerHour: number; // grams/hr (0 if < 60 min ride)
-  bufferApplied: number; // actual buffer used (may differ from config if weight-adjusted)
+  bufferApplied: number; // signed
 }
 
 export interface BufferAdjustment {
@@ -249,31 +269,52 @@ export function estimateWorkoutBurnKcal(type: WorkoutType, durationMin: number, 
 }
 
 /**
- * Core formula. Training day: baseCalories + activityBurnKcal + adjusted buffer.
- * Rest day: restDayTarget flat, no buffer.
- * The optional workout context fills the pre/in-ride carb targets, which need
- * duration and intensity; without it they are 0.
+ * ONE formula. There is deliberately no rest-day branch on the derived path: a rest day is a day whose
+ * activeBurnKcal is 0, so `training ≥ rest` holds by construction for the same athlete.
+ *
+ * That inversion was live. Two independent formulas (base + burn + buffer vs a flat restDayTarget with no
+ * buffer) meant a training day only overtook a rest day once burn cleared ~300 kcal, so every Strength
+ * session and short recovery spin prescribed less food than doing nothing.
+ *
+ * `isRestDay` is consumed by the LEGACY path only — the derived path has no use for it, which is the fix.
  */
 export function calculateDailyTarget(
-  activityBurnKcal: number, // kJ from Intervals.icu ≈ kcal (1:1 for cyclists)
+  activeBurnKcal: number,
+  model: NutritionModel,
+  bufferApplied: number,
   isRestDay: boolean,
-  config: AthleteNutritionConfig,
-  weightTrend7Day: number, // kg change over last 7 days; negative = losing weight
   workout?: WorkoutContext
 ): WorkoutNutritionPlan {
-  if (isRestDay) {
+  const carbs = {
+    preRideCarbs: workout ? preRideCarbTarget(workout.durationMin, workout.type, model.weightKg) : 0,
+    inRideCarbsPerHour: workout ? inRideCarbTarget(workout.durationMin, workout.type) : 0,
+  };
+
+  if (model.kind === "derived") {
+    const maintenance = model.neatMultiplier * model.rmr + activeBurnKcal;
     return {
-      dailyTarget: Math.round(config.restDayTarget),
-      preRideCarbs: 0,
-      inRideCarbsPerHour: 0,
-      bufferApplied: 0,
+      dailyTarget: roundTo(maintenance + bufferApplied, 10),
+      maintenanceKcal: Math.round(maintenance),
+      ...carbs,
+      bufferApplied,
     };
   }
-  const { bufferApplied } = adjustBuffer(config.buffer, weightTrend7Day);
+
+  // Legacy. The rest-day figure is honoured exactly; a training day is floored AT it rather than the
+  // rest day being lowered to meet the training day — the inversion goes away and nobody loses food.
+  if (isRestDay) {
+    return {
+      dailyTarget: Math.round(model.restDayTarget),
+      maintenanceKcal: Math.round(model.restDayTarget),
+      ...carbs,
+      bufferApplied,
+    };
+  }
+  const raw = roundTo(model.baseCalories + activeBurnKcal + bufferApplied, 10);
   return {
-    dailyTarget: roundTo(config.baseCalories + activityBurnKcal + bufferApplied, 10),
-    preRideCarbs: workout ? preRideCarbTarget(workout.durationMin, workout.type, config.weight) : 0,
-    inRideCarbsPerHour: workout ? inRideCarbTarget(workout.durationMin, workout.type) : 0,
+    dailyTarget: Math.max(raw, Math.round(model.restDayTarget)),
+    maintenanceKcal: Math.round(model.baseCalories + activeBurnKcal),
+    ...carbs,
     bufferApplied,
   };
 }
@@ -435,9 +476,9 @@ const REFERENCE_DURATIONS: Record<WorkoutType, number[]> = {
 };
 
 export function buildNutritionReferenceRows(
-  config: AthleteNutritionConfig,
+  model: NutritionModel,
   ftp: number,
-  weightTrend7Day: number
+  bufferApplied: number
 ): NutritionReferenceRow[] {
   const rows: NutritionReferenceRow[] = [];
   for (const [type, durations] of Object.entries(REFERENCE_DURATIONS) as [WorkoutType, number[]][]) {
@@ -447,7 +488,7 @@ export function buildNutritionReferenceRows(
         type,
         durationMin,
         estBurnKcal,
-        plan: calculateDailyTarget(estBurnKcal, type === "Rest", config, weightTrend7Day, {
+        plan: calculateDailyTarget(estBurnKcal, model, bufferApplied, type === "Rest", {
           type,
           durationMin,
         }),
