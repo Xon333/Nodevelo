@@ -52,14 +52,16 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
 
 | | Why it's next | |
 |---|---|---|
-| **P9 · Stream `/api/generate`** | Generation blocks the UI 1–2 min today — the other real, unblocked lever this session | — |
+| **P9 · Stream `/api/generate`** | Generation blocks the UI 1–2 min today — the other real, unblocked lever this session. **Scope it as refine-loop phase 1**, not a progress bar: streaming is the prerequisite for `#10` below | — |
+| **#10 · Conversational refine on a generated block** ⭐ | Regeneration is free but *stateless* — an objection to week 2 means editing the goal text and re-rolling. Take the prior plan + an NL delta, mutate the shipped skeleton, re-validate. Athlete-initiated, so ADR-0004 holds | [skeleton](docs/systems/06-generation.md#the-week-skeleton-composition-authority) |
+| **Track A · W′-derived power anchors** | `wPrimeRollingJ` syncs as of 2026-07-30 and governs the 1-/5-min anchors — the one Track A slice not waiting on `#2`. `wBalDepletionJ` is an unused per-ride anaerobic-strain signal | `power-profile.ts` |
 | **§5 · Athlete-state slivers** | Derive fusion weights `← #2`; tune score→band thresholds against real use | [spec](docs/specs/athlete-state.md) |
 | **#3 · Proactive reschedule slivers** | Decision thresholds `← #2`; possible auto-downgrade on `fatigueAlert` before a miss | — |
 | **Scoring-core gaps** | Recovery-specific aerobic HR cap (only if the shared band proves too soft in real use); zones source-of-truth decision (lean strict-consistency) | `execution-score.ts` |
-| **Track A · Power-curve reference multiples** | Still local magic-numbers in `power-profile.ts` `← #2` | — |
+| **Track A · Power-curve reference multiples (remainder)** | The 5s/20min anchors W′ can't explain — still local magic-numbers in `power-profile.ts` `← #2`. The 1-/5-min half moved up to the W′ row above | — |
 | **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
 | **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
-| **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask` | — |
+| **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
 
 ## Blocked / dormant
 
@@ -87,8 +89,10 @@ touch that code. Full rationale: [docs/systems/05-season.md § Known rough edges
 **Tripwire:** if a future block reproduces a structural defect (a missed hour target, a missing
 limiter session, an escalation the critic misses), that's real evidence the LLM shouldn't author
 structure at all — next step is a deterministic skeleton with parameterized protocol templates.
-**Fired 2026-07-29** — a recovery week kept all three quality types, merely trimmed; root causes
-fixed in Phase A, deterministic-skeleton response scoped as Phase B, not started. Detail:
+**Fired 2026-07-29, and answered** — a recovery week kept all three quality types, merely trimmed;
+root causes fixed in Phase A, and Phase B shipped the deterministic skeleton, which now owns
+composition. The LLM still authors interval *content* inside each slot — deliberately, not by
+omission. Detail + the reopen trigger for taking it further:
 [docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
 
 ## Later — scoped, not started

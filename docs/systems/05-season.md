@@ -106,6 +106,15 @@ evaluation → [ARCHIVE.md](../../ARCHIVE.md) "Block-generation architecture red
   Note what did NOT happen: the LLM still authors interval prescriptions, exact durations inside each
   slot's envelope, and all prose. The tripwire's "LLM narrating only" was deliberately not taken that
   far — composition is where it was wrong; content is where it was right.
+  **External datapoint (2026-07-30, not a reason to act yet):** a competitor analysis (Stride) found a
+  commercial platform that quarantines content authoring too — its planner *selects* from a workout
+  library and explicitly "does not design brand-new workout structures", with step authoring confined
+  to a separate one-workout-at-a-time tool under human review. That's the other half of the tripwire,
+  chosen independently. It is a design preference, not evidence against ours, so it changes nothing on
+  its own. **Reopen trigger:** if `protocolViolations` keeps firing on generated intervals once the
+  skeleton has a few more blocks behind it, invert `workout-validate`'s KB bands into template
+  *constructors* (the shape `durability.ts` already uses) and have the LLM emit a template id + params.
+  Until that evidence exists, content authoring stays with the model.
 - **Held for a scheduled reopen, not rejected:** the TrainerRoad-style per-zone progression-level
   state machine (→ ARCHIVE for why it's the standout alternative). Reopen once per-type observation
   counts clear the athlete-model's own ≥3-obs gates (watch after the 2026-08-12 verdict
