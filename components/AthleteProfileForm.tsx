@@ -17,11 +17,21 @@ import { FOCUS_LABELS } from "@/lib/season";
 import { BUFFER_MAX_KCAL, BUFFER_MIN_KCAL } from "@/lib/nutrition";
 
 interface NutritionSettings {
-  baseCalories: number;
-  restDayTarget: number;
   buffer: number;
   targetWeightKg: number;
+  baseCalories: number; // deprecated; shown only during migration
+  restDayTarget: number; // deprecated; shown only during migration
 }
+
+interface PerformanceRmrFields {
+  dateOfBirth: string | null;
+  heightCm: number | null;
+  sex: "male" | "female" | null;
+}
+
+type NutritionModel =
+  | { kind: "derived"; rmr: number; neatMultiplier: number; weightKg: number; targetWeightKg: number; buffer: number }
+  | { kind: "legacy"; baseCalories: number; restDayTarget: number; weightKg: number; targetWeightKg: number; buffer: number };
 
 interface AutoSyncInfo {
   syncedAt: string | null;
@@ -37,6 +47,7 @@ interface BufferStatus {
   bufferApplied: number;
   delta: number;
   reason: string;
+  capped: boolean;
 }
 
 interface WeightPoint {
@@ -52,6 +63,8 @@ interface PhysiologyChange {
 
 interface ProfileResponse {
   nutrition: NutritionSettings;
+  nutritionModel: NutritionModel;
+  performance: PerformanceRmrFields;
   ftpStaleDays: number | null;
   physiologyChange: PhysiologyChange | null;
   physiologySource: "intervals" | "manual" | null;
@@ -132,7 +145,8 @@ function Section({
 export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: IfBandOffsetRow[] }) {
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [nut, setNut] = useState({ baseCalories: "", restDayTarget: "", buffer: "", targetWeightKg: "" });
+  const [nut, setNut] = useState({ buffer: "", targetWeightKg: "" });
+  const [rmrInputs, setRmrInputs] = useState({ dateOfBirth: "", heightCm: "", sex: "" });
   const [saveState, setSaveState] = useState<SaveState>({ state: "idle" });
   const [goals, setGoals] = useState<ProfileResponse["goals"]>([]);
   const [weakpoints, setWeakpoints] = useState<ProfileResponse["weakpoints"]>([]);
@@ -151,11 +165,11 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         setGoals(response.goals);
         setWeakpoints(response.weakpoints);
         const n = response.nutrition;
-        setNut({
-          baseCalories: String(n.baseCalories),
-          restDayTarget: String(n.restDayTarget),
-          buffer: String(n.buffer),
-          targetWeightKg: String(n.targetWeightKg),
+        setNut({ buffer: String(n.buffer), targetWeightKg: String(n.targetWeightKg) });
+        setRmrInputs({
+          dateOfBirth: response.performance?.dateOfBirth ?? "",
+          heightCm: response.performance?.heightCm != null ? String(response.performance.heightCm) : "",
+          sex: response.performance?.sex ?? "",
         });
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load your profile — try again.");
@@ -167,6 +181,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
   }, []);
 
   const saveNutrition = async () => {
+    if (!data) return;
     const parsed: Record<string, number> = {};
     for (const [key, value] of Object.entries(nut)) {
       const n = Number(value);
@@ -178,10 +193,44 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
     }
     setSaveState({ state: "saving" });
     try {
-      await api("/api/profile", { method: "PUT", body: JSON.stringify({ nutrition: parsed }) });
+      // baseCalories/restDayTarget are no longer editable here, but the persisted nutrition record
+      // still carries them (deprecated, legacy-model fallback) — round-trip the current on-disk
+      // values unchanged rather than dropping them, which would fail the route's validation and, if
+      // it didn't, would silently erase a pre-migration athlete's hand-set numbers.
+      await api("/api/profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          nutrition: {
+            ...parsed,
+            baseCalories: data.nutrition.baseCalories,
+            restDayTarget: data.nutrition.restDayTarget,
+          },
+        }),
+      });
       setSaveState({ state: "saved" });
       const fresh = await api<ProfileResponse>("/api/profile");
       setData(fresh);
+    } catch (err) {
+      setSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
+    }
+  };
+
+  const saveRmrInputs = async () => {
+    const heightCm = Number(rmrInputs.heightCm);
+    if (!rmrInputs.dateOfBirth || !Number.isFinite(heightCm) || heightCm <= 0 || !rmrInputs.sex) {
+      setSaveState({ state: "error", message: "Date of birth, height and sex are all needed to compute your RMR." });
+      return;
+    }
+    setSaveState({ state: "saving" });
+    try {
+      await api("/api/profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          performance: { dateOfBirth: rmrInputs.dateOfBirth, heightCm, sex: rmrInputs.sex },
+        }),
+      });
+      setSaveState({ state: "saved" });
+      setData(await api<ProfileResponse>("/api/profile"));
     } catch (err) {
       setSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
     }
@@ -638,14 +687,32 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           Drives the deterministic formula that pre-computes daily targets for every generated session.
         </p>
-        <p className="mb-2 font-mono text-sm text-zinc-800 dark:text-zinc-100">
-          {data.nutrition.baseCalories.toLocaleString()} base
-          <span className="text-zinc-500 dark:text-zinc-400"> · </span>
-          {data.nutrition.restDayTarget.toLocaleString()} rest-day
-          <span className="text-zinc-500 dark:text-zinc-400"> · </span>+{data.nutrition.buffer} buffer
-          <span className="text-zinc-500 dark:text-zinc-400"> · target </span>
-          {data.nutrition.targetWeightKg} kg
-        </p>
+        {data.nutritionModel.kind === "derived" ? (
+          <p className="mb-2 font-mono text-sm text-zinc-800 dark:text-zinc-100">
+            {data.nutritionModel.rmr.toLocaleString()} RMR
+            <span className="text-zinc-500 dark:text-zinc-400"> × </span>
+            {data.nutritionModel.neatMultiplier} NEAT
+            <span className="text-zinc-500 dark:text-zinc-400"> = </span>
+            {Math.round(data.nutritionModel.rmr * data.nutritionModel.neatMultiplier).toLocaleString()} maintenance
+            <span className="text-zinc-500 dark:text-zinc-400"> · buffer </span>
+            {data.nutrition.buffer > 0 ? "+" : ""}{data.nutrition.buffer}
+            <span className="text-zinc-500 dark:text-zinc-400"> · target </span>
+            {data.nutrition.targetWeightKg} kg
+          </p>
+        ) : (
+          <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950">
+            <p className="font-mono text-sm text-zinc-800 dark:text-zinc-100">
+              {data.nutrition.baseCalories.toLocaleString()} base
+              <span className="text-zinc-500 dark:text-zinc-400"> · </span>
+              {data.nutrition.restDayTarget.toLocaleString()} rest-day
+              <span className="text-zinc-500 dark:text-zinc-400"> (your hand-set values)</span>
+            </p>
+            <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
+              Add your date of birth, height and sex below and these become computed from your RMR instead.
+              Your current numbers stay in use until you do — nothing changes behind your back.
+            </p>
+          </div>
+        )}
 
         <div className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
           <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Buffer auto-adjustment</p>
@@ -655,7 +722,64 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             {bufferStatus.delta !== 0 && ` (${bufferStatus.delta > 0 ? "+" : ""}${bufferStatus.delta} kcal)`}
           </p>
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{bufferStatus.reason}</p>
+          {bufferStatus.capped && (
+            <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+              Correction is pinned at its limit — the model needs revisiting, not the buffer.
+            </p>
+          )}
         </div>
+
+        <form
+          className="mt-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900"
+          onSubmit={(e) => { e.preventDefault(); void saveRmrInputs(); }}
+        >
+          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+            Resting metabolic rate inputs
+            {data.nutritionModel.kind === "derived" && (
+              <span className="ml-1 font-normal text-zinc-500 dark:text-zinc-400">
+                — driving the {data.nutritionModel.rmr.toLocaleString()} kcal figure above
+              </span>
+            )}
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <label>
+              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Date of birth</span>
+              <input
+                type="date"
+                value={rmrInputs.dateOfBirth}
+                onChange={(e) => setRmrInputs((s) => ({ ...s, dateOfBirth: e.target.value }))}
+                className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
+              />
+            </label>
+            <label>
+              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Height (cm)</span>
+              <input
+                type="number" min={50} max={260}
+                value={rmrInputs.heightCm}
+                onChange={(e) => setRmrInputs((s) => ({ ...s, heightCm: e.target.value }))}
+                className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
+              />
+            </label>
+            <label>
+              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Sex</span>
+              <select
+                value={rmrInputs.sex}
+                onChange={(e) => setRmrInputs((s) => ({ ...s, sex: e.target.value }))}
+                className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-zinc-400"
+              >
+                <option value="">—</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+            Sex is a term in the Mifflin-St Jeor equation, not a profile setting.
+          </p>
+          <button type="submit" className="mt-2 rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">
+            Save
+          </button>
+        </form>
 
         <details className="mt-3">
           <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
@@ -669,15 +793,10 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
               void saveNutrition();
             }}
           >
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
               {(
                 [
-                  { key: "baseCalories", label: "Base calories", unit: "kcal", min: 0, hint: "min 0" },
-                  { key: "restDayTarget", label: "Rest day target", unit: "kcal", min: 0, hint: "min 0" },
-                  // UXA-51: the only field with a real, already-enforced band (adjustBuffer clamps to
-                  // it server-side) — the other three have no authoritative ceiling to show, just a
-                  // sane floor.
-                  { key: "buffer", label: "Training buffer", unit: "kcal", min: BUFFER_MIN_KCAL, hint: `${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}` },
+                  { key: "buffer", label: "Goal buffer", unit: "kcal", min: BUFFER_MIN_KCAL, hint: `${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}, negative = deficit` },
                   { key: "targetWeightKg", label: "Target weight", unit: "kg", min: 0, hint: "min 0" },
                 ] as const
               ).map((f) => (

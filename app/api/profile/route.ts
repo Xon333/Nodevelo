@@ -80,6 +80,14 @@ export async function GET() {
     goals: profile.goals,
     weakpoints: profile.weakpoints,
     goalsMigratedAt: profile.goalsMigratedAt,
+    // The RMR inputs, exposed so the profile UI can pre-populate its form and detect the
+    // pre-migration state (resolveNutritionModel below is the actual migration gate; these three
+    // fields are just their current on-disk value for the form to show/edit).
+    performance: {
+      dateOfBirth: profile.performance.dateOfBirth,
+      heightCm: profile.performance.heightCm,
+      sex: profile.performance.sex,
+    },
     ftpStaleDays: Number.isFinite(ftpStaleDays) ? ftpStaleDays : null,
     physiologyChange,
     physiologySource: physStore?.current.source ?? null,
