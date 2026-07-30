@@ -34,12 +34,22 @@ within days with zero fat gain**. The 7-day Theil–Sen trend reads "gaining too
 the mechanism actively suppresses recovery from low energy availability, which is the entire reason this
 work exists.
 
-**D4 — RMR is double-counted on training days.** `kj` is *mechanical* work; treating it as kcal applies an
-implicit **gross**-efficiency conversion (gross efficiency = work ÷ *total* energy expended, so resting
-metabolism during the ride is already inside it). `baseCalories` then counts RMR across all 24 h again.
-Overlap ≈ `RMR/24` per ride-hour ≈ **75 kcal/h** at RMR 1800. Harmless for prescription (it errs toward
-more food) but fatal for §7, where a bias that scales with ride duration would be misattributed to
-food-log error.
+**D4 — the kJ→kcal conversion constant is a population assumption, and §7 misattributes its error.**
+Power-meter `kj` is a direct measurement of mechanical work — the most trustworthy input this app has,
+alongside body mass and logged intake, and the reason it stays primary in §6. But the kcal figure derived
+from it is `kj × an assumed gross-efficiency constant` (~22–24%, which is what makes the familiar 1:1 rule
+work). Individual gross efficiency genuinely varies ~20–25% between trained cyclists, so that constant
+carries a per-athlete error of up to ~10%.
+
+An earlier draft of this spec instead claimed resting metabolism was double-counted inside the ride figure
+(gross vs. net efficiency) and proposed subtracting `RMR/24` per exercise-hour. **Dropped:** the gross/net
+gap is ~8%, smaller than the ±10% spread in the efficiency constant itself, so the correction sits below
+the noise floor of the quantity it corrects.
+
+What survives is the consequence for §7. This athlete's exercise energy is comparable in magnitude to RMR
+inside the energy-balance identity (~10,000 kcal/week riding vs ~12,600 kcal/week RMR at RMR 1800), so a
+10% conversion error displaces the solved NEAT multiplier by ~0.08 — **20% of the plausibility band's
+width**. The identity cannot tell that apart from food-log bias, so §7 must not assert one cause.
 
 **D5 — Off-bike activity is invisible, but it is not where the gap lives.**
 [lib/intervals-api.ts:214-237](../../../lib/intervals-api.ts) captures only `icu_joules`, so a logged run
@@ -75,8 +85,8 @@ independently (bodybuilding background) and is out of scope. Body composition (F
   read glycogen rebound as fat gain (fixes D2, D3).
 - Make the NEAT multiplier a **calibrated per-athlete parameter** derived from the energy-balance identity
   rather than a fixed constant patched by a capped buffer (fixes D6).
-- **Reconcile logged intake against observed weight change**, and report suspected log bias explicitly.
-- Remove the RMR double-count so expenditure is unbiased (fixes D4, required by the above).
+- **Reconcile logged intake against observed weight change**, reporting the magnitude of any imbalance and
+  **both** candidate causes rather than diagnosing one (fixes D4's consequence).
 - Capture off-bike activity burn (fixes D5).
 - Add a **daily carbohydrate target** alongside the existing pre/in-ride ones.
 - Surface chronic underfuelling as a streak alert measured against *physiological* need, not goal adherence.
@@ -108,10 +118,11 @@ AI; the LLM only phrases numbers this module computes):
 
 1. **One unified formula** (§5) — `restDayTarget` is deleted, not repaired. Rest days are simply days where
    exercise burn is 0, which makes D1 and D7 unrepresentable rather than merely fixed.
-2. **Unbiased net exercise energy** (§6) — `kj` primary (the athlete's own power meter), `calories` fallback
-   for activities without power, minus the resting cost of the exercise hours.
-3. **Calibration + log reconciliation** (§7) — solve the energy-balance identity for the NEAT multiplier over
-   a long window; a solution outside the physiologically plausible band is the log-bias signal.
+2. **Cross-sport exercise energy** (§6) — `kj` primary (the athlete's own power meter — a direct measurement,
+   and the app's most trustworthy input), `calories` fallback for activities without power. Used as-is.
+3. **Calibration + reconciliation** (§7) — solve the energy-balance identity for the NEAT multiplier over a
+   long window; a solution outside the physiologically plausible band is an *ambiguous* imbalance signal,
+   reported with both candidate causes (food-log bias, or the kJ→kcal constant being off for this athlete).
 4. **Goal-directed asymmetric buffer** (§8) — measured against a *desired* trend derived from `targetWeight`,
    proportional rather than a flat step, and deliberately quicker to feed than to cut.
 5. **Daily carbohydrate target** (§9) and a **revised streak alert** (§10).
@@ -146,7 +157,7 @@ export interface NeatCalibration {
   source: "default" | "derived" | "override";  // mirrors FocusPeriod.source (two-memory split)
   windowDays: number | null;                   // what it was solved over
   solvedAt: string | null;                     // ISO
-  logBias: LogBiasFinding | null;              // §7
+  imbalance: EnergyImbalanceFinding | null;    // §7
 }
 ```
 
@@ -194,16 +205,16 @@ function restingMetabolicRate(weightKg: number, heightCm: number, ageYears: numb
 
 // Prior for k before calibration has enough data. Covers RMR-multiplier territory only: non-exercise
 // activity + the thermic effect of food. Structured exercise is NEVER in here — it arrives via
-// netExerciseKcal, so this must not double-count it.
+// exerciseKcal, so this must not double-count it.
 export const DEFAULT_NEAT_MULTIPLIER = 1.2;
 
 export function calculateDailyTarget(
-  netExerciseKcal: number,     // 0 on a rest day — there is no separate rest-day branch (fixes D1/D7)
+  exerciseKcal: number,        // §6; 0 on a rest day — there is no separate rest-day branch (fixes D1/D7)
   config: ResolvedNutritionConfig,
   bufferApplied: number,       // signed; resolved by §8 before the call
   workout?: WorkoutContext
 ): WorkoutNutritionPlan {
-  const maintenance = config.neatMultiplier * config.rmr + netExerciseKcal;
+  const maintenance = config.neatMultiplier * config.rmr + exerciseKcal;
   return {
     dailyTarget: roundTo(maintenance + bufferApplied, 10),
     maintenanceKcal: Math.round(maintenance),   // surfaced so the buffer's effect is auditable
@@ -215,7 +226,7 @@ export function calculateDailyTarget(
 }
 ```
 
-Because `netExerciseKcal ≥ 0` and every other term is shared, **a training day can never fall below the
+Because `exerciseKcal ≥ 0` and every other term is shared, **a training day can never fall below the
 same athlete's rest day.** D1 and D7 are eliminated structurally rather than by tuning two multipliers into
 agreement. The docblock's old "Rest day: restDayTarget flat, no buffer" line is deleted with the branch.
 
@@ -223,7 +234,7 @@ If rest days should be *deliberately* generous beyond maintenance, that becomes 
 allowance applied on rest days following a hard session — not a second inflated multiplier that cannot be
 audited. Not in v1; recorded here so the option stays visible.
 
-## 6. Exercise energy — `kj` primary, net of resting cost
+## 6. Exercise energy — `kj` primary, `calories` fallback
 
 ```ts
 // kj is MECHANICAL work from the athlete's own power meter — the precise instrument, so it stays primary.
@@ -231,19 +242,16 @@ audited. Not in v1; recorded here so the option stays visible.
 // activities with no power (a run, a hike, the gym) and the fallback for nothing else. Preferring `kj`
 // also avoids rebasing every historical figure and avoids a planned-vs-synced basis discontinuity, since
 // estimateWorkoutBurnKcal produces a kJ-basis number for planned days.
-function grossActivityKcal(a: { kj: number | null; calories: number | null }): number | null {
+export function activityKcal(a: { kj: number | null; calories: number | null }): number | null {
   return a.kj ?? a.calories ?? null;   // null propagates as "unknown", never as 0
 }
-
-// Both sources are GROSS: the kJ≈kcal identity rests on GROSS efficiency (work ÷ TOTAL energy expended),
-// so resting metabolism during the ride is already inside the figure. baseCalories counts RMR across all
-// 24h as well, so the overlap must come out — ~RMR/24 per exercise-hour (~75 kcal/h at RMR 1800). Small
-// for prescription, but it SCALES WITH DURATION, and §7 would misread a duration-scaling bias as
-// "the food log under-reports on long-ride days." Floored at 0.
-export function netExerciseKcal(grossKcal: number, movingTimeSec: number, rmr: number): number {
-  return Math.max(0, grossKcal - (rmr / 24) * (movingTimeSec / 3600));
-}
 ```
+
+**No resting-cost subtraction.** The figure is used as-is. See D4: the gross/net-efficiency correction an
+earlier draft proposed (~75 kcal per exercise-hour) is smaller than the ±10% per-athlete spread in the
+efficiency constant that produced the number, so subtracting it would add precision theatre, not accuracy.
+The residual assumption is instead handled where it belongs — §7 treats the conversion constant as a
+candidate explanation when the books don't balance, rather than silently trusting it.
 
 The exact Intervals.icu payload field backing `calories` is confirmed against one real sync before this is
 called done — an external-API assumption, not guessed from docs. The check also records the observed
@@ -252,22 +260,23 @@ fallback is not interchangeable with `kj` and needs its own scaling note.
 
 ## 7. NEAT calibration + intake-log reconciliation
 
-The centrepiece. The energy-balance identity over a window has **two unknowns** — the athlete's true NEAT
-and the food log's bias — and **one equation**, so they cannot be separated by arithmetic alone. The
-resolution: attribute the discrepancy to the *least-known* term (the multiplier), then use **physiological
-plausibility as the tiebreak**. A multiplier that must go outside human range to balance the books is
-evidence the *log* is wrong, not that the athlete's NEAT is extraordinary.
+The centrepiece. The energy-balance identity over a window has **three** unknowns — the athlete's true NEAT,
+the food log's bias, and the per-athlete accuracy of the kJ→kcal conversion constant (D4) — against **one
+equation**. They cannot be separated by arithmetic. The resolution: solve for the *least-known* term (the
+multiplier), then use **physiological plausibility as a tripwire** — but report a solution outside human
+range as an ambiguous finding with named candidates, never as a diagnosis.
 
 ```
-Σ intake − ( N·k·RMR + Σ netExercise ) = Δmass · ρ
+Σ intake − ( N·k·RMR + Σ exercise ) = Δmass · ρ
 
-  N     window days
-  k     NEAT multiplier (solve for this)
-  RMR   from window-median body mass
-  Δmass Theil–Sen slope × N, kg (reuses weightTrendFromWellness's estimator)
-  ρ     7700 kcal/kg
+  N        window days
+  k        NEAT multiplier (solve for this)
+  RMR      from window-median body mass
+  exercise §6's per-activity figure, summed
+  Δmass    Theil–Sen slope × N, kg (reuses weightTrendFromWellness's estimator)
+  ρ        7700 kcal/kg
 
-  ⇒ k = ( Σ intake − Σ netExercise − Δmass·ρ ) / ( N · RMR )
+  ⇒ k = ( Σ intake − Σ exercise − Δmass·ρ ) / ( N · RMR )
 ```
 
 ```ts
@@ -295,17 +304,42 @@ transfer laziness. The imputation is stated in the UI alongside the coverage fig
 
 | Solved `k` | Interpretation | Action |
 |---|---|---|
-| within `[1.15, 1.55]` | NEAT explains the books | Adopt as `source: "derived"`; `logBias: null` |
-| `> 1.55` | Balance needs impossible NEAT ⇒ **intake under-logged** | Clamp `k` to max; report shortfall `(k − 1.55)·RMR` kcal/day |
-| `< 1.15` | ⇒ intake over-logged, or expenditure over-counted | Clamp `k` to min; report the converse |
+| within `[1.15, 1.55]` | NEAT explains the books | Adopt as `source: "derived"`; `imbalance: null` |
+| `> 1.55` | Balance needs implausible NEAT ⇒ intake under-logged **or** true kcal/kJ cost above the assumed constant | Clamp `k` to max; report magnitude `(k − 1.55)·RMR` kcal/day with **both** candidates |
+| `< 1.15` | ⇒ intake over-logged **or** true kcal/kJ cost below the assumed constant | Clamp `k` to min; report the converse |
+
+**The two candidates are not separable, and the spec must not pretend otherwise.** At this athlete's volume
+(~10,000 kcal/week riding vs ~12,600 kcal/week RMR) a 10% error in the conversion constant moves `k` by
+~0.08 — 20% of the band's width — so an out-of-band solve is genuinely ambiguous between "your log
+under-counts" and "your gross efficiency differs from the population constant." Reporting only the first
+would send the athlete to fix a food log that may be fine.
 
 ```ts
-export interface LogBiasFinding {
-  direction: "under-logged" | "over-logged";
-  estimatedKcalPerDay: number;   // signed, rounded to 10
-  note: string;                  // human-readable, shown in the profile UI
+export interface EnergyImbalanceFinding {
+  direction: "intake-below-model" | "intake-above-model";
+  estimatedKcalPerDay: number;   // signed, rounded to 10 — the magnitude, not a cause
+  candidates: string[];          // ordered most→least likely, both named; shown in the profile UI
+  note: string;                  // human-readable
 }
 ```
+
+Ordering heuristic for `candidates`: log bias is listed first, because self-reported intake under-reports by
+20–30% in athletes — a far larger and better-documented effect than individual efficiency spread. But the
+efficiency candidate is always shown, never suppressed.
+
+**Upgrade path — fitting both parameters.** With enough weeks of *varying* training volume the two are
+separable by regression: over multi-week blocks, `y = Σintake − Δmass·ρ` against `x = Σexercise` gives
+`y = a + ε·x`, where slope `ε` fits **this athlete's** kJ→kcal conversion and intercept `a = N·k·RMR` fits
+NEAT. Robust (Theil–Sen) rather than OLS, consistent with `weightTrendFromWellness`'s existing rationale
+about edge leverage.
+
+Not viable yet, and the blocker is quantified: weekly mass change carries ±0.5 kg of water/glycogen noise
+≈ **±3,850 kcal**, which swamps a week's real imbalance (~2,000 kcal), so blocks must be ≥4 weeks to damp
+it — and intake history currently spans ~3.5 months (62 `kcalConsumed` entries from 2026-04-10), giving
+only 3–4 blocks against 2 parameters. Revisit at **≥8 usable blocks (~8 months of logged intake) with
+genuine volume variation**; the season engine's enforced deload cadence supplies that variation. If block
+volume is near-constant, `ε` is unidentifiable — detect via low variance in `x` and fall back to the
+one-parameter solve above.
 
 **Confidence gates** (mirroring the app's existing calibrated-honesty tiers — a population default must
 never masquerade as personalised):
@@ -385,7 +419,7 @@ remainder would be a fabricated prescription.
 
 ## 10. Under-fueling streak alert
 
-Measured against **physiological need with the goal buffer excluded** — `k·RMR + netExercise`. The existing
+Measured against **physiological need with the goal buffer excluded** — `k·RMR + exerciseKcal`. The existing
 `BALANCE_LOW_BELOW` (0.9) is defined against the *buffered prescription*
 ([lib/nutrition.ts:254-265](../../../lib/nutrition.ts)), which answers "did I follow the plan," a different
 question: an athlete deliberately and appropriately in a deficit would trip a health alert built on it.
@@ -415,7 +449,7 @@ retroactively; the tile always shows the logged-day count so a change is explica
 `computeEnergyAvailability` while the tile passes `localToday()` — the new function must not copy the UTC
 default, and that inconsistency is worth a follow-up of its own.
 
-**UI:** `EnergyAvailabilityTile` gains the streak line plus, when `logBias` is set, the reconciliation line
+**UI:** `EnergyAvailabilityTile` gains the streak line plus, when `imbalance` is set, the reconciliation line
 (e.g. *"your log implies ~600 kcal/day more deficit than your weight shows — likely under-counted"*). No new
 tile. This pairing is deliberate: acting on an unreconciled deficit while weight is stable would drive
 unintended gain, so the bias finding must be visible wherever the deficit is.
@@ -440,7 +474,7 @@ A hand-tuned value that demonstrably worked is evidence about this athlete's NEA
 between the two is itself a calibration hint, and silently overwriting it discards lived experience.
 
 **Profile UI after migration:** `dateOfBirth`/`heightCm`/`sex` are the new editable fields; RMR, `k` (with
-its confidence, source, and any `logBias`), and today's maintenance are read-only computed displays showing
+its confidence, source, and any `imbalance` finding), and today's maintenance are read-only computed displays showing
 their breakdown; `buffer` (now signed) and `targetWeightKg` stay editable; `k` is overridable, which pins
 `source: "override"`.
 
@@ -477,10 +511,11 @@ them once real numbers are in hand rather than pre-emptively retuning.
   negative target.
 - Activity with neither `kj` nor `calories` → contributes `null`, not 0. Freddy shows **5 of 173** such
   activities; the day is marked burn-incomplete rather than silently reading as a rest day.
-- `netExerciseKcal` floored at 0 — a very easy long ride can compute below its own resting cost.
+- An activity whose `kj` is present but zero (a trainer dropout, a paused recording) → treated as unknown,
+  not as a genuine zero-energy session, so it cannot silently pull a day's target down.
 - Calibration with `Δmass` from <3 weigh-ins, or a window where every weigh-in shares one day → `low`
   confidence, no adoption (reuses `weightTrendFromWellness`'s existing guards).
-- Calibration when `Σ netExercise` includes burn-incomplete days → those days are excluded from both sums so
+- Calibration when `Σ exercise` includes burn-incomplete days → those days are excluded from both sums so
   the identity stays balanced.
 - Streak below the logged-day floor → `null` and an explicit "not enough transferred yet."
 - `targetWeightKg` equal to current weight → desired trend 0, buffer converges to maintenance.
@@ -494,10 +529,10 @@ them once real numbers are in hand rather than pre-emptively retuning.
   `trainingDayTarget ≥ restDayTarget` for the same athlete — including Strength 45 min and Recovery 45 min,
   the two cases that fail today.
 - **D7 regression:** adding a small off-bike activity to a rest day must never *lower* that day's target.
-- `netExerciseKcal`: gross minus resting cost; floors at 0; scales with moving time.
 - Burn source: `kj` wins when both present; `calories` used when `kj` is null; neither → `null` (not 0).
 - Calibration: a synthetic athlete with known `k` is recovered from constructed intake/weight/exercise
-  series; `k` above/below the plausible band yields the correct `logBias` direction and magnitude with `k`
+  series; `k` above/below the plausible band yields the correct `imbalance` direction and magnitude with `k`
+  clamped, and **names both candidate causes** (log bias and conversion constant), never just one
   clamped; each confidence tier's gates; missing intake days imputed at the logged mean (not zero);
   `source: "override"` survives a re-solve.
 - Buffer: proportional response to trend error; asymmetry (gain side damped harder and requiring
@@ -519,7 +554,7 @@ phase is independently shippable and testable:
 - **Phase 1 — the live defects.** Unified formula (§5), migration gate + side-by-side reconciliation (§11),
   and every call site in §12. Fixes D1, D2, D7 and deletes `restDayTarget`. Highest value per unit of risk:
   these are wrong *today*, independent of anything else here.
-- **Phase 2 — unbiased expenditure.** §6 (`kj` primary, `calories` fallback, net of resting cost) plus the
+- **Phase 2 — off-bike expenditure.** §6 (`kj` primary, `calories` fallback) plus the
   live sync verification of the `calories` field and the `calories ÷ kj` ratio. Fixes D4, D5. Prerequisite
   for Phase 3 — calibration on biased expenditure would be worse than no calibration.
 - **Phase 3 — calibration + reconciliation (§7) and the goal-directed buffer (§8).** Fixes D3, D6. The
