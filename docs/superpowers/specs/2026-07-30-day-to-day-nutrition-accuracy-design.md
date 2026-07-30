@@ -4,6 +4,7 @@
 **Status:** Draft — pending user review
 **todo.md:** "Scope a real day-to-day nutrition system" (added 2026-07-30)
 **Ties:** ROADMAP #2 (per-athlete calibration) — §7 below is a first concrete client for it.
+**Phase 1+2 plan:** [2026-07-30-nutrition-phase-1-formula-and-burn.md](../plans/2026-07-30-nutrition-phase-1-formula-and-burn.md)
 
 ---
 
@@ -187,16 +188,11 @@ export interface ResolvedNutritionConfig {
 }
 ```
 
-**Buffer confirmation state.** §8's gain-side rule needs to remember that it already saw one qualifying
-week, so `NeatCalibration` is joined in `NutritionSettings` by a small derived record. It is engine-owned
-(never hand-edited) and resets whenever the trend leaves the gain-side band:
-
-```ts
-export interface BufferCorrectionState {
-  pendingCutConfirmations: number; // 0..GAIN_SIDE_CONFIRMATIONS; reset on any non-gain evaluation
-  lastEvaluatedDate: string | null; // ISO; guards against double-counting two syncs on one day
-}
-```
+**No buffer confirmation state.** An earlier revision of §8 specified a persisted
+`pendingCutConfirmations` counter. Dropped during planning: `adjustBuffer` is a pure function called
+on-demand from two GET handlers with no write path, so a counter would need a new persistence mechanism and
+a definition of "an evaluation" a read request cannot honestly supply. §8 achieves the same protection
+statelessly, via two trend windows.
 
 ## 5. The unified daily-target formula — `lib/nutrition.ts`
 
@@ -393,13 +389,19 @@ export const CORRECTION_DAMPING = 0.5;
 export const MAX_ADJUSTMENT_STEP_KCAL = 250;
 
 // ASYMMETRY — the deliberate clinical choice. Losing faster than intended is the failure mode that
-// hurts this athlete (LEA, blunted recovery), so it is corrected promptly. Gaining faster than intended
-// is very often glycogen+water rebound from finally eating enough, so cutting is DAMPED HARDER and
-// requires the trend to hold across two consecutive evaluations before it bites. Never let the app
+// hurts this athlete (LEA, blunted recovery), so it is corrected promptly off the RESPONSIVE trend.
+// Gaining faster than intended is very often glycogen+water rebound from finally eating enough, so a cut
+// is damped harder AND must be confirmed by the CONSERVATIVE trend before it bites. Never let the app
 // respond to the first week of successful refuelling by taking food away.
 export const GAIN_SIDE_EXTRA_DAMPING = 0.5;
-export const GAIN_SIDE_CONFIRMATIONS = 2;
 ```
+
+**Two windows, no stored state.** The loss side reads `weightTrendFromWellness(wellness, 14)` — responsive.
+The gain side additionally requires `weightTrendFromWellness(wellness, 28)` to agree, and applies no cut at
+all when that longer trend is unavailable or does not confirm. A glycogen step change is diluted by a
+28-day slope, and when the athlete is *under* target the desired trend is positive, so a rebound nets out
+to a near-zero delta by arithmetic rather than by a special case. This replaces the confirmation counter an
+earlier revision specified, with no persistence and no new failure modes.
 
 `buffer` becomes **signed** — `BUFFER_MIN_KCAL` moves from `0` to `-500`, with the max held at `+600`. This
 is what makes a deficit representable at all (fixes D2). Reaching either rail is surfaced rather than
@@ -548,14 +550,14 @@ them once real numbers are in hand rather than pre-emptively retuning.
 - **D7 regression:** adding a small off-bike activity to a rest day must never *lower* that day's target.
 - Burn source: `activeBurnKcal` is returned **unmodified** (a test that pins the no-transformation rule);
   legacy `kj` fallback only when it is absent, and flagged as legacy; neither → `null`, never 0.
-- Calibration: a synthetic athlete with known `k` is recovered from constructed intake/weight/exercise
+- Calibration: a synthetic athlete with known `k` is recovered from constructed intake/weight/activeBurn
   series; `k` above/below the plausible band yields the correct `imbalance` direction and magnitude with `k`
-  clamped, and **names both candidate causes** (log bias and conversion constant), never just one
-  clamped; each confidence tier's gates; missing intake days imputed at the logged mean (not zero);
-  `source: "override"` survives a re-solve.
-- Buffer: proportional response to trend error; asymmetry (gain side damped harder and requiring
-  `GAIN_SIDE_CONFIRMATIONS`); **glycogen-rebound scenario — a +1.5 kg/7d spike after an intake increase
-  must not cut the buffer**; signed range including negative; rail-capped state reported.
+  clamped, and **names both candidate causes**, never just one; each confidence tier's gates; missing intake
+  days imputed at the logged mean (not zero); `source: "override"` survives a re-solve.
+- Buffer: proportional response to trend error; asymmetry (gain side damped harder AND requiring the
+  28-day trend to confirm); **glycogen-rebound scenario — a +1.5 kg/7d short-term spike after an intake
+  increase must not cut the buffer, including when the long trend is unavailable**; signed range including
+  negative; rail-capped state reported.
 - Streak: exactly `STREAK_ALERT_THRESHOLD` fires and one fewer does not; batchy transfer (2 logged days in
   the last 7, 7 within 14) still evaluates; nothing older than `STREAK_MAX_LOOKBACK_DAYS` counts; below the
   floor → `null`; today never counted; a logged `0` treated as not-logged.
@@ -572,7 +574,8 @@ phase is independently shippable and testable:
 - **Phase 1 — the live defects.** Unified formula (§5), migration gate + side-by-side reconciliation (§11),
   and every call site in §12. Fixes D1, D2, D7 and deletes `restDayTarget`. Highest value per unit of risk:
   these are wrong *today*, independent of anything else here.
-- **Phase 2 — active-burn capture.** §6 (`activeBurnKcal` used verbatim, legacy `kj` fallback) plus the
+- **Phase 2 — active-burn capture. MERGED INTO PHASE 1** (it is one field read; see the plan's Task 1).
+  §6 (`activeBurnKcal` used verbatim, legacy `kj` fallback) plus the
   live sync verification of the field and its ratio to `kj`. Fixes D4, D5. Prerequisite
   for Phase 3 — calibration on biased expenditure would be worse than no calibration.
 - **Phase 3 — calibration + reconciliation (§7) and the goal-directed buffer (§8).** Fixes D3, D6. The
