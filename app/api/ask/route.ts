@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logError } from "@/lib/log";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
 import { readAthleteProfile, readBlockSettings, readCurrentBlock, readDispositions, readInterventionLog, readLastSync, readMorningChecks, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
+import { resolveNutritionModel } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { resolveToday } from "@/lib/date";
@@ -67,6 +68,11 @@ export async function POST(req: Request) {
 
   // The one deterministic CoachSnapshot the prompt reads — so the coach answers from resolved numbers
   // it can't invent. The same builder feeds the Today card, so the athlete sees identical figures.
+  const latestWeightKg =
+    (sync?.wellness ?? [])
+      .filter((w) => w.weightKg !== null)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
+  const nutritionModel = resolveNutritionModel(profile, latestWeightKg, today);
   const snapshot = buildCoachSnapshotFromSources({
     date: today,
     ftp: physStore?.current.ftp ?? null,
@@ -81,7 +87,7 @@ export async function POST(req: Request) {
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
     athleteStateWeightsOverride: settings.athleteStateWeights,
-    weeklyBalance: latestWeeklyBalance(weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, profile.nutrition), today),
+    weeklyBalance: latestWeeklyBalance(weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel), today),
   });
 
   const context: AskCoachContext = { snapshot, session, upcoming };

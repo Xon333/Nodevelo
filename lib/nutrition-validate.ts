@@ -9,7 +9,7 @@
 // and the tolerance is deliberately generous so rounding or picking the closest-duration table row
 // never false-flags — only an invented number trips it.
 
-import { calculateDailyTarget, estimateWorkoutBurnKcal, type AthleteNutritionConfig } from "./nutrition";
+import { calculateDailyTarget, estimateWorkoutBurnKcal, type NutritionModel } from "./nutrition";
 import { toleranceBand } from "./stats";
 import type { PlannedDay } from "./types";
 
@@ -34,17 +34,17 @@ interface DailyIntakeCheck {
 
 function checkDailyIntake(
   d: PlannedDay,
-  config: AthleteNutritionConfig,
+  model: NutritionModel,
   ftp: number,
-  weightTrend7Day: number
+  bufferApplied: number
 ): DailyIntakeCheck | null {
   const stated = parseDailyIntakeKcal(d.description);
   if (stated === null) return null;
   const expected = calculateDailyTarget(
     estimateWorkoutBurnKcal(d.type, d.durationMin, ftp),
+    model,
+    bufferApplied,
     d.type === "Rest",
-    config,
-    weightTrend7Day,
     { type: d.type, durationMin: d.durationMin }
   ).dailyTarget;
   // Generous band: rounding + the model copying the closest-duration row must never trip this.
@@ -54,13 +54,13 @@ function checkDailyIntake(
 
 export function validateNutrition(
   days: PlannedDay[],
-  config: AthleteNutritionConfig,
+  model: NutritionModel,
   ftp: number,
-  weightTrend7Day: number
+  bufferApplied: number
 ): string[] {
   const warnings: string[] = [];
   for (const d of days) {
-    const check = checkDailyIntake(d, config, ftp, weightTrend7Day);
+    const check = checkDailyIntake(d, model, ftp, bufferApplied);
     if (check && !check.withinTolerance) {
       const tolerance = toleranceBand(check.expected, 0.18, 300);
       warnings.push(
@@ -89,13 +89,13 @@ export interface NutritionRepairResult {
 // stays visible as a `repairs` note, never a silent rewrite).
 export function repairNutrition(
   days: PlannedDay[],
-  config: AthleteNutritionConfig,
+  model: NutritionModel,
   ftp: number,
-  weightTrend7Day: number
+  bufferApplied: number
 ): NutritionRepairResult {
   const repairs: string[] = [];
   const repairedDays = days.map((d) => {
-    const check = checkDailyIntake(d, config, ftp, weightTrend7Day);
+    const check = checkDailyIntake(d, model, ftp, bufferApplied);
     if (!check || check.withinTolerance) return d;
     repairs.push(`${d.date} (${d.type}): auto-corrected daily intake ${check.stated} kcal → ${check.expected} kcal (didn't match the reference table).`);
     return { ...d, description: replaceDailyIntakeKcal(d.description, check.expected) };

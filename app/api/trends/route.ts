@@ -9,7 +9,7 @@ import {
 } from "@/lib/data-store";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
-import { weightTrendFromWellness } from "@/lib/nutrition";
+import { resolveNutritionModel, weightTrendFromWellness } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
 import { efSeries, hrrcSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
 import { resolveToday } from "@/lib/date";
@@ -61,7 +61,12 @@ async function assembleTrends(req: Request): Promise<Response> {
 
   // Energy balance & weight by week (Monday-anchored), COMPLETE weeks only — the in-progress
   // week's running totals are misleadingly low, so it's dropped (TRENDS-2). See lib/trends.
-  const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, profile.nutrition);
+  const latestWeightKgForEnergy =
+    (sync?.wellness ?? [])
+      .filter((w) => w.weightKg !== null)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
+  const nutritionModel = resolveNutritionModel(profile, latestWeightKgForEnergy, today);
+  const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel);
 
   // Weekly training volume (hours) — for the Trend Pulse "are you building or slipping?" bar.
   // Keeps the current (in-progress) week, which the Trend Pulse labels "this wk".

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { efSeries, hrrcSeries, latestWeeklyBalance, mondayOf, weeklyEnergy } from "./trends";
+import type { NutritionModel } from "./nutrition";
 import type { ActivitySummary, WellnessEntry } from "./types";
 
 const act = (over: Partial<ActivitySummary>): ActivitySummary => ({
@@ -158,7 +159,14 @@ describe("weeklyEnergy (TRENDS-2)", () => {
 });
 
 describe("weeklyEnergy balance columns", () => {
-  const settings = { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 70 };
+  const model: NutritionModel = {
+    kind: "legacy",
+    baseCalories: 2000,
+    restDayTarget: 2600,
+    weightKg: 75,
+    targetWeightKg: 70,
+    buffer: 300,
+  };
   // Week Mon 2026-06-22 … Sun 2026-06-28; today Wed 2026-07-01 → that week is complete.
   const wellness = [
     // 5 logged-intake days (2500 each), 2 unlogged (null)
@@ -177,18 +185,51 @@ describe("weeklyEnergy balance columns", () => {
   ].map((a) => act(a));
 
   it("computes need day-matched to logged-intake days and the ratio", () => {
-    const [week] = weeklyEnergy(activities, wellness, "2026-07-01", settings);
-    // need = 3 rest days × 2600 + (2000+1000+300) + (2000+1500+300) = 7800 + 3300 + 3800 = 14900
+    const [week] = weeklyEnergy(activities, wellness, "2026-07-01", model);
+    // need = 3 rest days × 2600 + max(2000+1000+300, 2600) + max(2000+1500+300, 2600)
+    //      = 7800 + 3300 + 3800 = 14900 (unchanged: both training days already clear the rest floor)
     expect(week.needKcal).toBe(14900);
     expect(week.loggedDays).toBe(5);
     // intake = 5 × 2500 = 12500 → ratio 12500/14900 = 0.8389… → 0.84
     expect(week.ratio).toBe(0.84);
   });
 
-  it("withholds the ratio below 4 logged days and without settings", () => {
+  it("withholds the ratio below 4 logged days and without a model", () => {
     const thin = wellness.map((w, i) => (i > 2 ? { ...w, kcalConsumed: null } : w)); // 2 logged
-    expect(weeklyEnergy(activities, thin, "2026-07-01", settings)[0].ratio).toBeNull();
+    expect(weeklyEnergy(activities, thin, "2026-07-01", model)[0].ratio).toBeNull();
     expect(weeklyEnergy(activities, wellness, "2026-07-01")[0].ratio).toBeNull();
+  });
+});
+
+describe("weeklyEnergy need calculation", () => {
+  const MODEL: NutritionModel = {
+    kind: "derived", rmr: 1800, neatMultiplier: 1.2, weightKg: 75, targetWeightKg: 78, buffer: 300,
+  };
+  // MIN_LOGGED_DAYS_FOR_BALANCE (4) gates needKcal/ratio regardless of which formula computes need,
+  // so these fixtures log 4 days in the week of Mon 2026-06-15 (today "2026-06-29" makes it complete)
+  // rather than the single day that would be enough to exercise the formula alone.
+  const fourLoggedDays = ["2026-06-15", "2026-06-16", "2026-06-17", "2026-06-18"].map(
+    (date) => ({ date, weightKg: 75, kcalConsumed: 2800 })
+  ) as unknown as WellnessEntry[];
+
+  it("counts an off-bike activity's active burn toward need", () => {
+    const activities = [
+      { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null },
+    ] as unknown as ActivitySummary[];
+    const [week] = weeklyEnergy(activities, fourLoggedDays, "2026-06-29", MODEL);
+    // 3 days with no activity: 1.2 × 1800 + 300 = 2460 each. The Run's day: 1.2 × 1800 + 500 + 300 =
+    // 2960 — the run is no longer invisible. Total: 2460×3 + 2960 = 10340.
+    expect(week.needKcal).toBe(10340);
+    expect(week.loggedDays).toBe(4);
+  });
+
+  it("never computes a lower need for a day with activity than for one without", () => {
+    const withWalk = weeklyEnergy(
+      [{ date: "2026-06-16", type: "Walk", activeBurnKcal: 150, kj: null }] as unknown as ActivitySummary[],
+      fourLoggedDays, "2026-06-29", MODEL
+    )[0];
+    const withNothing = weeklyEnergy([], fourLoggedDays, "2026-06-29", MODEL)[0];
+    expect(withWalk.needKcal!).toBeGreaterThanOrEqual(withNothing.needKcal!);
   });
 });
 

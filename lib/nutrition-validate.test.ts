@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { parseDailyIntakeKcal, repairNutrition, validateNutrition } from "./nutrition-validate";
-import { calculateDailyTarget, estimateWorkoutBurnKcal, type AthleteNutritionConfig } from "./nutrition";
+import { calculateDailyTarget, estimateWorkoutBurnKcal, type NutritionModel } from "./nutrition";
 import type { PlannedDay, WorkoutType } from "./types";
 
-const config: AthleteNutritionConfig = {
+const MODEL: NutritionModel = {
+  kind: "legacy",
   baseCalories: 2000,
   restDayTarget: 2600,
+  weightKg: 75,
+  targetWeightKg: 78,
   buffer: 300,
-  weight: 75,
-  targetWeight: 73,
 };
 const FTP = 250;
-const TREND = 0; // stable weight → buffer unchanged
+const BUFFER_APPLIED = 300;
 
 const day = (type: WorkoutType, durationMin: number, description: string): PlannedDay => ({
   date: "2026-07-01",
@@ -26,7 +27,7 @@ const day = (type: WorkoutType, durationMin: number, description: string): Plann
 
 // The figure the model is supposed to copy, for a given day.
 const correctIntake = (type: WorkoutType, durationMin: number) =>
-  calculateDailyTarget(estimateWorkoutBurnKcal(type, durationMin, FTP), type === "Rest", config, TREND, {
+  calculateDailyTarget(estimateWorkoutBurnKcal(type, durationMin, FTP), MODEL, BUFFER_APPLIED, type === "Rest", {
     type,
     durationMin,
   }).dailyTarget;
@@ -46,16 +47,16 @@ describe("parseDailyIntakeKcal", () => {
 describe("validateNutrition (CR-F)", () => {
   it("passes when the stated intake matches the deterministic formula", () => {
     const z2 = correctIntake("Z2", 120);
-    const warnings = validateNutrition([day("Z2", 120, `Intent: aerobic. Daily intake: ${z2} kcal`)], config, FTP, TREND);
+    const warnings = validateNutrition([day("Z2", 120, `Intent: aerobic. Daily intake: ${z2} kcal`)], MODEL, FTP, BUFFER_APPLIED);
     expect(warnings).toEqual([]);
   });
 
   it("flags an invented daily intake", () => {
     const warnings = validateNutrition(
       [day("Z2", 120, "Intent: aerobic. Daily intake: 4200 kcal")],
-      config,
+      MODEL,
       FTP,
-      TREND
+      BUFFER_APPLIED
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/differs from the computed/);
@@ -66,19 +67,19 @@ describe("validateNutrition (CR-F)", () => {
     const z2 = correctIntake("Z2", 120);
     const warnings = validateNutrition(
       [day("Z2", 120, `Daily intake: ${z2 + 120} kcal`)], // within tolerance
-      config,
+      MODEL,
       FTP,
-      TREND
+      BUFFER_APPLIED
     );
     expect(warnings).toEqual([]);
   });
 
   it("skips days with no daily-intake line", () => {
-    expect(validateNutrition([day("Z2", 90, "Intent: spin. Pre-ride: 75g")], config, FTP, TREND)).toEqual([]);
+    expect(validateNutrition([day("Z2", 90, "Intent: spin. Pre-ride: 75g")], MODEL, FTP, BUFFER_APPLIED)).toEqual([]);
   });
 
   it("validates rest-day targets too", () => {
-    const warnings = validateNutrition([day("Rest", 0, "Rest. Daily intake: 3500 kcal")], config, FTP, TREND);
+    const warnings = validateNutrition([day("Rest", 0, "Rest. Daily intake: 3500 kcal")], MODEL, FTP, BUFFER_APPLIED);
     expect(warnings).toHaveLength(1); // restDayTarget is 2600, 3500 is invented
   });
 });
@@ -89,7 +90,7 @@ describe("repairNutrition (P3a)", () => {
   it("leaves a matching day untouched", () => {
     const z2 = correctIntake("Z2", 120);
     const d = day("Z2", 120, `Intent: aerobic. Daily intake: ${z2} kcal`);
-    const result = repairNutrition([d], config, FTP, TREND);
+    const result = repairNutrition([d], MODEL, FTP, BUFFER_APPLIED);
     expect(result.days[0]).toBe(d); // same reference — nothing rewritten
     expect(result.repairs).toEqual([]);
   });
@@ -97,7 +98,7 @@ describe("repairNutrition (P3a)", () => {
   it("overwrites an invented figure with the correct one, preserving the surrounding text", () => {
     const z2 = correctIntake("Z2", 120);
     const d = day("Z2", 120, "Intent: aerobic. Daily intake: 4200 kcal. Pre-ride: 90g.");
-    const result = repairNutrition([d], config, FTP, TREND);
+    const result = repairNutrition([d], MODEL, FTP, BUFFER_APPLIED);
     expect(result.days[0].description).toBe(`Intent: aerobic. Daily intake: ${z2} kcal. Pre-ride: 90g.`);
     expect(result.repairs).toHaveLength(1);
     expect(result.repairs[0]).toMatch(/auto-corrected daily intake 4200 kcal/);
@@ -107,21 +108,21 @@ describe("repairNutrition (P3a)", () => {
   it("does not touch a day within tolerance", () => {
     const z2 = correctIntake("Z2", 120);
     const d = day("Z2", 120, `Daily intake: ${z2 + 120} kcal`); // within tolerance, per validateNutrition's own test
-    const result = repairNutrition([d], config, FTP, TREND);
+    const result = repairNutrition([d], MODEL, FTP, BUFFER_APPLIED);
     expect(result.days[0]).toBe(d);
     expect(result.repairs).toEqual([]);
   });
 
   it("skips days with no daily-intake line", () => {
     const d = day("Z2", 90, "Intent: spin. Pre-ride: 75g");
-    const result = repairNutrition([d], config, FTP, TREND);
+    const result = repairNutrition([d], MODEL, FTP, BUFFER_APPLIED);
     expect(result.days[0]).toBe(d);
     expect(result.repairs).toEqual([]);
   });
 
   it("running validateNutrition on the repaired days finds nothing left to flag", () => {
     const d = day("Z2", 120, "Daily intake: 4200 kcal");
-    const { days } = repairNutrition([d], config, FTP, TREND);
-    expect(validateNutrition(days, config, FTP, TREND)).toEqual([]);
+    const { days } = repairNutrition([d], MODEL, FTP, BUFFER_APPLIED);
+    expect(validateNutrition(days, MODEL, FTP, BUFFER_APPLIED)).toEqual([]);
   });
 });

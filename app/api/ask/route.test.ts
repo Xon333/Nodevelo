@@ -52,6 +52,7 @@ beforeEach(() => {
   vi.mocked(store.readBlockSettings).mockResolvedValue(DEFAULT_BLOCK_SETTINGS);
   vi.mocked(readPhysiology).mockResolvedValue({ current: { ftp: 280 } } as never);
   vi.mocked(store.readAthleteProfile).mockResolvedValue({
+    performance: { ftp: 280, weightKg: 70 },
     nutrition: { baseCalories: 2200, restDayTarget: 2000, buffer: 300, targetWeightKg: 70 },
   } as never);
 });

@@ -179,7 +179,7 @@ export async function POST(req: Request) {
       scoreLog.entries,
       profile.performance.ftp,
       latestWeeklyBalance(
-        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, profile.nutrition),
+        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel),
         today
       )
     );
@@ -450,9 +450,8 @@ export async function POST(req: Request) {
     const reconciledDays = reconcileDurationMin(rawDays);
     // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
     // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
-    // Task 6 (lib/nutrition-validate.ts) still owns repairNutrition's own signature/logic — this call
-    // site is updated only enough to pass the resolved model + the buffer applied once above, instead
-    // of the now-removed AthleteNutritionConfig shape.
+    // Takes the resolved model + the buffer applied once above (lib/nutrition-validate.ts owns the
+    // signature/logic).
     const nutritionRepair = repairNutrition(reconciledDays, nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied);
     const days = nutritionRepair.days;
     const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];

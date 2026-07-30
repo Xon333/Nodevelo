@@ -1,8 +1,9 @@
 // Pure transforms for the Trends page's time-series. Extracted from the route so the
 // data-quality rules (which rides count, which weeks show) are deterministic + unit-testable.
 
-import type { ActivitySummary, NutritionSettings, WellnessEntry } from "./types";
+import type { ActivitySummary, WellnessEntry } from "./types";
 import { addDaysIso } from "./date";
+import { activeBurn, calculateDailyTarget, type NutritionModel } from "./nutrition";
 
 // Monday (UTC) of the ISO week containing `dateStr`, as YYYY-MM-DD.
 export function mondayOf(dateStr: string): string {
@@ -71,7 +72,7 @@ export interface WeeklyEnergyPoint {
   burnKcal: number | null;
   intakeKcal: number | null;
   weightKg: number | null;
-  // §6 energy balance — filled only when nutrition settings are supplied AND the week has enough
+  // §6 energy balance — filled only when a nutrition model is supplied AND the week has enough
   // logged-intake days. Need is DAY-MATCHED: summed only over days whose intake was logged, so
   // under-logging withholds the ratio instead of faking a deficit.
   needKcal: number | null;
@@ -97,15 +98,16 @@ export function weeklyEnergy(
   activities: ActivitySummary[],
   wellness: WellnessEntry[],
   today: string,
-  settings?: NutritionSettings | null
+  model?: NutritionModel | null
 ): WeeklyEnergyPoint[] {
   const currentMonday = mondayOf(today);
-  // Burn for the NEED formula counts every activity carrying kJ (same convention as the EA proxy —
-  // a strength session costs energy too); the chart's burn series stays rides-only as before.
+  // Need-side burn counts every activity carrying an active-burn figure (D5) — a run, a hike and a gym
+  // session all cost energy. The chart's separate `burn` series below stays rides-only, deliberately.
   const needBurnByDate = new Map<string, number>();
   for (const a of activities) {
-    if (a.kj === null) continue;
-    needBurnByDate.set(a.date, (needBurnByDate.get(a.date) ?? 0) + a.kj);
+    const burn = activeBurn(a);
+    if (burn === null) continue;
+    needBurnByDate.set(a.date, (needBurnByDate.get(a.date) ?? 0) + burn.kcal);
   }
   const wk = new Map<string, { burn: number; burnN: number; intake: number; intakeN: number; weights: number[]; need: number; logged: number }>();
   const getW = (monday: string) => {
@@ -128,12 +130,13 @@ export function weeklyEnergy(
     if (w.kcalConsumed !== null) {
       e.intake += w.kcalConsumed;
       e.intakeN += 1;
-      // Day-matched need: the app's own daily-target formula for THIS day. Flat config buffer — the
-      // live formula's weight-trend adjustment is a *current* steering signal, unknowable for past
-      // weeks; ±150 kcal/day noise is inside the bands' coarseness.
-      if (settings) {
+      // Day-matched need: the app's own daily-target formula for THIS day.
+      if (model) {
         const dayBurn = needBurnByDate.get(w.date) ?? 0;
-        e.need += dayBurn > 0 ? settings.baseCalories + dayBurn + settings.buffer : settings.restDayTarget;
+        // One formula, no rest-day branch — a rest day is simply a day whose burn is 0. Flat configured
+        // buffer: the live weight-trend adjustment is a CURRENT steering signal, unknowable for a past
+        // week, and ±250 kcal/day sits inside the bands' coarseness.
+        e.need += calculateDailyTarget(dayBurn, model, model.buffer, dayBurn === 0).dailyTarget;
         e.logged += 1;
       }
     }
@@ -142,7 +145,7 @@ export function weeklyEnergy(
   return [...wk.entries()]
     .filter(([date]) => date < currentMonday) // complete weeks only
     .map(([date, e]) => {
-      const hasBalance = settings != null && e.logged >= MIN_LOGGED_DAYS_FOR_BALANCE && e.need > 0;
+      const hasBalance = model != null && e.logged >= MIN_LOGGED_DAYS_FOR_BALANCE && e.need > 0;
       return {
         date,
         burnKcal: e.burnN > 0 ? Math.round(e.burn) : null,

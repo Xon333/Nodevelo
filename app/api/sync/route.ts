@@ -112,6 +112,11 @@ export async function GET(req: Request) {
   );
   // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/ask, so the
   // Today card shows the exact figures the coach reasons from (FTP off the physiology SoT).
+  const latestWeightKgForEnergy =
+    (lastSync?.wellness ?? [])
+      .filter((w) => w.weightKg !== null)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
+  const nutritionModelForEnergy = resolveNutritionModel(profile, latestWeightKgForEnergy, today);
   const coachSnapshot = buildCoachSnapshotFromSources({
     date: today,
     ftp: physStore?.current.ftp ?? profile.performance.ftp,
@@ -126,7 +131,7 @@ export async function GET(req: Request) {
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
     athleteStateWeightsOverride: settings.athleteStateWeights,
-    weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, profile.nutrition), today),
+    weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForEnergy), today),
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -814,6 +819,11 @@ export async function POST(req: Request) {
       readBlockSettings(),
       readRollingBaselines(), // the freshly-persisted baselines (with updatedAt), written earlier this sync
     ]); // morningChecks already read once above (CS-6)
+    const latestWeightKgForSnapEnergy =
+      (lastSync?.wellness ?? [])
+        .filter((w) => w.weightKg !== null)
+        .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForSnap.performance.weightKg;
+    const nutritionModelForSnapEnergy = resolveNutritionModel(profileForSnap, latestWeightKgForSnapEnergy, today);
     const coachSnapshot = buildCoachSnapshotFromSources({
       date: today,
       ftp: physStore?.current.ftp ?? profileForSnap.performance.ftp,
@@ -828,7 +838,7 @@ export async function POST(req: Request) {
       acwrBandsOverride: settingsForSnap.acwrBands,
       tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
       athleteStateWeightsOverride: settingsForSnap.athleteStateWeights,
-      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, profileForSnap.nutrition), today),
+      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForSnapEnergy), today),
     });
 
     // SUB-4: best-effort off-machine snapshot. A no-op (not a failure) when NODEVELO_BACKUP_DIR isn't
