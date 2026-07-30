@@ -60,10 +60,10 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
-- ☐ P2 `feat` Scope a real day-to-day nutrition system. Flagged as the biggest current training
-  hurdle: off-bike underfuelling is hindering recovery. Needs: better daily calorie accuracy, and
-  cross-referencing weight + calorie intake against calorie expenditure — expenditure today is
-  bike-only (powermeter), so off-bike activity isn't captured. Not yet scoped to file/function
-  detail — do that before promoting to ROADMAP.
+- ☐ P2 `feat` Day-to-day nutrition accuracy — scoped, spec written and pending review:
+  [docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md).
+  RMR-based auto-computed baseline (replaces flat `baseCalories`/`restDayTarget`), fixes the
+  `kj`-only blind spot that drops off-bike/non-power activity burn, adds an under-fueling streak
+  alert. Next: user reviews the spec, then an implementation plan.
 
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).
