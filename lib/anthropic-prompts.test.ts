@@ -10,7 +10,7 @@ import {
   type RetrospectiveInput,
   type RideAnalysisInput,
 } from "./anthropic-prompts";
-import { computeWeekTargets } from "./block-skeleton";
+import { computeBlockSkeleton, computeWeekTargets } from "./block-skeleton";
 import { DEFAULT_BLOCK_SETTINGS, type BlockParams, type IntervalComparison } from "./types";
 
 // These prompt builders were inlined in the SDK call functions before the RV-8 split, so they couldn't
@@ -187,6 +187,24 @@ describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
     expect(p).toContain("size them UP, typically 90–120 min, until the week's total hits its WEEK-BY-WEEK HOUR TARGET");
     // The rest-day clause still renders correctly after the structure-line rewrite.
     expect(p).toContain("+ 1 rest day per week");
+  });
+
+  // Phase B task 4: the per-day skeleton table supersedes the single weekly hour figure entirely —
+  // when a skeleton is supplied it replaces WEEK-BY-WEEK HOUR TARGETS rather than sitting alongside it.
+  it("renders the per-day skeleton table when a skeleton is supplied", () => {
+    const targets = computeWeekTargets(2, DEFAULT_BLOCK_SETTINGS, [0]);
+    const sk = computeBlockSkeleton("2026-08-03", targets, DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
+    const p = buildUserMessage(
+      { lengthWeeks: 2, goal: "g", startDate: "2026-08-03", weakpoints: [] },
+      [["2026-08-03"], ["2026-08-10"]],
+      "",
+      DEFAULT_BLOCK_SETTINGS,
+      targets,
+      sk
+    );
+    expect(p).toContain("WEEK SKELETON (FIXED");
+    expect(p).toContain("2026-08-04");
+    expect(p).not.toContain("WEEK-BY-WEEK HOUR TARGETS"); // superseded by the table
   });
 });
 

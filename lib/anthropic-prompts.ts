@@ -13,7 +13,7 @@ import type {
   SyncData,
 } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
-import { formatWeekTargets, type WeekTarget } from "./block-skeleton";
+import { formatBlockSkeleton, formatWeekTargets, type BlockSkeleton, type WeekTarget } from "./block-skeleton";
 import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
@@ -258,8 +258,18 @@ export function buildUserMessage(
   weeks: string[][],
   nutritionTableMd: string,
   settings: BlockSettings = DEFAULT_BLOCK_SETTINGS,
-  weekTargets?: WeekTarget[]
+  weekTargets?: WeekTarget[],
+  skeleton?: BlockSkeleton
 ): string {
+  // Phase B task 4: the per-day skeleton (when supplied) supersedes the single weekly hour figure —
+  // it owns composition (which day, which type, which duration, which intensity ceiling), so
+  // formatWeekTargets stays only as the fallback for the ~15 existing callers that haven't computed
+  // one yet (and formatWeekTargets(weekTargets) unconditionally otherwise, same as before).
+  const volumeSection = skeleton
+    ? formatBlockSkeleton(skeleton)
+    : weekTargets && weekTargets.length > 0
+      ? formatWeekTargets(weekTargets)
+      : "";
   const calendar = weeks
     .map(
       (dates, i) =>
@@ -301,7 +311,7 @@ NUTRITION REFERENCE TABLE (pre-computed by the app's deterministic formula — c
 
 ${nutritionTableMd}
 
-${weekTargets && weekTargets.length > 0 ? `${formatWeekTargets(weekTargets)}\n\n` : ""}Hard rules:
+${volumeSection ? `${volumeSection}\n\n` : ""}Hard rules:
 - Use ISO dates (YYYY-MM-DD) in every DAY line, exactly as listed above.
 - DURATION is an integer number of minutes.
 - TYPE must be one of: Z2, Threshold, VO2max, SIT, RaceSim, Recovery, Strength, Rest.
@@ -316,8 +326,11 @@ ${weekTargets && weekTargets.length > 0 ? `${formatWeekTargets(weekTargets)}\n\n
   Keep every cue as concise *inline* coaching (a clause the athlete acts on mid-ride) — **never**
   tell them to watch a video, read an article, or include any external link/URL.
 - **Workout step durations must sum to DURATION — no hedging.** Add up every warmup + main + cooldown step before finalising a session; if they don't match, adjust the steps (never just the stated number) so Intervals.icu's own parsed ride time (which is what actually shows on the athlete's calendar) matches what you tell them the session costs.
-- **WEEKLY VOLUME:** see WEEK-BY-WEEK HOUR TARGETS above — an exact figure per week, not a range.${weekTargets && weekTargets.length > 0 ? "" : ` (fallback, no per-week targets supplied) every loading week must total ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours — plan toward the TOP of that range; recovery weeks reduce to ${settings.recoveryWeekHoursMin}–${settings.recoveryWeekHoursMax} hours.`}
-- **WEEKLY STRUCTURE (loading weeks):** ${settings.qualitySessionsPerLoadingWeek} quality sessions (Threshold/VO2max/SIT/RaceSim COMBINED — RaceSim counts toward this total like every other quality type, and this number is a CEILING, never a target to exceed) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60 min minimum each — size them UP, typically 90–120 min, until the week's total hits its WEEK-BY-WEEK HOUR TARGET) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week. **Never place two quality sessions on consecutive calendar days, and never let a week's quality-session count exceed the number above** — before finalising each week, count its Threshold/VO2max/SIT/RaceSim days and check no two land back-to-back; if either check fails, fix it by moving/dropping a session, not by re-labelling it.${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
+- **WEEKLY VOLUME:** see ${skeleton ? "WEEK SKELETON" : "WEEK-BY-WEEK HOUR TARGETS"} above — an exact figure per week, not a range.${weekTargets && weekTargets.length > 0 ? "" : ` (fallback, no per-week targets supplied) every loading week must total ${settings.weeklyHoursMin}–${settings.weeklyHoursMax} hours — plan toward the TOP of that range; recovery weeks reduce to ${settings.recoveryWeekHoursMin}–${settings.recoveryWeekHoursMax} hours.`}
+- **WEEKLY STRUCTURE:** ${skeleton
+    ? "see WEEK SKELETON above — it is the authority on which day carries which session type, how long it is, and its intensity ceiling. Do not deviate from it."
+    : `${settings.qualitySessionsPerLoadingWeek} quality sessions (Threshold/VO2max/SIT/RaceSim COMBINED — RaceSim counts toward this total like every other quality type, and this number is a CEILING, never a target to exceed) + 1 long ${settings.polarisedApproach ? "Z2" : "Z2/sweet-spot"} ride (≥${settings.longRideDurationMinutes} min) + 2–3 easy Z2 sessions (60 min minimum each — size them UP, typically 90–120 min, until the week's total hits its WEEK-BY-WEEK HOUR TARGET) + ${settings.restDaysPerWeek} rest day${settings.restDaysPerWeek !== 1 ? "s" : ""} per week. **Never place two quality sessions on consecutive calendar days, and never let a week's quality-session count exceed the number above** — before finalising each week, count its Threshold/VO2max/SIT/RaceSim days and check no two land back-to-back; if either check fails, fix it by moving/dropping a session, not by re-labelling it.`
+  }${settings.polarisedApproach ? "\n- **Polarised structure:** Keep easy sessions genuinely easy (<0.75 IF). Avoid grey-zone moderate riding." : "\n- **Sweet spot structure:** Include sweet spot intervals (88–93% FTP) in addition to threshold work."}
 - **Rest days:** TYPE: Rest, DURATION: 0, WORKOUT: Rest, description with Intent and Daily target only. Limit to ${settings.restDaysPerWeek} per week.
 - **Within-week sequencing (P5):** when a week has both a freshness-dependent quality session (VO2max, SIT — the stimulus needs genuinely fresh legs) and a fatigue-tolerant one (Threshold — trainable on some accumulated fatigue; RaceSim, whose hardest move belongs late on already-tired legs), place the freshness-dependent one EARLIER in the week. Do not default to Threshold on the week's freshest day and SIT/VO2max later — that's backwards.
 - Do not add any content outside WEEK/DAY entries and the final BLOCK OVERVIEW.`;

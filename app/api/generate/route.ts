@@ -35,8 +35,8 @@ import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { reconcileDurationMin } from "@/lib/prescription";
 import { splitPlanProtocol } from "@/lib/workout-validate";
 import { repairNutrition } from "@/lib/nutrition-validate";
-import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateWeekSequencing } from "@/lib/schedule-validate";
-import { checkBlockFeasibility, computeWeekTargets, validateWeekHours } from "@/lib/block-skeleton";
+import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateSkeletonConformance, validateWeekSequencing } from "@/lib/schedule-validate";
+import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets, validateWeekHours } from "@/lib/block-skeleton";
 import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
@@ -363,6 +363,16 @@ export async function POST(req: Request) {
     // (EC-3/EC-12) even when the season replan throws, so this never silently sees an empty [].
     const weekTargets = computeWeekTargets(blockParams.lengthWeeks, blockSettings, recoveryWeekIndices);
 
+    // Phase B: composition is computed here, not left to the model. The 2026-07-29 live run showed a
+    // single weekly hour figure is not enough — every loading week undershot by 0.5-1.1h.
+    const blockSkeleton = computeBlockSkeleton(
+      blockParams.startDate,
+      weekTargets,
+      blockSettings,
+      rollingFocusChoice?.focus ?? "aerobic-base",
+      existingSeason.events
+    );
+
     // Retest cadence: a stale tested FTP quietly rots zones and TSS math — nudge the generator to place
     // a retest in the next lighter week. Additive to seasonContext. Phase-agnostic (P1): always live.
     if (physStore) {
@@ -397,7 +407,7 @@ export async function POST(req: Request) {
       buildAthleteDataSection(profile, sync, zonesText),
       blockParams
     );
-    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings, weekTargets);
+    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings, weekTargets, blockSkeleton);
 
     // Dedupe identical generations in a short window (P4): a double-click or a second request landing
     // mid-generation shares one Claude call instead of paying twice. A considered regenerate minutes
@@ -460,6 +470,9 @@ export async function POST(req: Request) {
     // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
     // target — the check that was missing entirely (only session counts/spacing were validated).
     warnings.push(...validateWeekHours(days, weekTargets));
+    // Phase B: per-day conformance against the same skeleton the prompt was built from — a missing
+    // day, a type outside its slot, or a duration outside its envelope.
+    warnings.push(...validateSkeletonConformance(days, blockSkeleton));
     // The composition half of the recovery contract — validateWeekHours only checks volume.
     warnings.push(...validateRecoveryWeekDensity(days, weekTargets, blockSettings, profile.performance.ftp, existingSeason.events));
     // Sequencing check (P5b, 2026-07-24): freshness-dependent quality (VO2max/SIT) should land

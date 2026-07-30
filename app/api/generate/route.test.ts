@@ -99,13 +99,17 @@ const gen = (goal: string) =>
 describe("POST /api/generate — Track B wiring", () => {
   it("enforces the RaceSim requirement for a terrain/race goal and stamps the durability template", async () => {
     const json = await (await gen("Win the hilly KOM road race")).json();
-    expect(json.plan.warnings.some((w: string) => /RaceSim/.test(w))).toBe(true); // validateSessionRequirements wired in
+    // Scoped to the GOAL: prefix (validateSessionRequirements' own warning) rather than a bare
+    // /RaceSim/ substring — Phase B's SKELETON: warnings can legitimately mention "RaceSim" too (a
+    // flexible quality slot's reason text names it as an allowed type), which would otherwise
+    // false-match here regardless of whether the goal-driven requirement itself fired.
+    expect(json.plan.warnings.some((w: string) => /^GOAL:.*RaceSim/.test(w))).toBe(true); // validateSessionRequirements wired in
     expect(json.plan.durabilityTemplate).toBe("A"); // selected (no insights, no prior block) + stamped
   });
 
   it("does not require a RaceSim for a flat, non-terrain goal", async () => {
     const json = await (await gen("Improve 40k TT power on the flats")).json();
-    expect(json.plan.warnings.some((w: string) => /RaceSim/.test(w))).toBe(false);
+    expect(json.plan.warnings.some((w: string) => /^GOAL:.*RaceSim/.test(w))).toBe(false);
   });
 
   it("HR-18: a weakpoint recorded only in profile.weakpoints still biases durability template selection", async () => {
@@ -648,5 +652,24 @@ describe("POST /api/generate — season layer degradation (EC-3)", () => {
     );
     const json = await res.json();
     expect(json.plan.warnings.some((w: string) => /Season fit:.*focus is threshold.*zero Threshold/.test(w))).toBe(true);
+  });
+});
+
+// Phase B task 4 (2026-07-29): the deterministic per-day skeleton (lib/block-skeleton.ts) is now
+// computed in the route and drives the prompt directly, replacing the single weekly hour figure the
+// model previously had to split itself. Conformance runs alongside the existing validators.
+describe("POST /api/generate — Phase B: skeleton wiring", () => {
+  it("Phase B: the skeleton table reaches the model and conformance runs", async () => {
+    const res = await POST(
+      new Request("http://t/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+      })
+    );
+    const json = await res.json();
+    const userMessage = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][2];
+    expect(userMessage).toContain("WEEK SKELETON (FIXED");
+    // The mocked tool payload only returns 2 days for a 14-day block, so conformance must notice.
+    expect(json.plan.warnings.some((w: string) => /^SKELETON:/.test(w))).toBe(true);
   });
 });
