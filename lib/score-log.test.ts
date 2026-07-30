@@ -17,6 +17,7 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     avgHr: 140,
     maxHr: 165,
     kj: 600,
+    activeBurnKcal: null,
     trainingLoad: 60,
     rpe: 5,
     carbsIngestedG: null,

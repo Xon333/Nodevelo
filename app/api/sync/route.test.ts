@@ -104,6 +104,7 @@ const mkActivity = (over: Partial<ActivitySummary> = {}): ActivitySummary => ({
   avgHr: 140,
   maxHr: 172,
   kj: 810,
+  activeBurnKcal: null,
   trainingLoad: 70,
   rpe: null,
   carbsIngestedG: null,

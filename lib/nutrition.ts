@@ -1,8 +1,32 @@
 // Deterministic nutrition formula. Pure TypeScript — no AI involvement.
 // The AI receives this module's output as pre-computed values and only
 // rephrases them in natural language inside workout descriptions.
-import type { WellnessEntry, WorkoutType } from "./types";
+import type { ActivitySummary, WellnessEntry, WorkoutType } from "./types";
 import { median } from "./stats";
+
+export interface ActiveBurn {
+  kcal: number;
+  legacy: boolean; // true when derived from kj because the activity predates activeBurnKcal
+}
+
+/**
+ * The ONE energy-expended accessor, so "use the source's active-burn figure verbatim" has a single
+ * implementation nothing can drift from. Intervals.icu already reports the activity's active calorie
+ * burn; NodeVelo consumes that number unmodified.
+ *
+ * The legacy branch exists only for activities synced before `activeBurnKcal` did — they carry just `kj`
+ * (mechanical work), and treating it as kcal was the app's previous behaviour app-wide. It is flagged so
+ * callers can surface the approximation rather than silently mixing bases, and it shrinks on its own as
+ * the sync window rolls forward.
+ *
+ * Returns null — never 0 — when neither figure exists: a day whose burn is unknown must not read as a
+ * rest day.
+ */
+export function activeBurn(a: Pick<ActivitySummary, "activeBurnKcal" | "kj">): ActiveBurn | null {
+  if (a.activeBurnKcal !== null) return { kcal: a.activeBurnKcal, legacy: false };
+  if (a.kj !== null) return { kcal: a.kj, legacy: true };
+  return null;
+}
 
 export interface AthleteNutritionConfig {
   baseCalories: number; // default: 2000
@@ -176,7 +200,7 @@ const EA_MIN_DAYS = 3; // a few logged days before a trailing EA means anything 
 
 // Energy-availability PROXY: per-kg-body-mass energy left after exercise, averaged over recent COMPLETE
 // days. Deliberately simple ((intake − exercise burn)/kg, kJ≈kcal as elsewhere — burn sums ALL activities
-// that carry a kJ value, not only rides; activities with no energy data contribute 0) and honest about limits:
+// carrying an active-burn figure, not only rides; activities with no energy data contribute 0) and honest about limits:
 //   - TODAY is excluded — its intake is still being logged, so a partial day would read falsely low.
 //   - it uses body weight, not fat-free mass, so it is NOT the clinical 30/45 kcal/kg·FFM threshold — it's
 //     a trend signal ("am I fuelling more or less than usual?"), which is why this returns a delta, not a band.
@@ -184,14 +208,15 @@ const EA_MIN_DAYS = 3; // a few logged days before a trailing EA means anything 
 //     (withheld, not a flaky single-day number). A personalised "adequate" line is Track C / §6 calibration.
 export function computeEnergyAvailability(
   wellness: WellnessEntry[],
-  activities: Array<{ date: string; kj: number | null }>,
+  activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null }>,
   today: string,
   windowDays = 7,
 ): EnergyAvailability | null {
   const burnByDate = new Map<string, number>();
   for (const a of activities) {
-    if (a.kj == null) continue;
-    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + a.kj);
+    const burn = activeBurn(a);
+    if (burn === null) continue; // unknown, not zero
+    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
   }
   // Weigh-ins ascending; a day with intake but no weight anchors to the nearest weigh-in ON OR BEFORE it
   // (never a future weight — EC-4), falling back to the earliest when the day predates them all (the

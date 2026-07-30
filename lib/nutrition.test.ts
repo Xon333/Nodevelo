@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeBurn,
   adjustBuffer,
   balanceLevel,
   calculateDailyTarget,
@@ -184,7 +185,7 @@ describe("computeEnergyAvailability", () => {
   const w = (date: string, kcalConsumed: number | null, weightKg: number | null = 60): WellnessEntry => ({
     date, weightKg, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed, ctl: null, atl: null,
   });
-  const ride = (date: string, kj: number) => ({ date, kj });
+  const ride = (date: string, kj: number) => ({ date, kj, activeBurnKcal: null });
 
   it("averages (intake − burn)/kg over complete days and EXCLUDES today's partial intake", () => {
     const wellness = [
@@ -256,5 +257,25 @@ describe("balanceLevel", () => {
     expect(balanceLevel(1.0)).toBe("adequate");
     expect(balanceLevel(1.05)).toBe("adequate"); // upper boundary still adequate
     expect(balanceLevel(1.2)).toBe("ample");
+  });
+});
+
+describe("activeBurn", () => {
+  const base = { activeBurnKcal: null, kj: null } as Parameters<typeof activeBurn>[0];
+
+  it("returns the synced figure verbatim, never scaled", () => {
+    expect(activeBurn({ ...base, activeBurnKcal: 843, kj: 800 })).toEqual({ kcal: 843, legacy: false });
+  });
+
+  it("falls back to kj flagged as legacy when the active-burn figure is absent", () => {
+    expect(activeBurn({ ...base, kj: 800 })).toEqual({ kcal: 800, legacy: true });
+  });
+
+  it("returns null — never 0 — when neither figure exists, so an unknown day is not a rest day", () => {
+    expect(activeBurn(base)).toBeNull();
+  });
+
+  it("treats a zero active-burn figure as real, not missing", () => {
+    expect(activeBurn({ ...base, activeBurnKcal: 0, kj: 500 })).toEqual({ kcal: 0, legacy: false });
   });
 });

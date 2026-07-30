@@ -143,7 +143,7 @@ describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
   const iso = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
   const act = (over: Partial<ActivitySummary> & { date: string }): ActivitySummary => ({
     id: over.date, type: "Ride", name: "r", movingTimeSec: 4000, avgWatts: 165, normalizedPower: 165,
-    maxWatts: 300, icuFtp: null, avgHr: 140, maxHr: 160, kj: 500, trainingLoad: 50, rpe: null,
+    maxWatts: 300, icuFtp: null, avgHr: 140, maxHr: 160, kj: 500, activeBurnKcal: null, trainingLoad: 50, rpe: null,
     carbsIngestedG: null, decoupling: 4, efficiencyFactor: null, powerHrZ2: 1.5, powerHrZ2Mins: 60,
     description: null, avgCadence: null, distanceMeters: null, elevationGain: null,
     powerZoneTimes: null, hrZoneTimes: null, hrrc: null,

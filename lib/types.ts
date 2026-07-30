@@ -72,6 +72,12 @@ export interface ActivitySummary {
   avgHr: number | null;
   maxHr: number | null;
   kj: number | null; // total work in kJ
+  // Intervals.icu's reported ACTIVE CALORIE BURN for the activity, in kcal. Present for every activity
+  // type — including runs, hikes and gym work with no power meter — which is what makes off-bike energy
+  // count at all. Used VERBATIM by activeBurn(): never scaled, never adjusted for resting metabolism,
+  // never re-derived from kj. `kj` remains alongside it as what it actually is (mechanical work), and is
+  // no longer an energy proxy except in activeBurn()'s flagged legacy branch.
+  activeBurnKcal: number | null;
   trainingLoad: number | null;
   rpe: number | null; // icu_rpe, 1-10
   carbsIngestedG: number | null; // intervals.icu carbs_ingested ("CHO In") — grams the athlete logged consuming

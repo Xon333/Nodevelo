@@ -235,6 +235,10 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       avgHr: num(a.average_heartrate),
       maxHr: num(a.max_heartrate),
       kj: joules !== null ? Math.round(joules / 1000) : null,
+      // Intervals.icu's own active-burn figure for the activity. `calories` is the documented field;
+      // `icu_calories` is kept as a defensive fallback in case the payload key differs by activity type.
+      // NOT transformed here or anywhere downstream (D4).
+      activeBurnKcal: num(a.calories) ?? num(a.icu_calories),
       trainingLoad: num(a.icu_training_load),
       rpe: num(a.icu_rpe),
       carbsIngestedG: num(a.carbs_ingested), // "CHO In" — athlete-logged carbohydrate intake (g), often unset

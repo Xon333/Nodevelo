@@ -17,6 +17,7 @@ describe('deriveFuelPrompt', () => {
     avgHr: null,
     maxHr: null,
     kj: null,
+    activeBurnKcal: null,
     trainingLoad: null,
     rpe: null,
     carbsIngestedG: null, // unlogged by default
