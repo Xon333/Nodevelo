@@ -37,6 +37,11 @@ co-located as `lib/*.test.ts`.
   `npx vitest run <file>`. Single test: `npx vitest run <file> -t "<name>"`.
 - **Out of scope for this plan** (Phases 3–4, do not build): NEAT calibration / intake reconciliation
   (spec §7), daily carbohydrate target (§9), under-fueling streak alert (§10).
+- **The repo does not typecheck between Tasks 3 and 6, by design.** Task 3 changes `adjustBuffer`'s
+  signature and Task 4 changes `calculateDailyTarget`'s; their call sites are updated in Tasks 5 and 6.
+  In that window, verify with the task's own test file (`npx vitest run <file>`) and a scoped
+  `npx tsc --noEmit` whose only errors are in files a later task owns. **Task 6 ends with a fully green
+  `npm run check` — that is the gate.** Do not "fix" an error in a file your task does not own.
 
 ## Deviation from the spec, deliberate
 
@@ -1325,12 +1330,14 @@ In `app/api/generate/route.ts`, replace the `nutritionConfig` block (~120-130):
 Update the `AthleteNutritionConfig` import to `resolveNutritionModel, adjustBuffer, WEIGHT_TREND_LONG_WINDOW_DAYS`.
 If `body.today` is not already read in this handler, use `localToday()` — do not inline a UTC date.
 
-- [ ] **Step 8: Full check**
+- [ ] **Step 8: Scoped verification**
 
-Run: `npm run check`
-Expected: PASS. The only remaining errors should be in `lib/nutrition-validate.ts` (Task 6) — if so,
-proceed to Task 6 before committing, or stub nothing and commit after Task 6. Prefer committing Tasks 5
-and 6 together if the repo does not typecheck in between.
+Run: `npx vitest run lib/nutrition.test.ts`
+Expected: PASS.
+
+Run: `npx tsc --noEmit`
+Expected: errors ONLY in `lib/nutrition-validate.ts` and `lib/trends.ts` (and their tests), which Task 6
+owns. Do not fix them here. Any error in another file is yours and must be fixed before committing.
 
 - [ ] **Step 9: Commit**
 
