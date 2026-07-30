@@ -89,6 +89,24 @@ export interface ActivitySummary {
   elevationGain: number | null; // metres
   powerZoneTimes: number[] | null; // seconds in each power zone [z1, z2, ..., z7]
   hrZoneTimes: number[] | null; // seconds in each HR zone
+  // Anaerobic work capacity, athlete-level. intervals.icu's ROLLING W′ estimate (icu_rolling_w_prime) —
+  // the same value on every activity in a window, drifting slowly as the power curve moves. Live-verified
+  // over 76 rides / 3 months: 22.0–24.8 kJ, 30 distinct values — a smooth athlete signal, safe to read as
+  // "the athlete's W′ right now".
+  //
+  // TRAP — do NOT swap this for `icu_pm_w_prime` or `icu_pm_cp`. Those are PER-RIDE power-model fits: over
+  // the same 76 rides, icu_pm_cp ranged 145–282 W and icu_pm_w_prime 11.0–24.8 kJ, with a fresh value on
+  // nearly every ride. They describe what the athlete did that day, not what they're capable of — the exact
+  // eFTP failure mode already documented on `icuFtp` above. There is no trustworthy per-ride or rolling CP
+  // here either: `icu_rolling_cp` is null on every activity for this athlete, so FTP (icuFtp / the
+  // effective-dated physiology store) remains the only threshold anchor.
+  wPrimeRollingJ: number | null;
+  // How deep THIS ride went into the anaerobic reserve — peak W′-balance depletion in joules
+  // (icu_max_wbal_depletion). Genuinely per-ride and genuinely useful: 0 J on a steady virtual ride,
+  // 24.0 kJ on the hardest ride in the window. Read against wPrimeRollingJ it gives the fraction of
+  // capacity a session actually consumed. Unlike the pm_* fields this is a measurement of the ride,
+  // not a re-estimate of the athlete, so per-ride volatility is the signal rather than noise.
+  wBalDepletionJ: number | null;
   // Heart-rate recovery: bpm dropped in 60s after a qualifying sustained hard/threshold effort.
   // null on rides with no qualifying effort (e.g. pure Z2 days) or when intervals.icu didn't compute one.
   // Live-verified against a real sync (42 rides, ~45 days): the value sits NESTED at `icu_hrr.hrr` —

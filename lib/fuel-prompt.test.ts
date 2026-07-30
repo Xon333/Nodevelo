@@ -31,6 +31,8 @@ describe('deriveFuelPrompt', () => {
     powerZoneTimes: null,
     hrZoneTimes: null,
     hrrc: null,
+    wPrimeRollingJ: null,
+    wBalDepletionJ: null,
     ...overrides,
   });
 

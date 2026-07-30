@@ -118,6 +118,8 @@ const mkActivity = (over: Partial<ActivitySummary> = {}): ActivitySummary => ({
   powerZoneTimes: null,
   hrZoneTimes: null,
   hrrc: null,
+  wPrimeRollingJ: null,
+  wBalDepletionJ: null,
   ...over,
 });
 

@@ -29,6 +29,8 @@ function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySu
     powerZoneTimes: null,
     hrZoneTimes: null,
     hrrc: null,
+    wPrimeRollingJ: null,
+    wBalDepletionJ: null,
     ...over,
   };
 }

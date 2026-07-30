@@ -162,6 +162,58 @@ describe("intervals-api network failure handling (CR-B)", () => {
     expect(a.decoupling).toBe(4.5);
   });
 
+  it("maps W′ off the ROLLING key and ride depletion off max_wbal, ignoring the per-ride pm_* fits", async () => {
+    // Live-verified raw shape (76 rides, 3 months). All four keys ship on the same activity, and picking
+    // the wrong one is the eFTP trap again: icu_pm_cp/icu_pm_w_prime re-fit the model to each ride
+    // (145–282 W, 11.0–24.8 kJ) while icu_rolling_w_prime holds an athlete-level value steady across a
+    // window. This test pins that we read the stable one and never surface a per-ride CP.
+    const raw = [{
+      id: "w1", start_date_local: "2026-07-30T08:00:00", type: "Ride", name: "Endurance",
+      moving_time: 7200, icu_average_watts: 190, icu_weighted_avg_watts: 205,
+      icu_rolling_w_prime: 24218.033, icu_max_wbal_depletion: 4155,
+      icu_pm_cp: 214, icu_pm_w_prime: 18213, icu_rolling_cp: null,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-07-01", "2026-07-30");
+    expect(a.wPrimeRollingJ).toBeCloseTo(24218.033, 3);
+    expect(a.wBalDepletionJ).toBe(4155);
+    // The volatile per-ride fits must not leak in under either field.
+    expect(a.wPrimeRollingJ).not.toBe(18213);
+    expect(a.wBalDepletionJ).not.toBe(214);
+  });
+
+  it("keeps a zero W′ depletion as a real reading, but treats a zero rolling W′ as absent", async () => {
+    // Asymmetry by design: 0 J depletion is a genuine measurement (a steady ride that never dipped into
+    // the reserve — observed on a real VirtualRide), whereas a 0 J athlete W′ is physiologically
+    // meaningless and can only be a dropout.
+    const raw = [{
+      id: "w2", start_date_local: "2026-07-29T08:00:00", type: "VirtualRide", name: "Steady",
+      moving_time: 3600, icu_average_watts: 150, icu_weighted_avg_watts: 152,
+      icu_rolling_w_prime: 0, icu_max_wbal_depletion: 0,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-07-01", "2026-07-30");
+    expect(a.wBalDepletionJ).toBe(0);
+    expect(a.wPrimeRollingJ).toBeNull();
+  });
+
+  it("nulls both W′ fields on an older activity that predates the power model", async () => {
+    const raw = [{
+      id: "w3", start_date_local: "2026-02-01T08:00:00", type: "Ride", name: "No power model",
+      moving_time: 3600, icu_average_watts: 170,
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-02-01", "2026-02-01");
+    expect(a.wPrimeRollingJ).toBeNull();
+    expect(a.wBalDepletionJ).toBeNull();
+  });
+
   it("maps HRRc off the real nested shape (icu_hrr.hrr), live-verified against a real sync", async () => {
     // Real shape from intervals.icu: icu_hrr is an OBJECT, not a flat number — the bpm-drop value is
     // nested at icu_hrr.hrr. (icu_hrrc, the plan's original guess, does not exist in the real payload.)

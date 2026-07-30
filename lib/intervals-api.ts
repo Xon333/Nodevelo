@@ -249,6 +249,16 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       elevationGain: num(a.total_elevation_gain),
       powerZoneTimes: zoneSecs(a.icu_power_zone_times ?? a.icu_zone_times),
       hrZoneTimes: zoneSecs(a.icu_hr_zone_times),
+      // W′ (anaerobic work capacity). Both flat numbers — live-verified against a real sync (76 rides,
+      // 3 months), unlike the nested `icu_hrr` below. The ROLLING key is deliberate: `icu_rolling_w_prime`
+      // repeats the same athlete-level value across a window (22.0–24.8 kJ, 30 distinct over 76 rides),
+      // whereas `icu_pm_w_prime`/`icu_pm_cp` re-fit the model to each ride (11.0–24.8 kJ, 145–282 W — a new
+      // value nearly every ride) and are the eFTP trap in another costume. See ActivitySummary. No CP is
+      // mapped at all: `icu_rolling_cp` is null on every activity here.
+      wPrimeRollingJ: numPos(a.icu_rolling_w_prime),
+      // Peak W′-balance depletion for THIS ride — a ride measurement, so 0 is a real reading (a steady
+      // ride that never dipped into the reserve), not a missing one — so num(), not numPos().
+      wBalDepletionJ: num(a.icu_max_wbal_depletion),
       // HRRc (heart-rate recovery): live-verified against a real sync — `icu_hrr` is a NESTED OBJECT
       // ({ start_bpm, end_bpm, hrr, ... }) or null, NOT a flat number; the bpm-drop value is at
       // `icu_hrr.hrr`. `a` is untyped raw JSON, so `a.icu_hrr` is `unknown` and can't be optional-chained
