@@ -74,6 +74,7 @@ export interface BufferAdjustment {
   bufferApplied: number;
   delta: number; // kcal added to / removed from the configured buffer
   reason: string; // human-readable, shown in the profile UI
+  capped: boolean; // true when a rail was hit — surfaced, never swallowed
 }
 
 export interface WorkoutContext {
@@ -81,38 +82,121 @@ export interface WorkoutContext {
   durationMin: number;
 }
 
-const BUFFER_STEP_KCAL = 150;
-// Exported for UXA-51 — the profile UI's buffer input shows this as a visible range hint.
-export const BUFFER_MIN_KCAL = 0;
+// The buffer is SIGNED. A floor of 0 (the previous value) meant dailyTarget could never fall below
+// base + burn ≈ maintenance, so the formula was structurally incapable of prescribing a deficit — which
+// is why targetWeight was never wired into it: there was nowhere to put it.
+export const BUFFER_MIN_KCAL = -500;
 export const BUFFER_MAX_KCAL = 600;
-const WEIGHT_TREND_THRESHOLD_KG = 0.3;
+
+// Inside the deadband the desired trend is 0, so the athlete is not nudged forever over rounding noise.
+export const GOAL_DEADBAND_KG = 0.7;
+// Protective rate caps: loss faster than ~0.5 kg/week costs lean mass and performance; gain is capped to
+// limit fat accrual.
+export const MAX_LOSS_KG_PER_WEEK = 0.5;
+export const MAX_GAIN_KG_PER_WEEK = 0.35;
+
+// Proportional response: a trend error of e kg/week is e × 7700 ÷ 7 kcal/day of imbalance. Damped to
+// avoid oscillating against a noisy trend, and clamped per adjustment. The previous mechanism applied a
+// flat ±150 kcal to a 0.3 kg/7d threshold worth ≈330 kcal/day — a ~2× under-correction.
+export const KCAL_PER_KG_TISSUE = 7700;
+export const CORRECTION_DAMPING = 0.5;
+export const MAX_ADJUSTMENT_STEP_KCAL = 250;
+
+// ASYMMETRY, the deliberate clinical choice. Losing faster than intended is the failure mode that hurts
+// an underfuelled athlete, so it is corrected promptly off the responsive short trend. Gaining faster is
+// very often glycogen + bound water from finally eating enough (~3 g water per g glycogen, so 1.5-2 kg
+// within days at zero fat gain), so a cut is damped harder AND requires the long trend to confirm it.
+// Never respond to the first week of successful refuelling by taking food away.
+export const GAIN_SIDE_EXTRA_DAMPING = 0.5;
 
 const HARD_TYPES: ReadonlySet<WorkoutType> = new Set(["Threshold", "VO2max", "SIT", "RaceSim"]);
 const NON_RIDE_TYPES: ReadonlySet<WorkoutType> = new Set(["Rest", "Strength"]);
 
 const roundTo = (value: number, step: number) => Math.round(value / step) * step;
 
-export function adjustBuffer(buffer: number, weightTrend7Day: number): BufferAdjustment {
-  let delta = 0;
-  let reason = `Weight stable over last 7 days (${formatTrend(weightTrend7Day)} kg, within ±${WEIGHT_TREND_THRESHOLD_KG} kg) — buffer unchanged.`;
-  if (weightTrend7Day < -WEIGHT_TREND_THRESHOLD_KG) {
-    delta = BUFFER_STEP_KCAL;
-    reason = `Weight down ${formatTrend(weightTrend7Day)} kg over last 7 days (losing too fast) — buffer increased by ${BUFFER_STEP_KCAL} kcal.`;
-  } else if (weightTrend7Day > WEIGHT_TREND_THRESHOLD_KG) {
-    delta = -BUFFER_STEP_KCAL;
-    reason = `Weight up ${formatTrend(weightTrend7Day)} kg over last 7 days (gaining too fast) — buffer decreased by ${BUFFER_STEP_KCAL} kcal.`;
-  }
-  const unclamped = buffer + delta;
-  const bufferApplied = Math.min(BUFFER_MAX_KCAL, Math.max(BUFFER_MIN_KCAL, unclamped));
-  if (bufferApplied !== unclamped) {
-    reason += ` Capped at ${bufferApplied} kcal (allowed range ${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}).`;
-  }
-  return { bufferApplied, delta, reason };
+// The trend the athlete SHOULD be on, in kg/7d, derived from the gap to target weight. This is the
+// wiring that was missing: the previous mechanism compared the observed trend against zero, so it drove
+// toward weight stability regardless of which way the athlete wanted to go.
+export function desiredWeightTrend(currentKg: number, targetKg: number): number {
+  const gap = targetKg - currentKg; // positive → needs to gain
+  if (Math.abs(gap) <= GOAL_DEADBAND_KG) return 0;
+  return gap > 0 ? Math.min(MAX_GAIN_KG_PER_WEEK, gap) : Math.max(-MAX_LOSS_KG_PER_WEEK, gap);
 }
 
-function formatTrend(kg: number): string {
-  const rounded = Math.round(kg * 10) / 10;
-  return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`;
+/**
+ * Correct the buffer toward the athlete's INTENDED trend.
+ *
+ * `trendShort` (~14-day regression window) is the responsive signal and drives the loss side.
+ * `trendLong` (~28-day window) is the conservative signal and must confirm before any cut — a stateless
+ * substitute for a persisted confirmation counter, which adjustBuffer cannot carry because it is a pure
+ * function called on-demand from GET handlers with no write path.
+ */
+export function adjustBuffer(
+  buffer: number,
+  trendShort: number | null,
+  trendLong: number | null,
+  currentKg: number,
+  targetKg: number
+): BufferAdjustment {
+  const settle = (delta: number, reason: string): BufferAdjustment => {
+    const unclamped = buffer + delta;
+    const bufferApplied = Math.min(BUFFER_MAX_KCAL, Math.max(BUFFER_MIN_KCAL, unclamped));
+    const capped = bufferApplied !== unclamped;
+    return {
+      bufferApplied,
+      delta: bufferApplied - buffer,
+      capped,
+      reason: capped
+        ? `${reason} Capped at ${bufferApplied} kcal (allowed range ${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}) — a pinned rail means the model, not the athlete, needs revisiting.`
+        : reason,
+    };
+  };
+
+  if (trendShort === null) {
+    return settle(0, "Not enough weigh-ins yet to read a weight trend — buffer left as configured.");
+  }
+
+  const desired = desiredWeightTrend(currentKg, targetKg);
+  const errShort = trendShort - desired; // positive → gaining faster than intended
+  const goalNote = desired === 0 ? "holding weight" : `aiming for ${fmtKg(desired)} kg/week`;
+
+  let err: number;
+  let damping: number;
+  if (errShort > 0) {
+    if (trendLong === null) {
+      return settle(
+        0,
+        `Weight up ${fmtKg(trendShort)} kg/week short-term while ${goalNote}, but not confirmed over the longer window (early gain after refuelling is largely glycogen and water) — no cut.`
+      );
+    }
+    const errLong = trendLong - desired;
+    if (errLong <= 0) {
+      return settle(
+        0,
+        `Short-term weight up ${fmtKg(trendShort)} kg/week but the longer trend (${fmtKg(trendLong)} kg/week) does not confirm it while ${goalNote} — not confirmed, no cut.`
+      );
+    }
+    err = errLong;
+    damping = CORRECTION_DAMPING * GAIN_SIDE_EXTRA_DAMPING;
+  } else {
+    err = errShort;
+    damping = CORRECTION_DAMPING;
+  }
+
+  const imbalanceKcalPerDay = (err * KCAL_PER_KG_TISSUE) / 7;
+  const raw = -imbalanceKcalPerDay * damping;
+  const stepped = Math.max(-MAX_ADJUSTMENT_STEP_KCAL, Math.min(MAX_ADJUSTMENT_STEP_KCAL, raw));
+  const delta = Math.round(stepped / 10) * 10;
+  const direction = delta > 0 ? "increased" : delta < 0 ? "decreased" : "unchanged";
+  return settle(
+    delta,
+    `Weight trending ${fmtKg(err > 0 ? trendLong ?? trendShort : trendShort)} kg/week while ${goalNote} — buffer ${direction}${delta === 0 ? "" : ` by ${Math.abs(delta)} kcal`}.`
+  );
+}
+
+function fmtKg(kg: number): string {
+  const rounded = Math.round(kg * 100) / 100;
+  return `${rounded > 0 ? "+" : ""}${rounded}`;
 }
 
 // In-ride carb targets per the spec's table, collapsed to single values
@@ -184,7 +268,8 @@ export function calculateDailyTarget(
   };
 }
 
-const WEIGHT_TREND_WINDOW_DAYS = 14; // regress over the trailing fortnight
+export const WEIGHT_TREND_WINDOW_DAYS = 14; // default regression window; the gain side asks for 28
+export const WEIGHT_TREND_LONG_WINDOW_DAYS = 28;
 const WEIGHT_TREND_MIN_POINTS = 3; // need ≥3 weigh-ins before a slope is meaningful (and outlier-resistant)
 
 // 7-day weight trend (kg/7d, + = gaining) from synced wellness. A Theil–Sen slope — the median of every
@@ -194,7 +279,10 @@ const WEIGHT_TREND_MIN_POINTS = 3; // need ≥3 weigh-ins before a slope is mean
 // or the latest), which is exactly where OLS leverage is highest (RV2-6). Handles sparse logging (e.g.
 // 5×/week) natively via slopes over irregular dates. Null below the sample floor or when every weigh-in
 // shares one day (no pair spans time).
-export function weightTrendFromWellness(wellness: WellnessEntry[]): number | null {
+export function weightTrendFromWellness(
+  wellness: WellnessEntry[],
+  windowDays: number = WEIGHT_TREND_WINDOW_DAYS
+): number | null {
   const weighIns = wellness
     .filter((w): w is WellnessEntry & { weightKg: number } => w.weightKg !== null)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -203,7 +291,7 @@ export function weightTrendFromWellness(wellness: WellnessEntry[]): number | nul
   // x = days relative to the latest weigh-in (≤ 0); y = kg. Keep only the trailing window.
   const pts = weighIns
     .map((w) => ({ x: (Date.parse(w.date) - latestMs) / 86_400_000, y: w.weightKg }))
-    .filter((p) => p.x >= -WEIGHT_TREND_WINDOW_DAYS);
+    .filter((p) => p.x >= -windowDays);
   if (pts.length < WEIGHT_TREND_MIN_POINTS) return null;
   const slopes: number[] = [];
   for (let i = 0; i < pts.length; i++) {

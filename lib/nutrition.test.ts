@@ -5,6 +5,7 @@ import {
   balanceLevel,
   calculateDailyTarget,
   computeEnergyAvailability,
+  desiredWeightTrend,
   eaLevel,
   estimateWorkoutBurnKcal,
   inRideCarbTarget,
@@ -24,31 +25,84 @@ const config: AthleteNutritionConfig = {
   targetWeight: 72,
 };
 
+describe("desiredWeightTrend", () => {
+  it("is zero inside the deadband, so rounding never nudges forever", () => {
+    expect(desiredWeightTrend(75, 75)).toBe(0);
+    expect(desiredWeightTrend(75, 75.5)).toBe(0);
+  });
+
+  it("is positive and rate-capped when under target", () => {
+    expect(desiredWeightTrend(70, 78)).toBe(0.35);
+  });
+
+  it("is negative and rate-capped when over target", () => {
+    expect(desiredWeightTrend(80, 72)).toBe(-0.5);
+  });
+});
+
 describe("adjustBuffer", () => {
-  it("keeps the buffer when weight is stable (within ±0.3 kg)", () => {
-    expect(adjustBuffer(300, 0).bufferApplied).toBe(300);
-    expect(adjustBuffer(300, -0.3).bufferApplied).toBe(300);
-    expect(adjustBuffer(300, 0.3).bufferApplied).toBe(300);
+  const AT_TARGET = { current: 75, target: 75 };
+  const UNDER_TARGET = { current: 70, target: 78 };
+
+  it("leaves the buffer alone when the trend matches intent", () => {
+    const r = adjustBuffer(300, 0, 0, AT_TARGET.current, AT_TARGET.target);
+    expect(r.delta).toBe(0);
+    expect(r.bufferApplied).toBe(300);
   });
 
-  it("adds 150 kcal when losing more than 0.3 kg over 7 days", () => {
-    const result = adjustBuffer(300, -0.5);
-    expect(result.bufferApplied).toBe(450);
-    expect(result.delta).toBe(150);
-    expect(result.reason).toMatch(/losing too fast/);
+  it("adds food promptly when losing faster than intended", () => {
+    // err = -0.5 kg/7d → -550 kcal/day imbalance → +275 damped → clamped to the +250 step cap
+    const r = adjustBuffer(300, -0.5, -0.5, AT_TARGET.current, AT_TARGET.target);
+    expect(r.delta).toBe(250);
+    expect(r.bufferApplied).toBe(550);
   });
 
-  it("removes 150 kcal when gaining more than 0.3 kg over 7 days", () => {
-    const result = adjustBuffer(300, 0.5);
-    expect(result.bufferApplied).toBe(150);
-    expect(result.delta).toBe(-150);
-    expect(result.reason).toMatch(/gaining too fast/);
+  it("uses the responsive short trend on the loss side", () => {
+    // Short says losing, long has not caught up — feed anyway; the protective direction acts first.
+    const r = adjustBuffer(300, -0.4, 0, AT_TARGET.current, AT_TARGET.target);
+    expect(r.delta).toBeGreaterThan(0);
   });
 
-  it("caps the buffer between 0 and 600 kcal", () => {
-    expect(adjustBuffer(550, -1.0).bufferApplied).toBe(600);
-    expect(adjustBuffer(50, 1.0).bufferApplied).toBe(0);
-    expect(adjustBuffer(550, -1.0).reason).toMatch(/Capped/);
+  it("does NOT cut on a glycogen-rebound spike when the long trend cannot confirm", () => {
+    // The D3 regression: +1.5 kg/7d right after refuelling is glycogen + bound water, not fat.
+    const r = adjustBuffer(300, 1.5, null, UNDER_TARGET.current, UNDER_TARGET.target);
+    expect(r.delta).toBe(0);
+    expect(r.bufferApplied).toBe(300);
+    expect(r.reason).toMatch(/not confirmed/i);
+  });
+
+  it("barely cuts a confirmed gain while the athlete is still under target", () => {
+    // Long trend +0.375 vs a desired +0.35 → the error is ~0.025, so the cut is negligible by
+    // arithmetic rather than by a special case.
+    const r = adjustBuffer(300, 1.5, 0.375, UNDER_TARGET.current, UNDER_TARGET.target);
+    expect(r.delta).toBeGreaterThan(-30);
+    expect(r.delta).toBeLessThanOrEqual(0);
+  });
+
+  it("cuts on a confirmed gain when the athlete is at target, damped harder than it feeds", () => {
+    const gain = adjustBuffer(300, 0.5, 0.5, AT_TARGET.current, AT_TARGET.target);
+    const loss = adjustBuffer(300, -0.5, -0.5, AT_TARGET.current, AT_TARGET.target);
+    expect(gain.delta).toBeLessThan(0);
+    expect(Math.abs(gain.delta)).toBeLessThan(Math.abs(loss.delta)); // asymmetry: quicker to feed
+  });
+
+  it("allows a negative buffer so a deficit is representable at all", () => {
+    const r = adjustBuffer(-200, 0.6, 0.6, 80, 72);
+    expect(r.bufferApplied).toBeLessThan(0);
+    expect(r.bufferApplied).toBeGreaterThanOrEqual(-500);
+  });
+
+  it("reports when a rail is hit instead of swallowing it", () => {
+    const r = adjustBuffer(580, -1.0, -1.0, AT_TARGET.current, AT_TARGET.target);
+    expect(r.bufferApplied).toBe(600);
+    expect(r.capped).toBe(true);
+    expect(r.reason).toMatch(/capped/i);
+  });
+
+  it("withholds correction entirely when there is no trend to act on", () => {
+    const r = adjustBuffer(300, null, null, AT_TARGET.current, AT_TARGET.target);
+    expect(r.delta).toBe(0);
+    expect(r.reason).toMatch(/not enough weigh-ins/i);
   });
 });
 
@@ -180,6 +234,21 @@ describe("weightTrendFromWellness", () => {
       entry("2026-06-14", 75.0),
     ]);
     expect(Math.abs(trend as number)).toBeLessThan(0.2);
+  });
+});
+
+describe("weightTrendFromWellness windowing", () => {
+  const w = (date: string, weightKg: number) =>
+    ({ date, weightKg, kcalConsumed: null }) as unknown as WellnessEntry;
+
+  it("dilutes a late step change when given the longer window", () => {
+    const entries = [
+      w("2026-07-01", 70), w("2026-07-08", 70), w("2026-07-15", 70),
+      w("2026-07-22", 70), w("2026-07-29", 71.5),
+    ];
+    const short = weightTrendFromWellness(entries, 14) as number;
+    const long = weightTrendFromWellness(entries, 28) as number;
+    expect(long).toBeLessThan(short); // the point of the gain-side confirmation window
   });
 });
 
