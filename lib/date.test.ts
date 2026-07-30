@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { localToday, resolveToday, utcToday, isBlockFinished, addDaysIso } from "./date";
+import { localToday, resolveToday, utcToday, isBlockFinished, addDaysIso, ageYearsFrom } from "./date";
 import type { CurrentBlock } from "./types";
 
 describe("localToday", () => {
@@ -51,5 +51,28 @@ describe("addDaysIso", () => {
   it("subtracts with negative n and handles leap days", () => {
     expect(addDaysIso("2026-03-01", -1)).toBe("2026-02-28");
     expect(addDaysIso("2028-02-28", 1)).toBe("2028-02-29");
+  });
+});
+
+describe("ageYearsFrom", () => {
+  it("derives whole years", () => {
+    expect(ageYearsFrom("1996-03-14", "2026-07-30")).toBe(30);
+  });
+
+  it("has not counted a birthday that has not happened yet this year", () => {
+    expect(ageYearsFrom("1996-12-14", "2026-07-30")).toBe(29);
+  });
+
+  it("counts the birthday itself", () => {
+    expect(ageYearsFrom("1996-07-30", "2026-07-30")).toBe(30);
+  });
+
+  it("does not count the day before the birthday", () => {
+    expect(ageYearsFrom("1996-07-31", "2026-07-30")).toBe(29);
+  });
+
+  it("rejects malformed or implausible input rather than returning a wrong number", () => {
+    expect(ageYearsFrom("not-a-date", "2026-07-30")).toBeNull();
+    expect(ageYearsFrom("2027-01-01", "2026-07-30")).toBeNull(); // future DOB
   });
 });

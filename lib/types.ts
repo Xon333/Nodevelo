@@ -33,6 +33,13 @@ export interface PerformanceData {
   weightKg: number; // manual entry; live weight comes from wellness sync
   weeklyHoursMin: number;
   weeklyHoursMax: number;
+  // RMR inputs (Mifflin-St Jeor). All three null until the athlete supplies them; their presence is the
+  // migration gate that switches the nutrition formula from the legacy hand-set numbers to the derived
+  // one. Guard with truthy checks, NEVER `=== null` — a profile JSON written before these fields existed
+  // parses them back as `undefined`.
+  dateOfBirth: string | null; // YYYY-MM-DD; age is derived at use via ageYearsFrom, never stored
+  heightCm: number | null;
+  sex: "male" | "female" | null; // a formula input (the equation's constant term is binary), not identity
 }
 
 export interface NutritionSettings {

@@ -9,6 +9,8 @@ import {
   estimateWorkoutBurnKcal,
   inRideCarbTarget,
   preRideCarbTarget,
+  restingMetabolicRate,
+  DEFAULT_NEAT_MULTIPLIER,
   weightTrendFromWellness,
   type AthleteNutritionConfig,
 } from "./nutrition";
@@ -277,5 +279,22 @@ describe("activeBurn", () => {
 
   it("treats a zero active-burn figure as real, not missing", () => {
     expect(activeBurn({ ...base, activeBurnKcal: 0, kj: 500 })).toEqual({ kcal: 0, legacy: false });
+  });
+});
+
+describe("restingMetabolicRate", () => {
+  // Mifflin-St Jeor: (10 × kg) + (6.25 × cm) − (5 × yr) + 5 for male, − 161 for female.
+  it("matches the published male equation", () => {
+    // 10*75 + 6.25*180 − 5*30 + 5 = 750 + 1125 − 150 + 5 = 1730
+    expect(restingMetabolicRate(75, 180, 30, "male")).toBe(1730);
+  });
+
+  it("matches the published female equation", () => {
+    // 10*62 + 6.25*168 − 5*28 − 161 = 620 + 1050 − 140 − 161 = 1369
+    expect(restingMetabolicRate(62, 168, 28, "female")).toBe(1369);
+  });
+
+  it("exposes a NEAT prior that excludes structured exercise", () => {
+    expect(DEFAULT_NEAT_MULTIPLIER).toBe(1.2);
   });
 });

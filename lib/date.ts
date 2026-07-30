@@ -48,3 +48,15 @@ export function addDaysIso(iso: string, n: number): string {
   const [y, m, d] = iso.split("-").map(Number);
   return localToday(new Date(y, m - 1, d + n));
 }
+
+// Age in whole years, derived at point of use from a stored date of birth. Deliberately NOT a stored
+// `ageYears` number: that silently drifts by one every year and nobody ever revisits it. Both arguments
+// are YYYY-MM-DD; returns null on malformed input or an implausible result rather than a wrong number.
+export function ageYearsFrom(dateOfBirth: string, today: string): number | null {
+  if (!ISO_DATE.test(dateOfBirth) || !ISO_DATE.test(today)) return null;
+  const [by, bm, bd] = dateOfBirth.split("-").map(Number);
+  const [ty, tm, td] = today.split("-").map(Number);
+  let age = ty - by;
+  if (tm < bm || (tm === bm && td < bd)) age -= 1;
+  return age >= 0 && age < 120 ? age : null;
+}

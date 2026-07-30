@@ -22,7 +22,7 @@ import { PUT } from "@/app/api/profile/route";
 import type { AthleteProfile } from "@/lib/types";
 
 const base = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
-  performance: { ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10 },
+  performance: { ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: null, heightCm: null, sex: null },
   goals: [{ goal: "Finish a fondo", target: "150km", focus: "durability" }],
   weakpoints: [{ weakpoint: "Climbing", detail: "Loses power over 8%" }],
   nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68 },

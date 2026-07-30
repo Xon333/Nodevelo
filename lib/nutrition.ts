@@ -28,6 +28,33 @@ export function activeBurn(a: Pick<ActivitySummary, "activeBurnKcal" | "kj">): A
   return null;
 }
 
+/**
+ * Mifflin-St Jeor. Predicts RESTING metabolic rate (RMR/REE) — not BMR, which requires stricter
+ * measurement conditions and runs ~10% lower; the naming matters because the two are not interchangeable.
+ *
+ * `sex` is a formula input: the equation's constant term is binary. It is not a statement about identity.
+ *
+ * Deliberately isolated in one function so the equation can be swapped without touching a single caller.
+ * Mifflin under-predicts RMR in trained endurance athletes by ~5-10%, but a calibrated NEAT multiplier
+ * (spec §7, Phase 3) absorbs a constant under-prediction by construction, so swapping equations is
+ * deferred rather than done here.
+ */
+export function restingMetabolicRate(
+  weightKg: number,
+  heightCm: number,
+  ageYears: number,
+  sex: "male" | "female"
+): number {
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * ageYears;
+  return Math.round(sex === "male" ? base + 5 : base - 161);
+}
+
+// Prior for the NEAT multiplier before per-athlete calibration (Phase 3) has enough data. Covers
+// RMR-multiplier territory ONLY: non-exercise activity plus the thermic effect of food. Structured
+// exercise is never in here — it arrives separately as activeBurnKcal, and double-counting it would
+// inflate every training day.
+export const DEFAULT_NEAT_MULTIPLIER = 1.2;
+
 export interface AthleteNutritionConfig {
   baseCalories: number; // default: 2000
   restDayTarget: number; // default: 2600

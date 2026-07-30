@@ -7,7 +7,7 @@ import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord, SeasonPlan } from "./types";
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
-  performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10 },
+  performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: null, heightCm: null, sex: null },
   goals: [],
   weakpoints: [],
   nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75 },
