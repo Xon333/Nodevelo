@@ -157,8 +157,25 @@ export interface BlockSkeleton {
 }
 
 // Nominal session lengths. Easy days absorb the remainder, so these only need to be realistic.
-const QUALITY_NOMINAL_MIN = 75;
+// A quality session's natural length is a property of its TYPE, not a constant. The first Phase B
+// live runs flagged the Tuesday SIT slot at 55 min against a flat 60–90 range in every single week —
+// and the generated session was correct: 17 min warmup + 5 x (30s effort + 4 min recovery) + 15 min
+// cooldown is ~55 min, and a 5x30s protocol cannot fill 75 minutes without artificial padding. The
+// slot was mis-sized, not the workout. These figures are the realistic step-sum of each protocol as
+// the knowledge base prescribes it; easy days absorb the difference so the week still sums to target.
+const QUALITY_NOMINAL_BY_TYPE: Record<string, number> = {
+  SIT: 55, // short maximal efforts, long recoveries — inherently the shortest quality session
+  VO2max: 75,
+  Threshold: 80,
+  RaceSim: 100, // variable race-effort work, deliberately the longest
+};
+const QUALITY_NOMINAL_FALLBACK_MIN = 75; // a flexible slot whose type the model still gets to choose
 const QUALITY_RECOVERY_MIN = 45; // "SHORT" — the recovery week's single retained touch
+
+/** The natural step-sum of one quality session of this type. */
+function qualityNominalFor(type: WorkoutType | null): number {
+  return (type && QUALITY_NOMINAL_BY_TYPE[type]) || QUALITY_NOMINAL_FALLBACK_MIN;
+}
 const EASY_MIN_MIN = 45;
 const EASY_MAX_MIN = 150;
 const DURATION_SLACK_MIN = 15; // envelope half-width around each nominal
@@ -222,7 +239,12 @@ export function computeBlockSkeleton(
     let longRideMin = t.isRecovery
       ? Math.round(settings.longRideDurationMinutes * RECOVERY_RETENTION_PCT)
       : settings.longRideDurationMinutes;
-    const qualityBaseMin = t.isRecovery ? QUALITY_RECOVERY_MIN : QUALITY_NOMINAL_MIN;
+    // Per-slot, because natural session length is type-dependent. Slot 0 of a loading week is locked
+    // to the block's focus type, so we know exactly what it will be; later slots stay flexible across
+    // all four quality types, so they take the middle figure and a wider envelope (below). A recovery
+    // week's single retained touch is deliberately short whatever its type.
+    const qualityNominalAt = (slotIndex: number) =>
+      t.isRecovery ? QUALITY_RECOVERY_MIN : slotIndex === 0 ? qualityNominalFor(focusType) : QUALITY_NOMINAL_FALLBACK_MIN;
 
     // ---- Step 1: place slot KINDS (rest / quality / long ride / easy). Event overrides are applied
     // later, at render time — placement always reflects the week's underlying shape first. ----
@@ -248,9 +270,9 @@ export function computeBlockSkeleton(
     const qCount = kinds.filter((k) => k === "quality").length;
     const easyCount = kinds.filter((k) => k === "easy").length;
 
-    let qualityMins: number[] = Array.from({ length: qCount }, () => qualityBaseMin);
-    let fixedTotal = longRideMin + qCount * qualityBaseMin;
-    let easyTotal = totalMin - fixedTotal;
+    let qualityMins: number[] = Array.from({ length: qCount }, (_, i) => qualityNominalAt(i));
+    const qualityNominalTotal = qualityMins.reduce((a, b) => a + b, 0);
+    let easyTotal = totalMin - (longRideMin + qualityNominalTotal);
 
     // ---- I3 fix: the fixed content (long ride + quality) can legitimately exceed the week's target
     // on its own — e.g. a tiny weeklyHoursMax paired with a long-ride duration that alone eats the
@@ -264,7 +286,7 @@ export function computeBlockSkeleton(
       longRideMin -= rideReduction;
       shortfall -= rideReduction;
       if (shortfall > 0 && qCount > 0) {
-        const shrunkQualityTotal = Math.max(0, qCount * qualityBaseMin - shortfall);
+        const shrunkQualityTotal = Math.max(0, qualityNominalTotal - shortfall);
         qualityMins = spread(shrunkQualityTotal, qCount);
       }
       easyTotal = 0;
@@ -356,10 +378,23 @@ export function computeBlockSkeleton(
           const isFirstQualitySlot = renderedQualityCount === 0;
           renderedQualityCount++;
           const flexibleSlot = !t.isRecovery && !isFirstQualitySlot;
+          // A flexible slot's envelope must span the natural length of EVERY type it allows, or it
+          // flags a correct session for being the wrong shape: a legitimate SIT (~55 min) and a
+          // legitimate RaceSim (~100 min) both satisfy this slot, and +/-DURATION_SLACK_MIN around a
+          // single middle figure would reject both. A locked slot knows its one type, so it keeps the
+          // normal narrow envelope.
+          const flexNominals = (["Threshold", "VO2max", "SIT", "RaceSim"] as const).map(qualityNominalFor);
+          const duration = flexibleSlot
+            ? {
+                nominalMin: nominal,
+                minMin: Math.max(0, Math.min(...flexNominals) - DURATION_SLACK_MIN),
+                maxMin: Math.max(...flexNominals) + DURATION_SLACK_MIN,
+              }
+            : env(nominal);
           return {
             date, kind,
             allowedTypes: flexibleSlot ? ["Threshold", "VO2max", "SIT", "RaceSim"] : focusType ? [focusType] : ["Threshold", "VO2max", "SIT", "RaceSim"],
-            duration: env(nominal),
+            duration,
             maxIntensityPct: t.isRecovery ? RECOVERY_QUALITY_CEILING_PCT : null,
             locked: flexibleSlot ? false : !!focusType,
             reason: t.isRecovery

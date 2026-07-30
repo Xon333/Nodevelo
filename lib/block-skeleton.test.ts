@@ -218,38 +218,66 @@ describe("computeBlockSkeleton", () => {
     expect(ev.locked).toBe(true);
   });
 
-  // Supplementary coverage: DEFAULT_BLOCK_SETTINGS' own numbers (12h loading week, 2×75min quality,
-  // 180min long ride, 1 rest day, 3 easy days) work out to exactly 130min/easy day — comfortably
-  // inside the [45,150] clamp band, so none of the tests above ever actually exercise the
+  // Supplementary coverage: DEFAULT_BLOCK_SETTINGS' own numbers work out to an easy-day figure
+  // comfortably inside the [45,150] clamp band, so none of the tests above ever actually exercise the
   // clamp-and-residual path the brief calls "the whole point." These two force it in each direction.
+  // Quality minutes below are type-aware: an `anaerobic` block's locked first slot is SIT (55min, its
+  // real protocol length) and its flexible second slot takes the 75min middle figure — 130min total.
   it("clamps easy days DOWN to the ceiling and grows the long ride by exactly what they gave up", () => {
-    // easyTotal = 1200 - 180 - 150 = 870min / 3 easy days = 290min each, over the 150min ceiling.
+    // easyTotal = 1200 - 180 - 130 = 890min / 3 easy days = ~297min each, over the 150min ceiling.
     const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 20 };
     const target = computeWeekTargets(1, settings, [])[0];
     const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
     const days = sk.weeks[0].days;
     const easyDays = days.filter((d) => d.kind === "easy");
     expect(easyDays.map((d) => d.duration.nominalMin)).toEqual([150, 150, 150]);
-    // 3 * (290 - 150) = 420min given up by the easy days must land on the long ride: 180 + 420 = 600.
+    // 890 - (3 * 150) = 440min given up by the easy days must land on the long ride: 180 + 440 = 620.
     const longRide = days.find((d) => d.kind === "longRide")!;
-    expect(longRide.duration.nominalMin).toBe(600);
+    expect(longRide.duration.nominalMin).toBe(620);
     const sum = days.reduce((t, d) => t + d.duration.nominalMin, 0);
     expect(sum).toBe(Math.round(target.targetHours * 60));
   });
 
   it("clamps easy days UP to the floor and shrinks the long ride by exactly what they took", () => {
-    // easyTotal = 360 - 180 - 150 = 30min / 3 easy days = 10min each, under the 45min floor.
+    // easyTotal = 360 - 180 - 130 = 50min / 3 easy days = ~17min each, under the 45min floor.
     const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 6 };
     const target = computeWeekTargets(1, settings, [])[0];
     const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
     const days = sk.weeks[0].days;
     const easyDays = days.filter((d) => d.kind === "easy");
     expect(easyDays.map((d) => d.duration.nominalMin)).toEqual([45, 45, 45]);
-    // 3 * (45 - 10) = 105min taken by the easy days must come OFF the long ride: 180 - 105 = 75.
+    // (3 * 45) - 50 = 85min taken by the easy days must come OFF the long ride: 180 - 85 = 95.
     const longRide = days.find((d) => d.kind === "longRide")!;
-    expect(longRide.duration.nominalMin).toBe(75);
+    expect(longRide.duration.nominalMin).toBe(95);
     const sum = days.reduce((t, d) => t + d.duration.nominalMin, 0);
     expect(sum).toBe(Math.round(target.targetHours * 60));
+  });
+
+  // A quality slot's length is a property of its TYPE. Two live runs flagged the Tuesday SIT slot at
+  // 55min against a flat 60-90 range every single week, and the generated session was correct — a
+  // 5x30s SIT protocol is ~55min and cannot fill 75 without padding. The slot was mis-sized.
+  it("sizes the locked quality slot to its own type's natural length, not a flat figure", () => {
+    const nominalFor = (focus: "anaerobic" | "vo2max" | "threshold") =>
+      computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, focus, [])
+        .weeks[0].days.find((d) => d.kind === "quality")!.duration;
+
+    expect(nominalFor("anaerobic").nominalMin).toBe(55); // SIT — the shortest protocol
+    expect(nominalFor("vo2max").nominalMin).toBe(75);
+    expect(nominalFor("threshold").nominalMin).toBe(80);
+    // A real 55min SIT session must now FIT its slot rather than being flagged every week.
+    expect(nominalFor("anaerobic").minMin).toBeLessThanOrEqual(55);
+    expect(nominalFor("anaerobic").maxMin).toBeGreaterThanOrEqual(55);
+  });
+
+  it("widens the flexible quality slot to span every type it allows", () => {
+    // The second loading-week slot may legitimately be a ~55min SIT or a ~100min RaceSim; an envelope
+    // sized for one middle figure would reject both correct answers.
+    const slots = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", [])
+      .weeks[0].days.filter((d) => d.kind === "quality");
+    expect(slots).toHaveLength(2);
+    const flex = slots[1].duration;
+    expect(flex.minMin).toBeLessThanOrEqual(55); // a SIT fits
+    expect(flex.maxMin).toBeGreaterThanOrEqual(100); // a RaceSim fits
   });
 
   it("maps each required-type focus to its own quality session type (not a neighbour's)", () => {
