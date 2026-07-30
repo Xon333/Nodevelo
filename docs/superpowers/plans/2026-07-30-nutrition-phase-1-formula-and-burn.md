@@ -72,6 +72,8 @@ positive, so a rebound produces a near-zero delta by arithmetic rather than by a
 | `app/api/generate/route.ts` | Plan generation | **Modify** — config assembly |
 | `components/AthleteProfileForm.tsx` | Profile UI | **Modify** — new inputs, computed display, migration prompt |
 | `components/dashboard/today.tsx` | Today dashboard | **Modify** — EA tile call-through only |
+| `lib/ride-analysis.ts` | Today-card ride analysis | **Modify** — `computeAdvisedIntake` is a THIRD copy of the formula (missed in the original list, found during Task 3); delegate it to `calculateDailyTarget`. Task 5 Step 7b |
+| `app/api/sync/route.ts` | Sync + today analysis | **Modify** — build `TodayAnalysisInputs.nutrition` from the model. Task 5 Step 7b |
 
 Tests live in the existing `lib/nutrition.test.ts`, `lib/nutrition-validate.test.ts`, `lib/trends.test.ts`.
 
@@ -1329,6 +1331,47 @@ In `app/api/generate/route.ts`, replace the `nutritionConfig` block (~120-130):
 
 Update the `AthleteNutritionConfig` import to `resolveNutritionModel, adjustBuffer, WEIGHT_TREND_LONG_WINDOW_DAYS`.
 If `body.today` is not already read in this handler, use `localToday()` — do not inline a UTC date.
+
+- [ ] **Step 7b: Fix the third copy of the formula — `lib/ride-analysis.ts`**
+
+**Found during execution; the plan's original File Structure table missed it.** `computeAdvisedIntake`
+([lib/ride-analysis.ts:53](../../../lib/ride-analysis.ts)) re-implements the training-day formula
+(`baseCalories + rideKj + bufferApplied`) and calls `adjustBuffer` with the old 2-argument signature. It
+feeds the Today card's advised-intake figure *and* `todayTargetKcal` in
+[lib/coach-snapshot.ts:279](../../../lib/coach-snapshot.ts), which goes into the AI prompt — so leaving it
+on the legacy path would make the Today card and the generated plan quietly disagree, which is the exact
+defect class this phase exists to remove.
+
+Delegate to the one formula instead of duplicating it:
+
+```ts
+export function computeAdvisedIntake(
+  rideKj: number | null,
+  model: NutritionModel,
+  bufferApplied: number
+): AdvisedIntake {
+  const advisedRideFuelKcal = rideKj ?? 0;
+  // Delegates to THE formula rather than re-deriving base + burn + buffer, so the Today card and the
+  // generated plan can never disagree. isRestDay is false: this path only runs for a completed ride.
+  const plan = calculateDailyTarget(advisedRideFuelKcal, model, bufferApplied, false);
+  return {
+    advisedIntakeKcal: plan.dailyTarget,
+    advisedBaseKcal: plan.maintenanceKcal - advisedRideFuelKcal,
+    advisedBufferKcal: bufferApplied,
+    advisedRideFuelKcal,
+  };
+}
+```
+
+Change `TodayAnalysisInputs.nutrition` from `{ baseCalories: number; buffer: number }` to
+`{ model: NutritionModel; bufferApplied: number }`, forward it at
+[lib/ride-analysis.ts:107](../../../lib/ride-analysis.ts), and update the construction site at
+[app/api/sync/route.ts:678](../../../app/api/sync/route.ts) to build it via `resolveNutritionModel` +
+`adjustBuffer` the same way the profile route does. Keep `weightTrend7Day` on `TodayAnalysisInputs` if
+other fields still use it; drop it only if it becomes genuinely unused.
+
+Update `lib/ride-analysis.test.ts`'s `computeAdvisedIntake` suite to the new signature. Its existing
+expectations (2900 = 2000 + 600 + 300) hold exactly under a legacy model — use one, and keep the numbers.
 
 - [ ] **Step 8: Scoped verification**
 
