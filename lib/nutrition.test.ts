@@ -38,6 +38,11 @@ describe("desiredWeightTrend", () => {
   it("is negative and rate-capped when over target", () => {
     expect(desiredWeightTrend(80, 72)).toBe(-0.5);
   });
+
+  it("treats a gap sitting exactly on the deadband as inside it", () => {
+    expect(desiredWeightTrend(75, 75.7)).toBe(0);
+    expect(desiredWeightTrend(75, 74.3)).toBe(0);
+  });
 });
 
 describe("adjustBuffer", () => {
@@ -103,6 +108,20 @@ describe("adjustBuffer", () => {
     const r = adjustBuffer(300, null, null, AT_TARGET.current, AT_TARGET.target);
     expect(r.delta).toBe(0);
     expect(r.reason).toMatch(/not enough weigh-ins/i);
+  });
+
+  it("does not apply a full cut once the recent trend shows the athlete has stabilised", () => {
+    // Long window still carries an earlier fast gain (+1.3), but the athlete is now gaining at +0.4
+    // against a desired +0.35 — essentially on plan. Sizing the cut off the stale long trend would
+    // punish exactly the recovery trajectory this mechanism exists to protect.
+    const r = adjustBuffer(300, 0.4, 1.3, 70, 78);
+    expect(r.delta).toBeGreaterThan(-30);
+    expect(r.delta).toBeLessThanOrEqual(0);
+  });
+
+  it("still applies a real cut when BOTH windows confirm a sustained overshoot", () => {
+    const r = adjustBuffer(300, 1.5, 1.5, 70, 78);
+    expect(r.delta).toBeLessThan(-100);
   });
 });
 

@@ -118,7 +118,9 @@ const roundTo = (value: number, step: number) => Math.round(value / step) * step
 // wiring that was missing: the previous mechanism compared the observed trend against zero, so it drove
 // toward weight stability regardless of which way the athlete wanted to go.
 export function desiredWeightTrend(currentKg: number, targetKg: number): number {
-  const gap = targetKg - currentKg; // positive → needs to gain
+  // Rounded before comparison: `75.7 - 75` is 0.7000000000000028 in IEEE arithmetic, so an exact-boundary
+  // gap would otherwise fall outside the deadband it is supposed to sit on.
+  const gap = Math.round((targetKg - currentKg) * 100) / 100; // positive → needs to gain
   if (Math.abs(gap) <= GOAL_DEADBAND_KG) return 0;
   return gap > 0 ? Math.min(MAX_GAIN_KG_PER_WEEK, gap) : Math.max(-MAX_LOSS_KG_PER_WEEK, gap);
 }
@@ -162,6 +164,7 @@ export function adjustBuffer(
 
   let err: number;
   let damping: number;
+  let reportedTrend: number;
   if (errShort > 0) {
     if (trendLong === null) {
       return settle(
@@ -176,10 +179,17 @@ export function adjustBuffer(
         `Short-term weight up ${fmtKg(trendShort)} kg/week but the longer trend (${fmtKg(trendLong)} kg/week) does not confirm it while ${goalNote} — not confirmed, no cut.`
       );
     }
-    err = errLong;
+    // The magnitude comes from the MORE CONSERVATIVE of the two errors, not from errLong alone. The long
+    // window is backward-looking: an athlete who gained fast and has since settled to the intended rate
+    // would otherwise keep taking a full cut driven by stale data — which is precisely the trajectory of
+    // someone recovering from underfuelling. The long window's job is to CONFIRM the gain is real rather
+    // than glycogen, not to size the response.
+    err = Math.min(errShort, errLong);
+    reportedTrend = err === errShort ? trendShort : trendLong;
     damping = CORRECTION_DAMPING * GAIN_SIDE_EXTRA_DAMPING;
   } else {
     err = errShort;
+    reportedTrend = trendShort;
     damping = CORRECTION_DAMPING;
   }
 
@@ -190,7 +200,7 @@ export function adjustBuffer(
   const direction = delta > 0 ? "increased" : delta < 0 ? "decreased" : "unchanged";
   return settle(
     delta,
-    `Weight trending ${fmtKg(err > 0 ? trendLong ?? trendShort : trendShort)} kg/week while ${goalNote} — buffer ${direction}${delta === 0 ? "" : ` by ${Math.abs(delta)} kcal`}.`
+    `Weight trending ${fmtKg(reportedTrend)} kg/week while ${goalNote} — buffer ${direction}${delta === 0 ? "" : ` by ${Math.abs(delta)} kcal`}.`
   );
 }
 
