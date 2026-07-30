@@ -437,13 +437,14 @@ export function formatBlockSkeleton(skeleton: BlockSkeleton): string {
       `| Date | Slot | Type | Duration | Ceiling | Why |`,
       `|---|---|---|---|---|---|`,
       ...rows,
-      `The nominal durations above already sum to ${total} min. Stay inside each range and the week's total lands on its target.${notThisWeek}`,
+      `These nominal durations already sum to ${total} min — the week's target. Prefer the nominal figure. If you deviate inside a range, COMPENSATE on another day in the same week so the week still totals ${total} min; the ranges are per-day leeway, not a licence to land the week short.${notThisWeek}`,
     ].join("\n");
   });
 
   return [
     `WEEK SKELETON (FIXED — fill each slot, do NOT add, drop, move, merge or retype any day).`,
-    `Each row is one calendar day. Pick a duration inside the stated range. Never place any effort above a row's intensity ceiling, including efforts embedded inside an otherwise-easy ride.`,
+    `Each row is one calendar day. Never place any effort above a row's intensity ceiling, including efforts embedded inside an otherwise-easy ride.`,
+    `DURATION IS MEASURED FROM YOUR WORKOUT STEPS, NOT FROM THE NUMBER YOU WRITE. The app recomputes each day's duration by summing that day's warmup + main + cooldown steps and overwrites your stated figure with the result. So a session only fills its slot if its STEPS add up to a figure inside the slot's range — writing "75 min" above steps that total 53 will be recorded as 53 and will miss the slot. Add up your steps for every day before finalising it.`,
     ...blocks,
   ].join("\n\n");
 }
