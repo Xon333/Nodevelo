@@ -465,6 +465,46 @@ In `resolveNutritionModel`'s derived branch, replace `neatMultiplier: DEFAULT_NE
 Optional chaining and `??` are required, not stylistic: a profile JSON written before `neat` existed parses
 it back as `undefined`. This is the same class as the migration gate.
 
+- [ ] **Step 3b: Coverage over the LOGGABLE range, plus a staleness guard**
+
+**Found during execution — the plan's original gates were measured against an over-optimistic hand
+calculation.** Anchoring the window at *today* while this athlete transfers intake in batches drags
+coverage down artificially. Measured 2026-07-30 with a 9-day transfer gap:
+
+| Window | logged/total | weigh-ins | outcome |
+|---|---|---|---|
+| 28 d | 14/28 = 50% | 8 | withheld |
+| 42 d | 26/42 = 62% | 20 | withheld |
+| 60 d | 44/60 = 73% | 34 | k = 1.363, medium |
+
+The same windows anchored at the last *logged* day give 82–87% coverage. So calibration as written
+flickers: available right after a transfer, gone nine days later. That is honest but not useful.
+
+**Fix — separate "patchy" from "stale", because they are different states:**
+
+```ts
+// Days the athlete COULD have logged in this window: window start → the last day they actually logged.
+// Coverage measured against the full window punishes a transfer gap as if it were a logging gap, and
+// this athlete logs ~99% of days in MyFitnessPal and only transfers into Intervals.icu in batches.
+export const CALIBRATION_MAX_STALENESS_DAYS = 14;
+```
+
+- Compute `loggableDays` = days from window start through the last logged date inside the window.
+  Coverage = `loggedDays / loggableDays`, floored at 1 to avoid divide-by-zero.
+- **Staleness guard:** if the last logged date is more than `CALIBRATION_MAX_STALENESS_DAYS` before
+  `today`, return `null` regardless of coverage, and say so — good-but-old data must not be adopted as
+  current. Add a `stale: boolean` to `NeatCalibration` so Task 5 can render "your last transfer was N
+  days ago" rather than a bare absence.
+- `N` in the identity becomes `loggableDays`, not `windowDays` — the k·RMR term is per-day, so it must
+  count the same days the intake and burn sums cover.
+
+This also resolves the Task 3 implementer's flagged judgment call: days excluded for an unresolvable
+activity burn must decrement `N` too (this athlete has **23** such activities), otherwise the identity
+is unbalanced by roughly 1.5%.
+
+Add tests: a series with a trailing transfer gap inside the staleness limit still calibrates; one beyond
+it returns `null` with `stale: true`; excluding a burn-unresolvable day decrements `N`.
+
 - [ ] **Step 4: Recalibrate on sync**
 
 In `app/api/sync/route.ts`, after the sync data is persisted and the profile is available, call
@@ -589,10 +629,13 @@ from this app, whatever the buffer says.
 
 ## Task 7: Live verification
 
-- [ ] **Step 1:** Sync, then confirm `/api/profile` shows `neat.source === "derived"` with a multiplier
-near **1.30** and `confidence: "high"` — the figure independently computed from this athlete's data on
-2026-07-30. A materially different value means the implementation disagrees with the hand calculation and
-must be reconciled before shipping.
+- [ ] **Step 1:** Sync, then confirm `/api/profile` shows `neat.source === "derived"` with a plausible
+multiplier and a stated confidence. **Do not expect 1.30** — that hand figure anchored its windows at the
+last *logged* day and was over-optimistic. Measured against the real today-anchored data on 2026-07-30 the
+60-day window gives **1.363 at medium confidence**, and the 28/42-day windows correctly withhold. After
+Step 3b's loggable-range change the number will move again; **record what it actually is** rather than
+matching it to a prior expectation. What must hold: `k` is inside the plausible band, confidence is
+justified by the printed coverage/weigh-in counts, and the value is stable across two consecutive syncs.
 - [ ] **Step 2:** Confirm the derivation panel renders every row with real values.
 - [ ] **Step 3:** Generate a 2-week block live. Confirm no rest day exceeds any training day, and record
 the new rest-day figure — it should recover most of Phase 1's 2600 → 2300 drop (review finding I3).
