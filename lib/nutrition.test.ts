@@ -15,6 +15,7 @@ import {
   DEFAULT_NEAT_MULTIPLIER,
   smoothedCurrentWeightKg,
   weightTrendFromWellness,
+  weightTrendPreciseFromWellness,
   type NutritionModel,
 } from "./nutrition";
 import type { AthleteProfile, WellnessEntry, WorkoutType } from "./types";
@@ -352,6 +353,27 @@ describe("weightTrendFromWellness windowing", () => {
     const short = weightTrendFromWellness(entries, 14) as number;
     const long = weightTrendFromWellness(entries, 28) as number;
     expect(long).toBeLessThan(short); // the point of the gain-side confirmation window
+  });
+});
+
+describe("weightTrendPreciseFromWellness", () => {
+  const w = (date: string, weightKg: number) =>
+    ({ date, weightKg, kcalConsumed: null }) as unknown as WellnessEntry;
+
+  it("keeps precision the rounded variant discards", () => {
+    // +0.16 kg over 28 days = +0.04 kg/7d — rounds to 0.0, which is 44 kcal/day of error at 7700 kcal/kg.
+    const entries = [
+      w("2026-07-01", 62.00), w("2026-07-08", 62.04),
+      w("2026-07-15", 62.08), w("2026-07-22", 62.12), w("2026-07-29", 62.16),
+    ];
+    expect(weightTrendFromWellness(entries, 28)).toBe(0);
+    const precise = weightTrendPreciseFromWellness(entries, 28) as number;
+    expect(precise).toBeGreaterThan(0.03);
+    expect(precise).toBeLessThan(0.05);
+  });
+
+  it("returns null under the same sample floor as the rounded variant", () => {
+    expect(weightTrendPreciseFromWellness([w("2026-07-01", 62)], 28)).toBeNull();
   });
 });
 

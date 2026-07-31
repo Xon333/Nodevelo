@@ -380,16 +380,12 @@ export const WEIGHT_TREND_WINDOW_DAYS = 14; // default regression window; the ga
 export const WEIGHT_TREND_LONG_WINDOW_DAYS = 28;
 const WEIGHT_TREND_MIN_POINTS = 3; // need ≥3 weigh-ins before a slope is meaningful (and outlier-resistant)
 
-// 7-day weight trend (kg/7d, + = gaining) from synced wellness. A Theil–Sen slope — the median of every
-// pair's slope — over every weigh-in in the trailing ~14 days. Daily body weight swings ±0.5–1 kg
-// (water/glycogen/food), so a single noisy reading must not steer the trend. Theil–Sen is genuinely robust
-// to that: unlike OLS it isn't dragged by a high-leverage outlier at the window EDGE (the oldest weigh-in,
-// or the latest), which is exactly where OLS leverage is highest (RV2-6). Handles sparse logging (e.g.
-// 5×/week) natively via slopes over irregular dates. Null below the sample floor or when every weigh-in
-// shares one day (no pair spans time).
-export function weightTrendFromWellness(
+// Unrounded Theil–Sen slope, kg/7d. weightTrendFromWellness rounds to 1 decimal for display and for the
+// buffer's steering decisions — fine there, useless here: calibration multiplies this by 7700 kcal/kg, so
+// a discarded 0.04 kg/7d is ~44 kcal/day of fabricated imbalance.
+function theilSenKgPerWeek(
   wellness: WellnessEntry[],
-  windowDays: number = WEIGHT_TREND_WINDOW_DAYS
+  windowDays: number
 ): number | null {
   const weighIns = wellness
     .filter((w): w is WellnessEntry & { weightKg: number } => w.weightKg !== null)
@@ -408,7 +404,32 @@ export function weightTrendFromWellness(
     }
   }
   if (slopes.length === 0) return null; // all weigh-ins on one day → no slope
-  return Math.round(median(slopes) * 7 * 10) / 10; // express as kg/7d, 1 decimal
+  return median(slopes) * 7; // express as kg/7d, unrounded
+}
+
+// 7-day weight trend (kg/7d, + = gaining) from synced wellness. A Theil–Sen slope — the median of every
+// pair's slope — over every weigh-in in the trailing ~14 days. Daily body weight swings ±0.5–1 kg
+// (water/glycogen/food), so a single noisy reading must not steer the trend. Theil–Sen is genuinely robust
+// to that: unlike OLS it isn't dragged by a high-leverage outlier at the window EDGE (the oldest weigh-in,
+// or the latest), which is exactly where OLS leverage is highest (RV2-6). Handles sparse logging (e.g.
+// 5×/week) natively via slopes over irregular dates. Null below the sample floor or when every weigh-in
+// shares one day (no pair spans time).
+export function weightTrendFromWellness(
+  wellness: WellnessEntry[],
+  windowDays: number = WEIGHT_TREND_WINDOW_DAYS
+): number | null {
+  const s = theilSenKgPerWeek(wellness, windowDays);
+  return s === null ? null : Math.round(s * 10) / 10;
+}
+
+// Unrounded Theil–Sen slope, kg/7d. weightTrendFromWellness rounds to 1 decimal for display and for the
+// buffer's steering decisions — fine there, useless here: calibration multiplies this by 7700 kcal/kg, so
+// a discarded 0.04 kg/7d is ~44 kcal/day of fabricated imbalance.
+export function weightTrendPreciseFromWellness(
+  wellness: WellnessEntry[],
+  windowDays: number = WEIGHT_TREND_WINDOW_DAYS
+): number | null {
+  return theilSenKgPerWeek(wellness, windowDays);
 }
 
 export const SMOOTHED_WEIGHT_WINDOW_DAYS = 14;
