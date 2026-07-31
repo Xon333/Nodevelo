@@ -27,6 +27,7 @@ export const DEFAULT_PROFILE: AthleteProfile = {
     restDayTarget: 2600,
     buffer: 300,
     targetWeightKg: 75,
+    targetRateKgPerWeek: null,
   },
   goalsMigratedAt: null,
   updatedAt: new Date(0).toISOString(),

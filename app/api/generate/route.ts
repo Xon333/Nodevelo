@@ -133,7 +133,8 @@ export async function POST(req: Request) {
       weightTrend,
       weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
       smoothedWeight,
-      profile.nutrition.targetWeightKg
+      profile.nutrition.targetWeightKg,
+      profile.nutrition.targetRateKgPerWeek
     );
     const nutritionTable = nutritionTableMarkdown(
       buildNutritionReferenceRows(nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied)

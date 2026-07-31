@@ -146,12 +146,23 @@ const roundTo = (value: number, step: number) => Math.round(value / step) * step
 // The trend the athlete SHOULD be on, in kg/7d, derived from the gap to target weight. This is the
 // wiring that was missing: the previous mechanism compared the observed trend against zero, so it drove
 // toward weight stability regardless of which way the athlete wanted to go.
-export function desiredWeightTrend(currentKg: number, targetKg: number): number {
+export function desiredWeightTrend(
+  currentKg: number,
+  targetKg: number,
+  configuredRate: number | null = null
+): number {
   // Rounded before comparison: `75.7 - 75` is 0.7000000000000028 in IEEE arithmetic, so an exact-boundary
   // gap would otherwise fall outside the deadband it is supposed to sit on.
   const gap = Math.round((targetKg - currentKg) * 100) / 100; // positive → needs to gain
   if (Math.abs(gap) <= GOAL_DEADBAND_KG) return 0;
-  return gap > 0 ? Math.min(MAX_GAIN_KG_PER_WEEK, gap) : Math.max(-MAX_LOSS_KG_PER_WEEK, gap);
+  const cap = gap > 0 ? MAX_GAIN_KG_PER_WEEK : MAX_LOSS_KG_PER_WEEK;
+  // Direction is never taken from the stored rate — only its magnitude. A rate left over from a previous
+  // goal must not be able to invert which way the athlete is being steered.
+  const magnitude =
+    configuredRate != null && Number.isFinite(configuredRate) && configuredRate !== 0
+      ? Math.min(Math.abs(configuredRate), cap)
+      : Math.min(Math.abs(gap), cap);
+  return gap > 0 ? magnitude : -magnitude;
 }
 
 /**
@@ -167,7 +178,8 @@ export function adjustBuffer(
   trendShort: number | null,
   trendLong: number | null,
   currentKg: number,
-  targetKg: number
+  targetKg: number,
+  configuredRate: number | null = null
 ): BufferAdjustment {
   const settle = (delta: number, reason: string, stepClipped = false): BufferAdjustment => {
     const unclamped = buffer + delta;
@@ -195,7 +207,7 @@ export function adjustBuffer(
     return settle(0, "Not enough weigh-ins yet to read a weight trend — buffer left as configured.");
   }
 
-  const desired = desiredWeightTrend(currentKg, targetKg);
+  const desired = desiredWeightTrend(currentKg, targetKg, configuredRate);
   const errShort = trendShort - desired; // positive → gaining faster than intended
   const goalNote = desired === 0 ? "holding weight" : `aiming for ${fmtKg(desired)} kg/week`;
 

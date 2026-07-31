@@ -41,6 +41,30 @@ describe("desiredWeightTrend", () => {
   });
 });
 
+describe("desiredWeightTrend with an athlete-set rate", () => {
+  it("uses the configured rate instead of the derived cap", () => {
+    expect(desiredWeightTrend(62, 63, 0.15)).toBe(0.15);
+  });
+
+  it("still zeroes inside the deadband regardless of the configured rate", () => {
+    expect(desiredWeightTrend(62.5, 63, 0.15)).toBe(0);
+  });
+
+  it("clamps a configured rate to the protective caps", () => {
+    expect(desiredWeightTrend(62, 70, 2.0)).toBe(0.35);
+    expect(desiredWeightTrend(80, 70, -2.0)).toBe(-0.5);
+  });
+
+  it("ignores a configured rate pointing the wrong way and derives instead", () => {
+    // Athlete is BELOW target but the stored rate says lose — direction comes from the gap, always.
+    expect(desiredWeightTrend(62, 63, -0.3)).toBeGreaterThan(0);
+  });
+
+  it("falls back to the derived rate when none is configured", () => {
+    expect(desiredWeightTrend(62, 63, null)).toBe(desiredWeightTrend(62, 63));
+  });
+});
+
 describe("adjustBuffer", () => {
   const AT_TARGET = { current: 75, target: 75 };
   const UNDER_TARGET = { current: 70, target: 78 };

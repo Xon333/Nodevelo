@@ -10,7 +10,7 @@ const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: null, heightCm: null, sex: null },
   goals: [],
   weakpoints: [],
-  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75 },
+  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75, targetRateKgPerWeek: null },
   goalsMigratedAt: null,
   updatedAt: "",
   ...over,
@@ -451,7 +451,7 @@ describe("readAthleteProfile", () => {
 
 describe("updateAthleteProfile", () => {
   it("HR-50: mutates and persists onto athlete.json's RAW stored shape, not a live-overlaid read", async () => {
-    await writeAthleteProfile(baseProfile({ nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75 } }));
+    await writeAthleteProfile(baseProfile({ nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75, targetRateKgPerWeek: null } }));
     const result = await updateAthleteProfile((profile) => ({
       ...profile,
       nutrition: { ...profile.nutrition, baseCalories: 2500 },

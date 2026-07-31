@@ -134,7 +134,8 @@ export async function GET() {
       weightTrend7Day,
       weightTrendLong,
       smoothedWeightKgForGoal,
-      profile.nutrition.targetWeightKg
+      profile.nutrition.targetWeightKg,
+      profile.nutrition.targetRateKgPerWeek
     ),
     nutritionModel: resolveNutritionModel(
       profile,
@@ -160,7 +161,7 @@ export async function PUT(req: Request) {
   let nutrition: AthleteProfile["nutrition"] | undefined;
   if (b.nutrition !== undefined) {
     const input = b.nutrition as Record<string, unknown>;
-    const { baseCalories, restDayTarget, buffer, targetWeightKg } = input;
+    const { baseCalories, restDayTarget, buffer, targetWeightKg, targetRateKgPerWeek } = input;
     const pos = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
     if (!pos(baseCalories)) return NextResponse.json({ error: "baseCalories must be a positive number." }, { status: 400 });
     if (!pos(restDayTarget)) return NextResponse.json({ error: "restDayTarget must be a positive number." }, { status: 400 });
@@ -172,11 +173,18 @@ export async function PUT(req: Request) {
         { status: 400 }
       );
     }
+    // Validate targetRateKgPerWeek: accept null or a finite number with |v| <= 1.5
+    if (targetRateKgPerWeek !== undefined) {
+      if (targetRateKgPerWeek !== null && !(typeof targetRateKgPerWeek === "number" && Number.isFinite(targetRateKgPerWeek) && Math.abs(targetRateKgPerWeek) <= 1.5)) {
+        return NextResponse.json({ error: "targetRateKgPerWeek must be null or a finite number with absolute value ≤ 1.5." }, { status: 400 });
+      }
+    }
     nutrition = {
       baseCalories: baseCalories as number,
       restDayTarget: restDayTarget as number,
       buffer: buffer as number,
       targetWeightKg: targetWeightKg as number,
+      targetRateKgPerWeek: (targetRateKgPerWeek ?? null) as number | null,
     };
   }
 

@@ -691,7 +691,8 @@ export async function POST(req: Request) {
             weightTrendFromWellness(lastSync.wellness),
             weightTrendFromWellness(lastSync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS),
             smoothedWeightKgForToday,
-            profile.nutrition.targetWeightKg
+            profile.nutrition.targetWeightKg,
+            profile.nutrition.targetRateKgPerWeek
           );
 
           // --- Pure: assemble the deterministic analysis (metrics, execution score, capped

@@ -25,7 +25,7 @@ const base = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   performance: { ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: null, heightCm: null, sex: null },
   goals: [{ goal: "Finish a fondo", target: "150km", focus: "durability" }],
   weakpoints: [{ weakpoint: "Climbing", detail: "Loses power over 8%" }],
-  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68 },
+  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null },
   goalsMigratedAt: "2026-01-01T00:00:00Z",
   updatedAt: "2026-01-01T00:00:00Z",
   ...over,
@@ -58,8 +58,8 @@ describe("PUT /api/profile — nutrition", () => {
 
   it("saves a valid nutrition update without touching goals/weakpoints", async () => {
     seedCurrentProfile(base());
-    const json = await (await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67 } })).json();
-    expect(json.nutrition).toEqual({ baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67 });
+    const json = await (await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null } })).json();
+    expect(json.nutrition).toEqual({ baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null });
     expect(json.goals).toEqual(base().goals);
     expect(json.weakpoints).toEqual(base().weakpoints);
   });
@@ -99,7 +99,7 @@ describe("PUT /api/profile — weakpoints", () => {
     seedCurrentProfile(base());
     const json = await (await put({ weakpoints: [{ weakpoint: "Sprinting", detail: "Fades late" }] })).json();
     expect(json.weakpoints).toEqual([{ weakpoint: "Sprinting", detail: "Fades late" }]);
-    expect(json.nutrition).toEqual(base().nutrition);
+    expect(json.nutrition).toEqual({ baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null });
     expect(json.goals).toEqual(base().goals);
   });
 });
@@ -109,13 +109,13 @@ describe("PUT /api/profile — HR-50 (mutates the raw stored profile, not a stal
     // Simulates the real guarantee: the profile inside the lock at mutate-time can differ from
     // anything the route itself might have read before calling updateAthleteProfile (it doesn't
     // read at all anymore) — e.g. a concurrent write already changed nutrition.
-    const concurrentlyChanged = base({ nutrition: { baseCalories: 1800, restDayTarget: 2400, buffer: 250, targetWeightKg: 66 } });
+    const concurrentlyChanged = base({ nutrition: { baseCalories: 1800, restDayTarget: 2400, buffer: 250, targetWeightKg: 66, targetRateKgPerWeek: null } });
     seedCurrentProfile(concurrentlyChanged);
     const json = await (await put({ goals: [{ goal: "New goal", target: "", focus: "general" }] })).json();
     // The goals field this PUT touched is updated...
     expect(json.goals).toEqual([{ goal: "New goal", target: "", focus: "general" }]);
     // ...but nutrition reflects the concurrent value the lock actually saw, not a stale snapshot.
-    expect(json.nutrition).toEqual({ baseCalories: 1800, restDayTarget: 2400, buffer: 250, targetWeightKg: 66 });
+    expect(json.nutrition).toEqual({ baseCalories: 1800, restDayTarget: 2400, buffer: 250, targetWeightKg: 66, targetRateKgPerWeek: null });
   });
 });
 

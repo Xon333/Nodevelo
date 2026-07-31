@@ -45,6 +45,10 @@ export interface PerformanceData {
 export interface NutritionSettings {
   buffer: number; // SIGNED goal-directed surplus/deficit, kcal/day; range BUFFER_MIN_KCAL..BUFFER_MAX_KCAL
   targetWeightKg: number;
+  // Signed kg/week the athlete WANTS to move, e.g. +0.15 to gain slowly. null → derive from the gap and
+  // the protective caps, which is Phase 1's behaviour. The sign is advisory only: direction always comes
+  // from which side of target the athlete is on, so a stale value cannot invert the goal.
+  targetRateKgPerWeek: number | null;
   // DEPRECATED — read only by resolveNutritionModel's legacy branch, for profiles that predate the
   // dateOfBirth/heightCm/sex RMR inputs. Never written by new code; delete once no profile needs them.
   baseCalories: number;

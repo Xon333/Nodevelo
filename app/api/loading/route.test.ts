@@ -42,7 +42,7 @@ const profile = (): AthleteProfile => ({
   performance: { ftp: 300, maxHr: 190, thresholdHr: 170, weightKg: 68, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: null, heightCm: null, sex: null },
   goals: [],
   weakpoints: [],
-  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68 },
+  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null },
   goalsMigratedAt: null,
   updatedAt: "2026-07-01T00:00:00Z",
 });
