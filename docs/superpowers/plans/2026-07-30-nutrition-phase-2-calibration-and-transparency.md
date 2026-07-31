@@ -16,17 +16,23 @@ to today's target.
 
 ## Why this is worth doing — measured, not assumed
 
-Derived from this athlete's real logged data on 2026-07-30 (63 intake-logged days, 80 weigh-ins):
+Derived from this athlete's real logged data on 2026-07-30 (63 intake-logged days, 80 weigh-ins).
+**Two anchorings, because the difference turned out to matter** — windows ending at the last *logged*
+day versus at *today*, which for this athlete are 9 days apart:
 
-| Window | Intake coverage | Weigh-ins | Mean intake | Mean burn | Derived `k` |
-|---|---|---|---|---|---|
-| 28 d | 82% | 16 | 3192 | 1074 | **1.299** |
-| 42 d | 83% | 26 | 3243 | 1124 | **1.299** |
-| 60 d | 87% | 41 | 3218 | 1097 | **1.301** |
+| Window | anchored at last log | anchored at today | Derived `k` (today-anchored) |
+|---|---|---|---|
+| 28 d | 82% logged, 16 weigh-ins | **50%, 8** | withheld — below the gate |
+| 42 d | 83%, 26 | **62%, 20** | withheld — below the gate |
+| 60 d | 87%, 41 | **73%, 34** | **1.363**, medium confidence |
 
-Three independent windows agreeing to three decimal places is signal, not noise. The app ships **1.20**.
-That gap is **~163 kcal/day** the athlete is not being given — and their weight is flat at a logged intake
-of ~3190, so 3190 *is* their maintenance while the app computes 3031.
+The last-log anchoring gives 1.299 / 1.299 / 1.301 — three windows agreeing to three decimals. The
+today anchoring gives 1.363 from the only window that clears its gate. Both are honest; they differ
+only in which 60 days they look at, and the ~0.06 spread is ~100 kcal/day of real model uncertainty
+that the athlete should be shown rather than have resolved for them.
+
+Either way the app currently ships **1.20**, and their weight is flat at a logged intake of ~3190 — so
+~3190 *is* their maintenance while the app computes 3031. The gap is **150–260 kcal/day**.
 
 The Phase 1 buffer had already climbed to +190 chasing it: the model rediscovering its own NEAT error
 through the weight trend. That is defect D6 from the spec, observed live. It also resolves the final
