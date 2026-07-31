@@ -664,6 +664,49 @@ describe("resolveNutritionModel", () => {
   });
 });
 
+describe("resolveNutritionModel with calibration", () => {
+  const defaultNeat = {
+    multiplier: DEFAULT_NEAT_MULTIPLIER, confidence: "low" as const, source: "default" as const,
+    windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+  };
+  const profileWith = (nutritionOverrides: Record<string, unknown>) =>
+    ({
+      performance: {
+        ftp: 250, maxHr: 190, thresholdHr: 170, weightKg: 75,
+        weeklyHoursMin: 6, weeklyHoursMax: 10,
+        dateOfBirth: "1996-03-14", heightCm: 180, sex: "male",
+      },
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 78, targetRateKgPerWeek: null,
+        neat: defaultNeat, ...nutritionOverrides,
+      },
+    }) as unknown as AthleteProfile;
+
+  it("uses the stored calibrated multiplier over the default", () => {
+    const p = profileWith({ neat: { ...defaultNeat, multiplier: 1.3, source: "derived", confidence: "high" } });
+    const m = resolveNutritionModel(p, 62, "2026-07-30");
+    expect(m.kind).toBe("derived");
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(1.3);
+  });
+
+  it("falls back to the default when nothing has been adopted", () => {
+    const m = resolveNutritionModel(profileWith({}), 62, "2026-07-30");
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
+  });
+
+  // The gotcha this project has already been bitten by: a profile JSON written before `neat` existed
+  // parses it back as `undefined`, which `=== null` (or a bare, non-optional-chained read) would miss.
+  it("falls back to the default when neat is undefined, not just null", () => {
+    const p = profileWith({});
+    delete (p.nutrition as unknown as Record<string, unknown>).neat;
+    const m = resolveNutritionModel(p, 62, "2026-07-30");
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
+  });
+});
+
 describe("calibrateNeat", () => {
   // Synthetic athlete with a KNOWN k: intake is constructed so the identity must recover it.
   const synth = (k: number, days: number, rmr: number, burnPerDay: number) => {
@@ -712,5 +755,51 @@ describe("calibrateNeat", () => {
     const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
     expect(r.multiplier).toBeGreaterThan(1.28); // would collapse toward 0.87 if zeros were summed
     expect(r.multiplier).toBeLessThan(1.32);
+  });
+
+  // Step 3b: coverage over the LOGGABLE range, plus a staleness guard.
+  describe("loggable-range coverage and staleness", () => {
+    it("still calibrates with a trailing transfer-gap tail inside the staleness window", () => {
+      const { wellness, activities } = synth(1.3, 42, 1631, 1000);
+      // Blank the trailing 9 days' kcalConsumed — a batch-transfer gap (data not yet synced), not a
+      // logging gap. Last logged day is then 10 days before "today" — inside
+      // CALIBRATION_MAX_STALENESS_DAYS (14), so anchoring the window at `today` must not withhold this.
+      for (let i = wellness.length - 9; i < wellness.length; i++) wellness[i].kcalConsumed = null;
+      const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42);
+      expect(r).not.toBeNull();
+      expect(r!.stale).toBe(false);
+      expect(r!.source).toBe("derived");
+      expect(r!.multiplier).toBeGreaterThan(1.25);
+      expect(r!.multiplier).toBeLessThan(1.35);
+    });
+
+    it("returns a stale default (not a bare null) once the transfer gap exceeds the staleness window", () => {
+      const { wellness, activities } = synth(1.3, 60, 1631, 1000);
+      // Blank the trailing 20 days' kcalConsumed — last logged day lands 21 days before "today",
+      // beyond CALIBRATION_MAX_STALENESS_DAYS (14). Good-but-old data must not be adopted as current,
+      // and the reason must survive the withholding rather than reading as a bare absence.
+      for (let i = wellness.length - 20; i < wellness.length; i++) wellness[i].kcalConsumed = null;
+      const r = calibrateNeat(wellness, activities, 1631, "2026-07-31", 42);
+      expect(r).not.toBeNull();
+      expect(r!.stale).toBe(true);
+      expect(r!.source).toBe("default");
+      expect(r!.multiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
+    });
+
+    it("decrements N for a day excluded because its activity burn is unresolvable", () => {
+      const { wellness, activities: baseActivities } = synth(1.3, 42, 1631, 1000);
+      const activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null }> =
+        baseActivities.map((a) => ({ ...a }));
+      // One mid-window day's burn is unresolvable (no activeBurnKcal AND no kj) — it must drop out of
+      // sumBurn AND out of N, or the k·RMR term counts a day whose burn was never actually summed,
+      // which is the ~1.5% imbalance the Task 3 implementer flagged.
+      activities[20] = { date: activities[20].date, activeBurnKcal: null, kj: null };
+      const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
+      expect(r).not.toBeNull();
+      // Uniform synthetic intake makes the true multiplier exactly recoverable once N excludes the
+      // unresolved day too — without that decrement the solve drifts to ~1.31 instead.
+      expect(r.multiplier).toBeGreaterThan(1.299);
+      expect(r.multiplier).toBeLessThan(1.301);
+    });
   });
 });

@@ -28,6 +28,7 @@ import {
   updateScoreLog,
   updateInterventionLog,
   updateCalibration,
+  updateAthleteProfile,
   writeLedgerRebuild,
   writeQuirks,
   writeTodayAnalysis,
@@ -43,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { adjustBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { adjustBuffer, calibrateNeat, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -218,6 +219,39 @@ export async function POST(req: Request) {
       );
     }
     await writeLastSync(lastSync);
+
+    // Task 4 (Phase 2): recalibrate the athlete's own NEAT multiplier from the freshly-synced data.
+    // Deterministic, no AI. Best-effort — a calibration failure must never break a sync, so this is
+    // wrapped independently and logged rather than left to bubble into the outer catch.
+    try {
+      const profileForNeat = await readAthleteProfile();
+      const latestWeightKgForNeat =
+        lastSync.wellness
+          .filter((w) => w.weightKg !== null)
+          .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForNeat.performance.weightKg;
+      const nutritionModelForNeat = resolveNutritionModel(profileForNeat, latestWeightKgForNeat, today);
+      // Only the derived model carries an RMR to calibrate against — a legacy (pre-migration)
+      // profile has nothing for calibrateNeat to solve relative to.
+      if (nutritionModelForNeat.kind === "derived") {
+        const neatResult = calibrateNeat(lastSync.wellness, lastSync.activities, nutritionModelForNeat.rmr, today);
+        // Persist only a genuine derived solve. calibrateNeat's `stale` sentinel is also non-null (so
+        // its reason survives for a live renderer to show), but persisting it here would silently
+        // REVERT a good prior calibration to the population default the moment the athlete's batch
+        // transfer lags past the staleness window — worse than just leaving the last good solve in
+        // place until fresh data resumes.
+        if (neatResult !== null && neatResult.source === "derived") {
+          await updateAthleteProfile((p) =>
+            // Re-checked INSIDE the lock against whatever's actually on disk right now, not the
+            // `profileForNeat` snapshot read above — that read can be stale by the time this lock is
+            // acquired (e.g. a concurrent PUT just set an override). An athlete's manual value
+            // survives every re-solve, forever, until they clear it via the override endpoint (Step 5).
+            p.nutrition.neat?.source === "override" ? p : { ...p, nutrition: { ...p.nutrition, neat: neatResult } }
+          );
+        }
+      }
+    } catch (e) {
+      logWarn("/api/sync", "neat-calibration", e instanceof Error ? e.message : String(e));
+    }
 
     // Reconcile the physiology store against Intervals.icu's current sport-settings (FTP,
     // zones, threshold/max HR). On a real change the old snapshot is archived with its own

@@ -38,6 +38,7 @@ export const DEFAULT_PROFILE: AthleteProfile = {
       weighIns: null,
       solvedAt: null,
       imbalance: null,
+      stale: false,
     },
   },
   goalsMigratedAt: null,

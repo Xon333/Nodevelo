@@ -19,13 +19,14 @@ vi.mock("@/lib/data-store", () => ({
 
 import * as store from "@/lib/data-store";
 import { PUT } from "@/app/api/profile/route";
+import { DEFAULT_NEAT_MULTIPLIER, NEAT_PLAUSIBLE_MAX, NEAT_PLAUSIBLE_MIN } from "@/lib/nutrition";
 import type { AthleteProfile } from "@/lib/types";
 
 // The route never touches `neat` (it's calibrateNeat's output, adopted on sync — Phase 2), so every
 // fixture/expectation below carries this same value through untouched.
 const defaultNeat = {
   multiplier: 1.2, confidence: "low" as const, source: "default" as const,
-  windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null,
+  windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
 };
 
 const base = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -69,6 +70,66 @@ describe("PUT /api/profile — nutrition", () => {
     expect(json.nutrition).toEqual({ baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null, neat: defaultNeat });
     expect(json.goals).toEqual(base().goals);
     expect(json.weakpoints).toEqual(base().weakpoints);
+  });
+});
+
+describe("PUT /api/profile — neatMultiplier override (Step 5)", () => {
+  it("accepts neatMultiplier alone, without the base four nutrition fields", async () => {
+    seedCurrentProfile(base());
+    const res = await put({ nutrition: { neatMultiplier: 1.3 } });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.nutrition.neat.multiplier).toBe(1.3);
+    expect(json.nutrition.neat.source).toBe("override");
+    expect(typeof json.nutrition.neat.solvedAt).toBe("string");
+    // The base four fields (untouched by this PUT) survive from the on-disk profile.
+    expect(json.nutrition.baseCalories).toBe(2000);
+    expect(json.nutrition.restDayTarget).toBe(2600);
+    expect(json.nutrition.buffer).toBe(300);
+    expect(json.nutrition.targetWeightKg).toBe(68);
+  });
+
+  it("accepts neatMultiplier alongside the base four fields in one PUT", async () => {
+    seedCurrentProfile(base());
+    const json = await (
+      await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null, neatMultiplier: 1.35 } })
+    ).json();
+    expect(json.nutrition.baseCalories).toBe(2200);
+    expect(json.nutrition.neat.multiplier).toBe(1.35);
+    expect(json.nutrition.neat.source).toBe("override");
+  });
+
+  it("null resets the override back to the population default", async () => {
+    const overridden = base({
+      nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null, neat: { ...defaultNeat, multiplier: 1.4, source: "override", solvedAt: "2026-06-01T00:00:00.000Z" } },
+    });
+    seedCurrentProfile(overridden);
+    const json = await (await put({ nutrition: { neatMultiplier: null } })).json();
+    expect(json.nutrition.neat.multiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
+    expect(json.nutrition.neat.source).toBe("default");
+  });
+
+  it("rejects an out-of-range neatMultiplier, naming the bounds, without writing", async () => {
+    seedCurrentProfile(base());
+    const res = await put({ nutrition: { neatMultiplier: NEAT_PLAUSIBLE_MAX + 0.1 } });
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toContain(String(NEAT_PLAUSIBLE_MIN));
+    expect(error).toContain(String(NEAT_PLAUSIBLE_MAX));
+    expect(updateMock()).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-numeric neatMultiplier without writing", async () => {
+    seedCurrentProfile(base());
+    const res = await put({ nutrition: { neatMultiplier: "1.3" } });
+    expect(res.status).toBe(400);
+    expect(updateMock()).not.toHaveBeenCalled();
+  });
+
+  it("leaves neat untouched when neatMultiplier is absent (existing base-four-only PUT)", async () => {
+    seedCurrentProfile(base());
+    const json = await (await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null } })).json();
+    expect(json.nutrition.neat).toEqual(defaultNeat);
   });
 });
 

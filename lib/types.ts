@@ -67,6 +67,14 @@ export interface NeatCalibration {
   weighIns: number | null;
   solvedAt: string | null; // ISO
   imbalance: EnergyImbalanceFinding | null;
+  // True when calibration was withheld because the athlete's last LOGGED day (not synced day) is
+  // more than CALIBRATION_MAX_STALENESS_DAYS before today — good-but-old data must not be adopted
+  // as current. Distinct from a merely "patchy" (below the confidence floor) withholding: this
+  // athlete transfers MyFitnessPal intake into Intervals.icu in batches, so a `stale` result means
+  // "your last transfer was N days ago" rather than "you haven't logged enough." Conveyed via a
+  // `source: "default"` NeatCalibration rather than a bare null so Task 5 can render the distinction
+  // (see calibrateNeat's staleness guard).
+  stale: boolean;
 }
 
 export interface NutritionSettings {

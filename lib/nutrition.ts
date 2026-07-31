@@ -375,7 +375,10 @@ export function resolveNutritionModel(
       return {
         kind: "derived",
         rmr: restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex),
-        neatMultiplier: DEFAULT_NEAT_MULTIPLIER, // per-athlete calibration is Phase 3
+        // Optional chaining AND `??`, not just one: a profile JSON written before `neat` existed
+        // parses it back as `undefined`, the same class of gap AGENTS.md's migration-flag gotcha
+        // warns about — this must fall through to the population prior, not produce NaN.
+        neatMultiplier: profile.nutrition.neat?.multiplier ?? DEFAULT_NEAT_MULTIPLIER,
         ...shared,
       };
     }
@@ -485,6 +488,14 @@ export const CALIBRATION_PREFERRED_WINDOW_DAYS = 42;
 export const CALIBRATION_MIN_LOGGED_FRACTION = 0.65;
 export const CALIBRATION_MIN_WEIGH_INS = 12;
 
+// Days the athlete COULD have logged in this window: window start → the last day they actually
+// logged. Coverage measured against the full window punishes a transfer gap as if it were a logging
+// gap, and this athlete logs ~99% of days in MyFitnessPal and only transfers into Intervals.icu in
+// batches. But good-but-old data must not be adopted as current either — if the last logged day is
+// further back than this from `today`, calibration is withheld as STALE regardless of how good the
+// coverage looked inside the loggable range.
+export const CALIBRATION_MAX_STALENESS_DAYS = 14;
+
 // High-confidence thresholds sit above the medium/floor exports above — kept as local literals because
 // the brief names only the floor tier as reusable constants.
 const CALIBRATION_HIGH_MIN_WEIGH_INS = 20;
@@ -507,9 +518,22 @@ const CALIBRATION_HIGH_MIN_LOGGED_FRACTION = 0.8;
  * Window is `[today − windowDays, today)` — today is excluded because its intake is still being logged
  * (mirrors computeEnergyAvailability). A logged 0 or negative kcalConsumed reads as NOT logged, not a
  * genuine fasted day (same convention as computeEnergyAvailability — no daily total is really zero).
- * Missing days are imputed at the window's own logged mean, never summed as zero: this athlete's MFP
- * logging is ~99% complete, so a gap almost always means "not yet transferred into Intervals.icu," not
- * "didn't eat" — summing logged days alone would fabricate a deficit sized by how lazy the transfer was.
+ * Missing days are imputed at the LOGGABLE range's own logged mean, never summed as zero: this athlete's
+ * MFP logging is ~99% complete, so a gap almost always means "not yet transferred into Intervals.icu,"
+ * not "didn't eat" — summing logged days alone would fabricate a deficit sized by how lazy the transfer was.
+ *
+ * Coverage is measured over the LOGGABLE range (window start → the last day the athlete actually logged
+ * intake inside the window), not the full `[cutoff, today)` window — anchoring at `today` would punish a
+ * batch-transfer gap exactly like a genuine logging gap, which is what caused the pre-Step-3b flicker
+ * (available right after a transfer, withheld nine days later). `N` in the identity is this same loggable
+ * span, further decremented for any day inside it whose activity burn couldn't be resolved — the sums it
+ * multiplies against (`sumIntake`, `sumBurn`) already exclude those days, so `N` must too or the identity
+ * is imbalanced (this fixes the ~1.5% imbalance the Task 3 implementer flagged).
+ *
+ * "Patchy" (below the confidence floor) and "stale" (good data, just too old) are different states and
+ * are reported differently: patchy still returns null (a population default must never masquerade as
+ * personalised); stale returns a `NeatCalibration` with `source: "default"` and `stale: true` so the
+ * reason survives even though nothing was adopted — good-but-old data must never read as current.
  */
 export function calibrateNeat(
   wellness: WellnessEntry[],
@@ -534,14 +558,51 @@ export function calibrateNeat(
 
   const cutoff = new Date(Date.parse(today) - windowDays * 86_400_000).toISOString().slice(0, 10);
 
+  // The end of the loggable range: the last day inside the window the athlete actually logged intake.
+  // Days after this and before `today` are a transfer gap, not a logging gap, and must not count against
+  // coverage at all — they're excluded from the whole calculation below, not imputed.
+  let lastLoggedDate: string | null = null;
+  for (const w of wellness) {
+    if (w.date < cutoff || w.date >= today) continue;
+    if (w.kcalConsumed !== null && w.kcalConsumed > 0 && (lastLoggedDate === null || w.date > lastLoggedDate)) {
+      lastLoggedDate = w.date;
+    }
+  }
+  if (lastLoggedDate === null) return null; // nothing logged in this window at all — genuinely patchy
+
+  // Staleness guard, independent of coverage: good-but-old data must not be adopted as current. Reported
+  // via a non-null `NeatCalibration` (source "default", stale true) rather than a bare null, because the
+  // reason ("your last transfer was N days ago") must survive for the caller to render.
+  const daysSinceLastLog = Math.round((Date.parse(today) - Date.parse(lastLoggedDate)) / 86_400_000);
+  if (daysSinceLastLog > CALIBRATION_MAX_STALENESS_DAYS) {
+    return {
+      multiplier: DEFAULT_NEAT_MULTIPLIER,
+      confidence: "low",
+      source: "default",
+      windowDays: null,
+      loggedDays: null,
+      weighIns: null,
+      solvedAt: null,
+      imbalance: null,
+      stale: true,
+    };
+  }
+
+  // loggableDays: window start → lastLoggedDate inclusive — the span coverage is measured against.
+  const loggableDays = Math.max(1, Math.round((Date.parse(lastLoggedDate) - Date.parse(cutoff)) / 86_400_000) + 1);
+
   let loggedSum = 0;
   let loggedDays = 0;
   let weighIns = 0;
   for (const w of wellness) {
     if (w.date < cutoff || w.date >= today) continue; // outside [cutoff, today)
     // Weigh-in count feeds the weight-trend regression and confidence gate independent of activity data —
-    // it must not be gated on burn resolvability, which is about a different signal entirely.
+    // it must not be gated on burn resolvability, which is about a different signal entirely. Counted over
+    // the FULL window, not just the loggable range: weigh-ins sync separately from MFP-batched intake and
+    // aren't subject to the same transfer gap (this athlete's real data has weigh-ins after its last
+    // logged-kcal day).
     if (w.weightKg !== null) weighIns++;
+    if (w.date > lastLoggedDate) continue; // transfer-gap tail — excluded from intake accounting entirely
     if (unresolvedBurnDates.has(w.date)) continue; // burn unknown this day — exclude, don't zero it
     if (w.kcalConsumed !== null && w.kcalConsumed > 0) {
       loggedSum += w.kcalConsumed;
@@ -551,12 +612,23 @@ export function calibrateNeat(
 
   let sumBurn = 0;
   for (const [date, kcal] of burnByDate) {
-    if (date < cutoff || date >= today) continue;
+    if (date < cutoff || date > lastLoggedDate) continue;
     if (unresolvedBurnDates.has(date)) continue; // a same-day activity elsewhere failed to resolve
     sumBurn += kcal;
   }
 
-  const loggedFraction = loggedDays / windowDays;
+  // N: the loggable span further decremented for any day inside it excluded for an unresolvable burn —
+  // the same days sumIntake's imputation and sumBurn already exclude, so the per-day k·RMR term must
+  // exclude them too (this is the ~1.5% imbalance fix).
+  let unresolvedInRange = 0;
+  for (const date of unresolvedBurnDates) {
+    if (date >= cutoff && date <= lastLoggedDate) unresolvedInRange++;
+  }
+  const n = Math.max(1, loggableDays - unresolvedInRange);
+
+  // Coverage is measured over the loggable range, not the full window — a transfer gap already dropped
+  // out of `loggableDays` itself, so it can't drag this fraction down a second time.
+  const loggedFraction = loggedDays / loggableDays;
   let confidence: "medium" | "high";
   if (
     windowDays >= CALIBRATION_PREFERRED_WINDOW_DAYS &&
@@ -576,15 +648,15 @@ export function calibrateNeat(
     return null;
   }
 
-  // mean(logged) × windowDays — the imputation the confidence gate above exists to protect: every day in
-  // the window, not only the logged ones, is assumed to have eaten at the window's own observed rate.
+  // mean(logged) × N — the imputation the confidence gate above exists to protect: every day counted (N),
+  // not only the logged ones, is assumed to have eaten at the loggable range's own observed rate.
   const meanIntake = loggedSum / loggedDays;
-  const sumIntake = meanIntake * windowDays;
+  const sumIntake = meanIntake * n;
 
   const trendPrecise = weightTrendPreciseFromWellness(wellness, windowDays); // unrounded kg/7d
-  const deltaMassKg = trendPrecise === null ? 0 : (trendPrecise / 7) * windowDays;
+  const deltaMassKg = trendPrecise === null ? 0 : (trendPrecise / 7) * n;
 
-  const solvedK = (sumIntake - sumBurn - deltaMassKg * KCAL_PER_KG_TISSUE) / (windowDays * rmr);
+  const solvedK = (sumIntake - sumBurn - deltaMassKg * KCAL_PER_KG_TISSUE) / (n * rmr);
 
   let multiplier = solvedK;
   let imbalance: EnergyImbalanceFinding | null = null;
@@ -625,6 +697,7 @@ export function calibrateNeat(
     weighIns,
     solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
     imbalance,
+    stale: false,
   };
 }
 

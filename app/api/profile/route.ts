@@ -11,6 +11,9 @@ import {
   WEIGHT_TREND_LONG_WINDOW_DAYS,
   BUFFER_MIN_KCAL,
   BUFFER_MAX_KCAL,
+  DEFAULT_NEAT_MULTIPLIER,
+  NEAT_PLAUSIBLE_MIN,
+  NEAT_PLAUSIBLE_MAX,
 } from "@/lib/nutrition";
 import { localToday, ageYearsFrom } from "@/lib/date";
 import type { AthleteProfile } from "@/lib/types";
@@ -158,37 +161,65 @@ export async function PUT(req: Request) {
 
   // HR-50: validate BEFORE the locked update below — a 400 here must never touch the lock, and the
   // mutator handed to updateAthleteProfile is a pure merge with no failure path of its own.
-  // `neat` is deliberately NOT one of this route's editable fields — it's calibrateNeat's output
-  // (Phase 2), adopted on sync and never hand-edited here — so it's carried forward from the current
-  // on-disk value inside the mutate callback below rather than validated/constructed in this block.
+  // `neat` is deliberately NOT one of this route's editable fields via the base four below — it's
+  // calibrateNeat's output (Phase 2), adopted on sync — so it's carried forward from the current
+  // on-disk value inside the mutate callback, EXCEPT for the one deliberate override path
+  // (`neatMultiplier`, Step 5) validated separately just below.
   let nutrition: Omit<AthleteProfile["nutrition"], "neat"> | undefined;
+  // Step 5: manual override of the calibrated NEAT multiplier. Accepted independently of the base
+  // four nutrition fields — `{ nutrition: { neatMultiplier } }` alone is a valid PUT, so the
+  // derivation panel can set/clear just this without resubmitting the whole nutrition form.
+  let neatOverride: { multiplier: number; source: "override"; solvedAt: string } | { reset: true } | undefined;
   if (b.nutrition !== undefined) {
     const input = b.nutrition as Record<string, unknown>;
-    const { baseCalories, restDayTarget, buffer, targetWeightKg, targetRateKgPerWeek } = input;
-    const pos = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
-    if (!pos(baseCalories)) return NextResponse.json({ error: "baseCalories must be a positive number." }, { status: 400 });
-    if (!pos(restDayTarget)) return NextResponse.json({ error: "restDayTarget must be a positive number." }, { status: 400 });
-    if (!pos(targetWeightKg)) return NextResponse.json({ error: "targetWeightKg must be a positive number." }, { status: 400 });
-    // Signed: a negative buffer is how a deficit is expressed at all (previously impossible).
-    if (typeof buffer !== "number" || !Number.isFinite(buffer) || buffer < BUFFER_MIN_KCAL || buffer > BUFFER_MAX_KCAL) {
-      return NextResponse.json(
-        { error: `buffer must be between ${BUFFER_MIN_KCAL} and ${BUFFER_MAX_KCAL} kcal.` },
-        { status: 400 }
-      );
-    }
-    // Validate targetRateKgPerWeek: accept null or a finite number with |v| <= 1.5
-    if (targetRateKgPerWeek !== undefined) {
-      if (targetRateKgPerWeek !== null && !(typeof targetRateKgPerWeek === "number" && Number.isFinite(targetRateKgPerWeek) && Math.abs(targetRateKgPerWeek) <= 1.5)) {
-        return NextResponse.json({ error: "targetRateKgPerWeek must be null or a finite number with absolute value ≤ 1.5." }, { status: 400 });
+    if (input.neatMultiplier !== undefined) {
+      const v = input.neatMultiplier;
+      if (v === null) {
+        // Reset: back to the population default, source "default" — an athlete clearing their
+        // manual value returns to auto-calibration on the next sync.
+        neatOverride = { reset: true };
+      } else if (typeof v === "number" && Number.isFinite(v) && v >= NEAT_PLAUSIBLE_MIN && v <= NEAT_PLAUSIBLE_MAX) {
+        neatOverride = { multiplier: v, source: "override", solvedAt: new Date().toISOString() };
+      } else {
+        return NextResponse.json(
+          { error: `neatMultiplier must be null or a finite number between ${NEAT_PLAUSIBLE_MIN} and ${NEAT_PLAUSIBLE_MAX}.` },
+          { status: 400 }
+        );
       }
     }
-    nutrition = {
-      baseCalories: baseCalories as number,
-      restDayTarget: restDayTarget as number,
-      buffer: buffer as number,
-      targetWeightKg: targetWeightKg as number,
-      targetRateKgPerWeek: (targetRateKgPerWeek ?? null) as number | null,
-    };
+    const { baseCalories, restDayTarget, buffer, targetWeightKg, targetRateKgPerWeek } = input;
+    const hasBaseNutritionFields =
+      baseCalories !== undefined ||
+      restDayTarget !== undefined ||
+      buffer !== undefined ||
+      targetWeightKg !== undefined ||
+      targetRateKgPerWeek !== undefined;
+    if (hasBaseNutritionFields) {
+      const pos = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
+      if (!pos(baseCalories)) return NextResponse.json({ error: "baseCalories must be a positive number." }, { status: 400 });
+      if (!pos(restDayTarget)) return NextResponse.json({ error: "restDayTarget must be a positive number." }, { status: 400 });
+      if (!pos(targetWeightKg)) return NextResponse.json({ error: "targetWeightKg must be a positive number." }, { status: 400 });
+      // Signed: a negative buffer is how a deficit is expressed at all (previously impossible).
+      if (typeof buffer !== "number" || !Number.isFinite(buffer) || buffer < BUFFER_MIN_KCAL || buffer > BUFFER_MAX_KCAL) {
+        return NextResponse.json(
+          { error: `buffer must be between ${BUFFER_MIN_KCAL} and ${BUFFER_MAX_KCAL} kcal.` },
+          { status: 400 }
+        );
+      }
+      // Validate targetRateKgPerWeek: accept null or a finite number with |v| <= 1.5
+      if (targetRateKgPerWeek !== undefined) {
+        if (targetRateKgPerWeek !== null && !(typeof targetRateKgPerWeek === "number" && Number.isFinite(targetRateKgPerWeek) && Math.abs(targetRateKgPerWeek) <= 1.5)) {
+          return NextResponse.json({ error: "targetRateKgPerWeek must be null or a finite number with absolute value ≤ 1.5." }, { status: 400 });
+        }
+      }
+      nutrition = {
+        baseCalories: baseCalories as number,
+        restDayTarget: restDayTarget as number,
+        buffer: buffer as number,
+        targetWeightKg: targetWeightKg as number,
+        targetRateKgPerWeek: (targetRateKgPerWeek ?? null) as number | null,
+      };
+    }
   }
 
   // RMR inputs live on `performance`, saved independently of the nutrition block.
@@ -257,9 +288,22 @@ export async function PUT(req: Request) {
   // clobber this one.
   const updated = await updateAthleteProfile((current) => ({
     ...current,
-    // Preserve the athlete's existing calibration (neat) — this route never touches it, so a plain
-    // `{ nutrition }` replace would silently wipe it out on every unrelated nutrition-field save.
-    ...(nutrition !== undefined ? { nutrition: { ...nutrition, neat: current.nutrition.neat } } : {}),
+    // Preserve the athlete's existing calibration (neat) by default — this route's base four
+    // nutrition fields never touch it, so a plain `{ nutrition }` replace would silently wipe it out
+    // on every unrelated nutrition-field save. `neatOverride` (Step 5) is the one deliberate exception.
+    ...(nutrition !== undefined || neatOverride !== undefined
+      ? {
+          nutrition: {
+            ...(nutrition ?? current.nutrition),
+            neat:
+              neatOverride === undefined
+                ? current.nutrition.neat
+                : "reset" in neatOverride
+                  ? { ...current.nutrition.neat, multiplier: DEFAULT_NEAT_MULTIPLIER, source: "default" as const }
+                  : { ...current.nutrition.neat, ...neatOverride },
+          },
+        }
+      : {}),
     ...(goals !== undefined ? { goals } : {}),
     ...(weakpoints !== undefined ? { weakpoints } : {}),
     performance: performancePatch ? { ...current.performance, ...performancePatch } : current.performance,

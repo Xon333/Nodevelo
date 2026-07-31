@@ -64,6 +64,7 @@ vi.mock("@/lib/data-store", () => ({
     mutate({ records: [], updatedAt: "" })
   ),
   updateCalibration: vi.fn(),
+  updateAthleteProfile: vi.fn(),
   mergeCurrentBlockDays: vi.fn(),
   writeLastSync: vi.fn(),
   writeLedgerRebuild: vi.fn(),
@@ -1167,6 +1168,116 @@ describe("POST /api/sync — birth-time interval-adherence fetch (late-sync gap)
     // discriminator between "adherenceForDate was consulted" and "it wasn't".
     expect(entry?.executionScore).toBe(9);
     expect(json.warnings.some((w: string) => /Ledger rebuilt/.test(w))).toBe(true);
+  });
+});
+
+describe("POST /api/sync — NEAT recalibration (Task 4)", () => {
+  // Mifflin-St Jeor for a 75kg/180cm/30yo male: 10*75 + 6.25*180 - 5*30 + 5 = 1730.
+  const RMR = 1730;
+
+  const derivedProfile = (neatOverride: Record<string, unknown> = {}) => ({
+    ...profile,
+    performance: { ...profile.performance, dateOfBirth: "1996-01-01", heightCm: 180, sex: "male" as const },
+    nutrition: {
+      ...profile.nutrition,
+      targetRateKgPerWeek: null,
+      neat: {
+        multiplier: 1.2, confidence: "low" as const, source: "default" as const,
+        windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+        ...neatOverride,
+      },
+    },
+  });
+
+  // 42 consecutive fully-logged days ending the day before TODAY (no transfer gap, flat weight) — a
+  // known-k identity calibrateNeat can recover, mirroring lib/nutrition.test.ts's own `synth` helper.
+  const wellnessWindow = (k: number, burnPerDay: number) => {
+    const wellness: SyncData["wellness"] = [];
+    const activities: ActivitySummary[] = [];
+    const cutoffMs = Date.parse(TODAY) - 42 * 86_400_000;
+    for (let i = 0; i < 42; i++) {
+      const date = new Date(cutoffMs + i * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({ date, weightKg: 75, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: k * RMR + burnPerDay, ctl: null, atl: null });
+      activities.push(mkActivity({ id: `neat-${date}`, date, activeBurnKcal: burnPerDay, kj: null }));
+    }
+    return { wellness, activities };
+  };
+
+  it("persists a fresh derived calibration after a sync", async () => {
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(derivedProfile() as never);
+    const { wellness, activities } = wellnessWindow(1.3, 1000);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    await postSync();
+
+    expect(store.updateAthleteProfile).toHaveBeenCalledTimes(1);
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const result = await mutate(derivedProfile() as never);
+    expect(result.nutrition.neat.source).toBe("derived");
+    expect(result.nutrition.neat.multiplier).toBeGreaterThan(1.25);
+    expect(result.nutrition.neat.multiplier).toBeLessThan(1.35);
+    expect(result.nutrition.neat.stale).toBe(false);
+  });
+
+  it("never overwrites a manual override, even when a fresh solve would succeed", async () => {
+    const overridden = derivedProfile({ source: "override", multiplier: 1.45 });
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(overridden as never);
+    const { wellness, activities } = wellnessWindow(1.3, 1000);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    await postSync();
+
+    // The override guard is re-checked INSIDE updateAthleteProfile's lock against whatever's
+    // actually on disk (not the outer readAthleteProfile snapshot) — mutate is still invoked, but
+    // must be a no-op against the locked current value when it's an override.
+    expect(store.updateAthleteProfile).toHaveBeenCalledTimes(1);
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const result = await mutate(overridden as never);
+    expect(result.nutrition.neat.source).toBe("override");
+    expect(result.nutrition.neat.multiplier).toBe(1.45);
+  });
+
+  it("re-checks the override guard against the LOCKED value, not the stale outer read", async () => {
+    // Simulates the real race this guards against: the outer readAthleteProfile() snapshot (used to
+    // resolve the model/RMR) still shows "default", but a concurrent PUT set an override by the time
+    // updateAthleteProfile's lock is actually acquired.
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(derivedProfile() as never);
+    const { wellness, activities } = wellnessWindow(1.3, 1000);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    await postSync();
+
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const concurrentlyOverridden = derivedProfile({ source: "override", multiplier: 1.5 });
+    const result = await mutate(concurrentlyOverridden as never);
+    expect(result.nutrition.neat.source).toBe("override");
+    expect(result.nutrition.neat.multiplier).toBe(1.5);
+  });
+
+  it("does not persist when calibration withholds (below the confidence floor)", async () => {
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(derivedProfile() as never);
+    // Only 10 of the 42 days logged — same "withholds" fixture pattern as lib/nutrition.test.ts.
+    const { wellness, activities } = wellnessWindow(1.3, 1000);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness: wellness.slice(0, 10), activities: activities.slice(0, 10) }));
+
+    await postSync();
+
+    expect(store.updateAthleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("never breaks the sync when calibration throws — logs and leaves neat untouched", async () => {
+    // Only the FIRST readAthleteProfile call (this new block's own read) fails; later calls elsewhere
+    // in the handler (e.g. the FTP fallback) fall through to the normal profile fixture.
+    vi.mocked(store.readAthleteProfile)
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValue(profile as never);
+    const { wellness, activities } = wellnessWindow(1.3, 1000);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    const res = await postSync();
+
+    expect(res.status).toBe(200);
+    expect(store.updateAthleteProfile).not.toHaveBeenCalled();
   });
 });
 

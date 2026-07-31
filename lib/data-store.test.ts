@@ -8,7 +8,7 @@ import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecor
 
 const defaultNeat = {
   multiplier: 1.2, confidence: "low" as const, source: "default" as const,
-  windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null,
+  windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
 };
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
