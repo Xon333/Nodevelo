@@ -5,6 +5,7 @@ import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSetting
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
+import { DEFAULT_NEAT_MULTIPLIER } from "./nutrition";
 import { readPhysiology } from "./physiology";
 import { readJsonFile as readJson, readJsonFileWithStatus, updateJsonFile as updateJson, writeJsonFile as writeJson } from "./json-store";
 
@@ -28,6 +29,16 @@ export const DEFAULT_PROFILE: AthleteProfile = {
     buffer: 300,
     targetWeightKg: 75,
     targetRateKgPerWeek: null,
+    neat: {
+      multiplier: DEFAULT_NEAT_MULTIPLIER,
+      confidence: "low",
+      source: "default",
+      windowDays: null,
+      loggedDays: null,
+      weighIns: null,
+      solvedAt: null,
+      imbalance: null,
+    },
   },
   goalsMigratedAt: null,
   updatedAt: new Date(0).toISOString(),

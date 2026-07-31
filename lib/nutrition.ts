@@ -2,7 +2,7 @@
 // The AI receives this module's output as pre-computed values and only
 // rephrases them in natural language inside workout descriptions.
 import { ageYearsFrom } from "./date";
-import type { ActivitySummary, AthleteProfile, WellnessEntry, WorkoutType } from "./types";
+import type { ActivitySummary, AthleteProfile, EnergyImbalanceFinding, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
 import { median } from "./stats";
 
 export interface ActiveBurn {
@@ -466,6 +466,166 @@ export function smoothedCurrentWeightKg(
   const windowed = weighIns.filter((w) => w.date >= cutoff && w.date <= today);
   if (windowed.length === 0) return weighIns[weighIns.length - 1].weightKg; // fallback: latest single reading
   return median(windowed.map((w) => w.weightKg));
+}
+
+// ---------- NEAT multiplier calibration ----------
+
+// Band for an RMR multiplier covering NEAT + the thermic effect of food and NOTHING else — structured
+// exercise arrives separately as activeBurnKcal. Standard PAL figures (1.2 sedentary … 1.9 very active)
+// INCLUDE exercise and are the wrong reference, so these edges are deliberately tighter.
+//
+// READ THESE AGAINST MIFFLIN-ST JEOR SPECIFICALLY. Mifflin under-predicts trained endurance athletes by
+// 5–10%, so a derived k for such an athlete lands correspondingly high — the upper edge carries that
+// bias, it is not a claim about human physiology.
+export const NEAT_PLAUSIBLE_MIN = 1.15;
+export const NEAT_PLAUSIBLE_MAX = 1.55;
+
+export const CALIBRATION_MIN_WINDOW_DAYS = 28;
+export const CALIBRATION_PREFERRED_WINDOW_DAYS = 42;
+export const CALIBRATION_MIN_LOGGED_FRACTION = 0.65;
+export const CALIBRATION_MIN_WEIGH_INS = 12;
+
+// High-confidence thresholds sit above the medium/floor exports above — kept as local literals because
+// the brief names only the floor tier as reusable constants.
+const CALIBRATION_HIGH_MIN_WEIGH_INS = 20;
+const CALIBRATION_HIGH_MIN_LOGGED_FRACTION = 0.8;
+
+/**
+ * Solve the energy-balance identity for the athlete's own RMR multiplier over a trailing window:
+ *
+ *   Σ intake − ( N·k·RMR + Σ activeBurn ) = Δmass · ρ
+ *     ⇒ k = ( Σ intake − Σ activeBurn − Δmass·ρ ) / ( N · RMR )
+ *
+ * Pure: takes `rmr` as an input rather than deriving it, and reads only `wellness`/`activities`. Persisting
+ * the result and reading it back into the daily-target formula belongs to the caller, not here.
+ *
+ * Only the PRODUCT k × RMR is identifiable from this identity — a derived k also absorbs any constant
+ * error in the RMR equation itself (Mifflin under-predicts trained endurance athletes by 5-10%). An
+ * out-of-band solve is therefore genuinely ambiguous between the food log and the RMR equation, and is
+ * clamped + reported as such (`imbalance`), never adopted verbatim and never asserted as a single cause.
+ *
+ * Window is `[today − windowDays, today)` — today is excluded because its intake is still being logged
+ * (mirrors computeEnergyAvailability). A logged 0 or negative kcalConsumed reads as NOT logged, not a
+ * genuine fasted day (same convention as computeEnergyAvailability — no daily total is really zero).
+ * Missing days are imputed at the window's own logged mean, never summed as zero: this athlete's MFP
+ * logging is ~99% complete, so a gap almost always means "not yet transferred into Intervals.icu," not
+ * "didn't eat" — summing logged days alone would fabricate a deficit sized by how lazy the transfer was.
+ */
+export function calibrateNeat(
+  wellness: WellnessEntry[],
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  rmr: number,
+  today: string,
+  windowDays: number = CALIBRATION_PREFERRED_WINDOW_DAYS
+): NeatCalibration | null {
+  // Same convention as computeEnergyAvailability: a date lands here when SOME activity on it has a burn
+  // that can't be resolved. That date is dropped from BOTH sums entirely (not folded in at 0), so the
+  // identity never counts a day's real intake against a burn we don't actually know.
+  const unresolvedBurnDates = new Set<string>();
+  const burnByDate = new Map<string, number>();
+  for (const a of activities) {
+    const burn = activeBurn(a);
+    if (burn === null) {
+      unresolvedBurnDates.add(a.date);
+      continue;
+    }
+    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
+  }
+
+  const cutoff = new Date(Date.parse(today) - windowDays * 86_400_000).toISOString().slice(0, 10);
+
+  let loggedSum = 0;
+  let loggedDays = 0;
+  let weighIns = 0;
+  for (const w of wellness) {
+    if (w.date < cutoff || w.date >= today) continue; // outside [cutoff, today)
+    // Weigh-in count feeds the weight-trend regression and confidence gate independent of activity data —
+    // it must not be gated on burn resolvability, which is about a different signal entirely.
+    if (w.weightKg !== null) weighIns++;
+    if (unresolvedBurnDates.has(w.date)) continue; // burn unknown this day — exclude, don't zero it
+    if (w.kcalConsumed !== null && w.kcalConsumed > 0) {
+      loggedSum += w.kcalConsumed;
+      loggedDays++;
+    }
+  }
+
+  let sumBurn = 0;
+  for (const [date, kcal] of burnByDate) {
+    if (date < cutoff || date >= today) continue;
+    if (unresolvedBurnDates.has(date)) continue; // a same-day activity elsewhere failed to resolve
+    sumBurn += kcal;
+  }
+
+  const loggedFraction = loggedDays / windowDays;
+  let confidence: "medium" | "high";
+  if (
+    windowDays >= CALIBRATION_PREFERRED_WINDOW_DAYS &&
+    weighIns >= CALIBRATION_HIGH_MIN_WEIGH_INS &&
+    loggedFraction >= CALIBRATION_HIGH_MIN_LOGGED_FRACTION
+  ) {
+    confidence = "high";
+  } else if (
+    windowDays >= CALIBRATION_MIN_WINDOW_DAYS &&
+    weighIns >= CALIBRATION_MIN_WEIGH_INS &&
+    loggedFraction >= CALIBRATION_MIN_LOGGED_FRACTION
+  ) {
+    confidence = "medium";
+  } else {
+    // Below the floor: withhold entirely rather than adopt a flaky number. A population default must
+    // never masquerade as personalised, so a "low"-confidence NeatCalibration is never returned here.
+    return null;
+  }
+
+  // mean(logged) × windowDays — the imputation the confidence gate above exists to protect: every day in
+  // the window, not only the logged ones, is assumed to have eaten at the window's own observed rate.
+  const meanIntake = loggedSum / loggedDays;
+  const sumIntake = meanIntake * windowDays;
+
+  const trendPrecise = weightTrendPreciseFromWellness(wellness, windowDays); // unrounded kg/7d
+  const deltaMassKg = trendPrecise === null ? 0 : (trendPrecise / 7) * windowDays;
+
+  const solvedK = (sumIntake - sumBurn - deltaMassKg * KCAL_PER_KG_TISSUE) / (windowDays * rmr);
+
+  let multiplier = solvedK;
+  let imbalance: EnergyImbalanceFinding | null = null;
+  if (solvedK > NEAT_PLAUSIBLE_MAX || solvedK < NEAT_PLAUSIBLE_MIN) {
+    multiplier = solvedK > NEAT_PLAUSIBLE_MAX ? NEAT_PLAUSIBLE_MAX : NEAT_PLAUSIBLE_MIN;
+    const direction: EnergyImbalanceFinding["direction"] =
+      solvedK > NEAT_PLAUSIBLE_MAX ? "intake-above-model" : "intake-below-model";
+    // Signed, not just magnitude: positive means the solve ran hotter than the clamp, negative means it
+    // ran colder — the sign alone carries `direction`, so a caller reading only this field still knows
+    // which way the overshoot goes.
+    const estimatedKcalPerDay = roundTo((solvedK - multiplier) * rmr, 10);
+    imbalance = {
+      direction,
+      estimatedKcalPerDay,
+      // Never a single cause: only k × RMR is identifiable, so an out-of-band solve is genuinely
+      // ambiguous between the food log and the RMR equation. Log bias listed first — 20-30%
+      // under/over-reporting in athletes is larger and better documented than typical equation error.
+      candidates:
+        direction === "intake-above-model"
+          ? [
+              "Logged intake running higher than actual (missed or under-counted portions on days that ARE logged) — the larger, better-documented effect at this end.",
+              "The RMR equation under- or over-predicting for this athlete, which a derived multiplier cannot separate from true intake.",
+            ]
+          : [
+              "Under-reported intake (20-30% under-logging is well documented in athletes) — the larger, better-documented effect at this end.",
+              "The RMR equation over- or under-predicting for this athlete, which a derived multiplier cannot separate from true intake.",
+            ],
+      note: "Only k × RMR is identifiable from this window's data — this clamp is not a diagnosis of the food log.",
+    };
+  }
+
+  return {
+    multiplier,
+    confidence,
+    source: "derived",
+    windowDays,
+    loggedDays,
+    weighIns,
+    solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
+    imbalance,
+  };
 }
 
 // ---------- Energy availability (deterministic proxy) ----------

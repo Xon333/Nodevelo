@@ -4,11 +4,14 @@ import {
   adjustBuffer,
   balanceLevel,
   calculateDailyTarget,
+  calibrateNeat,
   computeEnergyAvailability,
   desiredWeightTrend,
   eaLevel,
   estimateWorkoutBurnKcal,
   inRideCarbTarget,
+  NEAT_PLAUSIBLE_MAX,
+  NEAT_PLAUSIBLE_MIN,
   preRideCarbTarget,
   resolveNutritionModel,
   restingMetabolicRate,
@@ -658,5 +661,56 @@ describe("resolveNutritionModel", () => {
       profile({ dateOfBirth: "not-a-date", heightCm: 180, sex: "male" }), 74, "2026-07-30"
     );
     expect(m.kind).toBe("legacy");
+  });
+});
+
+describe("calibrateNeat", () => {
+  // Synthetic athlete with a KNOWN k: intake is constructed so the identity must recover it.
+  const synth = (k: number, days: number, rmr: number, burnPerDay: number) => {
+    const wellness: WellnessEntry[] = [];
+    for (let i = 0; i < days; i++) {
+      const date = new Date(Date.UTC(2026, 5, 1) + i * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({ date, weightKg: 62, kcalConsumed: k * rmr + burnPerDay } as WellnessEntry);
+    }
+    const activities = wellness.map((w) => ({ date: w.date, activeBurnKcal: burnPerDay, kj: null }));
+    return { wellness, activities };
+  };
+
+  it("recovers a known multiplier from a flat-weight athlete", () => {
+    const { wellness, activities } = synth(1.3, 42, 1631, 1000);
+    const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
+    expect(r.multiplier).toBeGreaterThan(1.29);
+    expect(r.multiplier).toBeLessThan(1.31);
+    expect(r.imbalance).toBeNull();
+    expect(r.source).toBe("derived");
+  });
+
+  it("withholds below the confidence floor rather than adopting a flaky number", () => {
+    const { wellness, activities } = synth(1.3, 10, 1631, 1000);
+    expect(calibrateNeat(wellness, activities, 1631, "2026-06-11", 42)).toBeNull();
+  });
+
+  it("clamps an implausibly HIGH solve and reports both candidate causes, not a diagnosis", () => {
+    const { wellness, activities } = synth(2.2, 42, 1631, 1000);
+    const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
+    expect(r.multiplier).toBe(NEAT_PLAUSIBLE_MAX);
+    expect(r.imbalance!.direction).toBe("intake-above-model");
+    expect(r.imbalance!.candidates.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("clamps an implausibly LOW solve", () => {
+    const { wellness, activities } = synth(0.6, 42, 1631, 1000);
+    const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
+    expect(r.multiplier).toBe(NEAT_PLAUSIBLE_MIN);
+    expect(r.imbalance!.direction).toBe("intake-below-model");
+  });
+
+  it("imputes missing intake days at the logged mean, not zero", () => {
+    const { wellness, activities } = synth(1.3, 42, 1631, 1000);
+    // Blank a third of the days: absence is a transfer gap, not a fast.
+    for (let i = 0; i < wellness.length; i += 3) wellness[i].kcalConsumed = null;
+    const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
+    expect(r.multiplier).toBeGreaterThan(1.28); // would collapse toward 0.87 if zeros were summed
+    expect(r.multiplier).toBeLessThan(1.32);
   });
 });

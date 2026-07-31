@@ -42,6 +42,33 @@ export interface PerformanceData {
   sex: "male" | "female" | null; // a formula input (the equation's constant term is binary), not identity
 }
 
+// Out-of-band calibrateNeat solve. `direction`/`estimatedKcalPerDay` describe the SIZE and SIGN of the
+// overshoot only — never a cause. Only the product k × RMR is identifiable from the energy-balance
+// identity, so a high or low solve is ambiguous between food-log bias and RMR-equation error; `candidates`
+// must always name more than one so this can never read as a diagnosis of the athlete's log.
+export interface EnergyImbalanceFinding {
+  direction: "intake-below-model" | "intake-above-model";
+  estimatedKcalPerDay: number; // magnitude, NOT a cause
+  candidates: string[];        // ordered most→least likely; ALWAYS names more than one
+  note: string;
+}
+
+// Result of solving the energy-balance identity for the athlete's own RMR multiplier (calibrateNeat).
+// `source: "default"` is the pre-calibration population prior; `"derived"` is a solve that cleared the
+// confidence floor; `"override"` is reserved for a future athlete-set value. Below the confidence floor
+// calibrateNeat returns null rather than emitting a `"low"`-confidence NeatCalibration — a population
+// default must never masquerade as personalised, so `"low"` is not currently producible by calibrateNeat.
+export interface NeatCalibration {
+  multiplier: number;
+  confidence: "low" | "medium" | "high";
+  source: "default" | "derived" | "override";
+  windowDays: number | null;
+  loggedDays: number | null;
+  weighIns: number | null;
+  solvedAt: string | null; // ISO
+  imbalance: EnergyImbalanceFinding | null;
+}
+
 export interface NutritionSettings {
   buffer: number; // SIGNED goal-directed surplus/deficit, kcal/day; range BUFFER_MIN_KCAL..BUFFER_MAX_KCAL
   targetWeightKg: number;
@@ -53,6 +80,10 @@ export interface NutritionSettings {
   // dateOfBirth/heightCm/sex RMR inputs. Never written by new code; delete once no profile needs them.
   baseCalories: number;
   restDayTarget: number;
+  // Per-athlete RMR multiplier, calibrated from the athlete's own logs (calibrateNeat) once enough data
+  // exists; defaults to DEFAULT_NEAT_MULTIPLIER (source: "default") until then. Adopting the derived value
+  // into resolveNutritionModel is Task 4 — this field is populated but not yet read there.
+  neat: NeatCalibration;
 }
 
 export interface AthleteProfile {

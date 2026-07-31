@@ -158,7 +158,10 @@ export async function PUT(req: Request) {
 
   // HR-50: validate BEFORE the locked update below — a 400 here must never touch the lock, and the
   // mutator handed to updateAthleteProfile is a pure merge with no failure path of its own.
-  let nutrition: AthleteProfile["nutrition"] | undefined;
+  // `neat` is deliberately NOT one of this route's editable fields — it's calibrateNeat's output
+  // (Phase 2), adopted on sync and never hand-edited here — so it's carried forward from the current
+  // on-disk value inside the mutate callback below rather than validated/constructed in this block.
+  let nutrition: Omit<AthleteProfile["nutrition"], "neat"> | undefined;
   if (b.nutrition !== undefined) {
     const input = b.nutrition as Record<string, unknown>;
     const { baseCalories, restDayTarget, buffer, targetWeightKg, targetRateKgPerWeek } = input;
@@ -254,7 +257,9 @@ export async function PUT(req: Request) {
   // clobber this one.
   const updated = await updateAthleteProfile((current) => ({
     ...current,
-    ...(nutrition !== undefined ? { nutrition } : {}),
+    // Preserve the athlete's existing calibration (neat) — this route never touches it, so a plain
+    // `{ nutrition }` replace would silently wipe it out on every unrelated nutrition-field save.
+    ...(nutrition !== undefined ? { nutrition: { ...nutrition, neat: current.nutrition.neat } } : {}),
     ...(goals !== undefined ? { goals } : {}),
     ...(weakpoints !== undefined ? { weakpoints } : {}),
     performance: performancePatch ? { ...current.performance, ...performancePatch } : current.performance,
