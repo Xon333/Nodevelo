@@ -17,6 +17,7 @@ import { FOCUS_LABELS } from "@/lib/season";
 import {
   BUFFER_MAX_KCAL,
   BUFFER_MIN_KCAL,
+  GOAL_DEADBAND_KG,
   MAX_ADJUSTMENT_STEP_KCAL,
   NEAT_PLAUSIBLE_MAX,
   NEAT_PLAUSIBLE_MIN,
@@ -24,7 +25,7 @@ import {
   WEIGHT_TREND_LONG_WINDOW_DAYS,
   WEIGHT_TREND_WINDOW_DAYS,
 } from "@/lib/nutrition";
-import type { BufferAdjustment } from "@/lib/nutrition";
+import type { ResolvedBuffer } from "@/lib/nutrition";
 import { ageYearsFrom, localToday } from "@/lib/date";
 
 interface PerformanceRmrFields {
@@ -75,7 +76,7 @@ interface Derivation {
   trendShortKgPerWeek: number | null;
   trendLongKgPerWeek: number | null;
   desiredTrendKgPerWeek: number;
-  buffer: BufferAdjustment;
+  buffer: ResolvedBuffer;
 }
 
 interface ProfileResponse {
@@ -87,7 +88,7 @@ interface ProfileResponse {
   physiologySource: "intervals" | "manual" | null;
   athleteMd: AthleteMdSnapshot;
   autoSync: AutoSyncInfo;
-  bufferStatus: BufferAdjustment;
+  bufferStatus: ResolvedBuffer;
   derivation: Derivation;
   syncedPowerCurve: PowerCurvePoint[];
   powerProfile: PowerProfile | null;
@@ -228,8 +229,13 @@ function neatCurrentlyPhrase(neat: NeatCalibration): string {
 
 // Step 3: the nutrition Edit form's field list, incl. targetRateKgPerWeek (signed, step 0.05,
 // -1.5…1.5, blank → derive from the gap). Module-level so it isn't rebuilt every render.
+// The nutrition Edit form's fields. `buffer` is deliberately ABSENT: it was retired as an athlete
+// setting on 2026-07-31. The rate goal is now the single owned input — the buffer is derived from it
+// (rate × 7700 ÷ 7). Having both was the sign defect: a configured surplus could stand against a
+// weight-LOSS goal indefinitely, because the old controller only ever read trend error and never
+// checked whether the buffer's sign agreed with the direction of travel.
 const NUTRITION_EDIT_FIELDS: Array<{
-  key: "buffer" | "targetWeightKg" | "targetRateKgPerWeek";
+  key: "targetWeightKg" | "targetRateKgPerWeek";
   label: string;
   unit: string;
   min: number;
@@ -237,7 +243,6 @@ const NUTRITION_EDIT_FIELDS: Array<{
   step?: number;
   hint: string;
 }> = [
-  { key: "buffer", label: "Goal buffer", unit: "kcal", min: BUFFER_MIN_KCAL, hint: `${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}, negative = deficit` },
   { key: "targetWeightKg", label: "Target weight", unit: "kg", min: 0, hint: "min 0" },
   { key: "targetRateKgPerWeek", label: "Target rate", unit: "kg/week", min: -1.5, max: 1.5, step: 0.05, hint: "blank = derive from the gap" },
 ];
@@ -846,11 +851,13 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           <p className="mb-2 font-mono text-sm text-zinc-800 dark:text-zinc-100">
             {data.nutritionModel.rmr.toLocaleString()} RMR
             <span className="text-zinc-500 dark:text-zinc-400"> × </span>
-            {data.nutritionModel.neatMultiplier} NEAT
+            {data.nutritionModel.neatMultiplier.toFixed(2)} NEAT
             <span className="text-zinc-500 dark:text-zinc-400"> = </span>
             {Math.round(data.nutritionModel.rmr * data.nutritionModel.neatMultiplier).toLocaleString()} maintenance
+            {/* The APPLIED buffer, derived from the rate goal. The stored nutrition.buffer was retired
+                as a setting on 2026-07-31 and must not be shown as if the athlete still controls it. */}
             <span className="text-zinc-500 dark:text-zinc-400"> · buffer </span>
-            {data.nutrition.buffer > 0 ? "+" : ""}{data.nutrition.buffer}
+            {data.bufferStatus.bufferApplied > 0 ? "+" : ""}{data.bufferStatus.bufferApplied}
             <span className="text-zinc-500 dark:text-zinc-400"> · target </span>
             {data.nutrition.targetWeightKg} kg
           </p>
@@ -931,7 +938,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           <DerivationRow
             label="Goal"
             value={`${derivation.targetWeightKg} kg at ${fmtSigned(derivation.desiredTrendKgPerWeek)} kg/week`}
-            why={data.nutrition.targetRateKgPerWeek != null ? "your setting" : "derived from the gap"}
+            why={`${data.nutrition.targetRateKgPerWeek != null ? "your setting" : "derived from the gap"} — anything within ±${GOAL_DEADBAND_KG} kg of target counts as arrived (${(derivation.targetWeightKg - GOAL_DEADBAND_KG).toFixed(1)}–${(derivation.targetWeightKg + GOAL_DEADBAND_KG).toFixed(1)} kg), and the surplus goes to zero on entry`}
           />
           <DerivationRow
             label="Observed trend"
@@ -942,7 +949,11 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           />
           <DerivationRow
             label="Buffer"
-            value={`${fmtSigned(data.nutrition.buffer, 0)} → ${fmtSigned(derivation.buffer.bufferApplied, 0)} kcal`}
+            value={
+              derivation.buffer.mode === "goal-rate"
+                ? `${fmtSigned(derivation.buffer.bufferApplied, 0)} kcal`
+                : `${fmtSigned(derivation.buffer.goalSurplusKcal, 0)} ${fmtSigned(derivation.buffer.servoDeltaKcal, 0)} → ${fmtSigned(derivation.buffer.bufferApplied, 0)} kcal`
+            }
             why={derivation.buffer.reason}
             extra={
               (derivation.buffer.stepClipped || derivation.buffer.capped) && (
