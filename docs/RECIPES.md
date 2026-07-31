@@ -26,6 +26,7 @@ Read [systems/06-generation.md](systems/06-generation.md) first.
 - **Output shape** → `lib/plan-schema.ts` (`weeks` stays before `overview`).
 - **Interval-protocol numbers** → the three-copy trap: KB + hard rules + `workout-validate.PROTOCOL`, together ([INVARIANTS #17](INVARIANTS.md)).
 - **Volume/week logic** → `lib/block-skeleton.ts` (keep the feasibility gate and `validateWeekHours` in agreement).
+- **Which day gets which session type/duration/ceiling** → `lib/block-skeleton.ts`'s `computeBlockSkeleton` (deterministic — the model fills the slots, it doesn't choose them). The two invariants (durations sum exactly to target; every envelope satisfies `min ≤ nominal ≤ max`) are property-swept across settings combinations in `block-skeleton.test.ts` — an example test alone won't catch a broken allocation, several real bugs only showed up under adversarial settings.
 - Finish with **one live generation** and read the output (AGENTS.md rule).
 
 ## Turn over a block (end → retrospective → next block)
@@ -46,7 +47,7 @@ future turnover, attended or not.
 
 ## Add or change a validator
 
-Placement rules → `lib/schedule-validate.ts`; per-session protocol → `lib/workout-validate.ts`; wire into `app/api/generate/route.ts`'s `warnings[]`. Validators warn — they never rewrite ([INVARIANTS #13](INVARIANTS.md)).
+Placement rules → `lib/schedule-validate.ts`; per-session protocol → `lib/workout-validate.ts`; wire into `app/api/generate/route.ts`'s `warnings[]`. Validators warn — they never rewrite ([INVARIANTS #13](INVARIANTS.md)). **One fact, one owner** — before adding a new warning, check no existing validator already states that fact for a different reason; a recovery week once produced three near-identical warnings for one problem ([06-generation.md § Known rough edges](systems/06-generation.md#known-rough-edges), [INVARIANTS § Generation contracts](INVARIANTS.md#generation-contracts)).
 
 ## Change scoring
 

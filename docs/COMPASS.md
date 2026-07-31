@@ -58,7 +58,7 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 
 **Opening (30 seconds):** `git log --oneline -5` → `git status --short` (uncommitted WIP? possibly the *other* concurrent session's — leave it) → back to work. Only re-read the mental model above if you're actually lost.
 
-**Stuck >10 minutes?** That's the signal to open a doc, not grep harder: GLOSSARY (naming trap?) → FILE_INDEX (who else touches this?) → the numbered systems doc (the diagram shows the missing step) → DECISIONS (is the "weird" thing deliberate?). Four systems docs carry a **"Known rough edges"** section with live judgment calls, tripwires, and rejected alternatives for that area — `01-sync-and-data`, `05-season` (the deepest one — read before touching `season.ts`), `07-ai-layer`, `08-frontend`. High-traffic files in those areas also carry an inline `// AI:` comment pointing at the relevant anchor.
+**Stuck >10 minutes?** That's the signal to open a doc, not grep harder: GLOSSARY (naming trap?) → FILE_INDEX (who else touches this?) → the numbered systems doc (the diagram shows the missing step) → DECISIONS (is the "weird" thing deliberate?). Five systems docs carry a **"Known rough edges"** section with live judgment calls, tripwires, and rejected alternatives for that area — `01-sync-and-data`, `05-season` (the deepest one — read before touching `season.ts`), `06-generation` (the week skeleton's staged decisions), `07-ai-layer`, `08-frontend`. High-traffic files in those areas also carry an inline `// AI:` comment pointing at the relevant anchor.
 
 **Closing — update the ONE doc that owns what you changed:**
 

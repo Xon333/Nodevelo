@@ -35,7 +35,7 @@ One line per file that matters. The authoritative per-file table — README keep
 |---|---|
 | `season.ts` | Rolling coverage selector + event-anchored backward scheduling + validators + prompt formatters (925 lines — [systems/05-season.md](systems/05-season.md)) |
 | `season-signals.ts` | Single assembler of `chooseNextFocus` inputs (generate & season routes share it) |
-| `block-skeleton.ts` | Exact per-week hour targets + feasibility pre-gate + week-hours validator |
+| `block-skeleton.ts` | Exact per-week hour targets + feasibility pre-gate + week-hours validator + the day-slot skeleton (`computeBlockSkeleton`/`formatBlockSkeleton`). Change when day-level composition rules need to change — its two invariants (exact-sum, envelope ordering) are property-swept, not example-tested ([06-generation.md § week skeleton](systems/06-generation.md#the-week-skeleton-composition-authority)) |
 | `block-events.ts` | Which calendar event ids to delete on block discard/replace |
 | `block-version.ts` | CAS 409 guard for block mutations. No test file |
 | `plan-week-character.ts` | Presentational load/build/peak/taper week labels |
@@ -91,7 +91,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `narrative-critic.ts` | Overview-vs-facts critic (haiku, overview-only rewrites) |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
 | `workout-validate.ts` | KB-grounded protocol validator (violations vs advisories) |
-| `schedule-validate.ts` | Placement validators: spacing, quality budget, taper, sequencing |
+| `schedule-validate.ts` | Placement validators: spacing, quality budget, taper, sequencing, recovery density, skeleton conformance. Each owns one fact only — check no existing validator already warns about it before adding another |
 | `nutrition-validate.ts` | Kcal check + the ONLY auto-repairing validator |
 | `generate-cache.ts` | 60s in-flight dedupe |
 | `ai-usage.ts` | Token/cost telemetry (PRICING table duplicates model ids — keep in sync) |

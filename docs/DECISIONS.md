@@ -126,6 +126,17 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 - **Cytoscape / knowledge-graph UI** — a heavyweight dependency re-presenting data the app already has.
 - **Post-ride structured survey** — RPE/feel already syncs from Intervals.icu (`icu_rpe`); a second manual survey would duplicate a signal that's already objective-adjacent.
 - **Subjective-wellness morning sync** — removed 2026-06-26 (latent/dead, un-utilitarian); a wearable gives strictly better objective morning-readiness ([03-daily-loop](systems/03-daily-loop.md)). Spec: `docs/superpowers/specs/2026-06-26-remove-subjective-wellness-manual-flag-design.md`.
+- **Hard-failing skeleton conformance on day one — deferred, not rejected** (ADR-0013). A skeleton too rigid on its first real outing would turn every generation into a 502. Ship warn-only, read the warnings from real generations, escalate once there's evidence the model complies — the escalation is a one-line change in `validateSkeletonConformance`.
 
 **Consequences.** New proposals matching an entry above get a fast, evidence-based no instead of a re-debate. Append new rejections here rather than scattering them across other docs.
+
+---
+
+## ADR-0013 · Composition moves to a deterministic day-slot skeleton; content stays with the LLM
+
+**Context.** ADR-0002 gave deterministic engines the numbers and left the LLM "arrangement and phrasing" — but arrangement turned out to include which day carries which session type and how long it runs, and the model was bad at exactly that. A live-reviewed block's "recovery" week cut volume ~19% against a mandated ~40% and kept all three quality types, merely trimmed (the season tripwire firing, [05-season.md](systems/05-season.md#known-rough-edges)), and loading weeks separately undershot their hour target by 0.5–1.1h because the model had to solve a 7-day allocation problem from a single weekly figure.
+
+**Decision.** `block-skeleton.computeBlockSkeleton` allocates seven typed day-slots per week — session kind, allowed types, a duration envelope, an intensity ceiling — whose nominal durations sum exactly to the week's target by construction. `formatBlockSkeleton` renders it as a per-day table that supersedes the bare hour figure in the prompt; `validateSkeletonConformance` checks what the model actually returned against it. The LLM keeps authoring interval prescriptions, the exact duration inside each envelope, and all prose — composition moved because it was wrong; content stayed because it was right.
+
+**Consequences.** Recovery-week composition and per-week hour targets are now guaranteed by TypeScript rather than requested in prose (measured: loading weeks went from 1/4 inside a 30-min tolerance to 3/4 on the first live run). Two real prescription changes ride along, deliberately: a recovery week's long ride now scales down by the same retention fraction as the rest of the week (180→108 min at default settings) instead of staying full-length, and quality-session envelopes are sized per session type rather than a flat figure (a 5×30s SIT protocol is genuinely ~55 min and cannot fill a flat 75-min slot without artificial padding). Skeleton conformance ships warn-only, deferred from a hard-fail (above). Details, traps, and open items: [06-generation.md § Known rough edges](systems/06-generation.md#known-rough-edges).
 

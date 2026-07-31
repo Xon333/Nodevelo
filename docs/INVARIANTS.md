@@ -53,3 +53,8 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 29. **Shared checkout, trunk-based**: stage only files you touched (never `git add -A`); an unexpected build error in a file you didn't edit is probably the other session mid-edit — check `git status --short <file>` before "fixing".
 30. **Test fixtures avoid .x5 float boundaries** — pre-rounding values sitting on a boundary flip under IEEE arithmetic.
 31. **Markdown anchors are load-bearing.** COMPASS/FILE_INDEX/RECIPES link to `##` headings by slug — renaming a linked heading breaks inbound links silently; grep for the old slug before renaming.
+
+## Generation contracts
+
+32. **A block's day-slot durations sum exactly to its week's hour target**, and every slot satisfies `0 ≤ minMin ≤ nominalMin ≤ maxMin` (`block-skeleton.computeBlockSkeleton`, [06-generation.md](systems/06-generation.md#the-week-skeleton-composition-authority)). Property-swept across settings combinations in `block-skeleton.test.ts`, not just example-tested — the guarantee was broken by inputs no example test tried (an event colliding with the canonical long-ride day; a configured budget that couldn't actually be placed).
+33. **One fact, one warning owner.** `validateSkeletonConformance` owns day-level facts, `validateWeekHours` owns the weekly total, `validateRecoveryWeekDensity` owns recovery composition — none may restate another's warning. A recovery week once produced three near-identical warnings for one problem before this was enforced.
