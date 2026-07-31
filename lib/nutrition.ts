@@ -92,6 +92,7 @@ export interface WorkoutNutritionPlan {
   preRideCarbs: number; // grams
   inRideCarbsPerHour: number; // grams/hr (0 if < 60 min ride)
   bufferApplied: number; // signed
+  floored: boolean; // true when the daily target was raised to meet the RMR floor
 }
 
 export interface BufferAdjustment {
@@ -323,22 +324,34 @@ export function calculateDailyTarget(
 
   if (model.kind === "derived") {
     const maintenance = model.neatMultiplier * model.rmr + activeBurnKcal;
+    let dailyTarget = roundTo(maintenance + bufferApplied, 10);
+    // Safety floor: never prescribe below resting metabolic rate. This is a guard against the formula
+    // producing an invalid output (a target below RMR is never a legitimate prescription), not a formula
+    // term. An athlete presenting with chronic underfuelling must never receive a deficit from RMR.
+    let floored = false;
+    if (dailyTarget < model.rmr) {
+      dailyTarget = model.rmr;
+      floored = true;
+    }
     return {
-      dailyTarget: roundTo(maintenance + bufferApplied, 10),
+      dailyTarget,
       maintenanceKcal: Math.round(maintenance),
       ...carbs,
       bufferApplied,
+      floored,
     };
   }
 
   // Legacy. The rest-day figure is honoured exactly; a training day is floored AT it rather than the
   // rest day being lowered to meet the training day — the inversion goes away and nobody loses food.
+  // Legacy has no RMR field and already floors training days at restDayTarget, so floored is always false.
   if (isRestDay) {
     return {
       dailyTarget: Math.round(model.restDayTarget),
       maintenanceKcal: Math.round(model.restDayTarget),
       ...carbs,
       bufferApplied,
+      floored: false,
     };
   }
   const raw = roundTo(model.baseCalories + activeBurnKcal + bufferApplied, 10);
@@ -347,6 +360,7 @@ export function calculateDailyTarget(
     maintenanceKcal: Math.round(model.baseCalories + activeBurnKcal),
     ...carbs,
     bufferApplied,
+    floored: false,
   };
 }
 

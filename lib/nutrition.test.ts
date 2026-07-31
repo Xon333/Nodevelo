@@ -211,9 +211,12 @@ describe("calculateDailyTarget (derived)", () => {
     expect(p.dailyTarget).toBe(3300); // 2160 + 843 + 300, rounded to 10
   });
 
-  it("carries a negative buffer through as a real deficit", () => {
+  it("carries a negative buffer through as a real deficit without breaching the RMR floor", () => {
+    // With DERIVED (rmr: 1800), maintenance is 2160. A -400 buffer would give 1760, which is below
+    // the RMR floor, so it gets floored to 1800 (rmr).
     const p = calculateDailyTarget(0, DERIVED, -400, true);
-    expect(p.dailyTarget).toBe(1760);
+    expect(p.dailyTarget).toBe(1800); // floored to RMR
+    expect(p.floored).toBe(true);
   });
 
   it("fills session carb targets only when a workout is supplied", () => {
@@ -222,6 +225,20 @@ describe("calculateDailyTarget (derived)", () => {
     const withWorkout = calculateDailyTarget(900, DERIVED, 300, false, { type: "Z2", durationMin: 150 });
     expect(withWorkout.preRideCarbs).toBeGreaterThan(0);
     expect(withWorkout.inRideCarbsPerHour).toBeGreaterThan(0);
+  });
+
+  it("never prescribes below resting metabolic rate", () => {
+    const m: NutritionModel = { kind: "derived", rmr: 1631, neatMultiplier: 1.2,
+      weightKg: 62, targetWeightKg: 63, buffer: -500 };
+    const p = calculateDailyTarget(0, m, -500, true);
+    expect(p.dailyTarget).toBeGreaterThanOrEqual(1631);
+    expect(p.floored).toBe(true);
+  });
+
+  it("does not floor a normal day", () => {
+    const m: NutritionModel = { kind: "derived", rmr: 1631, neatMultiplier: 1.3,
+      weightKg: 62, targetWeightKg: 63, buffer: 300 };
+    expect(calculateDailyTarget(800, m, 300, false).floored).toBe(false);
   });
 });
 
