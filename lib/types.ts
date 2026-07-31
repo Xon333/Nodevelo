@@ -54,10 +54,15 @@ export interface EnergyImbalanceFinding {
 }
 
 // Result of solving the energy-balance identity for the athlete's own RMR multiplier (calibrateNeat).
-// `source: "default"` is the pre-calibration population prior; `"derived"` is a solve that cleared the
-// confidence floor; `"override"` is reserved for a future athlete-set value. Below the confidence floor
-// calibrateNeat returns null rather than emitting a `"low"`-confidence NeatCalibration — a population
-// default must never masquerade as personalised, so `"low"` is not currently producible by calibrateNeat.
+// `source: "default"` is the pre-calibration population prior (or a revert that couldn't re-derive);
+// `"derived"` is a solve that cleared the confidence floor; `"override"` is an athlete-typed value
+// (app/api/profile/route.ts's PUT `neatMultiplier`). Below the confidence floor calibrateNeat returns
+// null rather than emitting a `"low"`-confidence NeatCalibration — a population default must never
+// masquerade as personalised, so `"low"` is never produced BY CALIBRATENEAT ITSELF. It IS produced
+// elsewhere: every `"default"`/`"override"` record is built by nutrition.ts's
+// `nonDerivedNeatCalibration`, which uses `"low"` deliberately (neither state is empirically
+// calibrated) and nulls `windowDays`/`loggedDays`/`weighIns`/`imbalance` so a record describing a
+// non-solve can never carry fields that only make sense for a real one.
 export interface NeatCalibration {
   multiplier: number;
   confidence: "low" | "medium" | "high";

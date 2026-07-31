@@ -5,7 +5,9 @@ import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import {
   adjustBuffer,
+  calibrateNeat,
   desiredWeightTrend,
+  nonDerivedNeatCalibration,
   resolveNutritionModel,
   smoothedCurrentWeightKg,
   weightTrendFromWellness,
@@ -17,7 +19,7 @@ import {
   NEAT_PLAUSIBLE_MAX,
 } from "@/lib/nutrition";
 import { localToday, ageYearsFrom } from "@/lib/date";
-import type { AthleteProfile } from "@/lib/types";
+import type { AthleteProfile, NeatCalibration } from "@/lib/types";
 import type { Zone } from "@/lib/zones";
 
 // GET returns the parsed athlete_profile.md snapshot plus Intervals.icu auto-sync data.
@@ -105,6 +107,17 @@ export async function GET() {
   // neat.multiplier × rmr — the pre-buffer, pre-training-burn maintenance figure (Task 5 brief). Null
   // whenever rmr is (legacy, pre-migration profiles), same rule as every other derived figure here.
   const maintenanceKcal = rmr !== null ? Math.round(profile.nutrition.neat.multiplier * rmr) : null;
+  // Review fix #5: a LIVE calibration-state check, distinct from `profile.nutrition.neat` (the
+  // persisted record actually driving the daily-target formula). calibrateNeat's `stale` sentinel is
+  // deliberately never persisted — the /api/sync guard is right to refuse it, since a batch-transfer
+  // gap must not silently revert a good prior solve to the population default. But that left `stale`
+  // permanently unreachable: nothing else ever called calibrateNeat, so the UI's dedicated "your last
+  // transfer is too old" branch (neatWhy in AthleteProfileForm.tsx) was dead code and the on-disk
+  // `stale` flag was always false. Re-solving here (read-only, nothing written) surfaces the REASON for
+  // display without resurrecting the persistence problem.
+  const liveNeat =
+    rmr !== null ? calibrateNeat(sync?.wellness ?? [], sync?.activities ?? [], rmr, today) : null;
+  const neatStale = liveNeat !== null && liveNeat.source === "default" && liveNeat.stale;
   const desiredTrendKgPerWeek = desiredWeightTrend(
     smoothedWeightKgForGoal,
     profile.nutrition.targetWeightKg,
@@ -162,6 +175,7 @@ export async function GET() {
     derivation: {
       rmr,
       neat: profile.nutrition.neat,
+      neatStale,
       maintenanceKcal,
       smoothedWeightKg: smoothedWeightKgRaw,
       rawLatestWeightKg,
@@ -195,17 +209,18 @@ export async function PUT(req: Request) {
   // Step 5: manual override of the calibrated NEAT multiplier. Accepted independently of the base
   // four nutrition fields — `{ nutrition: { neatMultiplier } }` alone is a valid PUT, so the
   // derivation panel can set/clear just this without resubmitting the whole nutrition form.
-  let neatOverride: { multiplier: number; source: "override"; solvedAt: string } | { reset: true } | undefined;
+  let neatOverride: { multiplier: number; solvedAt: string } | { reset: true } | undefined;
   if (b.nutrition !== undefined) {
     const input = b.nutrition as Record<string, unknown>;
     if (input.neatMultiplier !== undefined) {
       const v = input.neatMultiplier;
       if (v === null) {
-        // Reset: back to the population default, source "default" — an athlete clearing their
-        // manual value returns to auto-calibration on the next sync.
+        // Reset: "revert to derived" — re-derive from the athlete's current sync data below, falling
+        // back to the population default only if that solve doesn't come back. An athlete clearing
+        // their manual value also resumes auto-calibration on the next sync either way.
         neatOverride = { reset: true };
       } else if (typeof v === "number" && Number.isFinite(v) && v >= NEAT_PLAUSIBLE_MIN && v <= NEAT_PLAUSIBLE_MAX) {
-        neatOverride = { multiplier: v, source: "override", solvedAt: new Date().toISOString() };
+        neatOverride = { multiplier: v, solvedAt: new Date().toISOString() };
       } else {
         return NextResponse.json(
           { error: `neatMultiplier must be null or a finite number between ${NEAT_PLAUSIBLE_MIN} and ${NEAT_PLAUSIBLE_MAX}.` },
@@ -308,6 +323,28 @@ export async function PUT(req: Request) {
     }
   }
 
+  // "Revert to derived" (Step 5's reset path) must actually re-derive, not just fall back to the
+  // population prior — the button says "derived", so landing on DEFAULT_NEAT_MULTIPLIER while a live
+  // solve is available silently cost the athlete real food until their next sync. Read outside the
+  // lock (mirrors /api/sync's best-effort recalibration block, which needs the same wellness/activities/
+  // RMR inputs); calibrateNeat itself is a pure function, so only the reads need awaiting here.
+  let revertRecord: NeatCalibration | null = null;
+  if (neatOverride !== undefined && "reset" in neatOverride) {
+    const [profileForRevert, sync] = await Promise.all([readAthleteProfile(), readLastSync()]);
+    const today = localToday();
+    const latestWeightKgForRevert =
+      (sync?.wellness ?? [])
+        .filter((w) => w.weightKg !== null)
+        .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForRevert.performance.weightKg;
+    const modelForRevert = resolveNutritionModel(profileForRevert, latestWeightKgForRevert, today);
+    // Only the derived model carries an RMR to calibrate against — a legacy (pre-migration) profile has
+    // nothing for calibrateNeat to solve relative to, same guard /api/sync uses.
+    if (modelForRevert.kind === "derived") {
+      const neatResult = calibrateNeat(sync?.wellness ?? [], sync?.activities ?? [], modelForRevert.rmr, today);
+      if (neatResult !== null && neatResult.source === "derived") revertRecord = neatResult;
+    }
+  }
+
   // HR-50: mutates the RAW stored profile, never the live-overlaid one readAthleteProfile returns —
   // baking physiology-sync-derived FTP/HR back into athlete.json as if it were saved user input was
   // the actual bug. Locked, so a concurrent PUT (or the goals-migration self-heal write) can't
@@ -317,6 +354,11 @@ export async function PUT(req: Request) {
     // Preserve the athlete's existing calibration (neat) by default — this route's base four
     // nutrition fields never touch it, so a plain `{ nutrition }` replace would silently wipe it out
     // on every unrelated nutrition-field save. `neatOverride` (Step 5) is the one deliberate exception.
+    //
+    // Both the reset and the manual-override branches funnel through nonDerivedNeatCalibration rather
+    // than spreading `...current.nutrition.neat` — the previous record's solve-only fields (imbalance/
+    // windowDays/loggedDays/weighIns/confidence) describe a DIFFERENT solve (or no solve at all) and
+    // must not survive onto a record whose `source` no longer says "derived".
     ...(nutrition !== undefined || neatOverride !== undefined
       ? {
           nutrition: {
@@ -325,8 +367,8 @@ export async function PUT(req: Request) {
               neatOverride === undefined
                 ? current.nutrition.neat
                 : "reset" in neatOverride
-                  ? { ...current.nutrition.neat, multiplier: DEFAULT_NEAT_MULTIPLIER, source: "default" as const }
-                  : { ...current.nutrition.neat, ...neatOverride },
+                  ? (revertRecord ?? nonDerivedNeatCalibration("default", DEFAULT_NEAT_MULTIPLIER))
+                  : nonDerivedNeatCalibration("override", neatOverride.multiplier, neatOverride.solvedAt),
           },
         }
       : {}),

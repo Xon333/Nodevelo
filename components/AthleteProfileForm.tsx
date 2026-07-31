@@ -64,6 +64,10 @@ interface PhysiologyChange {
 interface Derivation {
   rmr: number | null;
   neat: NeatCalibration;
+  // Review fix #5: a LIVE calibration-state check computed fresh in GET /api/profile — distinct from
+  // `neat.stale`, which is always false for a persisted record (calibrateNeat's `stale` sentinel is
+  // deliberately never written to disk). This is what lets neatWhy's stale branch actually fire.
+  neatStale: boolean;
   maintenanceKcal: number | null;
   smoothedWeightKg: number | null;
   rawLatestWeightKg: number | null;
@@ -191,18 +195,35 @@ function fmtSigned(v: number, decimals = 2): string {
 
 // The NEAT multiplier row's "why" — confidence rendered WITH the evidence behind it (window/logged
 // days/weigh-ins), never as a bare word, and "stale" kept distinct from "not enough data yet" (see
-// NeatCalibration.stale in lib/types.ts — same good-data-but-old-transfer distinction).
-function neatWhy(neat: NeatCalibration): string {
+// NeatCalibration.stale in lib/types.ts — same good-data-but-old-transfer distinction). `stale` is
+// taken as a parameter, NOT read off `neat.stale` — the persisted record's own `stale` field is always
+// false (calibrateNeat's stale sentinel is deliberately never written to disk); the live, freshly
+// computed value lives at `derivation.neatStale` instead (review fix #5).
+function neatWhy(neat: NeatCalibration, stale: boolean): string {
   if (neat.source === "override") {
     return "manually overridden — no longer tracking your logged data.";
   }
-  if (neat.source === "default" && neat.stale) {
+  if (neat.source === "default" && stale) {
     return "your logging looks good, but your last transfer is too old to use — population default until you sync more recent logs.";
   }
   if (neat.source === "default") {
     return "population default — not enough logged days yet.";
   }
   return `derived from your last ${neat.windowDays ?? "?"} days (${neat.loggedDays ?? "?"} days logged, ${neat.weighIns ?? "?"} weigh-ins) — ${neat.confidence} confidence.`;
+}
+
+// Review fix #2: the population default must never read as "derived" — every `source` handled
+// explicitly rather than a binary override/else split. Shown in the override disclosure just above the
+// input, so an athlete on a pre-calibration or reverted-to-default profile sees an honest label instead
+// of a confidence figure that doesn't mean anything for a non-derived value.
+function neatCurrentlyPhrase(neat: NeatCalibration): string {
+  if (neat.source === "override") {
+    return `Currently manually set at ${neat.multiplier.toFixed(2)} — not tracking your logged data.`;
+  }
+  if (neat.source === "derived") {
+    return `Currently derived at ${neat.multiplier.toFixed(2)} (${neat.confidence} confidence).`;
+  }
+  return `Currently at the population starting value of ${neat.multiplier.toFixed(2)} — not derived from your data yet.`;
 }
 
 // Step 3: the nutrition Edit form's field list, incl. targetRateKgPerWeek (signed, step 0.05,
@@ -865,9 +886,14 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           <DerivationRow
             label="Non-exercise multiplier"
             value={`× ${derivation.neat.multiplier.toFixed(2)}`}
-            why={neatWhy(derivation.neat)}
+            why={neatWhy(derivation.neat, derivation.neatStale)}
             extra={
-              derivation.neat.imbalance && (
+              // Review fix #4: gated on source === "derived" so this can only ever describe a solve
+              // that's still live — nonDerivedNeatCalibration (lib/nutrition.ts) already nulls
+              // `imbalance` on every "default"/"override" write, but this is the belt to that braces:
+              // a record whose source isn't "derived" must never be able to render as one, even if a
+              // future write path regresses the null-out.
+              derivation.neat.source === "derived" && derivation.neat.imbalance && (
                 <div className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 leading-4 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
                   <p className="font-medium">
                     The solve landed {derivation.neat.imbalance.direction === "intake-above-model" ? "above" : "below"} the
@@ -954,9 +980,8 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             Override non-exercise multiplier
           </summary>
           <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-            Currently {derivation.neat.source === "override" ? "manually set" : "derived"} at{" "}
-            {derivation.neat.multiplier.toFixed(2)} ({derivation.neat.confidence} confidence). Setting a value here stops it
-            tracking your logged data — it stays fixed at what you enter until you revert it.
+            {neatCurrentlyPhrase(derivation.neat)} Setting a value here stops it tracking your logged data — it stays fixed
+            at what you enter until you revert it.
           </p>
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <label>

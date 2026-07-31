@@ -11,6 +11,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // updateAthleteProfile to apply its captured mutate callback against a fixed on-disk profile — the same
 // shape a real locked read would hand it — and assert on the route's own JSON response, which is built
 // directly from updateAthleteProfile's return value.
+//
+// Review fix #3: "revert to derived" (`{ nutrition: { neatMultiplier: null } }`) now does one plain,
+// unlocked readAthleteProfile()/readLastSync() pair BEFORE the lock, to re-derive via calibrateNeat —
+// mirroring /api/sync's own best-effort recalibration block. Every test that exercises the reset path
+// must mock those two return values (seedReadsForRevert below); tests that never send `neatMultiplier:
+// null` don't need to, since that read is gated on the reset branch specifically.
 vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(),
   readLastSync: vi.fn(),
@@ -20,7 +26,7 @@ vi.mock("@/lib/data-store", () => ({
 import * as store from "@/lib/data-store";
 import { PUT } from "@/app/api/profile/route";
 import { DEFAULT_NEAT_MULTIPLIER, NEAT_PLAUSIBLE_MAX, NEAT_PLAUSIBLE_MIN } from "@/lib/nutrition";
-import type { AthleteProfile } from "@/lib/types";
+import type { AthleteProfile, ActivitySummary, WellnessEntry } from "@/lib/types";
 
 // The route never touches `neat` (it's calibrateNeat's output, adopted on sync — Phase 2), so every
 // fixture/expectation below carries this same value through untouched.
@@ -40,6 +46,33 @@ const base = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
 });
 
 const updateMock = () => store.updateAthleteProfile as ReturnType<typeof vi.fn>;
+// Seeds the plain (unlocked) reads the revert path does BEFORE the lock — readAthleteProfile (for the
+// RMR inputs + fallback weight) and readLastSync (for calibrateNeat's wellness/activities). Only
+// consulted on the `neatMultiplier: null` reset branch.
+const seedReadsForRevert = (profile: AthleteProfile, sync: { wellness: WellnessEntry[]; activities: ActivitySummary[] } | null) => {
+  (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(profile);
+  (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue(sync);
+};
+// A flat-weight synthetic athlete whose logged intake is exactly consistent with multiplier `k` at the
+// given `rmr` — same construction as lib/nutrition.test.ts's calibrateNeat fixtures, so calibrateNeat
+// clears HIGH confidence and derives `k` back out almost exactly.
+const synthSync = (k: number, days: number, rmr: number, burnPerDay: number, endDate: string) => {
+  const wellness: WellnessEntry[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(Date.parse(`${endDate}T00:00:00.000Z`) - i * 86_400_000).toISOString().slice(0, 10);
+    wellness.push({
+      date, weightKg: 70, hrv: null, sleepHours: null, sleepQuality: null,
+      kcalConsumed: k * rmr + burnPerDay, ctl: null, atl: null,
+    });
+  }
+  const activities: ActivitySummary[] = wellness.map((w) => ({
+    id: w.date, date: w.date, type: "Ride", name: "Ride", movingTimeSec: 3600,
+    avgWatts: null, normalizedPower: null, maxWatts: null, icuFtp: null, avgHr: null, maxHr: null,
+    kj: null, activeBurnKcal: burnPerDay, trainingLoad: null, rpe: null, carbsIngestedG: null,
+    decoupling: null, efficiencyFactor: null,
+  })) as unknown as ActivitySummary[];
+  return { wellness, activities };
+};
 // Seeds what updateAthleteProfile's mutate callback sees as the current on-disk profile — mirrors the
 // real function applying `mutate` inside its lock against whatever's actually stored.
 const seedCurrentProfile = (current: AthleteProfile) => {
@@ -99,14 +132,78 @@ describe("PUT /api/profile — neatMultiplier override (Step 5)", () => {
     expect(json.nutrition.neat.source).toBe("override");
   });
 
-  it("null resets the override back to the population default", async () => {
+  it("null resets to the population default when the profile can't be re-derived (legacy, no RMR inputs)", async () => {
+    // base()'s performance has dateOfBirth/heightCm/sex all null — resolveNutritionModel resolves
+    // "legacy" for it, so there's nothing for calibrateNeat to solve against and the revert correctly
+    // falls back to the population default rather than fabricating a solve.
     const overridden = base({
       nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null, neat: { ...defaultNeat, multiplier: 1.4, source: "override", solvedAt: "2026-06-01T00:00:00.000Z" } },
     });
     seedCurrentProfile(overridden);
+    seedReadsForRevert(overridden, null);
     const json = await (await put({ nutrition: { neatMultiplier: null } })).json();
     expect(json.nutrition.neat.multiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
     expect(json.nutrition.neat.source).toBe("default");
+    // Review fix #4: a "default" record must not carry another solve's fields.
+    expect(json.nutrition.neat.confidence).toBe("low");
+    expect(json.nutrition.neat.windowDays).toBeNull();
+    expect(json.nutrition.neat.loggedDays).toBeNull();
+    expect(json.nutrition.neat.weighIns).toBeNull();
+    expect(json.nutrition.neat.imbalance).toBeNull();
+  });
+
+  it("null re-derives a live solve instead of falling back to the population default (review fix #3)", async () => {
+    // Unlike the legacy case above, this profile HAS RMR inputs, so resolveNutritionModel resolves
+    // "derived" and the revert has something to calibrate against. Real RMR for 70kg/175cm/34yo male:
+    // 10*70 + 6.25*175 - 5*34 + 5 = 1631.25 → rounds to 1631.
+    const withRmrInputs = base({
+      performance: { ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: "1992-01-01", heightCm: 175, sex: "male" },
+      nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null, neat: { ...defaultNeat, multiplier: 1.4, source: "override", solvedAt: "2026-06-01T00:00:00.000Z" } },
+    });
+    seedCurrentProfile(withRmrInputs);
+    // The route's revert path calls the real localToday() (no client-supplied override on this route,
+    // unlike /api/sync) — fake the clock so the fixture's window lines up with "today" deterministically.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T12:00:00.000Z"));
+    try {
+      const { wellness, activities } = synthSync(1.28, 42, 1631, 1000, "2026-07-30");
+      seedReadsForRevert(withRmrInputs, { wellness, activities });
+      const json = await (await put({ nutrition: { neatMultiplier: null } })).json();
+      // Landed on a genuine derived solve close to the synthetic k, not the 1.2 population default —
+      // the pre-fix behaviour ("Revert to derived" actually reverting to the default) is what this closes.
+      expect(json.nutrition.neat.source).toBe("derived");
+      expect(json.nutrition.neat.multiplier).toBeGreaterThan(1.27);
+      expect(json.nutrition.neat.multiplier).toBeLessThan(1.29);
+      expect(json.nutrition.neat.confidence).toBe("high");
+      expect(json.nutrition.neat.windowDays).toBe(42);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a fresh override record never carries a previous solve's fields (review fix #4)", async () => {
+    // The on-disk record before this PUT is a HIGH-confidence derived solve with a real imbalance
+    // finding attached — none of that describes the athlete's own typed-in number.
+    const derivedWithImbalance = base({
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
+        neat: {
+          multiplier: 1.55, confidence: "high", source: "derived", windowDays: 42, loggedDays: 39, weighIns: 23,
+          solvedAt: "2026-06-01T00:00:00.000Z",
+          imbalance: { direction: "intake-above-model", estimatedKcalPerDay: 180, candidates: ["a", "b"], note: "n" },
+          stale: false,
+        },
+      },
+    });
+    seedCurrentProfile(derivedWithImbalance);
+    const json = await (await put({ nutrition: { neatMultiplier: 1.4 } })).json();
+    expect(json.nutrition.neat.multiplier).toBe(1.4);
+    expect(json.nutrition.neat.source).toBe("override");
+    expect(json.nutrition.neat.confidence).toBe("low");
+    expect(json.nutrition.neat.windowDays).toBeNull();
+    expect(json.nutrition.neat.loggedDays).toBeNull();
+    expect(json.nutrition.neat.weighIns).toBeNull();
+    expect(json.nutrition.neat.imbalance).toBeNull();
   });
 
   it("rejects an out-of-range neatMultiplier, naming the bounds, without writing", async () => {

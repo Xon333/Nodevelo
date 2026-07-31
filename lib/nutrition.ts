@@ -510,10 +510,60 @@ export const CALIBRATION_MIN_WEIGH_INS = 12;
 // coverage looked inside the loggable range.
 export const CALIBRATION_MAX_STALENESS_DAYS = 14;
 
+// Weigh-in recency floor — distinct from the weigh-in COUNT gates above (CALIBRATION_MIN_WEIGH_INS /
+// CALIBRATION_HIGH_MIN_WEIGH_INS) and from CALIBRATION_MAX_STALENESS_DAYS (which guards INTAKE
+// staleness only). Count and coverage alone don't guarantee the weight-trend regression is reading
+// anything current: 20-23 weigh-ins clustered in the window's FIRST half still clear the HIGH bar on
+// count/coverage with nothing else requiring the trend they feed to be recent. theilSenKgPerWeek
+// anchors its x-axis at whichever weigh-in is last in the array it's handed, with no awareness of
+// `cutoff`/`today` on its own — so once weigh-ins lapse by D days, the trend window silently shifts
+// back by D: D days of PRE-window data (e.g. a gaining block that ended weeks ago) get a vote, and the
+// most recent D days of the actual calibration window get none.
+//
+// Measured on real data shapes: a flat-in-window athlete (true k = 1.2584) with an unrelated
+// pre-window trend and a lapsed weigh-in cadence derived k ≈ 1.15-1.16 at HIGH confidence — a
+// fabricated ~165-177 kcal/day deficit — for 20-21 day lapses. Error is ~zero out to ~10 days and
+// turns on somewhere between 14 and 20. 14 sits after the measured-safe range and before both measured
+// failures; combined with the [cutoff, lastLoggedDate] window filter on the trend input (see
+// calibrateNeat), this is what closes the failure rather than just narrowing it.
+export const CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS = 14;
+
 // High-confidence thresholds sit above the medium/floor exports above — kept as local literals because
 // the brief names only the floor tier as reusable constants.
 const CALIBRATION_HIGH_MIN_WEIGH_INS = 20;
 const CALIBRATION_HIGH_MIN_LOGGED_FRACTION = 0.8;
+
+/**
+ * The ONE constructor for a `"default"` or `"override"` NeatCalibration — neither describes a solve, so
+ * neither may carry one. Writing `{ ...previousNeat, multiplier, source }` (the pre-fix pattern) kept
+ * whatever `imbalance`/`windowDays`/`loggedDays`/`weighIns`/`confidence` the PREVIOUS solve happened to
+ * have, producing records like "population default, high confidence, 39 logged days, clamped for a
+ * ~180 kcal/day imbalance" for a solve that no longer exists — which the UI then rendered as fact.
+ * Every write of a non-derived record funnels through here so that drift can't reappear.
+ *
+ * `confidence: "low"` is deliberate: neither a population prior nor an athlete-typed number is
+ * empirically calibrated, so "low" is the honest label. This is NOT the same claim as calibrateNeat's
+ * own contract — calibrateNeat still never returns `"low"` itself (its below-the-floor case is a bare
+ * `null`, never a low-confidence object; see the NeatCalibration doc in lib/types.ts). This is the one
+ * place in the app that legitimately produces `"low"`, and it's outside calibrateNeat entirely.
+ */
+export function nonDerivedNeatCalibration(
+  source: "default" | "override",
+  multiplier: number,
+  solvedAt: string | null = null
+): NeatCalibration {
+  return {
+    multiplier,
+    confidence: "low",
+    source,
+    windowDays: null,
+    loggedDays: null,
+    weighIns: null,
+    solvedAt,
+    imbalance: null,
+    stale: false,
+  };
+}
 
 /**
  * Solve the energy-balance identity for the athlete's own RMR multiplier over a trailing window:
@@ -608,6 +658,9 @@ export function calibrateNeat(
   let loggedSum = 0;
   let loggedDays = 0;
   let weighIns = 0;
+  // Most recent weigh-in inside [cutoff, today) — feeds the CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS gate
+  // below. Tracked alongside the count in the same loop rather than a second pass.
+  let mostRecentWeighInDate: string | null = null;
   for (const w of wellness) {
     if (w.date < cutoff || w.date >= today) continue; // outside [cutoff, today)
     // Weigh-in count feeds the weight-trend regression and confidence gate independent of activity data —
@@ -615,7 +668,10 @@ export function calibrateNeat(
     // the FULL window, not just the loggable range: weigh-ins sync separately from MFP-batched intake and
     // aren't subject to the same transfer gap (this athlete's real data has weigh-ins after its last
     // logged-kcal day).
-    if (w.weightKg !== null) weighIns++;
+    if (w.weightKg !== null) {
+      weighIns++;
+      if (mostRecentWeighInDate === null || w.date > mostRecentWeighInDate) mostRecentWeighInDate = w.date;
+    }
     if (w.date > lastLoggedDate) continue; // transfer-gap tail — excluded from intake accounting entirely
     if (unresolvedBurnDates.has(w.date)) continue; // burn unknown this day — exclude, don't zero it
     if (w.kcalConsumed !== null && w.kcalConsumed > 0) {
@@ -623,6 +679,10 @@ export function calibrateNeat(
       loggedDays++;
     }
   }
+  const daysSinceLastWeighIn =
+    mostRecentWeighInDate === null
+      ? Infinity
+      : Math.round((Date.parse(today) - Date.parse(mostRecentWeighInDate)) / 86_400_000);
 
   let sumBurn = 0;
   for (const [date, kcal] of burnByDate) {
@@ -647,18 +707,23 @@ export function calibrateNeat(
   if (
     windowDays >= CALIBRATION_PREFERRED_WINDOW_DAYS &&
     weighIns >= CALIBRATION_HIGH_MIN_WEIGH_INS &&
-    loggedFraction >= CALIBRATION_HIGH_MIN_LOGGED_FRACTION
+    loggedFraction >= CALIBRATION_HIGH_MIN_LOGGED_FRACTION &&
+    daysSinceLastWeighIn <= CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS
   ) {
     confidence = "high";
   } else if (
     windowDays >= CALIBRATION_MIN_WINDOW_DAYS &&
     weighIns >= CALIBRATION_MIN_WEIGH_INS &&
-    loggedFraction >= CALIBRATION_MIN_LOGGED_FRACTION
+    loggedFraction >= CALIBRATION_MIN_LOGGED_FRACTION &&
+    daysSinceLastWeighIn <= CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS
   ) {
     confidence = "medium";
   } else {
     // Below the floor: withhold entirely rather than adopt a flaky number. A population default must
     // never masquerade as personalised, so a "low"-confidence NeatCalibration is never returned here.
+    // Weigh-in count and logged coverage alone don't guarantee the trend is CURRENT — weigh-ins
+    // clustered in the window's first half can clear both bars with a stale trend — so a lapse past
+    // CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS withholds here too, same as any other insufficient-data case.
     return null;
   }
 
@@ -667,7 +732,14 @@ export function calibrateNeat(
   const meanIntake = loggedSum / loggedDays;
   const sumIntake = meanIntake * n;
 
-  const trendPrecise = weightTrendPreciseFromWellness(wellness, windowDays); // unrounded kg/7d
+  // Bound the trend input to the SAME [cutoff, lastLoggedDate] span the intake/burn sums already run
+  // over. theilSenKgPerWeek (unchanged) anchors its x-axis at whichever weigh-in is LAST in the array
+  // it's handed and has no notion of `cutoff`/`today` on its own — pass it the raw `wellness` and a
+  // lapsed weigh-in cadence silently drags that anchor (and the whole trend window) back by the lapse,
+  // letting pre-window data vote and starving the real window of coverage. See
+  // CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS for the companion recency gate and the measured failure this closes.
+  const trendWellness = wellness.filter((w) => w.date >= cutoff && w.date <= lastLoggedDate);
+  const trendPrecise = weightTrendPreciseFromWellness(trendWellness, windowDays); // unrounded kg/7d
   const deltaMassKg = trendPrecise === null ? 0 : (trendPrecise / 7) * n;
 
   const solvedK = (sumIntake - sumBurn - deltaMassKg * KCAL_PER_KG_TISSUE) / (n * rmr);

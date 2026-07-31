@@ -5,6 +5,7 @@ import {
   balanceLevel,
   calculateDailyTarget,
   calibrateNeat,
+  CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS,
   computeEnergyAvailability,
   desiredWeightTrend,
   eaLevel,
@@ -817,6 +818,83 @@ describe("calibrateNeat", () => {
       // unresolved day too — without that decrement the solve drifts to ~1.31 instead.
       expect(r.multiplier).toBeGreaterThan(1.299);
       expect(r.multiplier).toBeLessThan(1.301);
+    });
+  });
+
+  // CRITICAL fix: theilSenKgPerWeek (unchanged) anchors its x-axis at whichever weigh-in is LAST in the
+  // array it's given, with no awareness of `cutoff`/`today`. Passed the raw wellness array, a lapsed
+  // weigh-in cadence silently drags the trend window back by the lapse — pre-window data (e.g. a
+  // gaining block that ended weeks ago) gets a vote, and the most recent days of the real calibration
+  // window get none. Two independent fixes close this: (1) calibrateNeat now filters the wellness
+  // handed to the trend regression down to [cutoff, lastLoggedDate] before calling it; (2) a weigh-in
+  // recency gate (CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS) withholds calibration outright once the most
+  // recent in-window weigh-in is too old, because weigh-in COUNT and logged COVERAGE alone (the
+  // pre-existing confidence gates) don't guarantee the trend they feed is current — a cluster of
+  // weigh-ins in the window's first half can clear both bars with a stale trend.
+  describe("weigh-in recency", () => {
+    // A pre-window "gaining block": 40 days ending exactly at the cutoff boundary, weight rising
+    // +1.4 kg/week, landing at 62 kg — continuous with the flat 62 kg in-window segment. On the OLD
+    // (unfiltered, ungated) code this is exactly the shape that fabricated a ~165-177 kcal/day deficit
+    // at HIGH confidence once weigh-ins lapsed (review finding #1's measured table).
+    const withPreWindowTrend = (windowDays: number, k: number, rmr: number, burnPerDay: number) => {
+      const preWindow: WellnessEntry[] = [];
+      for (let i = 0; i < 40; i++) {
+        const date = new Date(Date.UTC(2026, 3, 23) + i * 86_400_000).toISOString().slice(0, 10); // 2026-04-23 .. 2026-05-31
+        preWindow.push({ date, weightKg: 54 + i * 0.2, kcalConsumed: k * rmr + burnPerDay } as WellnessEntry);
+      }
+      const inWindow: WellnessEntry[] = [];
+      for (let i = 0; i < windowDays; i++) {
+        const date = new Date(Date.UTC(2026, 5, 1) + i * 86_400_000).toISOString().slice(0, 10); // cutoff = 2026-06-01
+        inWindow.push({ date, weightKg: 62, kcalConsumed: k * rmr + burnPerDay } as WellnessEntry);
+      }
+      const activities = inWindow.map((w) => ({ date: w.date, activeBurnKcal: burnPerDay, kj: null }));
+      return { wellness: [...preWindow, ...inWindow], activities };
+    };
+
+    it("a pre-window trend no longer distorts k once weigh-ins lapse, as long as the lapse is still inside the recency gate", () => {
+      const { wellness, activities } = withPreWindowTrend(42, 1.2584, 1631, 1000);
+      // Blank the trailing 12 in-window weigh-ins (keep kcalConsumed — intake logging stays current,
+      // only body-weight logging lapsed). The most recent surviving weigh-in lands 13 days before
+      // `today`, inside CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS (14) — recency alone must not be the thing
+      // withholding this one; the window filter (fix part a) has to do the work.
+      for (let i = wellness.length - 12; i < wellness.length; i++) wellness[i].weightKg = null;
+      const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42);
+      expect(r).not.toBeNull();
+      expect(r!.source).toBe("derived");
+      expect(r!.confidence).toBe("high");
+      // Unfiltered, the pre-window gaining block drags the anchored trend window back far enough to
+      // pull the solve down to ~1.15 (verified against the unfixed code); filtered to [cutoff,
+      // lastLoggedDate], the pre-window data never enters the regression and the true flat-weight k
+      // (1.2584) comes back essentially exactly.
+      expect(r!.multiplier).toBeGreaterThan(1.258);
+      expect(r!.multiplier).toBeLessThan(1.259);
+    });
+
+    it("withholds rather than adopting a distorted high-confidence multiplier — the review's exact 21-day-lapse-plus-pre-window-trend scenario", () => {
+      const { wellness, activities } = withPreWindowTrend(42, 1.2584, 1631, 1000);
+      // Blank the trailing 20 in-window weigh-ins. The most recent surviving weigh-in lands 21 days
+      // before `today` — past CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS (14). Pre-fix, this combination
+      // derived k ≈ 1.157 at HIGH confidence (a fabricated ~165 kcal/day cut for an athlete whose
+      // in-window data was perfectly consistent with the true 1.2584).
+      for (let i = wellness.length - 20; i < wellness.length; i++) wellness[i].weightKg = null;
+      const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42);
+      expect(r).toBeNull();
+    });
+
+    it("withholds once the most recent weigh-in is stale even when weigh-in count and logged coverage alone would clear HIGH confidence", () => {
+      const { wellness, activities } = synth(1.3, 42, 1631, 1000);
+      // Blank the trailing 20 days' weightKg only — kcalConsumed (and so loggedFraction) stays at
+      // 100%. 22 weigh-ins survive, still comfortably above CALIBRATION_HIGH_MIN_WEIGH_INS (20), so
+      // count and coverage alone would have cleared HIGH under the pre-fix gates (verified: the
+      // equivalent scenario with only 12 days blanked, inside the recency gate, DOES clear HIGH — see
+      // the "loggable-range coverage and staleness" tests above). Recency is the only thing failing.
+      for (let i = wellness.length - 20; i < wellness.length; i++) wellness[i].weightKg = null;
+      const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42);
+      expect(r).toBeNull();
+    });
+
+    it("CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS is exported and matches the documented value", () => {
+      expect(CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS).toBe(14);
     });
   });
 });
