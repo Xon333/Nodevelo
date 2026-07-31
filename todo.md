@@ -66,6 +66,16 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
   (`BUFFER_MIN_KCAL = 0`), `targetWeight` is never read by any calculation, and the weight-trend buffer
   cuts calories on glycogen rebound — i.e. it fights recovery from underfuelling. Full analysis + fix →
   spec below (Phase 1).
+- ☑ **Nutrition Phase 1 + 2 shipped 2026-07-30/31** → [ARCHIVE.md](ARCHIVE.md) when convenient.
+  Phase 1 (10 commits) fixed five live defects: training days prescribing less than rest days, a
+  formula that could not express a deficit, `targetWeight` never being read, `kj` used as calories,
+  and off-bike burn dropped. Phase 2 (7 tasks) derives the NEAT multiplier from the athlete's own
+  logs. **Live-measured:** k = 1.2584 (derived, high confidence, 42d/39 logged/21 weigh-ins); rest
+  day 2300 → 2450; D1 invariant holds on real LLM output; 1552 tests green.
+- ☐ `audit` Nutrition follow-ups, none blocking (full list in `.git/sdd/progress-nutrition-phase2.md`):
+  `floored` not exposed to the derivation panel; `weeklyEnergy` measures adherence against the
+  configured rather than applied buffer; route tests only exercise the legacy model branch; two
+  today.tsx display bugs (negative buffer renders "+ -200"; legacy floor makes the breakdown not sum).
 - ☐ P2 `feat` Day-to-day nutrition accuracy — spec revised 2026-07-30 after a nutritionist-lens review,
   pending user sign-off:
   [docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md).
