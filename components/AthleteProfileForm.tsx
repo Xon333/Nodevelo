@@ -10,18 +10,22 @@ import { Card, PrimaryButton, SectionDivider, Skeleton, SkeletonScreen } from ".
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import type { PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
+import type { NeatCalibration, NutritionSettings, PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
 import type { IfBandOffsetRow } from "@/lib/calibration";
 import { groupGoalsByFocus } from "@/lib/profile-goals";
 import { FOCUS_LABELS } from "@/lib/season";
-import { BUFFER_MAX_KCAL, BUFFER_MIN_KCAL } from "@/lib/nutrition";
-
-interface NutritionSettings {
-  buffer: number;
-  targetWeightKg: number;
-  baseCalories: number; // deprecated; shown only during migration
-  restDayTarget: number; // deprecated; shown only during migration
-}
+import {
+  BUFFER_MAX_KCAL,
+  BUFFER_MIN_KCAL,
+  MAX_ADJUSTMENT_STEP_KCAL,
+  NEAT_PLAUSIBLE_MAX,
+  NEAT_PLAUSIBLE_MIN,
+  SMOOTHED_WEIGHT_WINDOW_DAYS,
+  WEIGHT_TREND_LONG_WINDOW_DAYS,
+  WEIGHT_TREND_WINDOW_DAYS,
+} from "@/lib/nutrition";
+import type { BufferAdjustment } from "@/lib/nutrition";
+import { ageYearsFrom, localToday } from "@/lib/date";
 
 interface PerformanceRmrFields {
   dateOfBirth: string | null;
@@ -43,13 +47,6 @@ interface AutoSyncInfo {
   lastKcalDate: string | null;
 }
 
-interface BufferStatus {
-  bufferApplied: number;
-  delta: number;
-  reason: string;
-  capped: boolean;
-}
-
 interface WeightPoint {
   date: string;
   weightKg: number;
@@ -61,6 +58,22 @@ interface PhysiologyChange {
   date: string;
 }
 
+// Task 5: the full derivation chain the profile page renders as an explicit `<dl>` — everything
+// GET /api/profile's `derivation` object exposes (see app/api/profile/route.ts). `buffer` re-uses the
+// exact same BufferAdjustment the top-level `bufferStatus` field carries (computed once, server-side).
+interface Derivation {
+  rmr: number | null;
+  neat: NeatCalibration;
+  maintenanceKcal: number | null;
+  smoothedWeightKg: number | null;
+  rawLatestWeightKg: number | null;
+  targetWeightKg: number;
+  trendShortKgPerWeek: number | null;
+  trendLongKgPerWeek: number | null;
+  desiredTrendKgPerWeek: number;
+  buffer: BufferAdjustment;
+}
+
 interface ProfileResponse {
   nutrition: NutritionSettings;
   nutritionModel: NutritionModel;
@@ -70,7 +83,8 @@ interface ProfileResponse {
   physiologySource: "intervals" | "manual" | null;
   athleteMd: AthleteMdSnapshot;
   autoSync: AutoSyncInfo;
-  bufferStatus: BufferStatus;
+  bufferStatus: BufferAdjustment;
+  derivation: Derivation;
   syncedPowerCurve: PowerCurvePoint[];
   powerProfile: PowerProfile | null;
   latestWeightKg: number | null;
@@ -139,18 +153,91 @@ function Section({
   );
 }
 
+// Task 5 derivation panel — one row of the `<dl>` chain: label + value together as the term, the
+// one-line "why" (plus any extra warning/context block) as the description. Every number the nutrition
+// formula runs on gets a row here so the chain is visible end to end, not just its final output.
+function DerivationRow({
+  label,
+  value,
+  why,
+  extra,
+}: {
+  label: string;
+  value: React.ReactNode;
+  why: React.ReactNode;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <div className="py-2">
+      <dt className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{label}</span>
+        <span className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">{value}</span>
+      </dt>
+      <dd className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+        {why}
+        {extra}
+      </dd>
+    </div>
+  );
+}
+
+// Signed fixed-point formatting shared by every trend/rate/buffer row: "+" for positive, the native
+// "-" for negative, nothing for exactly zero (an unsigned "0.0" reads as neutral; a signed "+0.0" would
+// falsely imply a direction).
+function fmtSigned(v: number, decimals = 2): string {
+  const s = v.toFixed(decimals);
+  return v > 0 ? `+${s}` : s;
+}
+
+// The NEAT multiplier row's "why" — confidence rendered WITH the evidence behind it (window/logged
+// days/weigh-ins), never as a bare word, and "stale" kept distinct from "not enough data yet" (see
+// NeatCalibration.stale in lib/types.ts — same good-data-but-old-transfer distinction).
+function neatWhy(neat: NeatCalibration): string {
+  if (neat.source === "override") {
+    return "manually overridden — no longer tracking your logged data.";
+  }
+  if (neat.source === "default" && neat.stale) {
+    return "your logging looks good, but your last transfer is too old to use — population default until you sync more recent logs.";
+  }
+  if (neat.source === "default") {
+    return "population default — not enough logged days yet.";
+  }
+  return `derived from your last ${neat.windowDays ?? "?"} days (${neat.loggedDays ?? "?"} days logged, ${neat.weighIns ?? "?"} weigh-ins) — ${neat.confidence} confidence.`;
+}
+
+// Step 3: the nutrition Edit form's field list, incl. targetRateKgPerWeek (signed, step 0.05,
+// -1.5…1.5, blank → derive from the gap). Module-level so it isn't rebuilt every render.
+const NUTRITION_EDIT_FIELDS: Array<{
+  key: "buffer" | "targetWeightKg" | "targetRateKgPerWeek";
+  label: string;
+  unit: string;
+  min: number;
+  max?: number;
+  step?: number;
+  hint: string;
+}> = [
+  { key: "buffer", label: "Goal buffer", unit: "kcal", min: BUFFER_MIN_KCAL, hint: `${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}, negative = deficit` },
+  { key: "targetWeightKg", label: "Target weight", unit: "kg", min: 0, hint: "min 0" },
+  { key: "targetRateKgPerWeek", label: "Target rate", unit: "kg/week", min: -1.5, max: 1.5, step: 0.05, hint: "blank = derive from the gap" },
+];
 
 // ---------- Main component ----------
 
 export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: IfBandOffsetRow[] }) {
   const [data, setData] = useState<ProfileResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [nut, setNut] = useState({ buffer: "", targetWeightKg: "" });
+  // targetRateKgPerWeek is intentionally NOT run through the generic parsed-number loop in
+  // saveNutrition below — "" is a valid value here (→ null, "derive from the gap"), not a parse error.
+  const [nut, setNut] = useState({ buffer: "", targetWeightKg: "", targetRateKgPerWeek: "" });
   const [rmrInputs, setRmrInputs] = useState({ dateOfBirth: "", heightCm: "", sex: "" });
   const [saveState, setSaveState] = useState<SaveState>({ state: "idle" });
   const [goals, setGoals] = useState<ProfileResponse["goals"]>([]);
   const [weakpoints, setWeakpoints] = useState<ProfileResponse["weakpoints"]>([]);
   const [goalsSaveState, setGoalsSaveState] = useState<SaveState>({ state: "idle" });
+  // NEAT override (Step 4) — its own field/save-state pair, independent of the nutrition Edit form
+  // above: the brief calls for the same separate-save-path pattern the other sections already follow.
+  const [neatInput, setNeatInput] = useState("");
+  const [neatSaveState, setNeatSaveState] = useState<SaveState>({ state: "idle" });
 
   // Mount-load the profile + nutrition fields. Inline async IIFE (setState lands after the await,
   // guarded by a cancelled flag) so it reads as a fetch-on-mount, not a synchronous setState in
@@ -165,12 +252,17 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         setGoals(response.goals);
         setWeakpoints(response.weakpoints);
         const n = response.nutrition;
-        setNut({ buffer: String(n.buffer), targetWeightKg: String(n.targetWeightKg) });
+        setNut({
+          buffer: String(n.buffer),
+          targetWeightKg: String(n.targetWeightKg),
+          targetRateKgPerWeek: n.targetRateKgPerWeek != null ? String(n.targetRateKgPerWeek) : "",
+        });
         setRmrInputs({
           dateOfBirth: response.performance?.dateOfBirth ?? "",
           heightCm: response.performance?.heightCm != null ? String(response.performance.heightCm) : "",
           sex: response.performance?.sex ?? "",
         });
+        setNeatInput(String(response.derivation.neat.multiplier));
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load your profile — try again.");
       }
@@ -184,12 +276,22 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
     if (!data) return;
     const parsed: Record<string, number> = {};
     for (const [key, value] of Object.entries(nut)) {
+      if (key === "targetRateKgPerWeek") continue; // handled below — "" is valid here (→ null)
       const n = Number(value);
       if (value.trim() === "" || !Number.isFinite(n)) {
         setSaveState({ state: "error", message: `"${key}" is not a valid number.` });
         return;
       }
       parsed[key] = n;
+    }
+    let targetRateKgPerWeek: number | null = null;
+    if (nut.targetRateKgPerWeek.trim() !== "") {
+      const r = Number(nut.targetRateKgPerWeek);
+      if (!Number.isFinite(r) || Math.abs(r) > 1.5) {
+        setSaveState({ state: "error", message: "Rate must be blank (derive from the gap) or between -1.5 and 1.5 kg/week." });
+        return;
+      }
+      targetRateKgPerWeek = r;
     }
     setSaveState({ state: "saving" });
     try {
@@ -202,6 +304,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         body: JSON.stringify({
           nutrition: {
             ...parsed,
+            targetRateKgPerWeek,
             baseCalories: data.nutrition.baseCalories,
             restDayTarget: data.nutrition.restDayTarget,
           },
@@ -233,6 +336,37 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       setData(await api<ProfileResponse>("/api/profile"));
     } catch (err) {
       setSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
+    }
+  };
+
+  // Step 4: manual NEAT override — its own save path (PUT accepts `neatMultiplier` alone, per the
+  // route's Step-5 comment), independent of the base-four nutrition Edit form above.
+  const saveNeatOverride = async () => {
+    const v = Number(neatInput);
+    if (!Number.isFinite(v) || v < NEAT_PLAUSIBLE_MIN || v > NEAT_PLAUSIBLE_MAX) {
+      setNeatSaveState({ state: "error", message: `Must be a number between ${NEAT_PLAUSIBLE_MIN} and ${NEAT_PLAUSIBLE_MAX}.` });
+      return;
+    }
+    setNeatSaveState({ state: "saving" });
+    try {
+      await api("/api/profile", { method: "PUT", body: JSON.stringify({ nutrition: { neatMultiplier: v } }) });
+      setNeatSaveState({ state: "saved" });
+      setData(await api<ProfileResponse>("/api/profile"));
+    } catch (err) {
+      setNeatSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't save — try again." });
+    }
+  };
+
+  const revertNeatOverride = async () => {
+    setNeatSaveState({ state: "saving" });
+    try {
+      await api("/api/profile", { method: "PUT", body: JSON.stringify({ nutrition: { neatMultiplier: null } }) });
+      setNeatSaveState({ state: "saved" });
+      const fresh = await api<ProfileResponse>("/api/profile");
+      setData(fresh);
+      setNeatInput(String(fresh.derivation.neat.multiplier));
+    } catch (err) {
+      setNeatSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't revert — try again." });
     }
   };
 
@@ -304,7 +438,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
     );
   }
 
-  const { athleteMd, autoSync, bufferStatus, syncedPowerCurve, powerProfile, latestWeightKg } = data;
+  const { athleteMd, autoSync, derivation, syncedPowerCurve, powerProfile, latestWeightKg } = data;
 
   // Rider profile + Power PRs as standalone sections, composed below into a side-by-side row when both
   // are available (FB-2026-06-30): curve + PR grid in one half, the rider read in the other.
@@ -714,20 +848,156 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           </div>
         )}
 
-        <div className="rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
-          <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">Buffer auto-adjustment</p>
-          <p className="mt-0.5 text-sm text-zinc-700 dark:text-zinc-300">
-            Configured {data.nutrition.buffer} kcal → applied{" "}
-            <span className="font-semibold">{bufferStatus.bufferApplied} kcal</span>
-            {bufferStatus.delta !== 0 && ` (${bufferStatus.delta > 0 ? "+" : ""}${bufferStatus.delta} kcal)`}
+        {/* Task 5: the whole chain, not just its output — every number the deterministic formula runs
+            on, in the order it's computed, each with the one-line reasoning behind it. */}
+        <dl className="divide-y divide-zinc-100 rounded bg-zinc-50 px-3 dark:divide-zinc-800 dark:bg-zinc-900">
+          <DerivationRow
+            label="Resting metabolic rate"
+            value={derivation.rmr !== null ? `${derivation.rmr.toLocaleString()} kcal` : "—"}
+            why={
+              derivation.rmr !== null && data.nutritionModel.kind === "derived"
+                ? `Mifflin-St Jeor from ${data.nutritionModel.weightKg} kg, ${data.performance.heightCm ?? "—"} cm, age ${
+                    data.performance.dateOfBirth ? (ageYearsFrom(data.performance.dateOfBirth, localToday()) ?? "—") : "—"
+                  }`
+                : "add date of birth, height and sex below to compute this from Mifflin-St Jeor"
+            }
+          />
+          <DerivationRow
+            label="Non-exercise multiplier"
+            value={`× ${derivation.neat.multiplier.toFixed(2)}`}
+            why={neatWhy(derivation.neat)}
+            extra={
+              derivation.neat.imbalance && (
+                <div className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 leading-4 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+                  <p className="font-medium">
+                    The solve landed {derivation.neat.imbalance.direction === "intake-above-model" ? "above" : "below"} the
+                    plausible range by ~{Math.abs(derivation.neat.imbalance.estimatedKcalPerDay)} kcal/day — clamped to{" "}
+                    {derivation.neat.multiplier.toFixed(2)}. Two things can explain it, and this can&apos;t tell them apart:
+                  </p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {derivation.neat.imbalance.candidates.map((c, i) => (
+                      <li key={i}>{c}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 italic">{derivation.neat.imbalance.note}</p>
+                </div>
+              )
+            }
+          />
+          <DerivationRow
+            label="Maintenance"
+            value={derivation.maintenanceKcal !== null ? `${derivation.maintenanceKcal.toLocaleString()} kcal` : "—"}
+            why="before training and before your weight goal"
+          />
+          <DerivationRow
+            label="Weight"
+            value={
+              derivation.smoothedWeightKg !== null
+                ? `${derivation.smoothedWeightKg.toFixed(2)} kg (${SMOOTHED_WEIGHT_WINDOW_DAYS}-day median)`
+                : "—"
+            }
+            why={
+              derivation.rawLatestWeightKg !== null
+                ? `smoothed; last single reading ${derivation.rawLatestWeightKg.toFixed(1)} kg`
+                : "no weigh-ins synced yet"
+            }
+          />
+          <DerivationRow
+            label="Goal"
+            value={`${derivation.targetWeightKg} kg at ${fmtSigned(derivation.desiredTrendKgPerWeek)} kg/week`}
+            why={data.nutrition.targetRateKgPerWeek != null ? "your setting" : "derived from the gap"}
+          />
+          <DerivationRow
+            label="Observed trend"
+            value={`${derivation.trendShortKgPerWeek !== null ? fmtSigned(derivation.trendShortKgPerWeek, 1) : "—"} kg/week (${WEIGHT_TREND_WINDOW_DAYS}d) · ${
+              derivation.trendLongKgPerWeek !== null ? fmtSigned(derivation.trendLongKgPerWeek, 1) : "—"
+            } (${WEIGHT_TREND_LONG_WINDOW_DAYS}d)`}
+            why="the long window must confirm before any cut"
+          />
+          <DerivationRow
+            label="Buffer"
+            value={`${fmtSigned(data.nutrition.buffer, 0)} → ${fmtSigned(derivation.buffer.bufferApplied, 0)} kcal`}
+            why={derivation.buffer.reason}
+            extra={
+              (derivation.buffer.stepClipped || derivation.buffer.capped) && (
+                <div className="mt-1 space-y-0.5">
+                  {derivation.buffer.stepClipped && (
+                    <p className="font-medium text-amber-700 dark:text-amber-400">
+                      This adjustment was clipped to the ±{MAX_ADJUSTMENT_STEP_KCAL} kcal per-correction limit.
+                    </p>
+                  )}
+                  {derivation.buffer.capped && (
+                    <p className="font-medium text-amber-700 dark:text-amber-400">
+                      Buffer is pinned at its outer limit ({BUFFER_MIN_KCAL}–{BUFFER_MAX_KCAL} kcal) — the model needs
+                      revisiting, not the buffer.
+                    </p>
+                  )}
+                </div>
+              )
+            }
+          />
+          <DerivationRow
+            label="Today's target"
+            value={
+              derivation.maintenanceKcal !== null
+                ? `${(derivation.maintenanceKcal + derivation.buffer.bufferApplied).toLocaleString()} kcal`
+                : "—"
+            }
+            why="maintenance + today's burn + buffer — shown here for a rest day; training days add today's burn on top"
+          />
+        </dl>
+
+        {/* Step 4: manual NEAT override — its own disclosure + save path, independent of the base-four
+            nutrition Edit form below. Overriding stops the multiplier from tracking logged data at all. */}
+        <details className="mt-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+          <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Override non-exercise multiplier
+          </summary>
+          <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+            Currently {derivation.neat.source === "override" ? "manually set" : "derived"} at{" "}
+            {derivation.neat.multiplier.toFixed(2)} ({derivation.neat.confidence} confidence). Setting a value here stops it
+            tracking your logged data — it stays fixed at what you enter until you revert it.
           </p>
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{bufferStatus.reason}</p>
-          {bufferStatus.capped && (
-            <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-              Correction is pinned at its limit — the model needs revisiting, not the buffer.
-            </p>
-          )}
-        </div>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label>
+              <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                Multiplier ({NEAT_PLAUSIBLE_MIN}–{NEAT_PLAUSIBLE_MAX})
+              </span>
+              <input
+                type="number"
+                min={NEAT_PLAUSIBLE_MIN}
+                max={NEAT_PLAUSIBLE_MAX}
+                step={0.01}
+                value={neatInput}
+                onChange={(e) => {
+                  setNeatInput(e.target.value);
+                  if (neatSaveState.state === "saved") setNeatSaveState({ state: "idle" });
+                }}
+                className="mt-1 w-28 rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-400"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveNeatOverride()}
+              disabled={neatSaveState.state === "saving"}
+              className="rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+            >
+              {neatSaveState.state === "saving" ? "Saving…" : "Set override"}
+            </button>
+            {derivation.neat.source === "override" && (
+              <button
+                type="button"
+                onClick={() => void revertNeatOverride()}
+                disabled={neatSaveState.state === "saving"}
+                className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-300"
+              >
+                Revert to derived
+              </button>
+            )}
+            {neatSaveState.state === "saved" && <span role="status" className="text-xs text-green-700 dark:text-green-400">✓ Saved</span>}
+            {neatSaveState.state === "error" && <span role="alert" className="text-xs text-red-600">{neatSaveState.message}</span>}
+          </div>
+        </details>
 
         <form
           className="mt-3 rounded bg-zinc-50 px-3 py-2 dark:bg-zinc-900"
@@ -793,13 +1063,8 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
               void saveNutrition();
             }}
           >
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
-              {(
-                [
-                  { key: "buffer", label: "Goal buffer", unit: "kcal", min: BUFFER_MIN_KCAL, hint: `${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}, negative = deficit` },
-                  { key: "targetWeightKg", label: "Target weight", unit: "kg", min: 0, hint: "min 0" },
-                ] as const
-              ).map((f) => (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {NUTRITION_EDIT_FIELDS.map((f) => (
                 <label key={f.key}>
                   <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
                     {f.label} <span className="text-zinc-500 dark:text-zinc-400">({f.unit}, {f.hint})</span>
@@ -807,6 +1072,8 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
                   <input
                     type="number"
                     min={f.min}
+                    max={f.max}
+                    step={f.step}
                     value={nut[f.key]}
                     onChange={(e) => {
                       setNut((s) => ({ ...s, [f.key]: e.target.value }));

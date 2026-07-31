@@ -5,6 +5,7 @@ import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import {
   adjustBuffer,
+  desiredWeightTrend,
   resolveNutritionModel,
   smoothedCurrentWeightKg,
   weightTrendFromWellness,
@@ -59,17 +60,21 @@ export async function GET() {
     }
   }
 
+  const today = localToday();
   const weighIns = (sync?.wellness ?? [])
     .filter((w) => w.weightKg !== null)
     .sort((a, b) => b.date.localeCompare(a.date));
+  const rawLatestWeightKg = weighIns[0]?.weightKg ?? null;
   const weightTrend7Day = sync ? weightTrendFromWellness(sync.wellness) : null;
   const weightTrendLong = sync ? weightTrendFromWellness(sync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS) : null;
   // GOAL comparisons (adjustBuffer's currentKg) use the smoothed figure, not the latest single
   // weigh-in — a raw reading swings ±0.5–1 kg and was flipping the buffer across the deadband
   // boundary depending on which weigh-in happened to be last (I2). resolveNutritionModel's
   // latestWeightKg below is DELIBERATELY left on the raw latest reading — RMR should track current mass.
-  const smoothedWeightKgForGoal =
-    smoothedCurrentWeightKg(sync?.wellness ?? [], localToday()) ?? profile.performance.weightKg;
+  // smoothedWeightKgRaw stays nullable (no weigh-ins ever) for the derivation panel; the goal-comparison
+  // variant below falls back to the manual performance.weightKg so adjustBuffer always has a number.
+  const smoothedWeightKgRaw = smoothedCurrentWeightKg(sync?.wellness ?? [], today);
+  const smoothedWeightKgForGoal = smoothedWeightKgRaw ?? profile.performance.weightKg;
 
   const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
   const recentRpes = (sync?.activities ?? [])
@@ -84,6 +89,27 @@ export async function GET() {
   const ftpStaleDays = physStore
     ? Math.floor((Date.now() - Date.parse(physStore.current.effectiveFrom)) / 86_400_000)
     : NaN;
+
+  // Hoisted so the derivation panel (Task 5) can reuse the exact same values the response already
+  // surfaces via `bufferStatus`/`nutritionModel` below, rather than recomputing (and risking drift).
+  const bufferStatus = adjustBuffer(
+    profile.nutrition.buffer,
+    weightTrend7Day,
+    weightTrendLong,
+    smoothedWeightKgForGoal,
+    profile.nutrition.targetWeightKg,
+    profile.nutrition.targetRateKgPerWeek
+  );
+  const nutritionModel = resolveNutritionModel(profile, rawLatestWeightKg ?? profile.performance.weightKg, today);
+  const rmr = nutritionModel.kind === "derived" ? nutritionModel.rmr : null;
+  // neat.multiplier × rmr — the pre-buffer, pre-training-burn maintenance figure (Task 5 brief). Null
+  // whenever rmr is (legacy, pre-migration profiles), same rule as every other derived figure here.
+  const maintenanceKcal = rmr !== null ? Math.round(profile.nutrition.neat.multiplier * rmr) : null;
+  const desiredTrendKgPerWeek = desiredWeightTrend(
+    smoothedWeightKgForGoal,
+    profile.nutrition.targetWeightKg,
+    profile.nutrition.targetRateKgPerWeek
+  );
 
   return NextResponse.json({
     nutrition: profile.nutrition,
@@ -109,20 +135,17 @@ export async function GET() {
     powerProfile: analyzePowerProfile(
       sync?.powerCurveAllTime ?? sync?.powerCurve ?? [],
       physStore?.current.ftp ?? profile.performance.ftp,
-      weighIns[0]?.weightKg ?? null
+      rawLatestWeightKg
     ),
     weightHistory: (sync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .map((w) => ({ date: w.date, weightKg: w.weightKg as number }))
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-56), // last 8 weeks
-    latestWeightKg:
-      (sync?.wellness ?? [])
-        .filter((w) => w.weightKg !== null)
-        .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? null,
+    latestWeightKg: rawLatestWeightKg,
     autoSync: {
       syncedAt: sync?.syncedAt ?? null,
-      latestWeightKg: weighIns[0]?.weightKg ?? null,
+      latestWeightKg: rawLatestWeightKg,
       latestWeightDate: weighIns[0]?.date ?? null,
       weightTrend7Day,
       avgRpe7Day:
@@ -132,19 +155,22 @@ export async function GET() {
       lastKcalConsumed: lastKcal?.kcalConsumed ?? null,
       lastKcalDate: lastKcal?.date ?? null,
     },
-    bufferStatus: adjustBuffer(
-      profile.nutrition.buffer,
-      weightTrend7Day,
-      weightTrendLong,
-      smoothedWeightKgForGoal,
-      profile.nutrition.targetWeightKg,
-      profile.nutrition.targetRateKgPerWeek
-    ),
-    nutritionModel: resolveNutritionModel(
-      profile,
-      weighIns[0]?.weightKg ?? profile.performance.weightKg,
-      localToday()
-    ),
+    bufferStatus,
+    nutritionModel,
+    // Task 5: the full derivation chain, so the profile UI can show the system working (RMR → NEAT →
+    // maintenance → weight/goal → observed trend → buffer → today's target) instead of a bare number.
+    derivation: {
+      rmr,
+      neat: profile.nutrition.neat,
+      maintenanceKcal,
+      smoothedWeightKg: smoothedWeightKgRaw,
+      rawLatestWeightKg,
+      targetWeightKg: profile.nutrition.targetWeightKg,
+      trendShortKgPerWeek: weightTrend7Day,
+      trendLongKgPerWeek: weightTrendLong,
+      desiredTrendKgPerWeek,
+      buffer: bufferStatus,
+    },
   });
 }
 
