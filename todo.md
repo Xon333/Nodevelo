@@ -60,28 +60,24 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
-- ☐ P1 `bug` **Nutrition formula prescribes less on training days than rest days.** Strength 45 min
-  (225 kcal) and short recovery rides sit under the ~300 kcal crossover, so they get a *lower* target
-  than a rest day. Live defect, not new work. Also live: the formula can't express a deficit
-  (`BUFFER_MIN_KCAL = 0`), `targetWeight` is never read by any calculation, and the weight-trend buffer
-  cuts calories on glycogen rebound — i.e. it fights recovery from underfuelling. Full analysis + fix →
-  spec below (Phase 1).
-- ☑ **Nutrition Phase 1 + 2 shipped 2026-07-30/31** → [ARCHIVE.md](ARCHIVE.md) when convenient.
-  Phase 1 (10 commits) fixed five live defects: training days prescribing less than rest days, a
-  formula that could not express a deficit, `targetWeight` never being read, `kj` used as calories,
-  and off-bike burn dropped. Phase 2 (7 tasks) derives the NEAT multiplier from the athlete's own
-  logs. **Live-measured:** k = 1.2584 (derived, high confidence, 42d/39 logged/21 weigh-ins); rest
-  day 2300 → 2450; D1 invariant holds on real LLM output; 1552 tests green.
-- ☐ `audit` Nutrition follow-ups, none blocking (full list in `.git/sdd/progress-nutrition-phase2.md`):
-  `floored` not exposed to the derivation panel; `weeklyEnergy` measures adherence against the
-  configured rather than applied buffer; route tests only exercise the legacy model branch; two
-  today.tsx display bugs (negative buffer renders "+ -200"; legacy floor makes the breakdown not sum).
-- ☐ P2 `feat` Day-to-day nutrition accuracy — spec revised 2026-07-30 after a nutritionist-lens review,
-  pending user sign-off:
-  [docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md).
-  Scoped as **four phases** (§15): 1) unified formula, kills `restDayTarget` + the inversion above;
-  2) unbiased expenditure (`kj` primary, `calories` fallback, net of resting cost); 3) per-athlete NEAT
-  calibration + intake-log-vs-weight reconciliation (← ROADMAP #2); 4) daily carb target + under-fueling
-  streak alert. Out: protein (already handled), within-day timing, wearables.
+- ☑ **Nutrition Phases 1 + 2 — shipped & live-verified 2026-07-30/31.** Move to
+  [ARCHIVE.md](ARCHIVE.md) at the next sweep.
+  Spec: [2026-07-30-day-to-day-nutrition-accuracy-design.md](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md).
+  Phase 1 (10 commits) fixed five defects that were **live in production**: training days prescribing
+  *less* food than rest days (every Strength session and short recovery ride), a formula structurally
+  unable to express a deficit, `targetWeight` passed in but never read by any calculation, mechanical
+  `kj` treated as calories, and off-bike burn dropped entirely. Phase 2 (7 tasks) derives the NEAT
+  multiplier from the athlete's own logs instead of a population prior.
+  **Live-measured:** k = 1.2584 (derived, high confidence — 42-day window, 39 logged days, 21
+  weigh-ins); rest day 2300 → 2450; D1 invariant holds on real LLM output; 1552 tests green.
+- ☐ `audit` Nutrition follow-ups — none blocking, full list in `.git/sdd/progress-nutrition-phase2.md`:
+  `floored` isn't exposed to the derivation panel; `weeklyEnergy` measures adherence against the
+  *configured* rather than *applied* buffer (reads ~0.99 where actual is ~0.93); route tests only
+  exercise the legacy model branch, so the derived path — what runs in production — has no route-level
+  coverage; two `today.tsx` display bugs (a negative buffer renders "+ -200"; the legacy floor makes
+  the "base + buffer" breakdown not sum to the total).
+- ☐ P3 `feat` Nutrition Phases 3–4 (not started): under-fuelling streak alert and a daily carbohydrate
+  target — spec §9/§10. Protein deliberately out (the athlete already covers it); within-day timing out
+  (needs meal-level logging they've declined); wearables out.
 
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).
