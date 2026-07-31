@@ -3,6 +3,8 @@ import {
   activeBurn,
   adjustBuffer,
   balanceLevel,
+  BUFFER_MAX_KCAL,
+  BUFFER_MIN_KCAL,
   calculateDailyTarget,
   calibrateNeat,
   CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS,
@@ -10,10 +12,12 @@ import {
   desiredWeightTrend,
   eaLevel,
   estimateWorkoutBurnKcal,
+  goalSurplusKcalPerDay,
   inRideCarbTarget,
   NEAT_PLAUSIBLE_MAX,
   NEAT_PLAUSIBLE_MIN,
   preRideCarbTarget,
+  resolveBuffer,
   resolveNutritionModel,
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
@@ -22,7 +26,7 @@ import {
   weightTrendPreciseFromWellness,
   type NutritionModel,
 } from "./nutrition";
-import type { AthleteProfile, WellnessEntry, WorkoutType } from "./types";
+import type { AthleteProfile, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
 
 
 describe("desiredWeightTrend", () => {
@@ -180,6 +184,75 @@ describe("adjustBuffer — stepClipped", () => {
     const r = adjustBuffer(300, -0.5, -0.5, AT_TARGET.current, AT_TARGET.target);
     expect(r.stepClipped).toBe(true);
     expect(r.capped).toBe(false); // 550 is well inside [-500, 600]
+  });
+});
+
+describe("goalSurplusKcalPerDay", () => {
+  it("converts a weekly rate to a daily energy figure", () => {
+    expect(goalSurplusKcalPerDay(0.35)).toBe(390);   // 0.35 × 7700 ÷ 7 = 385, rounded to 10
+    expect(goalSurplusKcalPerDay(-0.5)).toBe(-550);
+    expect(goalSurplusKcalPerDay(0)).toBe(0);
+  });
+});
+
+describe("resolveBuffer", () => {
+  const derived = (confidence: "low" | "medium" | "high"): NeatCalibration =>
+    ({ multiplier: 1.2584, confidence, source: "derived", windowDays: 42, loggedDays: 39,
+       weighIns: 21, solvedAt: "2026-07-31", imbalance: null, stale: false });
+  const popDefault: NeatCalibration =
+    ({ multiplier: 1.2, confidence: "low", source: "default", windowDays: null, loggedDays: null,
+       weighIns: null, solvedAt: null, imbalance: null, stale: false });
+
+  it("uses the goal rate directly when calibration is trustworthy", () => {
+    const r = resolveBuffer(derived("high"), 62, 63, null, 0, 0, 150);
+    expect(r.mode).toBe("goal-rate");
+    expect(r.bufferApplied).toBe(goalSurplusKcalPerDay(0.35));
+    expect(r.servoDeltaKcal).toBe(0);
+    expect(r.stepClipped).toBe(false);
+  });
+
+  it("IGNORES the legacy configured buffer in goal-rate mode", () => {
+    const a = resolveBuffer(derived("high"), 62, 63, null, 0, 0, 150);
+    const b = resolveBuffer(derived("high"), 62, 63, null, 0, 0, -400);
+    expect(a.bufferApplied).toBe(b.bufferApplied); // the retired setting has no effect
+  });
+
+  // THE SIGN DEFECT (D-B). A cutting athlete must never be handed a surplus.
+  it("never returns a surplus for an athlete below their target weight", () => {
+    for (const legacy of [-400, 0, 150, 600]) {
+      const r = resolveBuffer(derived("high"), 66, 63, null, -0.5, -0.5, legacy);
+      expect(r.bufferApplied).toBeLessThan(0);
+    }
+  });
+
+  it("never returns a deficit for an athlete above their target weight", () => {
+    for (const legacy of [-400, 0, 150, 600]) {
+      const r = resolveBuffer(derived("high"), 62, 63, null, 0.2, 0.2, legacy);
+      expect(r.bufferApplied).toBeGreaterThan(0);
+    }
+  });
+
+  it("is zero inside the deadband, so an athlete at target eats maintenance", () => {
+    expect(resolveBuffer(derived("high"), 62.9, 63, null, 0, 0, 150).bufferApplied).toBe(0);
+  });
+
+  it("honours an athlete-set rate over the derived one", () => {
+    const r = resolveBuffer(derived("high"), 62, 63, 0.15, 0, 0, 150);
+    expect(r.bufferApplied).toBe(goalSurplusKcalPerDay(0.15));
+  });
+
+  it("falls back to the trend servo when calibration is not trustworthy", () => {
+    for (const neat of [popDefault, derived("low")]) {
+      const r = resolveBuffer(neat, 62, 63, null, -0.5, -0.5, 150);
+      expect(r.mode).toBe("trend-servo");
+      expect(r.servoDeltaKcal).not.toBe(0);
+    }
+  });
+
+  it("clamps to the existing rails and reports it", () => {
+    const r = resolveBuffer(derived("high"), 50, 63, null, 0, 0, 150); // huge gap
+    expect(r.bufferApplied).toBeLessThanOrEqual(BUFFER_MAX_KCAL);
+    expect(r.bufferApplied).toBeGreaterThanOrEqual(BUFFER_MIN_KCAL);
   });
 });
 

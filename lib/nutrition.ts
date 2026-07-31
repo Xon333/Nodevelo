@@ -256,6 +256,92 @@ export function adjustBuffer(
   );
 }
 
+// The feed-forward result — a single entry point covering both the direct goal-rate calculation and
+// the trend-servo fallback, so a caller never has to choose between adjustBuffer and a manual
+// goalSurplusKcalPerDay call (see docs/superpowers/specs/2026-07-31-buffer-redesign-feedforward.md).
+export interface ResolvedBuffer {
+  bufferApplied: number;
+  mode: "goal-rate" | "trend-servo";
+  goalSurplusKcal: number; // the feed-forward component, always present
+  servoDeltaKcal: number; // 0 in goal-rate mode
+  reason: string;
+  capped: boolean; // hit BUFFER_MIN/MAX
+  stepClipped: boolean; // servo only; false in goal-rate mode
+}
+
+// The energy a goal rate thermodynamically requires, per day. This is the whole feed-forward idea:
+// once calibrateNeat makes maintenance honest, the goal needs no servo — it needs arithmetic.
+export function goalSurplusKcalPerDay(desiredRateKgPerWeek: number): number {
+  return Math.round((desiredRateKgPerWeek * KCAL_PER_KG_TISSUE) / 7 / 10) * 10;
+}
+
+// Calibration is trustworthy when it came from the athlete's own data with enough of it. A "default",
+// a "low" tier, or a stale record all mean maintenance is a population guess — there the trend servo,
+// steady-state offset and all, still beats no correction at all.
+function calibrationIsTrustworthy(neat: NeatCalibration): boolean {
+  return neat.source === "derived" && (neat.confidence === "medium" || neat.confidence === "high");
+}
+
+/**
+ * ONE entry point for the buffer, replacing the trend-servo-only adjustBuffer as the primary path.
+ *
+ * When calibration is trustworthy (derived, medium/high confidence), the buffer is a direct
+ * thermodynamic statement of the goal: `desiredWeightTrend × 7700 ÷ 7`, clamped to the existing rails.
+ * `legacyBuffer` (NutritionSettings.buffer) is NOT read on this path — the retired setting has no
+ * effect, which is what makes the sign defect (D-B) structurally unrepresentable rather than merely
+ * patched: there is no longer a standing configured surplus that can point opposite to the goal.
+ *
+ * When calibration is not trustworthy (population default, an override with no solve behind it, low
+ * confidence, or stale), maintenance itself is a guess, so the trend servo — steady-state offset and
+ * all — is still the best available correction. It runs via the existing adjustBuffer, but seeded with
+ * the GOAL surplus as its base instead of the legacy configured buffer, so both modes share the same
+ * base and the sign defect cannot recur through this path either.
+ */
+export function resolveBuffer(
+  neat: NeatCalibration,
+  currentKg: number,
+  targetKg: number,
+  configuredRate: number | null,
+  trendShort: number | null,
+  trendLong: number | null,
+  legacyBuffer: number
+): ResolvedBuffer {
+  const desiredRate = desiredWeightTrend(currentKg, targetKg, configuredRate);
+  const goalSurplusKcal = goalSurplusKcalPerDay(desiredRate);
+
+  if (calibrationIsTrustworthy(neat)) {
+    const bufferApplied = Math.min(BUFFER_MAX_KCAL, Math.max(BUFFER_MIN_KCAL, goalSurplusKcal));
+    const capped = bufferApplied !== goalSurplusKcal;
+    const rateNote =
+      desiredRate === 0
+        ? "at target (within the deadband), so maintenance is the surplus this calls for"
+        : `aiming for ${fmtKg(desiredRate)} kg/week → ${fmtKg(goalSurplusKcal)} kcal/day (your calibrated maintenance is trusted, so this is the surplus that rate requires)`;
+    const reason = capped
+      ? `${rateNote} Capped at ${bufferApplied} kcal (allowed range ${BUFFER_MIN_KCAL}–${BUFFER_MAX_KCAL}) — a pinned rail means the goal, not the buffer, needs revisiting.`
+      : rateNote;
+    return {
+      bufferApplied,
+      mode: "goal-rate",
+      goalSurplusKcal,
+      servoDeltaKcal: 0,
+      reason,
+      capped,
+      stepClipped: false,
+    };
+  }
+
+  const servo = adjustBuffer(goalSurplusKcal, trendShort, trendLong, currentKg, targetKg, configuredRate);
+  return {
+    bufferApplied: servo.bufferApplied,
+    mode: "trend-servo",
+    goalSurplusKcal,
+    servoDeltaKcal: servo.delta,
+    reason: `Maintenance is still a population estimate, so the buffer is also correcting against your weight trend. ${servo.reason}`,
+    capped: servo.capped,
+    stepClipped: servo.stepClipped,
+  };
+}
+
 function fmtKg(kg: number): string {
   const rounded = Math.round(kg * 100) / 100;
   return `${rounded > 0 ? "+" : ""}${rounded}`;
