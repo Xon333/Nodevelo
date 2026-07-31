@@ -44,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { adjustBuffer, calibrateNeat, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { calibrateNeat, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -713,20 +713,24 @@ export async function POST(req: Request) {
             lastSync.wellness
               .filter((w) => w.weightKg !== null)
               .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
-          // GOAL comparison (adjustBuffer's currentKg) uses the smoothed figure, not the raw latest
+          // GOAL comparison (resolveBuffer's currentKg) uses the smoothed figure, not the raw latest
           // weigh-in — a single reading swings ±0.5–1 kg and was flipping the buffer across the deadband
           // boundary depending on which weigh-in happened to be last (I2). resolveNutritionModel above
           // stays on the raw latest reading — RMR should track current mass, not a smoothed goal figure.
           const smoothedWeightKgForToday =
             smoothedCurrentWeightKg(lastSync.wellness, today) ?? latestWeightKgForToday;
           const todayNutritionModel = resolveNutritionModel(profile, latestWeightKgForToday, today);
-          const todayBufferStatus = adjustBuffer(
-            profile.nutrition.buffer,
-            weightTrendFromWellness(lastSync.wellness),
-            weightTrendFromWellness(lastSync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS),
+          // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
+          // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback
+          // seeded from the goal surplus (never the retired profile.nutrition.buffer setting).
+          const todayBufferStatus = resolveBuffer(
+            profile.nutrition.neat,
             smoothedWeightKgForToday,
             profile.nutrition.targetWeightKg,
-            profile.nutrition.targetRateKgPerWeek
+            profile.nutrition.targetRateKgPerWeek,
+            weightTrendFromWellness(lastSync.wellness),
+            weightTrendFromWellness(lastSync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS),
+            profile.nutrition.buffer
           );
 
           // --- Pure: assemble the deterministic analysis (metrics, execution score, capped

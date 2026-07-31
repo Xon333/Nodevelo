@@ -83,6 +83,16 @@ export interface NeatCalibration {
 }
 
 export interface NutritionSettings {
+  // DEPRECATED (2026-07-31 buffer-redesign-feedforward) — retired as an athlete-facing setting.
+  // targetRateKgPerWeek now owns "how fast do you want to move"; resolveBuffer (lib/nutrition.ts)
+  // never reads this value in EITHER of its modes — goal-rate mode computes the buffer directly from
+  // targetRateKgPerWeek/targetWeightKg, and the trend-servo fallback seeds adjustBuffer with the GOAL
+  // SURPLUS as its base, not this field. That shared base is what makes the sign defect (a configured
+  // surplus standing against a cutting goal) structurally unrepresentable rather than merely patched.
+  // Kept on disk (never deleted — that would break existing profile JSON and the PUT validator) and
+  // still accepted without erroring in a PUT payload from an older client, but no longer written by
+  // any code path as an athlete edit. `adjustBuffer` itself still takes a `buffer` PARAMETER (the
+  // reusable primitive, tested independently) — that is a different thing from this persisted field.
   buffer: number; // SIGNED goal-directed surplus/deficit, kcal/day; range BUFFER_MIN_KCAL..BUFFER_MAX_KCAL
   targetWeightKg: number;
   // Signed kg/week the athlete WANTS to move, e.g. +0.15 to gain slowly. null → derive from the gap and

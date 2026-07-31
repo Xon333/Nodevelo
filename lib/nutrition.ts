@@ -278,8 +278,13 @@ export function goalSurplusKcalPerDay(desiredRateKgPerWeek: number): number {
 // Calibration is trustworthy when it came from the athlete's own data with enough of it. A "default",
 // a "low" tier, or a stale record all mean maintenance is a population guess — there the trend servo,
 // steady-state offset and all, still beats no correction at all.
-function calibrationIsTrustworthy(neat: NeatCalibration): boolean {
-  return neat.source === "derived" && (neat.confidence === "medium" || neat.confidence === "high");
+//
+// Truthy check on `neat` itself, never a bare `.source` read: readAthleteProfile's shapeMergeProfile
+// backfills a missing `neat` for any real on-disk profile.json predating Phase 2, but a caller handed
+// a raw/partial profile (an older test fixture, a future direct caller) must degrade to "not
+// trustworthy" rather than throw — same class of gap AGENTS.md's migration-flag note warns about.
+function calibrationIsTrustworthy(neat: NeatCalibration | null | undefined): boolean {
+  return !!neat && neat.source === "derived" && (neat.confidence === "medium" || neat.confidence === "high");
 }
 
 /**

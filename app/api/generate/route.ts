@@ -26,9 +26,9 @@ import { buildCoachSnapshot, formatFormFuelLine, resolveCoachSignals } from "@/l
 import { resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride } from "@/lib/calibration";
 import type { Zone } from "@/lib/zones";
 import {
-  adjustBuffer,
   buildNutritionReferenceRows,
   nutritionTableMarkdown,
+  resolveBuffer,
   resolveNutritionModel,
   smoothedCurrentWeightKg,
   weightTrendFromWellness,
@@ -119,7 +119,7 @@ export async function POST(req: Request) {
         .filter((w) => w.weightKg !== null)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ??
       profile.performance.weightKg;
-    // GOAL comparison (adjustBuffer's currentKg) uses the smoothed figure, not the raw latest weigh-in
+    // GOAL comparison (resolveBuffer's currentKg) uses the smoothed figure, not the raw latest weigh-in
     // — a single reading swings ±0.5–1 kg and was flipping the buffer across the deadband boundary
     // depending on which weigh-in happened to be last (I2). `latestWeight` above feeds
     // resolveNutritionModel unchanged — RMR should track current mass, not a smoothed goal figure.
@@ -128,13 +128,17 @@ export async function POST(req: Request) {
     // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
     // re-deriving from the raw body or inlining a UTC date.
     const nutritionModel = resolveNutritionModel(profile, latestWeight, today);
-    const bufferStatus = adjustBuffer(
-      profile.nutrition.buffer,
-      weightTrend,
-      weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
+    // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
+    // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback seeded
+    // from the goal surplus (never the retired profile.nutrition.buffer setting).
+    const bufferStatus = resolveBuffer(
+      profile.nutrition.neat,
       smoothedWeight,
       profile.nutrition.targetWeightKg,
-      profile.nutrition.targetRateKgPerWeek
+      profile.nutrition.targetRateKgPerWeek,
+      weightTrend,
+      weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
+      profile.nutrition.buffer
     );
     const nutritionTable = nutritionTableMarkdown(
       buildNutritionReferenceRows(nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied)

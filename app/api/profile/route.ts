@@ -4,16 +4,14 @@ import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import {
-  adjustBuffer,
   calibrateNeat,
   desiredWeightTrend,
   nonDerivedNeatCalibration,
+  resolveBuffer,
   resolveNutritionModel,
   smoothedCurrentWeightKg,
   weightTrendFromWellness,
   WEIGHT_TREND_LONG_WINDOW_DAYS,
-  BUFFER_MIN_KCAL,
-  BUFFER_MAX_KCAL,
   DEFAULT_NEAT_MULTIPLIER,
   NEAT_PLAUSIBLE_MIN,
   NEAT_PLAUSIBLE_MAX,
@@ -69,12 +67,12 @@ export async function GET() {
   const rawLatestWeightKg = weighIns[0]?.weightKg ?? null;
   const weightTrend7Day = sync ? weightTrendFromWellness(sync.wellness) : null;
   const weightTrendLong = sync ? weightTrendFromWellness(sync.wellness, WEIGHT_TREND_LONG_WINDOW_DAYS) : null;
-  // GOAL comparisons (adjustBuffer's currentKg) use the smoothed figure, not the latest single
+  // GOAL comparisons (resolveBuffer's currentKg) use the smoothed figure, not the latest single
   // weigh-in — a raw reading swings ±0.5–1 kg and was flipping the buffer across the deadband
   // boundary depending on which weigh-in happened to be last (I2). resolveNutritionModel's
   // latestWeightKg below is DELIBERATELY left on the raw latest reading — RMR should track current mass.
   // smoothedWeightKgRaw stays nullable (no weigh-ins ever) for the derivation panel; the goal-comparison
-  // variant below falls back to the manual performance.weightKg so adjustBuffer always has a number.
+  // variant below falls back to the manual performance.weightKg so resolveBuffer always has a number.
   const smoothedWeightKgRaw = smoothedCurrentWeightKg(sync?.wellness ?? [], today);
   const smoothedWeightKgForGoal = smoothedWeightKgRaw ?? profile.performance.weightKg;
 
@@ -94,13 +92,20 @@ export async function GET() {
 
   // Hoisted so the derivation panel (Task 5) can reuse the exact same values the response already
   // surfaces via `bufferStatus`/`nutritionModel` below, rather than recomputing (and risking drift).
-  const bufferStatus = adjustBuffer(
-    profile.nutrition.buffer,
-    weightTrend7Day,
-    weightTrendLong,
+  // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer as the primary entry
+  // point — goal-rate feed-forward when profile.nutrition.neat is trustworthy, else the same
+  // trend-servo adjustBuffer used to be, but seeded from the goal surplus rather than the retired
+  // `profile.nutrition.buffer` setting. `profile.nutrition.buffer` is still passed through (the
+  // `legacyBuffer` parameter) but resolveBuffer never reads it in EITHER mode — kept only so the
+  // signature documents where the retired setting used to matter.
+  const bufferStatus = resolveBuffer(
+    profile.nutrition.neat,
     smoothedWeightKgForGoal,
     profile.nutrition.targetWeightKg,
-    profile.nutrition.targetRateKgPerWeek
+    profile.nutrition.targetRateKgPerWeek,
+    weightTrend7Day,
+    weightTrendLong,
+    profile.nutrition.buffer
   );
   const nutritionModel = resolveNutritionModel(profile, rawLatestWeightKg ?? profile.performance.weightKg, today);
   const rmr = nutritionModel.kind === "derived" ? nutritionModel.rmr : null;
@@ -205,7 +210,10 @@ export async function PUT(req: Request) {
   // calibrateNeat's output (Phase 2), adopted on sync — so it's carried forward from the current
   // on-disk value inside the mutate callback, EXCEPT for the one deliberate override path
   // (`neatMultiplier`, Step 5) validated separately just below.
-  let nutrition: Omit<AthleteProfile["nutrition"], "neat"> | undefined;
+  // buffer-redesign-feedforward Task 2: `buffer` is EXCLUDED here — it's retired as an athlete-
+  // editable field (see the `hasBaseNutritionFields`/validation block below) and is always carried
+  // forward from the on-disk value inside the mutate callback, never from this route's input.
+  let nutrition: Omit<AthleteProfile["nutrition"], "neat" | "buffer"> | undefined;
   // Step 5: manual override of the calibrated NEAT multiplier. Accepted independently of the base
   // four nutrition fields — `{ nutrition: { neatMultiplier } }` alone is a valid PUT, so the
   // derivation panel can set/clear just this without resubmitting the whole nutrition form.
@@ -228,11 +236,14 @@ export async function PUT(req: Request) {
         );
       }
     }
-    const { baseCalories, restDayTarget, buffer, targetWeightKg, targetRateKgPerWeek } = input;
+    // `buffer` is deliberately NOT destructured for validation — Task 2 (buffer-redesign-feedforward)
+    // retires it as an athlete-editable field. A payload that still includes it (an older cached
+    // client) is accepted without erroring; it just never reaches `hasBaseNutritionFields` or the
+    // constructed `nutrition` object below, so it can no longer write to the persisted setting.
+    const { baseCalories, restDayTarget, targetWeightKg, targetRateKgPerWeek } = input;
     const hasBaseNutritionFields =
       baseCalories !== undefined ||
       restDayTarget !== undefined ||
-      buffer !== undefined ||
       targetWeightKg !== undefined ||
       targetRateKgPerWeek !== undefined;
     if (hasBaseNutritionFields) {
@@ -240,13 +251,6 @@ export async function PUT(req: Request) {
       if (!pos(baseCalories)) return NextResponse.json({ error: "baseCalories must be a positive number." }, { status: 400 });
       if (!pos(restDayTarget)) return NextResponse.json({ error: "restDayTarget must be a positive number." }, { status: 400 });
       if (!pos(targetWeightKg)) return NextResponse.json({ error: "targetWeightKg must be a positive number." }, { status: 400 });
-      // Signed: a negative buffer is how a deficit is expressed at all (previously impossible).
-      if (typeof buffer !== "number" || !Number.isFinite(buffer) || buffer < BUFFER_MIN_KCAL || buffer > BUFFER_MAX_KCAL) {
-        return NextResponse.json(
-          { error: `buffer must be between ${BUFFER_MIN_KCAL} and ${BUFFER_MAX_KCAL} kcal.` },
-          { status: 400 }
-        );
-      }
       // Validate targetRateKgPerWeek: accept null or a finite number with |v| <= 1.5
       if (targetRateKgPerWeek !== undefined) {
         if (targetRateKgPerWeek !== null && !(typeof targetRateKgPerWeek === "number" && Number.isFinite(targetRateKgPerWeek) && Math.abs(targetRateKgPerWeek) <= 1.5)) {
@@ -256,7 +260,6 @@ export async function PUT(req: Request) {
       nutrition = {
         baseCalories: baseCalories as number,
         restDayTarget: restDayTarget as number,
-        buffer: buffer as number,
         targetWeightKg: targetWeightKg as number,
         targetRateKgPerWeek: (targetRateKgPerWeek ?? null) as number | null,
       };
@@ -359,10 +362,16 @@ export async function PUT(req: Request) {
     // than spreading `...current.nutrition.neat` — the previous record's solve-only fields (imbalance/
     // windowDays/loggedDays/weighIns/confidence) describe a DIFFERENT solve (or no solve at all) and
     // must not survive onto a record whose `source` no longer says "derived".
+    //
+    // buffer-redesign-feedforward Task 2: spreads `current.nutrition` FIRST, then `nutrition` on top
+    // (rather than the old `nutrition ?? current.nutrition` either/or) — `nutrition` never carries
+    // `buffer` anymore, so `buffer` always survives from `current.nutrition` regardless of what this
+    // PUT's payload contained. The retired setting can no longer be written by any client, old or new.
     ...(nutrition !== undefined || neatOverride !== undefined
       ? {
           nutrition: {
-            ...(nutrition ?? current.nutrition),
+            ...current.nutrition,
+            ...nutrition,
             neat:
               neatOverride === undefined
                 ? current.nutrition.neat

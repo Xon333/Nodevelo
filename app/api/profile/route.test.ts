@@ -90,17 +90,23 @@ describe("PUT /api/profile — nutrition", () => {
     expect(updateMock()).not.toHaveBeenCalled();
   });
 
-  it("rejects a buffer outside 0..600", async () => {
+  // buffer-redesign-feedforward Task 2: `buffer` is retired as an athlete-editable field — the route
+  // accepts it in the payload without erroring (older cached clients still send it) but no longer
+  // validates or persists it, so an out-of-range value can no longer 400 or reach disk.
+  it("accepts an out-of-range buffer in the payload without erroring, and leaves the on-disk value untouched", async () => {
     seedCurrentProfile(base());
     const res = await put({ nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 601, targetWeightKg: 68 } });
-    expect(res.status).toBe(400);
-    expect(updateMock()).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.nutrition.buffer).toBe(300); // base()'s on-disk value, not the rejected/ignored 601
   });
 
   it("saves a valid nutrition update without touching goals/weakpoints", async () => {
     seedCurrentProfile(base());
+    // `buffer: 350` is sent (an older client still submitting the retired field) but must be ignored —
+    // the persisted value stays whatever was already on disk (300, from base()).
     const json = await (await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null } })).json();
-    expect(json.nutrition).toEqual({ baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null, neat: defaultNeat });
+    expect(json.nutrition).toEqual({ baseCalories: 2200, restDayTarget: 2700, buffer: 300, targetWeightKg: 67, targetRateKgPerWeek: null, neat: defaultNeat });
     expect(json.goals).toEqual(base().goals);
     expect(json.weakpoints).toEqual(base().weakpoints);
   });
