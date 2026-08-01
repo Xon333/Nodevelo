@@ -130,6 +130,13 @@ export async function POST(req: Request) {
     // re-deriving from the raw body or inlining a UTC date.
     const isRestDayToday = isRestDayFor(sync?.activities ?? [], today);
     const nutritionModel = resolveNutritionModel(profile, latestWeight, today, isRestDayToday);
+    // DT Task 2b: a resolver, not a bare model, for anything that validates a whole multi-day BLOCK
+    // (repairNutrition below) — the block spans both rest and training days, and `nutritionModel` above
+    // is resolved for "today" only. Passing the bare today-model into a block-wide check would validate
+    // every day against whichever day type today happens to be, silently "correcting" a correctly-copied
+    // rest-day figure once k_rest and k_train genuinely diverge. weeklyEnergy below is unaffected — it's
+    // about today's own historical energy tracking, not a multi-day block, so the bare model is correct.
+    const nutritionModelFor = (isRestDay: boolean) => resolveNutritionModel(profile, latestWeight, today, isRestDay);
     // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
     // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback seeded
     // from the goal surplus (never the retired profile.nutrition.buffer setting).
@@ -465,9 +472,8 @@ export async function POST(req: Request) {
     const reconciledDays = reconcileDurationMin(rawDays);
     // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
     // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
-    // Takes the resolved model + the buffer applied once above (lib/nutrition-validate.ts owns the
-    // signature/logic).
-    const nutritionRepair = repairNutrition(reconciledDays, nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied);
+    // A resolver, not the bare `nutritionModel`: this block spans both rest and training days (DT Task 2b).
+    const nutritionRepair = repairNutrition(reconciledDays, nutritionModelFor, profile.performance.ftp, bufferStatus.bufferApplied);
     const days = nutritionRepair.days;
     const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];
     const expected = weeks.flat();
