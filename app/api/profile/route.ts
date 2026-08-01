@@ -110,11 +110,15 @@ export async function GET() {
   );
   // isRestDayToday: whether today's synced activity burn (if any) resolves to 0 — same activeBurn
   // convention calculateDailyTarget's isRestDay already uses elsewhere (lib/nutrition.ts's isRestDayFor).
+  // Hoisted into a variable (rather than inlined per call site) so DT Task 3's derivation panel can
+  // reuse the EXACT boolean resolveNutritionModel picked its rest/train multiplier from, instead of a
+  // second call that could in principle resolve differently.
+  const isRestDayToday = isRestDayFor(sync?.activities ?? [], today);
   const nutritionModel = resolveNutritionModel(
     profile,
     rawLatestWeightKg ?? profile.performance.weightKg,
     today,
-    isRestDayFor(sync?.activities ?? [], today)
+    isRestDayToday
   );
   const rmr = nutritionModel.kind === "derived" ? nutritionModel.rmr : null;
   // neat.multiplier × rmr — the pre-buffer, pre-training-burn maintenance figure (Task 5 brief). Null
@@ -189,6 +193,11 @@ export async function GET() {
       rmr,
       neat: profile.nutrition.neat,
       neatStale,
+      // DT Task 3: null until the day-type split has enough data to adopt (see DayTypeNeat's doc
+      // comment in lib/types.ts) — the derivation panel's single-flat-k row is the no-regression
+      // default and only switches to the rest/train view once this is non-null.
+      dayTypeNeat: profile.nutrition.dayTypeNeat,
+      isRestDayToday,
       maintenanceKcal,
       smoothedWeightKg: smoothedWeightKgRaw,
       rawLatestWeightKg,
