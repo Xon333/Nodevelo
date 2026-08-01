@@ -82,6 +82,19 @@ export interface NeatCalibration {
   stale: boolean;
 }
 
+// Rest-day / training-day split of the pooled calibrateNeat solve (lib/nutrition.ts's
+// calibrateNeatByDayType), each shrunk toward `pooled.multiplier` via empirical-Bayes weighting so a
+// thin day-type sample stays conservative instead of swinging on a handful of days. `pooled` is the
+// SAME unmodified 42-day calibrateNeat call used elsewhere — carried here too so a consumer never has
+// to make a second call just to render the shrinkage anchor. `shrinkageWeight` is 0..1 per subset,
+// surfaced purely for derivation-panel transparency (0 = fully pooled, 1 = fully the subset's own solve).
+export interface DayTypeNeat {
+  rest: NeatCalibration;
+  train: NeatCalibration;
+  pooled: NeatCalibration;
+  shrinkageWeight: { rest: number; train: number };
+}
+
 export interface NutritionSettings {
   // DEPRECATED (2026-07-31 buffer-redesign-feedforward) — retired as an athlete-facing setting.
   // targetRateKgPerWeek now owns "how fast do you want to move"; resolveBuffer (lib/nutrition.ts)

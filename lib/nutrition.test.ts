@@ -7,6 +7,7 @@ import {
   BUFFER_MIN_KCAL,
   calculateDailyTarget,
   calibrateNeat,
+  calibrateNeatByDayType,
   CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS,
   computeEnergyAvailability,
   computeUnderfuelStreak,
@@ -976,6 +977,99 @@ describe("calibrateNeat", () => {
     it("CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS is exported and matches the documented value", () => {
       expect(CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS).toBe(14);
     });
+  });
+});
+
+describe("calibrateNeatByDayType", () => {
+  const RMR = 1631;
+
+  // Synthetic athlete: TRUE k_rest = 1.53, TRUE k_train = 1.22, flat weight, so the identity is exact
+  // and the test can assert the raw (pre-shrinkage) recovery of the day-type split.
+  function synth(nRest: number, nTrain: number, kRest: number, kTrain: number, trainBurn = 1200) {
+    const wellness: WellnessEntry[] = [];
+    const activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null }> = [];
+    let day = 0;
+    for (let i = 0; i < nRest; i++, day++) {
+      const date = new Date(Date.UTC(2026, 4, 1) + day * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({ date, weightKg: 62, kcalConsumed: kRest * RMR } as WellnessEntry);
+    }
+    for (let i = 0; i < nTrain; i++, day++) {
+      const date = new Date(Date.UTC(2026, 4, 1) + day * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({ date, weightKg: 62, kcalConsumed: kTrain * RMR + trainBurn } as WellnessEntry);
+      activities.push({ date, activeBurnKcal: trainBurn, kj: null });
+    }
+    return {
+      wellness,
+      activities,
+      today: new Date(Date.UTC(2026, 4, 1) + day * 86_400_000).toISOString().slice(0, 10),
+    };
+  }
+
+  it("recovers day-type-specific k when both subsets are well-sampled", () => {
+    const { wellness, activities, today } = synth(20, 40, 1.53, 1.22);
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    // The 42-day POOLED window (unchanged calibrateNeat call) reaches back only to day18 of this
+    // 60-day fixture, so it sees just the trailing 2 of the 20 rest days — it is itself almost pure
+    // training-day signal (verified: pooled.multiplier ≈ 1.2348, not ≈ 1.375 as an even day-type mix
+    // would suggest). At loggedDays=20, shrinkageWeight is 20/(20+12) = 0.625 — day-type dominant but
+    // not overwhelming — so the blend (verified: ≈1.4193) lands meaningfully above pooled and above
+    // the midpoint of [pooled, raw], but not all the way to the raw 1.53. Asserting against the
+    // midpoint (rather than a hardcoded absolute figure) ties the bound to the actual pooled anchor
+    // instead of a number that silently goes stale if the fixture or pooled's own logic changes.
+    const midpoint = (r.pooled.multiplier + 1.53) / 2;
+    expect(r.rest.multiplier).toBeGreaterThan(midpoint);
+    expect(r.rest.multiplier).toBeGreaterThan(1.4);
+    expect(r.train.multiplier).toBeLessThan(1.28);
+    expect(r.shrinkageWeight.rest).toBeGreaterThan(0.6); // n=20 well above K=12
+  });
+
+  it("shrinks HARD toward pooled when the rest-day sample is thin", () => {
+    const { wellness, activities, today } = synth(3, 40, 1.53, 1.22);
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    // n=3 rest days: weight = 3/(3+12) = 0.2 — mostly pooled, not the raw 1.53.
+    expect(r.shrinkageWeight.rest).toBeCloseTo(3 / 15, 2);
+    expect(r.rest.multiplier).toBeLessThan(1.53);
+    expect(r.rest.multiplier).toBeGreaterThan(r.pooled.multiplier);
+  });
+
+  it("forces shrinkageWeight to 0 below DAY_TYPE_MIN_LOGGED_DAYS", () => {
+    const { wellness, activities, today } = synth(2, 40, 1.53, 1.22);
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    expect(r.shrinkageWeight.rest).toBe(0);
+    expect(r.rest.multiplier).toBe(r.pooled.multiplier);
+  });
+
+  it("imputes a subset's missing days at that subset's OWN logged mean, not the pooled mean", () => {
+    const { wellness, activities, today } = synth(20, 40, 1.53, 1.22);
+    // Blank every third rest day — absence should not pull k_rest toward the training-heavy pooled mean.
+    let count = 0;
+    for (const w of wellness) {
+      if (!activities.some((a) => a.date === w.date)) {
+        // a rest day
+        count++;
+        if (count % 3 === 0) w.kcalConsumed = null;
+      }
+    }
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    // 6 of 20 rest days blanked → loggedDays=14, weight=14/26≈0.538. The raw per-subset solve is
+    // UNCHANGED by the blanking (it's the mean of whatever logged days remain, and every logged rest
+    // day carries the same exact synthetic value), so the blend is ≈1.3937 — would instead collapse
+    // toward the training-heavy pooled figure (≈1.235) if the missing days were imputed at the pooled
+    // mean or at zero rather than this subset's own logged mean.
+    expect(r.rest.multiplier).toBeGreaterThan(1.35);
+  });
+
+  it("returns null when the pooled calibration itself is insufficient", () => {
+    const { wellness, activities, today } = synth(2, 2, 1.53, 1.22);
+    expect(calibrateNeatByDayType(wellness, activities, RMR, today, 90)).toBeNull();
+  });
+
+  it("clamps an implausible raw subset solve and reports an ambiguous imbalance before blending", () => {
+    // Rest-day intake wildly high relative to RMR alone — should clamp to NEAT_PLAUSIBLE_MAX pre-shrink.
+    const { wellness, activities, today } = synth(20, 40, 2.5, 1.22);
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    expect(r.rest.imbalance).not.toBeNull();
+    expect(r.rest.imbalance!.candidates.length).toBeGreaterThanOrEqual(2);
   });
 });
 

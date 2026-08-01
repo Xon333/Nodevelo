@@ -7,7 +7,7 @@
 // The AI receives this module's output as pre-computed values and only
 // rephrases them in natural language inside workout descriptions.
 import { ageYearsFrom } from "./date";
-import type { ActivitySummary, AthleteProfile, EnergyImbalanceFinding, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
+import type { ActivitySummary, AthleteProfile, DayTypeNeat, EnergyImbalanceFinding, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
 import { median } from "./stats";
 
 export interface ActiveBurn {
@@ -662,6 +662,60 @@ export function nonDerivedNeatCalibration(
 }
 
 /**
+ * Shared solve/clamp/imbalance core for the energy-balance identity:
+ *
+ *   k = ( sumIntake − sumBurn − deltaMassKg·ρ ) / ( n · rmr )
+ *
+ * Extracted so `calibrateNeat` and `calibrateNeatByDayType` cannot silently diverge on how an
+ * out-of-band solve is clamped and reported. Only the PRODUCT k × RMR is identifiable from this
+ * identity — a derived k also absorbs any constant error in the RMR equation itself (Mifflin
+ * under-predicts trained endurance athletes by 5-10%). An out-of-band solve is therefore genuinely
+ * ambiguous between the food log and the RMR equation, and is clamped + reported as such
+ * (`imbalance`), never adopted verbatim and never asserted as a single cause.
+ */
+function solveAndClampK(
+  sumIntake: number,
+  sumBurn: number,
+  deltaMassKg: number,
+  n: number,
+  rmr: number
+): { multiplier: number; imbalance: EnergyImbalanceFinding | null } {
+  const solvedK = (sumIntake - sumBurn - deltaMassKg * KCAL_PER_KG_TISSUE) / (n * rmr);
+
+  let multiplier = solvedK;
+  let imbalance: EnergyImbalanceFinding | null = null;
+  if (solvedK > NEAT_PLAUSIBLE_MAX || solvedK < NEAT_PLAUSIBLE_MIN) {
+    multiplier = solvedK > NEAT_PLAUSIBLE_MAX ? NEAT_PLAUSIBLE_MAX : NEAT_PLAUSIBLE_MIN;
+    const direction: EnergyImbalanceFinding["direction"] =
+      solvedK > NEAT_PLAUSIBLE_MAX ? "intake-above-model" : "intake-below-model";
+    // Signed, not just magnitude: positive means the solve ran hotter than the clamp, negative means it
+    // ran colder — the sign alone carries `direction`, so a caller reading only this field still knows
+    // which way the overshoot goes.
+    const estimatedKcalPerDay = roundTo((solvedK - multiplier) * rmr, 10);
+    imbalance = {
+      direction,
+      estimatedKcalPerDay,
+      // Never a single cause: only k × RMR is identifiable, so an out-of-band solve is genuinely
+      // ambiguous between the food log and the RMR equation. Log bias listed first — 20-30%
+      // under/over-reporting in athletes is larger and better documented than typical equation error.
+      candidates:
+        direction === "intake-above-model"
+          ? [
+              "Logged intake running higher than actual (missed or under-counted portions on days that ARE logged) — the larger, better-documented effect at this end.",
+              "The RMR equation under- or over-predicting for this athlete, which a derived multiplier cannot separate from true intake.",
+            ]
+          : [
+              "Under-reported intake (20-30% under-logging is well documented in athletes) — the larger, better-documented effect at this end.",
+              "The RMR equation over- or under-predicting for this athlete, which a derived multiplier cannot separate from true intake.",
+            ],
+      note: "Only k × RMR is identifiable from this window's data — this clamp is not a diagnosis of the food log.",
+    };
+  }
+
+  return { multiplier, imbalance };
+}
+
+/**
  * Solve the energy-balance identity for the athlete's own RMR multiplier over a trailing window:
  *
  *   Σ intake − ( N·k·RMR + Σ activeBurn ) = Δmass · ρ
@@ -838,37 +892,7 @@ export function calibrateNeat(
   const trendPrecise = weightTrendPreciseFromWellness(trendWellness, windowDays); // unrounded kg/7d
   const deltaMassKg = trendPrecise === null ? 0 : (trendPrecise / 7) * n;
 
-  const solvedK = (sumIntake - sumBurn - deltaMassKg * KCAL_PER_KG_TISSUE) / (n * rmr);
-
-  let multiplier = solvedK;
-  let imbalance: EnergyImbalanceFinding | null = null;
-  if (solvedK > NEAT_PLAUSIBLE_MAX || solvedK < NEAT_PLAUSIBLE_MIN) {
-    multiplier = solvedK > NEAT_PLAUSIBLE_MAX ? NEAT_PLAUSIBLE_MAX : NEAT_PLAUSIBLE_MIN;
-    const direction: EnergyImbalanceFinding["direction"] =
-      solvedK > NEAT_PLAUSIBLE_MAX ? "intake-above-model" : "intake-below-model";
-    // Signed, not just magnitude: positive means the solve ran hotter than the clamp, negative means it
-    // ran colder — the sign alone carries `direction`, so a caller reading only this field still knows
-    // which way the overshoot goes.
-    const estimatedKcalPerDay = roundTo((solvedK - multiplier) * rmr, 10);
-    imbalance = {
-      direction,
-      estimatedKcalPerDay,
-      // Never a single cause: only k × RMR is identifiable, so an out-of-band solve is genuinely
-      // ambiguous between the food log and the RMR equation. Log bias listed first — 20-30%
-      // under/over-reporting in athletes is larger and better documented than typical equation error.
-      candidates:
-        direction === "intake-above-model"
-          ? [
-              "Logged intake running higher than actual (missed or under-counted portions on days that ARE logged) — the larger, better-documented effect at this end.",
-              "The RMR equation under- or over-predicting for this athlete, which a derived multiplier cannot separate from true intake.",
-            ]
-          : [
-              "Under-reported intake (20-30% under-logging is well documented in athletes) — the larger, better-documented effect at this end.",
-              "The RMR equation over- or under-predicting for this athlete, which a derived multiplier cannot separate from true intake.",
-            ],
-      note: "Only k × RMR is identifiable from this window's data — this clamp is not a diagnosis of the food log.",
-    };
-  }
+  const { multiplier, imbalance } = solveAndClampK(sumIntake, sumBurn, deltaMassKg, n, rmr);
 
   return {
     multiplier,
@@ -880,6 +904,176 @@ export function calibrateNeat(
     solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
     imbalance,
     stale: false,
+  };
+}
+
+// ---------- Day-type NEAT calibration (rest vs training days) ----------
+
+// Rest days are sparse for a training cyclist; needs more calendar time than the 42-day pooled window
+// to gather enough of them to solve independently.
+export const DAY_TYPE_WINDOW_DAYS = 90;
+
+// Reused, not invented: the same "how much of the athlete's own signal before it should dominate the
+// population/pooled prior" constant the pooled calibration's own confidence floor uses.
+export const DAY_TYPE_SHRINKAGE_K = CALIBRATION_MIN_WEIGH_INS;
+
+// Below this, shrinkageWeight is forced to 0 — avoids a near-divide-by-zero mean from 1-2 points
+// dominating a subset's own solve before it's blended away anyway.
+export const DAY_TYPE_MIN_LOGGED_DAYS = 3;
+
+// Confidence tier for a day-type subset, reusing the pooled tiers' exact threshold VALUES — but
+// checked against `loggedDays`/`coverage` rather than `weighIns`/`loggedFraction`/weigh-in recency. A
+// subset has no weigh-in count or recency signal of its own (weighIns is reused verbatim from the
+// pooled window in calibrateNeatByDayType, and recency is already gated by pooled itself returning
+// null), so the only axis a subset has an independent read on is how much of ITS OWN calendar span
+// actually got logged.
+function dayTypeConfidence(windowDays: number, loggedDays: number, coverage: number): "low" | "medium" | "high" {
+  if (
+    windowDays >= CALIBRATION_PREFERRED_WINDOW_DAYS &&
+    loggedDays >= CALIBRATION_HIGH_MIN_WEIGH_INS &&
+    coverage >= CALIBRATION_HIGH_MIN_LOGGED_FRACTION
+  ) {
+    return "high";
+  }
+  if (
+    windowDays >= CALIBRATION_MIN_WINDOW_DAYS &&
+    loggedDays >= CALIBRATION_MIN_WEIGH_INS &&
+    coverage >= CALIBRATION_MIN_LOGGED_FRACTION
+  ) {
+    return "medium";
+  }
+  return "low";
+}
+
+/**
+ * Rest-day / training-day split of calibrateNeat's pooled solve, shrunk toward the pooled multiplier
+ * via empirical-Bayes weighting (`weight = n / (n + DAY_TYPE_SHRINKAGE_K)`) so a thin subset sample
+ * stays conservative instead of swinging on a handful of days. See docs/systems/09-nutrition.md.
+ *
+ * `pooled` is the SAME `calibrateNeat` call unchanged (its own default, CALIBRATION_PREFERRED_WINDOW_DAYS
+ * = 42) — this function never widens or narrows that call's window. If pooled is null, this returns
+ * null immediately: a day-type split cannot be more confident than the base calibration it shrinks
+ * toward.
+ *
+ * The day-type split itself runs over a WIDER trailing window (`windowDays`, default
+ * DAY_TYPE_WINDOW_DAYS = 90) than the pooled call, because rest days are sparse for a training
+ * cyclist and need more calendar time to accumulate a usable sample. `cutoff`/`lastLoggedDate` for
+ * this wider window are computed with the same convention calibrateNeat uses for its own (shorter)
+ * window — ONE shared boundary for both subsets, not a per-subset one, because a transfer gap affects
+ * both day types equally.
+ */
+export function calibrateNeatByDayType(
+  wellness: WellnessEntry[],
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  rmr: number,
+  today: string,
+  windowDays: number = DAY_TYPE_WINDOW_DAYS
+): DayTypeNeat | null {
+  const pooled = calibrateNeat(wellness, activities, rmr, today);
+  if (pooled === null) return null;
+
+  // Same convention as calibrateNeat: a date lands here when SOME activity on it has a burn that
+  // can't be resolved. Excluded from both the day-type map and any subset's day count entirely.
+  const unresolvedBurnDates = new Set<string>();
+  const burnByDate = new Map<string, number>();
+  for (const a of activities) {
+    const burn = activeBurn(a);
+    if (burn === null) {
+      unresolvedBurnDates.add(a.date);
+      continue;
+    }
+    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
+  }
+
+  const cutoff = new Date(Date.parse(today) - windowDays * 86_400_000).toISOString().slice(0, 10);
+
+  let lastLoggedDate: string | null = null;
+  for (const w of wellness) {
+    if (w.date < cutoff || w.date >= today) continue;
+    if (w.kcalConsumed !== null && w.kcalConsumed > 0 && (lastLoggedDate === null || w.date > lastLoggedDate)) {
+      lastLoggedDate = w.date;
+    }
+  }
+  // Nothing logged inside THIS (wider) window — shouldn't happen given pooled already cleared its own
+  // shorter window's floor, but guarded rather than assumed.
+  if (lastLoggedDate === null) return null;
+
+  // perDayDriftKg is computed ONCE, from the trend over [cutoff, lastLoggedDate], and shared by both
+  // subsets — the model's existing uniform-daily-rate assumption is exactly what licenses this. A
+  // scattered handful of rest days doesn't have enough temporal spread on its own to fit a trend.
+  const trendWellness = wellness.filter((w) => w.date >= cutoff && w.date <= lastLoggedDate!);
+  const trendPrecise = weightTrendPreciseFromWellness(trendWellness, windowDays);
+  const perDayDriftKg = trendPrecise === null ? 0 : trendPrecise / 7;
+
+  interface Subset {
+    loggableDays: number;
+    loggedDays: number;
+    loggedSum: number;
+    burnSum: number;
+  }
+  const rest: Subset = { loggableDays: 0, loggedDays: 0, loggedSum: 0, burnSum: 0 };
+  const train: Subset = { loggableDays: 0, loggedDays: 0, loggedSum: 0, burnSum: 0 };
+
+  const wellnessByDate = new Map<string, WellnessEntry>();
+  for (const w of wellness) {
+    if (w.date >= cutoff && w.date <= lastLoggedDate) wellnessByDate.set(w.date, w);
+  }
+
+  // Walk every calendar date in [cutoff, lastLoggedDate] — including dates with no wellness/activity
+  // record at all — classifying each as rest or training from the resolved activeBurn sum alone.
+  const cutoffMs = Date.parse(cutoff);
+  const lastLoggedMs = Date.parse(lastLoggedDate);
+  for (let ms = cutoffMs; ms <= lastLoggedMs; ms += 86_400_000) {
+    const date = new Date(ms).toISOString().slice(0, 10);
+    if (unresolvedBurnDates.has(date)) continue; // burn unknown this day — excluded from both subsets
+    const burn = burnByDate.get(date) ?? 0;
+    const subset = burn > 0 ? train : rest;
+    subset.loggableDays++;
+    subset.burnSum += burn; // 0 for every rest-classified date by construction
+    const w = wellnessByDate.get(date);
+    if (w && w.kcalConsumed !== null && w.kcalConsumed > 0) {
+      subset.loggedDays++;
+      subset.loggedSum += w.kcalConsumed;
+    }
+  }
+
+  const buildSubset = (s: Subset): { neat: NeatCalibration; weight: number } => {
+    const coverage = s.loggableDays > 0 ? s.loggedDays / s.loggableDays : 0;
+    // Imputed at THIS SUBSET'S OWN logged mean — never the pooled mean, never zero. Blanking every
+    // third rest day must not collapse k_rest toward the training-heavy pooled average.
+    const meanLoggedIntake = s.loggedDays > 0 ? s.loggedSum / s.loggedDays : 0;
+    const sumIntakeImputed = meanLoggedIntake * s.loggableDays;
+    const deltaMass = perDayDriftKg * s.loggableDays;
+    const n = Math.max(1, s.loggableDays);
+    const { multiplier: clampedSubsetK, imbalance } = solveAndClampK(sumIntakeImputed, s.burnSum, deltaMass, n, rmr);
+    const weight =
+      s.loggedDays < DAY_TYPE_MIN_LOGGED_DAYS ? 0 : s.loggedDays / (s.loggedDays + DAY_TYPE_SHRINKAGE_K);
+    const finalMultiplier = weight * clampedSubsetK + (1 - weight) * pooled.multiplier;
+    const neat: NeatCalibration = {
+      multiplier: finalMultiplier,
+      confidence: dayTypeConfidence(windowDays, s.loggedDays, coverage),
+      source: "derived",
+      // The actual window used for THIS solve, not a hardcoded constant — mirrors calibrateNeat's own
+      // `windowDays` field, which reports its real parameter too, so an override by a future caller
+      // can't silently misreport itself here.
+      windowDays,
+      loggedDays: s.loggedDays,
+      weighIns: pooled.weighIns, // not day-type-specific in any meaningful sense — reuse verbatim
+      solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
+      imbalance, // from the PRE-shrink clamp — shrinkage never recomputes it
+      stale: false, // staleness already gated via pooled returning null
+    };
+    return { neat, weight };
+  };
+
+  const restResult = buildSubset(rest);
+  const trainResult = buildSubset(train);
+
+  return {
+    rest: restResult.neat,
+    train: trainResult.neat,
+    pooled,
+    shrinkageWeight: { rest: restResult.weight, train: trainResult.weight },
   };
 }
 
