@@ -60,14 +60,21 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
-- ☑ **Nutrition Phases 1–3 + the buffer redesign — shipped & live-verified 2026-07-30/31.**
+- ☑ **Nutrition Phases 1–3, the buffer redesign, and day-type NEAT calibration — shipped &
+  live-verified 2026-07-30 through 2026-08-01.**
   Record → [ARCHIVE.md](ARCHIVE.md) · how it works → [docs/systems/09-nutrition.md](docs/systems/09-nutrition.md).
   Five defects that were **live in production** (training days prescribing less than rest days; no way
   to express a deficit; `targetWeight` never read; mechanical `kj` treated as calories; off-bike burn
   dropped), then NEAT derived from the athlete's own logs, then the buffer changed from a trend servo
-  to a feed-forward goal surplus, then the under-fuelling streak alert.
-  **Live-measured:** k = 1.2584 (derived, high confidence — 42 d, 39 logged days, 21 weigh-ins);
-  rest day 2300 → 2450; buffer 390 in `goal-rate` mode; D1 holds on real LLM output; 1589 tests green.
+  to a feed-forward goal surplus, then the under-fuelling streak alert, then day-type-conditioned NEAT
+  (rest days no longer share a `k` dragged down by training days).
+  **Live-measured, most recent first:** rest-day target 2080 → **2230** (day-type split, weight 0.29 at
+  n=5 logged rest days, grows as data accrues — raw unshrunk rest-day solve 1.55, within rounding of the
+  original review's independent 1.53 finding). Pooled `k` = 1.2584 (high confidence, 42 d/39 logged/21
+  weigh-ins) before the split. Caught and fixed a real bug along the way: the block validator was
+  checking every day against one shared model, which would have falsely "corrected" correct rest-day
+  figures once `k_rest`/`k_train` diverged — confirmed live on a real generated block, zero false
+  corrections. D1 holds on real LLM output; 1614 tests green.
 - ☐ `audit` Nutrition follow-ups — none blocking; magnitudes in
   [09-nutrition § known rough edges](docs/systems/09-nutrition.md#known-rough-edges). `weeklyEnergy`
   measures adherence against the *configured* not *applied* buffer (reads ~0.99 where the truth is

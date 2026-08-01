@@ -207,15 +207,21 @@ boundary depending on which weigh-in happened to be last. RMR still tracks curre
 
 ## Known rough edges
 
-- **A flat `k` measurably under-serves rest days relative to training days — researched, not yet
-  fixed.** Two falsification tests against this athlete's real data: rest-day implied `k` is ~0.31 higher
-  than training-day implied `k` (t≈6.2, n=10 vs n=69, dose-responsive with load) — but a *lagged* test
-  (does yesterday's load predict today's rest-day intake) found nothing (r=0.25, not significant). So the
-  gap is a same-day day-type effect, not a decaying multi-day "recovery debt" — the architecture that
-  would actually fit it (day-type-conditioned `k`, reusing the existing calibration machinery) is
-  designed but **not implemented**; see
-  [the review](../superpowers/specs/2026-08-01-rest-day-energy-model-review.md) before proposing a fix
-  here, so the same ground isn't re-covered.
+- **Day-type-conditioned `k` — shipped 2026-08-01**, closing the gap
+  [the review](../superpowers/specs/2026-08-01-rest-day-energy-model-review.md) found (rest-day implied
+  `k` ~0.31 higher than training-day, t≈6.2). `calibrateNeatByDayType` solves `k_rest`/`k_train`
+  independently over a 90-day window and shrinks each toward the existing pooled `k` via empirical-Bayes
+  weighting (`n/(n+12)`, reusing `CALIBRATION_MIN_WEIGH_INS`) rather than the review's originally-proposed
+  hard confidence gate — conservative from day one, no discontinuity as data accrues. Live at n=5 logged
+  rest days: weight 0.29, rest-day target 2230 (vs 2080 flat-`k` before this shipped). The raw (unshrunk)
+  rest-day solve landed at 1.55 — within rounding of the review's original 1.53 finding from a completely
+  different data window, good convergent evidence the signal is real and stable, not an artifact of one
+  window choice. Plan: [day-type-neat-calibration.md](../superpowers/plans/2026-08-01-day-type-neat-calibration.md).
+  **A real cross-file bug was caught and fixed during this work, not deferred:** `buildNutritionReferenceRows`
+  resolves a model per row (rest vs. training), but `repairNutrition`/`validateNutrition` originally
+  validated a whole multi-day block against one shared model — once `k_rest` ≠ `k_train`, a correctly-copied
+  rest-day figure would get falsely "corrected." Both now accept a day-type resolver; a live generated
+  block confirmed zero false corrections on rest days.
 - **Sustained non-energy weight offsets fool the identity.** Sensitivity is ~183 kcal/day per kg of
   mis-estimated mass over a 42-day window. Transients are rejected cleanly (±3 kg parked on the last 5 days
   moved `k` by *literally zero*), but a **+1.0 kg step held across half the window** — heat acclimation,
