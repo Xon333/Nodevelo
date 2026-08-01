@@ -6,6 +6,7 @@ import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiol
 import {
   calibrateNeat,
   desiredWeightTrend,
+  isRestDayFor,
   nonDerivedNeatCalibration,
   resolveBuffer,
   resolveNutritionModel,
@@ -107,7 +108,14 @@ export async function GET() {
     weightTrendLong,
     profile.nutrition.buffer
   );
-  const nutritionModel = resolveNutritionModel(profile, rawLatestWeightKg ?? profile.performance.weightKg, today);
+  // isRestDayToday: whether today's synced activity burn (if any) resolves to 0 — same activeBurn
+  // convention calculateDailyTarget's isRestDay already uses elsewhere (lib/nutrition.ts's isRestDayFor).
+  const nutritionModel = resolveNutritionModel(
+    profile,
+    rawLatestWeightKg ?? profile.performance.weightKg,
+    today,
+    isRestDayFor(sync?.activities ?? [], today)
+  );
   const rmr = nutritionModel.kind === "derived" ? nutritionModel.rmr : null;
   // neat.multiplier × rmr — the pre-buffer, pre-training-burn maintenance figure (Task 5 brief). Null
   // whenever rmr is (legacy, pre-migration profiles), same rule as every other derived figure here.
@@ -213,7 +221,9 @@ export async function PUT(req: Request) {
   // buffer-redesign-feedforward Task 2: `buffer` is EXCLUDED here — it's retired as an athlete-
   // editable field (see the `hasBaseNutritionFields`/validation block below) and is always carried
   // forward from the on-disk value inside the mutate callback, never from this route's input.
-  let nutrition: Omit<AthleteProfile["nutrition"], "neat" | "buffer"> | undefined;
+  // DT Task 2: `dayTypeNeat` is EXCLUDED for the same reason as `neat` — it's calibrateNeatByDayType's
+  // output, adopted on sync under the same override guard, never an athlete-typed field here.
+  let nutrition: Omit<AthleteProfile["nutrition"], "neat" | "buffer" | "dayTypeNeat"> | undefined;
   // Step 5: manual override of the calibrated NEAT multiplier. Accepted independently of the base
   // four nutrition fields — `{ nutrition: { neatMultiplier } }` alone is a valid PUT, so the
   // derivation panel can set/clear just this without resubmitting the whole nutrition form.
@@ -339,7 +349,14 @@ export async function PUT(req: Request) {
       (sync?.wellness ?? [])
         .filter((w) => w.weightKg !== null)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForRevert.performance.weightKg;
-    const modelForRevert = resolveNutritionModel(profileForRevert, latestWeightKgForRevert, today);
+    // Only `.kind`/`.rmr` are read below (re-deriving `neat`, not `dayTypeNeat`), so isRestDayToday
+    // doesn't affect this call's outcome — computed anyway for consistency with every other call site.
+    const modelForRevert = resolveNutritionModel(
+      profileForRevert,
+      latestWeightKgForRevert,
+      today,
+      isRestDayFor(sync?.activities ?? [], today)
+    );
     // Only the derived model carries an RMR to calibrate against — a legacy (pre-migration) profile has
     // nothing for calibrateNeat to solve relative to, same guard /api/sync uses.
     if (modelForRevert.kind === "derived") {

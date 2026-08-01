@@ -3,6 +3,7 @@ import {
   activeBurn,
   adjustBuffer,
   balanceLevel,
+  buildNutritionReferenceRows,
   BUFFER_MAX_KCAL,
   BUFFER_MIN_KCAL,
   calculateDailyTarget,
@@ -16,6 +17,7 @@ import {
   estimateWorkoutBurnKcal,
   goalSurplusKcalPerDay,
   inRideCarbTarget,
+  isRestDayFor,
   loggedDaysForStreak,
   NEAT_PLAUSIBLE_MAX,
   NEAT_PLAUSIBLE_MIN,
@@ -24,6 +26,7 @@ import {
   resolveNutritionModel,
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
+  DAY_TYPE_MIN_LOGGED_DAYS,
   smoothedCurrentWeightKg,
   STREAK_ALERT_THRESHOLD,
   STREAK_MAX_LOOKBACK_DAYS,
@@ -34,7 +37,7 @@ import {
   weightTrendPreciseFromWellness,
   type NutritionModel,
 } from "./nutrition";
-import type { AthleteProfile, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
+import type { AthleteProfile, DayTypeNeat, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
 
 
 describe("desiredWeightTrend", () => {
@@ -703,6 +706,33 @@ describe("activeBurn", () => {
   });
 });
 
+describe("isRestDayFor", () => {
+  const act = (over: Partial<Parameters<typeof activeBurn>[0] & { date: string }>) =>
+    ({ date: "2026-07-30", activeBurnKcal: null, kj: null, ...over });
+
+  it("is true when there's no activity at all on the date", () => {
+    expect(isRestDayFor([act({ date: "2026-07-29" })], "2026-07-30")).toBe(true);
+  });
+
+  it("is true when the only activity on the date has an unresolvable burn — never reads as training", () => {
+    expect(isRestDayFor([act({ activeBurnKcal: null, kj: null })], "2026-07-30")).toBe(true);
+  });
+
+  it("is true when the day's summed resolvable burn is exactly 0", () => {
+    expect(isRestDayFor([act({ activeBurnKcal: 0 })], "2026-07-30")).toBe(true);
+  });
+
+  it("is false once any activity on the date carries a positive resolvable burn", () => {
+    expect(isRestDayFor([act({ activeBurnKcal: 450 })], "2026-07-30")).toBe(false);
+  });
+
+  it("sums resolvable burn across multiple activities on the same date", () => {
+    expect(
+      isRestDayFor([act({ activeBurnKcal: 0 }), act({ kj: 300 }), act({ date: "2026-07-29", activeBurnKcal: 900 })], "2026-07-30")
+    ).toBe(false);
+  });
+});
+
 describe("restingMetabolicRate", () => {
   // Mifflin-St Jeor: (10 × kg) + (6.25 × cm) − (5 × yr) + 5 for male, − 161 for female.
   it("matches the published male equation", () => {
@@ -733,7 +763,7 @@ describe("resolveNutritionModel", () => {
 
   it("derives once all three RMR inputs are present", () => {
     const m = resolveNutritionModel(
-      profile({ dateOfBirth: "1996-03-14", heightCm: 180, sex: "male" }), 74, "2026-07-30"
+      profile({ dateOfBirth: "1996-03-14", heightCm: 180, sex: "male" }), 74, "2026-07-30", false
     );
     expect(m.kind).toBe("derived");
     if (m.kind !== "derived") throw new Error("unreachable");
@@ -748,16 +778,16 @@ describe("resolveNutritionModel", () => {
     delete (p.performance as unknown as Record<string, unknown>).dateOfBirth;
     delete (p.performance as unknown as Record<string, unknown>).heightCm;
     delete (p.performance as unknown as Record<string, unknown>).sex;
-    expect(resolveNutritionModel(p, 74, "2026-07-30").kind).toBe("legacy");
+    expect(resolveNutritionModel(p, 74, "2026-07-30", false).kind).toBe("legacy");
   });
 
   it("stays legacy when only some inputs are present", () => {
-    expect(resolveNutritionModel(profile({ heightCm: 180 }), 74, "2026-07-30").kind).toBe("legacy");
+    expect(resolveNutritionModel(profile({ heightCm: 180 }), 74, "2026-07-30", false).kind).toBe("legacy");
   });
 
   it("stays legacy when the date of birth cannot yield a plausible age", () => {
     const m = resolveNutritionModel(
-      profile({ dateOfBirth: "not-a-date", heightCm: 180, sex: "male" }), 74, "2026-07-30"
+      profile({ dateOfBirth: "not-a-date", heightCm: 180, sex: "male" }), 74, "2026-07-30", false
     );
     expect(m.kind).toBe("legacy");
   });
@@ -783,14 +813,14 @@ describe("resolveNutritionModel with calibration", () => {
 
   it("uses the stored calibrated multiplier over the default", () => {
     const p = profileWith({ neat: { ...defaultNeat, multiplier: 1.3, source: "derived", confidence: "high" } });
-    const m = resolveNutritionModel(p, 62, "2026-07-30");
+    const m = resolveNutritionModel(p, 62, "2026-07-30", false);
     expect(m.kind).toBe("derived");
     if (m.kind !== "derived") throw new Error("unreachable");
     expect(m.neatMultiplier).toBe(1.3);
   });
 
   it("falls back to the default when nothing has been adopted", () => {
-    const m = resolveNutritionModel(profileWith({}), 62, "2026-07-30");
+    const m = resolveNutritionModel(profileWith({}), 62, "2026-07-30", false);
     if (m.kind !== "derived") throw new Error("unreachable");
     expect(m.neatMultiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
   });
@@ -800,9 +830,93 @@ describe("resolveNutritionModel with calibration", () => {
   it("falls back to the default when neat is undefined, not just null", () => {
     const p = profileWith({});
     delete (p.nutrition as unknown as Record<string, unknown>).neat;
-    const m = resolveNutritionModel(p, 62, "2026-07-30");
+    const m = resolveNutritionModel(p, 62, "2026-07-30", false);
     if (m.kind !== "derived") throw new Error("unreachable");
     expect(m.neatMultiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
+  });
+});
+
+describe("resolveNutritionModel with day-type calibration (DT Task 2)", () => {
+  const defaultNeat: NeatCalibration = {
+    multiplier: DEFAULT_NEAT_MULTIPLIER, confidence: "low", source: "default",
+    windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+  };
+  const pooled: NeatCalibration = {
+    ...defaultNeat, multiplier: 1.28, confidence: "high", source: "derived",
+    windowDays: 42, loggedDays: 40, weighIns: 20, solvedAt: "2026-07-01T00:00:00.000Z",
+  };
+  const restCal: NeatCalibration = { ...pooled, multiplier: 1.47, windowDays: 90, loggedDays: 20 };
+  const trainCal: NeatCalibration = { ...pooled, multiplier: 1.22, windowDays: 90, loggedDays: 40 };
+  const dayTypeNeat: DayTypeNeat = {
+    rest: restCal, train: trainCal, pooled, shrinkageWeight: { rest: 0.6, train: 0.9 },
+  };
+
+  const profileWith = (neat: NeatCalibration, dtn: DayTypeNeat | null) =>
+    ({
+      performance: {
+        ftp: 250, maxHr: 190, thresholdHr: 170, weightKg: 75,
+        weeklyHoursMin: 6, weeklyHoursMax: 10,
+        dateOfBirth: "1996-03-14", heightCm: 180, sex: "male",
+      },
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 78, targetRateKgPerWeek: null,
+        neat, dayTypeNeat: dtn,
+      },
+    }) as unknown as AthleteProfile;
+
+  it("picks dayTypeNeat.rest.multiplier on a rest day once dayTypeNeat is adopted", () => {
+    const p = profileWith(pooled, dayTypeNeat);
+    const m = resolveNutritionModel(p, 62, "2026-07-30", true);
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(dayTypeNeat.rest.multiplier);
+  });
+
+  it("picks dayTypeNeat.train.multiplier on a training day once dayTypeNeat is adopted", () => {
+    const p = profileWith(pooled, dayTypeNeat);
+    const m = resolveNutritionModel(p, 62, "2026-07-30", false);
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(dayTypeNeat.train.multiplier);
+  });
+
+  // No behavior change for an athlete without enough rest-day data yet (unmigrated / insufficient data).
+  it("falls back to the flat neat.multiplier on both day types when dayTypeNeat is null", () => {
+    const p = profileWith(pooled, null);
+    const rest = resolveNutritionModel(p, 62, "2026-07-30", true);
+    const train = resolveNutritionModel(p, 62, "2026-07-30", false);
+    if (rest.kind !== "derived" || train.kind !== "derived") throw new Error("unreachable");
+    expect(rest.neatMultiplier).toBe(pooled.multiplier);
+    expect(train.neatMultiplier).toBe(pooled.multiplier);
+  });
+
+  // calibrateNeatByDayType forces shrinkageWeight to 0 below DAY_TYPE_MIN_LOGGED_DAYS, which by
+  // construction already blends rest.multiplier down to EXACTLY pooled.multiplier — so picking
+  // dayTypeNeat.rest.multiplier here is numerically identical to the flat fallback, not a regression.
+  it("still resolves to the pooled figure when shrinkageWeight is forced to 0 (thin rest-day sample)", () => {
+    const thin: DayTypeNeat = {
+      ...dayTypeNeat,
+      rest: { ...restCal, multiplier: pooled.multiplier, loggedDays: DAY_TYPE_MIN_LOGGED_DAYS - 1 },
+      shrinkageWeight: { rest: 0, train: 0.9 },
+    };
+    const p = profileWith(pooled, thin);
+    const m = resolveNutritionModel(p, 62, "2026-07-30", true);
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(pooled.multiplier);
+  });
+
+  // The override guard extends to the day-type path: an athlete-typed override is an explicit choice
+  // and must win over EVERY derived figure, including a day-type split frozen from BEFORE the override
+  // (sync-side adoption refuses to update dayTypeNeat while an override is active, so a stale split can
+  // otherwise sit on disk alongside a fresh override and silently outrank it on both rest and training days).
+  it("ignores a stale dayTypeNeat and uses the override on both rest and training days", () => {
+    const overridden: NeatCalibration = {
+      ...defaultNeat, multiplier: 1.5, source: "override", solvedAt: "2026-07-15T00:00:00.000Z",
+    };
+    const p = profileWith(overridden, dayTypeNeat);
+    const rest = resolveNutritionModel(p, 62, "2026-07-30", true);
+    const train = resolveNutritionModel(p, 62, "2026-07-30", false);
+    if (rest.kind !== "derived" || train.kind !== "derived") throw new Error("unreachable");
+    expect(rest.neatMultiplier).toBe(1.5);
+    expect(train.neatMultiplier).toBe(1.5);
   });
 });
 
@@ -1228,5 +1342,55 @@ describe("computeUnderfuelStreak / loggedDaysForStreak", () => {
     expect(r.loggedDays).toBe(7);
     expect(r.daysBelowThreshold).toBe(0);
     expect(loggedDaysForStreak(wellness, [], TODAY)).toBe(7); // capped, even though 10 exist
+  });
+});
+
+describe("buildNutritionReferenceRows (DT Task 2 — per-row day-type resolution)", () => {
+  const defaultNeat: NeatCalibration = {
+    multiplier: DEFAULT_NEAT_MULTIPLIER, confidence: "low", source: "default",
+    windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+  };
+  const pooled: NeatCalibration = {
+    ...defaultNeat, multiplier: 1.28, confidence: "high", source: "derived",
+    windowDays: 42, loggedDays: 40, weighIns: 20, solvedAt: "2026-07-01T00:00:00.000Z",
+  };
+  const dayTypeNeat: DayTypeNeat = {
+    rest: { ...pooled, multiplier: 1.47, windowDays: 90, loggedDays: 20 },
+    train: { ...pooled, multiplier: 1.22, windowDays: 90, loggedDays: 40 },
+    pooled,
+    shrinkageWeight: { rest: 0.6, train: 0.9 },
+  };
+  const profileWith = (dtn: DayTypeNeat | null) =>
+    ({
+      performance: {
+        ftp: 250, maxHr: 190, thresholdHr: 170, weightKg: 75,
+        weeklyHoursMin: 6, weeklyHoursMax: 10,
+        dateOfBirth: "1996-03-14", heightCm: 180, sex: "male",
+      },
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 78, targetRateKgPerWeek: null,
+        neat: pooled, dayTypeNeat: dtn,
+      },
+    }) as unknown as AthleteProfile;
+
+  it("gives the Rest row and a training row genuinely different maintenance once dayTypeNeat is adopted", () => {
+    const rmr = restingMetabolicRate(62, 180, 30, "male");
+    const rows = buildNutritionReferenceRows(profileWith(dayTypeNeat), 62, "2026-07-30", 250, 0);
+    const restRow = rows.find((r) => r.type === "Rest")!;
+    const z2Row = rows.find((r) => r.type === "Z2" && r.durationMin === 60)!;
+    // Rest row's estBurnKcal is 0, so its maintenance IS the rest-day-multiplier figure directly.
+    expect(restRow.plan.maintenanceKcal).toBe(Math.round(dayTypeNeat.rest.multiplier * rmr));
+    expect(z2Row.plan.maintenanceKcal).toBe(Math.round(dayTypeNeat.train.multiplier * rmr + z2Row.estBurnKcal));
+    // The whole point of the split: these must actually differ, not just both equal pooled.
+    expect(restRow.plan.maintenanceKcal).not.toBe(Math.round(dayTypeNeat.train.multiplier * rmr));
+  });
+
+  it("falls back to one shared flat multiplier across every row when dayTypeNeat is null — no regression", () => {
+    const rmr = restingMetabolicRate(62, 180, 30, "male");
+    const rows = buildNutritionReferenceRows(profileWith(null), 62, "2026-07-30", 250, 0);
+    const restRow = rows.find((r) => r.type === "Rest")!;
+    const z2Row = rows.find((r) => r.type === "Z2" && r.durationMin === 60)!;
+    expect(restRow.plan.maintenanceKcal).toBe(Math.round(pooled.multiplier * rmr));
+    expect(z2Row.plan.maintenanceKcal).toBe(Math.round(pooled.multiplier * rmr + z2Row.estBurnKcal));
   });
 });

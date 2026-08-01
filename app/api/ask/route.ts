@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { logError } from "@/lib/log";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
 import { readAthleteProfile, readBlockSettings, readCurrentBlock, readDispositions, readInterventionLog, readLastSync, readMorningChecks, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
-import { resolveNutritionModel } from "@/lib/nutrition";
+import { isRestDayFor, resolveNutritionModel } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
 import { resolveToday } from "@/lib/date";
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     (sync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
-  const nutritionModel = resolveNutritionModel(profile, latestWeightKg, today);
+  const nutritionModel = resolveNutritionModel(profile, latestWeightKg, today, isRestDayFor(sync?.activities ?? [], today));
   const snapshot = buildCoachSnapshotFromSources({
     date: today,
     ftp: physStore?.current.ftp ?? null,

@@ -38,6 +38,26 @@ export function activeBurn(a: Pick<ActivitySummary, "activeBurnKcal" | "kj">): A
 }
 
 /**
+ * Whether `date` reads as a rest day: the summed RESOLVABLE active burn across every activity on that
+ * date is 0 — which includes "no activity at all" and "an activity whose burn can't be resolved" (both
+ * contribute nothing to the sum), same convention `calculateDailyTarget`'s `isRestDay` and
+ * `weeklyEnergy`'s day-matched need already use (lib/trends.ts's `needBurnByDate.get(date) ?? 0`). One
+ * shared implementation so every `resolveNutritionModel` call site derives `isRestDayToday` identically
+ * instead of each route reimplementing the sum.
+ */
+export function isRestDayFor(
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  date: string
+): boolean {
+  let sum = 0;
+  for (const a of activities) {
+    if (a.date !== date) continue;
+    sum += activeBurn(a)?.kcal ?? 0;
+  }
+  return sum === 0;
+}
+
+/**
  * Mifflin-St Jeor. Predicts RESTING metabolic rate (RMR/REE) — not BMR, which requires stricter
  * measurement conditions and runs ~10% lower; the naming matters because the two are not interchangeable.
  *
@@ -471,7 +491,8 @@ export function calculateDailyTarget(
 export function resolveNutritionModel(
   profile: AthleteProfile,
   latestWeightKg: number,
-  today: string
+  today: string,
+  isRestDayToday: boolean
 ): NutritionModel {
   const p = profile.performance;
   const shared = {
@@ -482,13 +503,28 @@ export function resolveNutritionModel(
   if (p.dateOfBirth && p.heightCm && p.sex) {
     const ageYears = ageYearsFrom(p.dateOfBirth, today);
     if (ageYears !== null) {
-      return {
-        kind: "derived",
-        rmr: restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex),
+      // Day-type split (DT Task 2): once calibrateNeatByDayType has adopted a rest/train pair, pick the
+      // multiplier for the day actually being resolved instead of the flat pooled figure — a rest day
+      // stops being under-served by a multiplier dragged down by training-day intake.
+      //
+      // Never consulted while the athlete has a manual override in force (`neat.source === "override"`):
+      // an override is an explicit athlete-chosen value and must win over EVERY derived figure, day-type
+      // split included. The split shrinks toward "pooled", and an override changes what "pooled" means —
+      // a stale pre-override day-type split (frozen by the same override guard on the sync-adoption side)
+      // must never silently outrank the override the athlete just set, on either rest or training days.
+      const dayTypeNeat = profile.nutrition.neat?.source === "override" ? null : profile.nutrition.dayTypeNeat;
+      const neatMultiplier = dayTypeNeat
+        ? isRestDayToday
+          ? dayTypeNeat.rest.multiplier
+          : dayTypeNeat.train.multiplier
         // Optional chaining AND `??`, not just one: a profile JSON written before `neat` existed
         // parses it back as `undefined`, the same class of gap AGENTS.md's migration-flag gotcha
         // warns about — this must fall through to the population prior, not produce NaN.
-        neatMultiplier: profile.nutrition.neat?.multiplier ?? DEFAULT_NEAT_MULTIPLIER,
+        : (profile.nutrition.neat?.multiplier ?? DEFAULT_NEAT_MULTIPLIER);
+      return {
+        kind: "derived",
+        rmr: restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex),
+        neatMultiplier,
         ...shared,
       };
     }
@@ -1312,20 +1348,33 @@ const REFERENCE_DURATIONS: Record<WorkoutType, number[]> = {
   Strength: [45, 60],
 };
 
+/**
+ * DT Task 2: each row now resolves its OWN model rather than sharing one instance across every type —
+ * once day-type NEAT is adopted, a Rest row and a Z2 row genuinely differ (rest.multiplier vs
+ * train.multiplier), so reusing a single pre-resolved model would silently flatten that split back out
+ * of the reference table the generator prompt reads. `isRestDayToday` is resolved once PER TYPE (not
+ * per duration) — it depends only on `type === "Rest"`, so every duration of the same type shares an
+ * identical resolve, and this avoids N redundant calls for the same (profile, weight, today,
+ * isRestDayToday) tuple.
+ */
 export function buildNutritionReferenceRows(
-  model: NutritionModel,
+  profile: AthleteProfile,
+  latestWeightKg: number,
+  today: string,
   ftp: number,
   bufferApplied: number
 ): NutritionReferenceRow[] {
   const rows: NutritionReferenceRow[] = [];
   for (const [type, durations] of Object.entries(REFERENCE_DURATIONS) as [WorkoutType, number[]][]) {
+    const isRestDayToday = type === "Rest";
+    const model = resolveNutritionModel(profile, latestWeightKg, today, isRestDayToday);
     for (const durationMin of durations) {
       const estBurnKcal = estimateWorkoutBurnKcal(type, durationMin, ftp);
       rows.push({
         type,
         durationMin,
         estBurnKcal,
-        plan: calculateDailyTarget(estBurnKcal, model, bufferApplied, type === "Rest", {
+        plan: calculateDailyTarget(estBurnKcal, model, bufferApplied, isRestDayToday, {
           type,
           durationMin,
         }),

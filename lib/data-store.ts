@@ -40,6 +40,7 @@ export const DEFAULT_PROFILE: AthleteProfile = {
       imbalance: null,
       stale: false,
     },
+    dayTypeNeat: null,
   },
   goalsMigratedAt: null,
   updatedAt: new Date(0).toISOString(),

@@ -9,7 +9,7 @@ import {
 } from "@/lib/data-store";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
-import { resolveNutritionModel, weightTrendFromWellness } from "@/lib/nutrition";
+import { isRestDayFor, resolveNutritionModel, weightTrendFromWellness } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
 import { efSeries, hrrcSeries, mondayOf, weeklyEnergy } from "@/lib/trends";
 import { resolveToday } from "@/lib/date";
@@ -65,7 +65,12 @@ async function assembleTrends(req: Request): Promise<Response> {
     (sync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
-  const nutritionModel = resolveNutritionModel(profile, latestWeightKgForEnergy, today);
+  const nutritionModel = resolveNutritionModel(
+    profile,
+    latestWeightKgForEnergy,
+    today,
+    isRestDayFor(sync?.activities ?? [], today)
+  );
   const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel);
 
   // Weekly training volume (hours) — for the Trend Pulse "are you building or slipping?" bar.

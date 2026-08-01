@@ -27,6 +27,7 @@ import { resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride } from "@/lib/
 import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
+  isRestDayFor,
   nutritionTableMarkdown,
   resolveBuffer,
   resolveNutritionModel,
@@ -127,7 +128,8 @@ export async function POST(req: Request) {
 
     // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
     // re-deriving from the raw body or inlining a UTC date.
-    const nutritionModel = resolveNutritionModel(profile, latestWeight, today);
+    const isRestDayToday = isRestDayFor(sync?.activities ?? [], today);
+    const nutritionModel = resolveNutritionModel(profile, latestWeight, today, isRestDayToday);
     // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
     // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback seeded
     // from the goal surplus (never the retired profile.nutrition.buffer setting).
@@ -140,8 +142,10 @@ export async function POST(req: Request) {
       weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
       profile.nutrition.buffer
     );
+    // DT Task 2: each reference row resolves its OWN model (rest vs training rows now genuinely differ
+    // once day-type NEAT is adopted) rather than sharing the single `nutritionModel` instance above.
     const nutritionTable = nutritionTableMarkdown(
-      buildNutritionReferenceRows(nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied)
+      buildNutritionReferenceRows(profile, latestWeight, today, profile.performance.ftp, bufferStatus.bufferApplied)
     );
 
     const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);

@@ -120,6 +120,12 @@ export interface NutritionSettings {
   // exists; defaults to DEFAULT_NEAT_MULTIPLIER (source: "default") until then. Adopting the derived value
   // into resolveNutritionModel is Task 4 — this field is populated but not yet read there.
   neat: NeatCalibration;
+  // Rest/training split of `neat` (lib/nutrition.ts's calibrateNeatByDayType), adopted on sync under the
+  // same override guard as `neat` itself. Null until the pooled gate clears AND at least one subset clears
+  // DAY_TYPE_MIN_LOGGED_DAYS (persisted even at shrinkageWeight 0 — Task 3's derivation panel renders that
+  // state, it isn't withheld like a bare null). resolveNutritionModel reads this to pick the rest- or
+  // training-day multiplier; falls back to the flat `neat.multiplier` above when this is null.
+  dayTypeNeat: DayTypeNeat | null;
 }
 
 export interface AthleteProfile {

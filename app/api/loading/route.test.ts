@@ -45,6 +45,7 @@ const profile = (): AthleteProfile => ({
   nutrition: {
     baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
     neat: { multiplier: 1.2, confidence: "low", source: "default", windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false },
+    dayTypeNeat: null,
   },
   goalsMigratedAt: null,
   updatedAt: "2026-07-01T00:00:00Z",
