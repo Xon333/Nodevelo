@@ -10,6 +10,28 @@ Every idea here is measured against NodeVelo's three standing mandates (see [REA
 
 ---
 
+## Rest-day energy model — does `k × RMR` under-predict after heavy training?
+
+Full analysis: **[docs/superpowers/specs/2026-08-01-rest-day-energy-model-review.md](docs/superpowers/specs/2026-08-01-rest-day-energy-model-review.md)**.
+
+**Verdict:** the flat single-`k` model has a real, measured gap — but not the one first suspected.
+Two falsification tests against the athlete's own 6-month synced data: a **same-day** test (does a flat
+`k` fit rest days and training days equally?) found a large, significant effect (rest-day implied `k` is
+~0.31 higher than training-day implied `k`, t≈6.2, dose-responsive with load). A **lagged** test (does
+yesterday's training load predict today's rest-day intake?) found nothing detectable (r=0.25, n=10, not
+significant).
+
+So the fix is **day-type-conditioned `k`** (split the existing `calibrateNeat` machinery by rest vs.
+training day, gated by its own confidence tier), not the originally-proposed decaying multi-day
+"residual recovery cost" term — that architecture was tested and found no support. Cross-referenced
+against Pontzer's constrained-total-energy-expenditure literature (Tier 1: DLW studies showing additive
+models overshoot true TDEE at high activity, by ~70% of the naively-expected increase in intervention
+trials) and a mechanism-by-mechanism review of EPOC/glycogen-resynthesis/MPS/immune/etc., several of
+which resolve same-day or are already captured inside `k`'s TEF component. **Not implemented** — a
+research recommendation pending the athlete's decision to build it.
+
+---
+
 ## The "Second Brain" vision
 
 Could NodeVelo evolve from a static store into a learning / reasoning / connected "second brain",

@@ -207,6 +207,15 @@ boundary depending on which weigh-in happened to be last. RMR still tracks curre
 
 ## Known rough edges
 
+- **A flat `k` measurably under-serves rest days relative to training days — researched, not yet
+  fixed.** Two falsification tests against this athlete's real data: rest-day implied `k` is ~0.31 higher
+  than training-day implied `k` (t≈6.2, n=10 vs n=69, dose-responsive with load) — but a *lagged* test
+  (does yesterday's load predict today's rest-day intake) found nothing (r=0.25, not significant). So the
+  gap is a same-day day-type effect, not a decaying multi-day "recovery debt" — the architecture that
+  would actually fit it (day-type-conditioned `k`, reusing the existing calibration machinery) is
+  designed but **not implemented**; see
+  [the review](../superpowers/specs/2026-08-01-rest-day-energy-model-review.md) before proposing a fix
+  here, so the same ground isn't re-covered.
 - **Sustained non-energy weight offsets fool the identity.** Sensitivity is ~183 kcal/day per kg of
   mis-estimated mass over a 42-day window. Transients are rejected cleanly (±3 kg parked on the last 5 days
   moved `k` by *literally zero*), but a **+1.0 kg step held across half the window** — heat acclimation,
@@ -248,5 +257,7 @@ boundary depending on which weigh-in happened to be last. RMR still tracks curre
 ## Design history
 
 Specs and plans, in order: the [accuracy design](../superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md)
-(defects D1–D7, phases 1–4) and the [buffer redesign](../superpowers/specs/2026-07-31-buffer-redesign-feedforward.md)
-(why the servo was retired, with the simulation numbers).
+(defects D1–D7, phases 1–4), the [buffer redesign](../superpowers/specs/2026-07-31-buffer-redesign-feedforward.md)
+(why the servo was retired, with the simulation numbers), and the
+[rest-day energy model review](../superpowers/specs/2026-08-01-rest-day-energy-model-review.md) (research
+only, not shipped — whether `k` should be day-type-conditioned; see the rough edge below).
