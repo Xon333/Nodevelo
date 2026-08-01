@@ -477,6 +477,36 @@ describe("updateAthleteProfile", () => {
     expect(onDisk.goals).toEqual([{ goal: "New goal", target: "", focus: "general" }]);
   });
 
+  // readAthleteProfile's goals self-heal used to be an UNLOCKED read-modify-write: the read takes no
+  // lock, and the old writeAthleteProfile locked only the byte-write. A concurrent LOCKED writer
+  // landing in that gap was silently discarded — and since the self-heal rewrites the whole document,
+  // it discarded the WHOLE profile. Measured before the fix: a freshly derived NEAT calibration lost,
+  // and a manual override lost after the UI had already shown "Saved".
+  it("does not discard a concurrent locked write while self-healing the goals migration", async () => {
+    // Un-migrated on disk (goalsMigratedAt falsy) so readAthleteProfile takes the self-heal path.
+    await writeAthleteProfile(baseProfile({ goalsMigratedAt: null }));
+
+    // A concurrent writer persists something irreplaceable — a derived calibration — at the same time.
+    const [, healed] = await Promise.all([
+      updateAthleteProfile((profile) => ({
+        ...profile,
+        nutrition: {
+          ...profile.nutrition,
+          neat: { ...profile.nutrition.neat, multiplier: 1.2584, source: "derived", confidence: "high" },
+        },
+      })),
+      readAthleteProfile(),
+    ]);
+
+    const onDisk = await readAthleteProfile();
+    // The migration still ran...
+    expect(onDisk.goalsMigratedAt).toBeTruthy();
+    expect(healed.goalsMigratedAt).toBeTruthy();
+    // ...and the concurrent calibration survived it. Before the fix this read 1.2 / "default".
+    expect(onDisk.nutrition.neat.multiplier).toBe(1.2584);
+    expect(onDisk.nutrition.neat.source).toBe("derived");
+  });
+
   it("shape-merges an old-format on-disk file before handing it to mutate, so an old file doesn't crash the caller", async () => {
     await fs.writeFile(
       p("athlete.json"),

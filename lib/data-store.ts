@@ -95,13 +95,29 @@ export async function readAthleteProfile(): Promise<AthleteProfile> {
   const { value: fromDisk, corruptFallback } = await readJsonFileWithStatus<unknown>("athlete.json", DEFAULT_PROFILE);
   let profile = shapeMergeProfile(fromDisk);
   if (!profile.goalsMigratedAt) {
-    profile = await applyGoalsMigration(profile, parseGoalsWeakpointsForMigration);
-    // HR-42: never self-heal-write a migration derived from a genuinely corrupt double-read (both
-    // athlete.json and its .bak unreadable) — that would permanently overwrite whatever was
-    // recoverable with factory defaults the instant this route runs. Still return the in-memory
-    // migrated profile so this response isn't broken; just don't persist it until the underlying
-    // corruption is actually fixed (a legitimate future read then self-heals normally).
-    if (!corruptFallback) await writeAthleteProfile(profile);
+    if (corruptFallback) {
+      // HR-42: never self-heal-write a migration derived from a genuinely corrupt double-read (both
+      // athlete.json and its .bak unreadable) — that would permanently overwrite whatever was
+      // recoverable with factory defaults the instant this route runs. Still return the in-memory
+      // migrated profile so this response isn't broken; just don't persist it until the underlying
+      // corruption is actually fixed (a legitimate future read then self-heals normally).
+      profile = await applyGoalsMigration(profile, parseGoalsWeakpointsForMigration);
+    } else {
+      // The read above takes NO lock (readJsonFileWithStatus is deliberately lock-free), and the old
+      // self-heal then called writeAthleteProfile, which locks only the byte-write. Anything a
+      // concurrent LOCKED writer persisted in that gap was silently discarded — and because this
+      // rewrites the whole document, it discarded the WHOLE profile, not one field. Measured before
+      // this fix: a freshly derived NEAT calibration lost, and an athlete's manual override lost
+      // after the UI had already shown "Saved".
+      //
+      // Route it through updateAthleteProfile so the read, the migration and the write share one
+      // lock — the same HR-40/51/52 precedent the rest of this file follows. applyGoalsMigration
+      // re-checks goalsMigratedAt against the freshly-locked value, so a writer that already
+      // migrated while we waited is a no-op rather than a second migration.
+      profile = await updateAthleteProfile((current) =>
+        applyGoalsMigration(current, parseGoalsWeakpointsForMigration)
+      );
+    }
   }
   // Overlay FTP/HR so IF/execution scoring, trends and generation all agree on the same
   // numbers. Precedence: athlete.json defaults < athlete_profile.md (fallback) < the
@@ -132,11 +148,14 @@ export async function writeAthleteProfile(profile: AthleteProfile): Promise<void
 // so a concurrent PUT or the goals-migration self-heal write can't clobber each other. Shape-merges
 // over DEFAULT_PROFILE first (HR-43) so an old-format file can't crash `mutate`; stamps `updatedAt`
 // centrally so callers can't forget it.
+// The mutator may be async: updateJsonFile awaits it INSIDE the lock, so a mutation needing its own
+// IO (e.g. readAthleteProfile's goals migration, which parses athlete_profile.md) can still be
+// atomic with respect to the read-modify-write rather than having to compute outside the lock.
 export async function updateAthleteProfile(
-  mutate: (profile: AthleteProfile) => AthleteProfile
+  mutate: (profile: AthleteProfile) => AthleteProfile | Promise<AthleteProfile>
 ): Promise<AthleteProfile> {
-  return updateJson<AthleteProfile>("athlete.json", DEFAULT_PROFILE, (current) => ({
-    ...mutate(shapeMergeProfile(current)),
+  return updateJson<AthleteProfile>("athlete.json", DEFAULT_PROFILE, async (current) => ({
+    ...(await mutate(shapeMergeProfile(current))),
     updatedAt: new Date().toISOString(),
   }));
 }
