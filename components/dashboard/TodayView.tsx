@@ -109,7 +109,11 @@ export default function TodayView() {
         <RecentDataSummary sync={state.lastSync} acwr={state.acwr} polarization={state.polarization} bare />
         {/* Energy-availability proxy — am I chronically under-fuelling? A recovery input, so it
             sits with the load signals. */}
-        <EnergyAvailabilityTile sync={state.lastSync} />
+        <EnergyAvailabilityTile
+          sync={state.lastSync}
+          nutritionModel={state.nutritionModel}
+          neatImbalance={state.neatImbalance}
+        />
         {coachContext && <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{coachContext}</p>}
       </div>
     </details>

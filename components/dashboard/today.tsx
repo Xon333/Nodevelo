@@ -6,6 +6,7 @@
 import type {
   AcwrResult,
   CurrentBlock,
+  EnergyImbalanceFinding,
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
@@ -17,7 +18,14 @@ import { ifBandLabel } from "@/lib/zones";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { prDurationLabel } from "@/lib/pr";
 import { formatPrescriptionLabel } from "@/lib/prescription";
-import { computeEnergyAvailability, eaLevel } from "@/lib/nutrition";
+import {
+  computeEnergyAvailability,
+  computeUnderfuelStreak,
+  eaLevel,
+  loggedDaysForStreak,
+  STREAK_MIN_LOGGED_DAYS,
+  type NutritionModel,
+} from "@/lib/nutrition";
 import { addDaysIso, isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
 import { splitLeadSentences } from "@/lib/text";
 import Link from "next/link";
@@ -604,16 +612,37 @@ export function RecentDataSummary({
 
 // ---------- Energy-availability tile (deterministic fuel proxy; ⭐ UI refinement) ----------
 
-export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
+export function EnergyAvailabilityTile({
+  sync,
+  nutritionModel,
+  neatImbalance,
+}: {
+  sync: SyncData | null;
+  // §10: null when the model hasn't resolved yet (e.g. no sync data) — the streak line withholds
+  // rather than guessing a denominator.
+  nutritionModel?: NutritionModel | null;
+  // §10: the calibrated NEAT solve's out-of-band finding, when present. This pairing is deliberate,
+  // not incidental — acting on an apparent deficit while calibration itself is ambiguous (food-log
+  // bias vs an RMR-equation mismatch) risks unintended weight gain, so the bias finding must be visible
+  // wherever the deficit is, never a separate disclosure the athlete has to go find.
+  neatImbalance?: EnergyImbalanceFinding | null;
+}) {
   const tipId = useId();
   if (!sync) return null;
-  const ea = computeEnergyAvailability(sync.wellness, sync.activities, todayIso());
-  if (!ea) return null; // withheld until ≥3 complete logged days — no flaky single-day number
-  // Trend is vs the prior week; higher EA (more spare energy) is "up".
-  const arrow = ea.trend != null && ea.trend !== 0 ? trendArrow(ea.eaKcalPerKg, ea.eaKcalPerKg - ea.trend, true) : null;
+  const today = todayIso();
+  const ea = computeEnergyAvailability(sync.wellness, sync.activities, today);
+  const streak = nutritionModel ? computeUnderfuelStreak(sync.wellness, sync.activities, nutritionModel, today) : null;
+  // Below the logged-day floor, computeUnderfuelStreak returns null — genuinely different from "you're
+  // fine". Back-fill (batchy MyFitnessPal→Intervals.icu transfer) is normal, so the streak legitimately
+  // appears/disappears retroactively; always naming the logged-day count makes a change explicable
+  // instead of looking like a bug.
+  const loggedCount = nutritionModel ? loggedDaysForStreak(sync.wellness, sync.activities, today) : 0;
+  if (!ea && !streak && !nutritionModel) return null; // nothing at all to show yet
   // A soft, non-clinical read so the number means something at a glance (FB-2026-06-30) — bands are on a
   // body-weight basis, not the clinical FFM cutoffs (see eaLevel), so the tip frames it as a rough reference.
-  const level = eaLevel(ea.eaKcalPerKg);
+  const level = ea ? eaLevel(ea.eaKcalPerKg) : null;
+  // Trend is vs the prior week; higher EA (more spare energy) is "up".
+  const arrow = ea && ea.trend != null && ea.trend !== 0 ? trendArrow(ea.eaKcalPerKg, ea.eaKcalPerKg - ea.trend, true) : null;
   const levelTone =
     level === "low"
       ? "text-amber-600 dark:text-amber-400"
@@ -624,24 +653,67 @@ export function EnergyAvailabilityTile({ sync }: { sync: SyncData | null }) {
     <div
       tabIndex={0}
       aria-describedby={`${tipId}-ea`}
-      className="group relative mt-2 flex items-center justify-between gap-2 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900"
+      className="group relative mt-2 flex flex-col gap-1.5 rounded-md bg-zinc-50 px-3 py-2 dark:bg-zinc-900"
     >
-      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        <span className="underline decoration-dotted underline-offset-2">Energy availability</span>
-        {/* S2-6: trimmed to Constitution §6's 2-sentence tip limit. */}
-        <MetricTip id={`${tipId}-ea`} text={`Energy left for recovery — logged intake minus exercise burn, per kg body weight, averaged over your last ${ea.daysUsed} complete days. A rough proxy on body weight (not the clinical fat-free-mass figure) — reads low if you under-log intake.`} />
-      </p>
-      <p className="shrink-0 font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-        {ea.eaKcalPerKg}
-        <span className="ml-0.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400"> kcal/kg</span>
-        <span className={`ml-1.5 font-sans text-[10px] font-medium ${levelTone}`}>{level}</span>
-        {arrow && <span className="ml-1 text-[10px] font-normal text-cyan-600 dark:text-[#00d4ff]">{arrow}</span>}
-        {/* S3-4: the documented micro-label pair (DESIGN.md §3 — zinc-500 light / zinc-400 dark,
-            "for AA contrast"); this suffix had drifted to the inverse pair. On the dark zinc-900
-            tile zinc-500 was 3.67:1 (fails AA 4.5:1) vs zinc-400's 6.91:1; on the light zinc-50
-            tile zinc-400 was 2.46:1 vs zinc-500's 4.63:1. */}
-        <span className="ml-1.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400">{ea.daysUsed}d</span>
-      </p>
+      {ea && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            <span className="underline decoration-dotted underline-offset-2">Energy availability</span>
+            {/* S2-6: trimmed to Constitution §6's 2-sentence tip limit. */}
+            <MetricTip id={`${tipId}-ea`} text={`Energy left for recovery — logged intake minus exercise burn, per kg body weight, averaged over your last ${ea.daysUsed} complete days. A rough proxy on body weight (not the clinical fat-free-mass figure) — reads low if you under-log intake.`} />
+          </p>
+          <p className="shrink-0 font-mono text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+            {ea.eaKcalPerKg}
+            <span className="ml-0.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400"> kcal/kg</span>
+            <span className={`ml-1.5 font-sans text-[10px] font-medium ${levelTone}`}>{level}</span>
+            {arrow && <span className="ml-1 text-[10px] font-normal text-cyan-600 dark:text-[#00d4ff]">{arrow}</span>}
+            {/* S3-4: the documented micro-label pair (DESIGN.md §3 — zinc-500 light / zinc-400 dark,
+                "for AA contrast"); this suffix had drifted to the inverse pair. On the dark zinc-900
+                tile zinc-500 was 3.67:1 (fails AA 4.5:1) vs zinc-400's 6.91:1; on the light zinc-50
+                tile zinc-400 was 2.46:1 vs zinc-500's 4.63:1. */}
+            <span className="ml-1.5 text-[10px] font-normal text-zinc-500 dark:text-zinc-400">{ea.daysUsed}d</span>
+          </p>
+        </div>
+      )}
+      {nutritionModel && (
+        <p
+          tabIndex={0}
+          aria-describedby={`${tipId}-streak`}
+          className={`group/streak relative text-[11px] ${streak?.alert ? "font-medium text-amber-600 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400"}`}
+        >
+          {streak ? (
+            <>
+              {streak.alert
+                ? `Under-fuelled ${streak.daysBelowThreshold} of your last ${streak.loggedDays} logged days`
+                : `On track: ${streak.loggedDays - streak.daysBelowThreshold} of your last ${streak.loggedDays} logged days met need`}
+              {/* Measured against UNBUFFERED physiological need (k·RMR + ride burn), not the buffered
+                  plan — a deliberate cut still trips the "did I follow the plan" balance figure
+                  elsewhere, never this health-oriented one (§10). */}
+              <MetricTip
+                id={`${tipId}-streak`}
+                align="right"
+                text={`Days below ~95% of your unbuffered physiological need (calibrated maintenance + ride burn — excludes your goal buffer), over the most recent ${streak.loggedDays} logged days within the last 14 calendar days. 3+ such days raises the alert.`}
+              />
+            </>
+          ) : (
+            <>
+              Under-fuelling streak: not enough transferred yet ({loggedCount} of {STREAK_MIN_LOGGED_DAYS} days)
+              <MetricTip
+                id={`${tipId}-streak`}
+                align="right"
+                text="Needs at least 4 logged days in the last 14 to read a streak — this is about transfer timing (MyFitnessPal → Intervals.icu), not whether you ate."
+              />
+            </>
+          )}
+        </p>
+      )}
+      {neatImbalance && (
+        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          Your log implies ~{Math.abs(neatImbalance.estimatedKcalPerDay)} kcal/day{" "}
+          {neatImbalance.direction === "intake-below-model" ? "more deficit" : "more surplus"} than your
+          weight shows. Candidates: {neatImbalance.candidates.join(" ")}
+        </p>
+      )}
     </div>
   );
 }

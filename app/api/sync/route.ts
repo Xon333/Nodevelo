@@ -167,6 +167,11 @@ export async function GET(req: Request) {
     coachSnapshot,
     // ROADMAP #2: the per-athlete calibration (read-only on Settings).
     calibration,
+    // §10: the raw model + imbalance the Today tile needs for the under-fuelling streak alert and the
+    // log-bias reconciliation line. Reuses the same resolved model coachSnapshot's fuel figures use
+    // (nutritionModelForEnergy) rather than re-deriving it — one resolve per request.
+    nutritionModel: nutritionModelForEnergy,
+    neatImbalance: profile.nutrition.neat?.imbalance ?? null,
   });
 }
 

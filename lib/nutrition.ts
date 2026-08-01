@@ -990,6 +990,109 @@ export function balanceLevel(ratio: number): EaLevel {
   return "adequate";
 }
 
+// ---------- Under-fueling streak alert (spec §10) ----------
+//
+// Deliberately a SEPARATE denominator from BALANCE_LOW_BELOW above. BALANCE_LOW_BELOW answers "did I
+// follow the plan" — it is measured against the BUFFERED prescription, so an athlete deliberately and
+// appropriately cutting would trip it. This alert answers a health question — "am I under-fuelling my
+// actual physiological need" — so the buffer must be excluded from the denominator: k·RMR + activeBurn,
+// never the full dailyTarget. Two genuinely distinct facts; do not "unify" these constants later.
+export const UNDERFUEL_RATIO_BELOW = 0.95; // vs UNBUFFERED maintenance — NOT BALANCE_LOW_BELOW
+export const STREAK_ALERT_THRESHOLD = 3;
+export const STREAK_WINDOW_LOGGED_DAYS = 7;
+export const STREAK_MAX_LOOKBACK_DAYS = 14;
+export const STREAK_MIN_LOGGED_DAYS = 4;
+
+export interface UnderfuelStreak {
+  loggedDays: number; // days actually evaluated (>= STREAK_MIN_LOGGED_DAYS, <= STREAK_WINDOW_LOGGED_DAYS)
+  daysBelowThreshold: number; // of loggedDays, how many landed below UNDERFUEL_RATIO_BELOW
+  alert: boolean; // daysBelowThreshold >= STREAK_ALERT_THRESHOLD
+}
+
+// The day's unbuffered physiological need — the denominator this alert (and ONLY this alert) uses.
+// Derived: k·RMR + activeBurnKcal, per §10. Legacy (pre-migration, no RMR inputs yet): baseCalories +
+// activeBurnKcal — deliberately uniform across rest/training days rather than switching to the flat
+// restDayTarget on rest days, because that asymmetric branch is exactly the D1 defect the unified
+// formula (calculateDailyTarget) fixed; a health alert must not resurrect it via the legacy fallback.
+function unbufferedMaintenance(model: NutritionModel, activeBurnKcal: number): number {
+  if (model.kind === "derived") return model.neatMultiplier * model.rmr + activeBurnKcal;
+  return model.baseCalories + activeBurnKcal;
+}
+
+// Candidate days for the streak window, most-recent-first: intake-logged (kcal > 0 — a logged 0 or
+// negative reads as NOT logged, same convention as computeEnergyAvailability/calibrateNeat), inside
+// [today − STREAK_MAX_LOOKBACK_DAYS, today) — today excluded because it's still being logged — and
+// with a resolvable activity burn for that date (a day whose only activity can't resolve a burn figure
+// is excluded rather than zeroed, same convention as computeEnergyAvailability/calibrateNeat; this
+// function treats it like "not usable" and keeps looking further back, same as a genuinely unlogged
+// day would be skipped).
+function streakCandidates(
+  wellness: WellnessEntry[],
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  today: string
+): Array<{ date: string; kcalConsumed: number; activeBurnKcal: number }> {
+  const unresolvedBurnDates = new Set<string>();
+  const burnByDate = new Map<string, number>();
+  for (const a of activities) {
+    const burn = activeBurn(a);
+    if (burn === null) {
+      unresolvedBurnDates.add(a.date);
+      continue;
+    }
+    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
+  }
+  const cutoff = new Date(Date.parse(today) - STREAK_MAX_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10);
+  return wellness
+    .filter((w) => w.date >= cutoff && w.date < today)
+    .filter((w) => w.kcalConsumed !== null && w.kcalConsumed > 0)
+    .filter((w) => !unresolvedBurnDates.has(w.date))
+    .map((w) => ({ date: w.date, kcalConsumed: w.kcalConsumed as number, activeBurnKcal: burnByDate.get(w.date) ?? 0 }))
+    .sort((a, b) => b.date.localeCompare(a.date)); // most recent first
+}
+
+// The logged-day count for the "not enough transferred yet (n of N days)" message — usable even when
+// computeUnderfuelStreak itself returns null below the floor, since that function's contract is
+// specifically "does the alert fire", not "how many days do we have so far". Capped at
+// STREAK_WINDOW_LOGGED_DAYS: once the floor clears this number stops being interesting to the UI.
+export function loggedDaysForStreak(
+  wellness: WellnessEntry[],
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  today: string
+): number {
+  return Math.min(streakCandidates(wellness, activities, today).length, STREAK_WINDOW_LOGGED_DAYS);
+}
+
+/**
+ * Under-fuelling streak alert (spec §10). The window is the most recent UP TO STREAK_WINDOW_LOGGED_DAYS
+ * *logged* days, none older than STREAK_MAX_LOOKBACK_DAYS calendar days — NOT "the last 7 calendar
+ * days". This athlete transfers MyFitnessPal intake into Intervals.icu in batches, so a calendar window
+ * can hold 2 logged days now and 7 a week later; sizing the window on calendar days would make the
+ * alert fire and un-fire on transfer timing rather than on eating (the same bug Phase 2's "loggable
+ * range" fix closed for calibrateNeat).
+ *
+ * Below STREAK_MIN_LOGGED_DAYS logged days in the lookback, returns null — genuinely different from
+ * "you're fine" (use loggedDaysForStreak to render "not enough transferred yet (n of N days)").
+ */
+export function computeUnderfuelStreak(
+  wellness: WellnessEntry[],
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  model: NutritionModel,
+  today: string
+): UnderfuelStreak | null {
+  const candidates = streakCandidates(wellness, activities, today);
+  if (candidates.length < STREAK_MIN_LOGGED_DAYS) return null;
+  const window = candidates.slice(0, STREAK_WINDOW_LOGGED_DAYS);
+  const daysBelowThreshold = window.reduce((count, day) => {
+    const need = unbufferedMaintenance(model, day.activeBurnKcal);
+    return count + (need > 0 && day.kcalConsumed / need < UNDERFUEL_RATIO_BELOW ? 1 : 0);
+  }, 0);
+  return {
+    loggedDays: window.length,
+    daysBelowThreshold,
+    alert: daysBelowThreshold >= STREAK_ALERT_THRESHOLD,
+  };
+}
+
 // ---------- Reference table injected into the AI prompt ----------
 
 export interface NutritionReferenceRow {

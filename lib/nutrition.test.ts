@@ -9,11 +9,13 @@ import {
   calibrateNeat,
   CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS,
   computeEnergyAvailability,
+  computeUnderfuelStreak,
   desiredWeightTrend,
   eaLevel,
   estimateWorkoutBurnKcal,
   goalSurplusKcalPerDay,
   inRideCarbTarget,
+  loggedDaysForStreak,
   NEAT_PLAUSIBLE_MAX,
   NEAT_PLAUSIBLE_MIN,
   preRideCarbTarget,
@@ -22,6 +24,11 @@ import {
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
   smoothedCurrentWeightKg,
+  STREAK_ALERT_THRESHOLD,
+  STREAK_MAX_LOOKBACK_DAYS,
+  STREAK_MIN_LOGGED_DAYS,
+  STREAK_WINDOW_LOGGED_DAYS,
+  UNDERFUEL_RATIO_BELOW,
   weightTrendFromWellness,
   weightTrendPreciseFromWellness,
   type NutritionModel,
@@ -969,5 +976,163 @@ describe("calibrateNeat", () => {
     it("CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS is exported and matches the documented value", () => {
       expect(CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS).toBe(14);
     });
+  });
+});
+
+// ---------- Under-fueling streak alert (spec §10) ----------
+describe("computeUnderfuelStreak / loggedDaysForStreak", () => {
+  const TODAY = "2026-07-15";
+  // cutoff (14 days back) = 2026-07-01; window is [2026-07-01, 2026-07-15).
+  const wDay = (date: string, kcalConsumed: number | null): WellnessEntry => ({
+    date, weightKg: 62, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed, ctl: null, atl: null,
+  });
+  const actFor = (date: string, activeBurnKcal: number | null, kj: number | null = null) => ({ date, activeBurnKcal, kj });
+
+  it("pins the spec's constants verbatim", () => {
+    expect(UNDERFUEL_RATIO_BELOW).toBe(0.95);
+    expect(STREAK_ALERT_THRESHOLD).toBe(3);
+    expect(STREAK_WINDOW_LOGGED_DAYS).toBe(7);
+    expect(STREAK_MAX_LOOKBACK_DAYS).toBe(14);
+    expect(STREAK_MIN_LOGGED_DAYS).toBe(4);
+  });
+
+  it("fires at exactly STREAK_ALERT_THRESHOLD (3) below-threshold days", () => {
+    // DERIVED (rmr 1800, k 1.2) unbuffered maintenance on a rest day = 2160; 0.95× = 2052.
+    const wellness = [
+      wDay("2026-07-08", 1800), wDay("2026-07-09", 1800), wDay("2026-07-10", 1800), // below (ratio .833)
+      wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200), // above
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(7);
+    expect(r.daysBelowThreshold).toBe(3);
+    expect(r.alert).toBe(true);
+  });
+
+  it("does NOT fire at one fewer (2) below-threshold days", () => {
+    const wellness = [
+      wDay("2026-07-08", 1800), wDay("2026-07-09", 1800), // below
+      wDay("2026-07-10", 2200), wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200), // above
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.daysBelowThreshold).toBe(2);
+    expect(r.alert).toBe(false);
+  });
+
+  it("batchy transfer: 2 logged days in the last calendar 7, but 7 total within the 14-day lookback — still evaluates all 7, not just the calendar week", () => {
+    const wellness = [
+      // older batch (outside the last 7 CALENDAR days, but inside the 14-day lookback)
+      wDay("2026-07-01", 1800), // below — proves the old batch is actually read, not skipped
+      wDay("2026-07-02", 2200), wDay("2026-07-03", 2200), wDay("2026-07-04", 2200), wDay("2026-07-05", 2200),
+      // recent batch (inside the last 7 calendar days)
+      wDay("2026-07-13", 2200), wDay("2026-07-14", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(7); // all 7 logged days evaluated, not just the 2 recent ones
+    expect(r.daysBelowThreshold).toBe(1);
+    expect(r.alert).toBe(false);
+  });
+
+  it("nothing older than STREAK_MAX_LOOKBACK_DAYS (14) counts, even a severe deficit", () => {
+    const wellness = [
+      wDay("2026-06-30", 500), // 15 days before TODAY — one day past the lookback boundary
+      wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(4); // the 06-30 entry excluded
+    expect(r.daysBelowThreshold).toBe(0);
+  });
+
+  it("the lookback boundary is inclusive: exactly 14 days before today counts", () => {
+    const wellness = [
+      wDay("2026-07-01", 500), // exactly 14 days before TODAY — the cutoff itself
+      wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(5);
+    expect(r.daysBelowThreshold).toBe(1);
+  });
+
+  it("below the logged-day floor returns null — distinct from 'you're fine'", () => {
+    const wellness = [wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200)];
+    expect(computeUnderfuelStreak(wellness, [], DERIVED, TODAY)).toBeNull();
+    // loggedDaysForStreak still reports the count, so the UI can say "not enough transferred yet (3 of 4)".
+    expect(loggedDaysForStreak(wellness, [], TODAY)).toBe(3);
+  });
+
+  it("today is never counted, even with a severe apparent deficit logged on it", () => {
+    const wellness = [
+      wDay("2026-07-10", 2200), wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200),
+      wDay(TODAY, 500), // today — still being logged; must not count
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(4);
+    expect(r.daysBelowThreshold).toBe(0);
+  });
+
+  it("a logged 0 or negative kcalConsumed is treated as NOT logged", () => {
+    const wellness = [
+      wDay("2026-07-10", 0), wDay("2026-07-09", -50),
+      wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(4);
+  });
+
+  it("legacy model: unbuffered need is baseCalories, uniformly — NOT the flat restDayTarget on a rest day (no D1 asymmetry resurrected)", () => {
+    // LEGACY: baseCalories 2000, restDayTarget 2600. If restDayTarget (a REST-day-only figure in the
+    // old two-branch formula) leaked in here, 0.95×2600=2470 would read 1950 as a severe deficit; using
+    // baseCalories uniformly (0.95×2000=1900), 1950 is just barely ABOVE the line.
+    const wellness = [
+      wDay("2026-07-11", 1950), wDay("2026-07-12", 1950), wDay("2026-07-13", 1950), wDay("2026-07-14", 1899),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], LEGACY, TODAY)!;
+    expect(r.daysBelowThreshold).toBe(1); // only the 1899 day (ratio .9495) is below .95
+  });
+
+  it("adds the day's active burn into the unbuffered need on both models", () => {
+    const activities = [actFor("2026-07-14", 500)];
+    // derived: (1.2×1800)+500=2660; 0.95×=2527 → 2500 below, 2600 (elsewhere) not.
+    const wellness = [
+      wDay("2026-07-11", 2200), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), // rest days, comfortably above
+      wDay("2026-07-14", 2500), // training day: below its OWN higher bar
+    ];
+    const r = computeUnderfuelStreak(wellness, activities, DERIVED, TODAY)!;
+    expect(r.daysBelowThreshold).toBe(1);
+  });
+
+  it("excludes a day whose only activity has an unresolvable burn, rather than zeroing it", () => {
+    const activities = [actFor("2026-07-10", null, null)]; // neither activeBurnKcal nor kj
+    const wellness = [
+      wDay("2026-07-08", 2200), wDay("2026-07-09", 2200),
+      wDay("2026-07-10", 500), // unresolvable burn day — must be excluded entirely, not counted as a deficit
+      wDay("2026-07-11", 2200), wDay("2026-07-12", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, activities, DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(4); // the unresolved day dropped, not folded in at burn 0
+    expect(r.daysBelowThreshold).toBe(0);
+  });
+
+  it("still reads a genuine rest day (no activity at all) at burn 0", () => {
+    const wellness = [
+      wDay("2026-07-11", 1800), wDay("2026-07-12", 2200), wDay("2026-07-13", 2200), wDay("2026-07-14", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(4);
+    expect(r.daysBelowThreshold).toBe(1); // the 1800 day, vs plain maintenance (no burn)
+  });
+
+  it("evaluates the MOST RECENT up to STREAK_WINDOW_LOGGED_DAYS (7) when more logged days exist in the lookback", () => {
+    const wellness = [
+      // oldest 3 — excluded once 7 more-recent logged days exist; severely low so a bug that includes
+      // them would flip daysBelowThreshold
+      wDay("2026-07-01", 1000), wDay("2026-07-02", 1000), wDay("2026-07-03", 1000),
+      // most recent 7 — all comfortably above the line
+      wDay("2026-07-04", 2200), wDay("2026-07-05", 2200), wDay("2026-07-06", 2200), wDay("2026-07-07", 2200),
+      wDay("2026-07-08", 2200), wDay("2026-07-09", 2200), wDay("2026-07-10", 2200),
+    ];
+    const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
+    expect(r.loggedDays).toBe(7);
+    expect(r.daysBelowThreshold).toBe(0);
+    expect(loggedDaysForStreak(wellness, [], TODAY)).toBe(7); // capped, even though 10 exist
   });
 });

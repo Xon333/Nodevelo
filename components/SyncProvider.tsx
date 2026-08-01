@@ -8,6 +8,7 @@ import type {
   AcwrResult,
   AthleteState,
   CurrentBlock,
+  EnergyImbalanceFinding,
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
@@ -18,6 +19,7 @@ import type {
   TodayAnalysis,
 } from "@/lib/types";
 import type { CoachSnapshot } from "@/lib/coach-snapshot";
+import type { NutritionModel } from "@/lib/nutrition";
 
 export interface AppState {
   configured: boolean;
@@ -45,6 +47,15 @@ export interface AppState {
   coachSnapshot?: CoachSnapshot | null;
   // ROADMAP #2: per-athlete calibration (read-only on Settings).
   calibration?: CalibrationStore | null;
+  // §10: the resolved nutrition model (rmr/neatMultiplier or legacy baseCalories) the under-fuelling
+  // streak alert needs — same resolve GET /api/sync already does for coachSnapshot's fuel figures.
+  // GET-only (not returned by the POST sync response); a doSync() invalidates this query, so the
+  // following GET refetch fills it in, same pattern as coachAccuracy/autoSyncOnOpen above.
+  nutritionModel?: NutritionModel | null;
+  // §10: the calibrated NEAT solve's out-of-band finding, when the energy-balance identity didn't
+  // close — surfaced alongside the streak alert so an apparent deficit is never acted on without also
+  // seeing the log-bias/RMR-equation ambiguity that could explain it.
+  neatImbalance?: EnergyImbalanceFinding | null;
 }
 
 interface SyncContextValue {
