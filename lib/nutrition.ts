@@ -1,3 +1,8 @@
+// AI: read docs/systems/09-nutrition.md before changing anything here — it carries the WHY for the
+// non-obvious choices (why there is no rest-day branch, why the buffer is feed-forward rather than a
+// servo, why active burn is consumed verbatim, and the two different denominators the streak alert and
+// weekly-balance signals use). Several of those encode defects that were live in production.
+//
 // Deterministic nutrition formula. Pure TypeScript — no AI involvement.
 // The AI receives this module's output as pre-computed values and only
 // rephrases them in natural language inside workout descriptions.

@@ -53,31 +53,29 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 - ☐ `audit` The 9 newly-`<form>`-wrapped forms (UXA-21) — Enter-to-submit, with real values.
 - ☐ `audit` Nutrition range hints (UXA-51) — confirm the Profile "Edit" disclosure numbers read
   sensibly against your own real values.
-- ☐ `ux` P2 Nutrition input bounds (UXA-51) — `baseCalories`/`restDayTarget`/`targetWeightKg` have a
-  floor of 0 and no ceiling (no authoritative one exists in code); decide if any deserve a real
-  sanity ceiling.
+- ☐ `ux` P3 Nutrition input bounds (UXA-51) — narrowed: `baseCalories`/`restDayTarget` are deprecated
+  and no longer athlete-editable, and `buffer` was retired entirely, so only `targetWeightKg` still has
+  a floor of 0 and no ceiling. `targetRateKgPerWeek` is already bounded (±1.5).
 
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
-- ☑ **Nutrition Phases 1 + 2 — shipped & live-verified 2026-07-30/31.** Move to
-  [ARCHIVE.md](ARCHIVE.md) at the next sweep.
-  Spec: [2026-07-30-day-to-day-nutrition-accuracy-design.md](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md).
-  Phase 1 (10 commits) fixed five defects that were **live in production**: training days prescribing
-  *less* food than rest days (every Strength session and short recovery ride), a formula structurally
-  unable to express a deficit, `targetWeight` passed in but never read by any calculation, mechanical
-  `kj` treated as calories, and off-bike burn dropped entirely. Phase 2 (7 tasks) derives the NEAT
-  multiplier from the athlete's own logs instead of a population prior.
-  **Live-measured:** k = 1.2584 (derived, high confidence — 42-day window, 39 logged days, 21
-  weigh-ins); rest day 2300 → 2450; D1 invariant holds on real LLM output; 1552 tests green.
-- ☐ `audit` Nutrition follow-ups — none blocking, full list in `.git/sdd/progress-nutrition-phase2.md`:
-  `floored` isn't exposed to the derivation panel; `weeklyEnergy` measures adherence against the
-  *configured* rather than *applied* buffer (reads ~0.99 where actual is ~0.93); route tests only
-  exercise the legacy model branch, so the derived path — what runs in production — has no route-level
-  coverage; two `today.tsx` display bugs (a negative buffer renders "+ -200"; the legacy floor makes
-  the "base + buffer" breakdown not sum to the total).
-- ☐ P3 `feat` Nutrition Phases 3–4 (not started): under-fuelling streak alert and a daily carbohydrate
-  target — spec §9/§10. Protein deliberately out (the athlete already covers it); within-day timing out
-  (needs meal-level logging they've declined); wearables out.
+- ☑ **Nutrition Phases 1–3 + the buffer redesign — shipped & live-verified 2026-07-30/31.**
+  Record → [ARCHIVE.md](ARCHIVE.md) · how it works → [docs/systems/09-nutrition.md](docs/systems/09-nutrition.md).
+  Five defects that were **live in production** (training days prescribing less than rest days; no way
+  to express a deficit; `targetWeight` never read; mechanical `kj` treated as calories; off-bike burn
+  dropped), then NEAT derived from the athlete's own logs, then the buffer changed from a trend servo
+  to a feed-forward goal surplus, then the under-fuelling streak alert.
+  **Live-measured:** k = 1.2584 (derived, high confidence — 42 d, 39 logged days, 21 weigh-ins);
+  rest day 2300 → 2450; buffer 390 in `goal-rate` mode; D1 holds on real LLM output; 1589 tests green.
+- ☐ `audit` Nutrition follow-ups — none blocking; magnitudes in
+  [09-nutrition § known rough edges](docs/systems/09-nutrition.md#known-rough-edges). `weeklyEnergy`
+  measures adherence against the *configured* not *applied* buffer (reads ~0.99 where the truth is
+  ~0.93); route tests build profiles via `as never` so the **derived** path — what runs in production —
+  has no route-level coverage; `coach-snapshot.ts` still defaults to `utcToday()` where the tile uses
+  `localToday()`; `floored` is computed but not surfaced in the derivation panel.
+- ☐ P3 `feat` Nutrition Phase 4 — daily carbohydrate target (spec §9). Protein deliberately out (the
+  athlete already covers it); within-day timing out (needs meal-level logging they've declined);
+  wearables out.
 
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).

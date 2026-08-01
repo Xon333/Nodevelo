@@ -72,7 +72,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `physiology.ts` | Effective-dated FTP/zone store + reconcile |
 | `loading.ts` | **Carb**-loading prompts + effectiveness (not training load) |
 | `fuel-prompt.ts` | Post-ride fuel-logging nudges |
-| `nutrition.ts` | The deterministic nutrition formula (kcal, carb targets, energy availability) |
+| `nutrition.ts` | The deterministic nutrition formula — daily target, NEAT calibration, feed-forward buffer, carb targets, energy availability, under-fuel streak. **Change when:** any "how much should I eat" question → [09-nutrition](systems/09-nutrition.md) first |
 | `trends.ts` | EF/HRRc series, weekly energy aggregation |
 | `trends-verdict.ts` | The one-word Trends verdict (computed client-side) |
 | `profile-goals.ts` | Goals/weakpoints JSON handling |

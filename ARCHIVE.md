@@ -12,6 +12,61 @@ exact commits.
 
 ---
 
+## Nutrition rebuild — Phases 1–3 + the buffer redesign (2026-07-30/31)
+
+Full logic: **[docs/systems/09-nutrition.md](docs/systems/09-nutrition.md)**. Specs:
+[accuracy design](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md) ·
+[buffer redesign](docs/superpowers/specs/2026-07-31-buffer-redesign-feedforward.md).
+
+Started as "scope a better day-to-day nutrition system" and found that most of the target defects were
+**already live in production**, not missing features.
+
+**Phase 1 — five live defects (D1–D5).**
+- **D1** `calculateDailyTarget` ran two independent formulas, so a training day only overtook a rest day
+  once burn cleared ~300 kcal — **every Strength session (225 kcal) and short recovery ride prescribed
+  less food than doing nothing.** Replaced by one formula where a rest day is `activeBurnKcal = 0`; the
+  inversion is now unrepresentable. Swept 15,750 configs, zero violations.
+- **D2** `BUFFER_MIN_KCAL = 0` on top of a maintenance floor meant the app **could not express a deficit
+  at all**. Buffer is now signed.
+- **D3** `targetWeight` was passed into the config and **never read by any calculation**; the buffer drove
+  toward weight *stability* and cut 150 kcal on glycogen rebound — actively fighting recovery from
+  underfuelling.
+- **D4** `ActivitySummary.kj` is *mechanical work* but every consumer treated it as calories. Now consumes
+  Intervals.icu's active-burn figure verbatim via a single `activeBurn()` accessor.
+- **D5/D7** off-bike burn was dropped entirely, and `weeklyEnergy` used a *second* rest-day definition, so
+  logging a 150 kcal walk **reduced** that day's need by ~210 kcal.
+
+**Phase 2 — stop guessing NEAT.** `calibrateNeat` solves the energy-balance identity over the athlete's own
+logs. Live: **k = 1.2584 at high confidence** (42-day window, 39 logged days, 21 weigh-ins) against the
+shipped 1.20 — worth ~130 kcal/day, and the reason the old buffer had climbed to +190 chasing its own model
+error. Coverage is measured over the *loggable* range so batch transfers don't make it flicker. Adds the
+athlete-set rate goal, an RMR floor (a −500 buffer used to yield **1460 kcal against an RMR of 1631**), and
+the Profile derivation panel.
+
+**The buffer redesign.** Simulating a year of the athlete eating exactly the prescription exposed two
+defects: a proportional controller with no integral term parked them **1.3 kg past target**, and — worse —
+because it read only *trend error* and never the buffer's **sign**, a configured surplus could stand
+against a weight-loss goal indefinitely (66 kg → target 63 ended at **66.94 kg**, the wrong direction).
+Replaced by feed-forward: `buffer = rate × 7700 ÷ 7`. Both directions now converge and hold (63.05 / 63.20,
+65/65 days in the deadband). `NutritionSettings.buffer` retired as a setting; the rate goal is the single
+owned input.
+
+**Phase 3 — the under-fuelling streak alert**, measured against *unbuffered* maintenance so a deliberate
+deficit doesn't trip a health signal. Deliberately a different denominator from `weeklyEnergy`'s
+plan-adherence ratio.
+
+**Two reviews.** The Phase 1 review found a Critical (the Today card still read `kj`, showing the
+*rest-day* figure on a 2007 kcal day and feeding it to the LLM). The Phase 2 review found another: the
+weight trend anchored at the last weigh-in rather than the window, so a 21-day weigh-in lapse solved `k`
+to **1.157 at high confidence** — a 165 kcal/day cut *plus* a food-log accusation against a correct log.
+Both fixed and pinned by regression tests.
+
+Also fixed along the way: `readAthleteProfile`'s self-heal was an **unlocked read-modify-write** that
+silently discarded concurrent writes — measured losing both a fresh calibration and a manual override
+*after the UI showed "Saved"*. Now atomic (HR-40/51/52 precedent).
+
+---
+
 ## Block generation — recovery-week defect + deterministic skeleton (Phase A + B, 2026-07-29)
 
 The season tripwire ([05-season.md](docs/systems/05-season.md#known-rough-edges)) **fired** and its

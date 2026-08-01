@@ -18,7 +18,7 @@ flowchart LR
   G --> A
 ```
 
-The numbers are the doc files: [systems/](systems/) is this pipeline in order — `01-sync-and-data` → `02-scoring-and-learning` → `03-daily-loop` → `04-knowledge` → `05-season` → `06-generation`, plus the two cross-cutting layers `07-ai-layer` (the Claude machinery step 6 uses) and `08-frontend` (the surface over everything).
+The numbers are the doc files: [systems/](systems/) is this pipeline in order — `01-sync-and-data` → `02-scoring-and-learning` → `03-daily-loop` → `04-knowledge` → `05-season` → `06-generation`, plus the three cross-cutting layers `07-ai-layer` (the Claude machinery step 6 uses), `08-frontend` (the surface over everything) and `09-nutrition` (what to eat, fed by the same sync and surfaced on the same pages).
 
 ## I need to…
 
@@ -42,6 +42,9 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 | **add** a page | [RECIPES § page](RECIPES.md#add-a-page) | `app/`, `components/`, `Nav.tsx` |
 | **add** an API route | [RECIPES § API route](RECIPES.md#add-an-api-route) | `app/api/`, logic in `lib/` |
 | **add** a validator | [RECIPES § validator](RECIPES.md#add-or-change-a-validator) | `schedule-validate.ts` / `workout-validate.ts` |
+| **change** what the athlete should eat | [09-nutrition](systems/09-nutrition.md) | `lib/nutrition.ts`, `lib/nutrition-validate.ts` |
+| **understand** why today's target is that number | [09-nutrition § the formula](systems/09-nutrition.md#the-formula) | `lib/nutrition.ts` — `calculateDailyTarget`, `resolveBuffer` |
+| **debug** a wrong NEAT multiplier / calibration | [09-nutrition § calibration](systems/09-nutrition.md#calibration-deriving-k-from-the-athletes-own-data) | `lib/nutrition.ts` — `calibrateNeat`; adopted in `app/api/sync/route.ts` |
 | **add** a calibratable parameter | [RECIPES § calibration](RECIPES.md#add-a-calibratable-parameter) | `lib/calibration.ts`, `lib/correlation.ts` |
 | **change** physiology / zones | [RECIPES § physiology](RECIPES.md#change-physiology--zones) | `lib/physiology.ts`, `lib/zones.ts` |
 | **add** tests | [RECIPES § tests](RECIPES.md#add-tests) | colocated `*.test.ts` |
@@ -58,7 +61,7 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 
 **Opening (30 seconds):** `git log --oneline -5` → `git status --short` (uncommitted WIP? possibly the *other* concurrent session's — leave it) → back to work. Only re-read the mental model above if you're actually lost.
 
-**Stuck >10 minutes?** That's the signal to open a doc, not grep harder: GLOSSARY (naming trap?) → FILE_INDEX (who else touches this?) → the numbered systems doc (the diagram shows the missing step) → DECISIONS (is the "weird" thing deliberate?). Five systems docs carry a **"Known rough edges"** section with live judgment calls, tripwires, and rejected alternatives for that area — `01-sync-and-data`, `05-season` (the deepest one — read before touching `season.ts`), `06-generation` (the week skeleton's staged decisions), `07-ai-layer`, `08-frontend`. High-traffic files in those areas also carry an inline `// AI:` comment pointing at the relevant anchor.
+**Stuck >10 minutes?** That's the signal to open a doc, not grep harder: GLOSSARY (naming trap?) → FILE_INDEX (who else touches this?) → the numbered systems doc (the diagram shows the missing step) → DECISIONS (is the "weird" thing deliberate?). Six systems docs carry a **"Known rough edges"** section with live judgment calls, tripwires, and rejected alternatives for that area — `01-sync-and-data`, `05-season` (the deepest one — read before touching `season.ts`), `06-generation` (the week skeleton's staged decisions), `07-ai-layer`, `08-frontend`, `09-nutrition` (measured sensitivities and known biases, with their magnitudes). High-traffic files in those areas also carry an inline `// AI:` comment pointing at the relevant anchor.
 
 **Closing — update the ONE doc that owns what you changed:**
 
@@ -88,4 +91,4 @@ Orientation = this page + [INVARIANTS.md](INVARIANTS.md). Lookups: [FILE_INDEX.m
 ## The full doc set (one question each)
 
 **Root:** README (what/why + setup) · FEATURES (what it does) · ROADMAP (what's next, stable IDs) · ARCHIVE (what shipped) · todo (live bugs) · DESIGN (visual tokens/rules) · UX-CONSTITUTION (UX decision law) · UX-MASTERPLAN (shipped UX redesign record) · WORKFLOW (daily commands/runbooks) · research (spikes, not commitments) · CONTINUE (session handoff, `/handoff` only) · AGENTS/CLAUDE (agent law).
-**docs/:** COMPASS (this) · [systems/01–08](systems/) (the pipeline) · RECIPES (how to make changes) · FILE_INDEX (where everything is) · INVARIANTS (what never breaks) · DECISIONS (why it's built this way) · GLOSSARY (terms + traps) · specs/ (design specs) · superpowers/ (immutable plans + stamped specs) · folder READMEs (`lib/`, `app/`, `components/`, `knowledge-base-defaults/`) — local rules, read alongside FILE_INDEX.
+**docs/:** COMPASS (this) · [systems/01–09](systems/) (the pipeline) · RECIPES (how to make changes) · FILE_INDEX (where everything is) · INVARIANTS (what never breaks) · DECISIONS (why it's built this way) · GLOSSARY (terms + traps) · specs/ (design specs) · superpowers/ (immutable plans + stamped specs) · folder READMEs (`lib/`, `app/`, `components/`, `knowledge-base-defaults/`) — local rules, read alongside FILE_INDEX.
