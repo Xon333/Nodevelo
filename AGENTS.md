@@ -18,3 +18,14 @@ Four defect shapes have shipped more than once. Check for them explicitly on rel
 - **"Today" must be local, not UTC.** Use `localToday()` / `resolveToday()` from `lib/date.ts` for anything user-facing (what day is it for the athlete right now). Don't inline `new Date().toISOString().slice(0, 10)` — that's UTC and drifts a day off from the athlete's local date near midnight. (Pure day-math like `addDays`/lookback windows can stay UTC-anchored; the risk is specifically in code answering "what day is it *now* for the user.")
 - **LLM-backed paths need one live smoke run.** Unit tests + a green build only prove the deterministic scaffolding around a prompt — they don't exercise the real Anthropic call. Before calling a new or changed AI-generation path "done," run it once against the live API and read the actual output.
 - **Stale doc/comment pointers.** A `// AI:` comment or a doc's cross-reference (e.g. `docs/systems/05-season.md#known-rough-edges`) silently goes stale when the target section is renamed, moved, or removed — this already happened once (`lib/season.ts` pointed at a ROADMAP section a later redesign deleted). When you touch a file carrying a `// AI:` pointer or a systems doc's "Known rough edges" entry, or when you rename/remove a heading anything links to, check that every pointer to it still resolves before committing.
+
+# Parallel agent integration
+
+- `main` is integration-only. Implementation work runs in a fresh disposable worktree on
+  `claude/<task>` or `codex/<task>`, based on current `origin/main`.
+- Parallel tasks must own disjoint files. If tasks overlap, use one writer and the other agent as
+  reviewer.
+- Stage only files touched by the active task; never `git add -A` or `git add .`.
+- Finish committed work with `npm run finish:agent-task`. GitHub owns verification and integration;
+  the user does not manually merge normal tasks.
+- Never bypass checks, force-push `main`, or automatically choose a side in a merge conflict.
