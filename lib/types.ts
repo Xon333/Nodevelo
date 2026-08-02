@@ -24,6 +24,18 @@ export const WORKOUT_TYPES: WorkoutType[] = [
   "Rest",
 ];
 
+export type QualityLibraryType = Extract<WorkoutType, "Threshold" | "VO2max" | "SIT" | "RaceSim">;
+export type WorkoutSource = `library:${string}` | `template:${string}` | `ai:${string}/${number}`;
+export interface WorkoutLibraryEvidence { date: string; executionScore: number }
+export interface WorkoutLibraryEntry {
+  id: string; workoutType: QualityLibraryType; durationMin: number; workoutText: string;
+  status: "candidate" | "active" | "retired"; promotedBy?: "automatic" | "manual";
+  evidence: WorkoutLibraryEvidence[]; useCount: number; recentUses: string[];
+  createdAt: string; promotedAt?: string;
+  intervalsExport?: { status: "pending" | "synced" | "failed"; workoutId?: string; error?: string };
+}
+export interface WorkoutLibraryStore { entries: WorkoutLibraryEntry[]; bootstrappedAt?: string }
+
 // ---------- Athlete profile (data/athlete.json) ----------
 
 export interface PerformanceData {
