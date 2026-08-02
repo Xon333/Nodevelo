@@ -47,7 +47,8 @@ The existing deterministic engines remain authoritative for:
 After `computeBlockSkeleton`, a new selector attempts to fill each quality slot from the local library.
 Learned entries are limited to `Threshold`, `VO2max`, `SIT`, and `RaceSim`. Z2 uses deterministic
 90-minute, 2-hour, 3-hour, and 4-hour templates. Recovery remains deterministic. Rest and Strength stay
-outside the library.
+outside the library; configured Strength days use one static, existing-KB-backed prescription so they
+do not require workout authoring.
 
 Library prescriptions are immutable. Selection controls where an entry is used but cannot resize,
 rewrite, or otherwise adapt its steps. If no active entry satisfies a slot, Claude authors only that
