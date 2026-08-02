@@ -16,6 +16,7 @@ this is just the daily-use summary.
 |---|---|
 | `npm run dev` | Main dev server, port 3000 — your daily driver |
 | `npm run check` | `tsc --noEmit` + lint + full test suite in one shot |
+| `npm run finish:agent-task` | Verify, push, open a PR, and enable squash auto-merge for the current task branch |
 | `npm run reset:today` | Clears `today-analysis.json` so the next sync recomputes from scratch (dev server must already be running) |
 | `npm run dev:preview` | Port 3100 — used automatically by Claude's preview tool, kept off your port 3000 so the two never collide |
 
@@ -33,10 +34,9 @@ this is just the daily-use summary.
 
 - **CONTINUE.md** is hands-off except via `/handoff` — don't let a session rewrite it proactively.
 - **ROADMAP IDs** (`#1–4`, `§5–7`, `Track A–C`) — append new ones, never renumber; other docs link to them.
-- **Concurrent sessions**: trunk-based, direct on `main` — no per-session branches/worktrees. Stage
-  only the exact files you touched (never `git add -A`); don't "fix" build errors in files you didn't
-  edit — check `git status --short <file>` first, it's likely the other session mid-edit (full policy
-  in CLAUDE.md).
+- **Concurrent sessions**: `main` is integration-only. Claude and Codex work in disposable native
+  worktrees on namespaced branches, then run `npm run finish:agent-task`; GitHub checks and merges
+  automatically. Assign overlapping files to one writer and use the other agent as reviewer.
 - **Migration flags / "today" dates / LLM-path smoke tests** — the 3 recurring bug classes, now in
   AGENTS.md. Check them on relevant changes.
 

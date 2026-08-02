@@ -10,6 +10,8 @@
     "start": "next start -H 127.0.0.1",
     "lint": "eslint",
     "test": "vitest run",
+    "test:finish-agent-task": "bash scripts/finish-agent-task.test.sh",
+    "finish:agent-task": "bash scripts/finish-agent-task.sh",
     "check": "tsc --noEmit && npm run lint && npm test",
     "reset:today": "curl -sf -X POST http://127.0.0.1:3000/api/dev/reset-today && echo 'today-analysis.json cleared' || echo 'Dev server not running on :3000 — start it with npm run dev'"
   },
