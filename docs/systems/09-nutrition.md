@@ -232,6 +232,10 @@ maintenance → smoothed weight → goal → observed trends → buffer → toda
 *is* the feature, not decoration: it is [DECISIONS](../DECISIONS.md)'s calibrated-honesty principle applied
 to the one system whose output the athlete acts on every day.
 
+The target row renders `calculateDailyTarget`'s result directly. When a deficit would push the arithmetic
+below RMR, it shows both the lower calculated value and the final RMR-floored prescription; when the guard
+is inactive, the extra explanation stays hidden.
+
 Body mass for **goal** comparisons is `smoothedCurrentWeightKg` (14-day median), not the latest single
 reading. A raw reading swings ±0.5–1 kg, which was flipping the target ~190 kcal/day across the deadband
 boundary depending on which weigh-in happened to be last. RMR still tracks current mass.
@@ -261,12 +265,11 @@ boundary depending on which weigh-in happened to be last. RMR still tracks curre
 - **Mean imputation has two known biases, both pointing the safe (over-feeding) direction.** A trending
   intake with the unlogged gap at the old end reads ~+83 kcal/day; logging training days but skipping rest
   days reads ~+115 kcal/day at a 400 kcal gap. Inherent to imputation — documented, not chased.
-- **`weeklyEnergy` measures adherence against the _configured_ buffer, not the _applied_ one**, so the
-  ratio reads systematically favourable (0.99 where the truth was 0.93).
-- **Route-level tests build profiles via `as never`**, so they exercise only the **legacy** branch of
-  `resolveNutritionModel`. The derived path — what runs in production — has no route-level coverage.
-- **`lib/coach-snapshot.ts` defaults `computeEnergyAvailability`'s `today` to `utcToday()`** while the tile
-  passes `localToday()`. Two surfaces can disagree about which day it is. New code must not copy it.
+- **`weeklyEnergy` cannot yet measure adherence against the historically displayed prescription.** The
+  app has no complete day-keyed prescription history, and ride-ledger stamps would omit rest days. It
+  therefore retains the documented approximation rather than reconstructing old buffers from today's
+  settings. Upgrade only when every usable intake-logged day can carry an immutable final target; never
+  mix exact and reconstructed days inside one weekly ratio.
 - **Off-bike activity depends on Intervals.icu carrying a calorie figure.** Every `WeightTraining` and
   `Unknown` activity in real data carries *neither* `calories` nor `icu_joules`, so the athlete enters an
   estimate manually — which lands in the same field `activeBurn()` reads.

@@ -22,9 +22,15 @@ vi.mock("@/lib/data-store", () => ({
   readLastSync: vi.fn(),
   updateAthleteProfile: vi.fn(),
 }));
+vi.mock("@/lib/kb-loader", () => ({ parseAthleteMd: vi.fn(async () => ({ performanceData: {}, trainingZones: [] })) }));
+vi.mock("@/lib/physiology", () => ({
+  readPhysiology: vi.fn(async () => null),
+  resolveHrZones: vi.fn(() => []),
+  resolvePowerZones: vi.fn(() => []),
+}));
 
 import * as store from "@/lib/data-store";
-import { PUT } from "@/app/api/profile/route";
+import { GET, PUT } from "@/app/api/profile/route";
 import { DEFAULT_NEAT_MULTIPLIER, NEAT_PLAUSIBLE_MAX, NEAT_PLAUSIBLE_MIN } from "@/lib/nutrition";
 import type { AthleteProfile, ActivitySummary, WellnessEntry } from "@/lib/types";
 
@@ -81,6 +87,83 @@ const seedCurrentProfile = (current: AthleteProfile) => {
 const put = (body: unknown) => PUT(new Request("http://x/api/profile", { method: "PUT", body: JSON.stringify(body) }));
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("GET /api/profile — RMR floor transparency", () => {
+  it("returns the authoritative floored target instead of duplicated UI arithmetic", async () => {
+    const derived = {
+      ...defaultNeat, multiplier: 1.2, source: "derived" as const, confidence: "high" as const,
+      windowDays: 42, loggedDays: 40, weighIns: 20,
+    };
+    (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(base({
+      performance: {
+        ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10,
+        dateOfBirth: "1992-01-01", heightCm: 175, sex: "male",
+      },
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 60,
+        targetRateKgPerWeek: 0.5, neat: derived, dayTypeNeat: null,
+      },
+    }));
+    (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const json = await (await GET()).json();
+
+    expect(json.derivation.todayPlan.floored).toBe(true);
+    expect(json.derivation.todayPlan.dailyTarget).toBe(json.derivation.rmr);
+    expect(json.derivation.todayPlan.maintenanceKcal + json.derivation.todayPlan.bufferApplied)
+      .toBeLessThan(json.derivation.rmr);
+  });
+
+  it("includes today's resolved activity burn in today's target", async () => {
+    const derived = {
+      ...defaultNeat, multiplier: 1.2, source: "derived" as const, confidence: "high" as const,
+      windowDays: 42, loggedDays: 40, weighIns: 20,
+    };
+    (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(base({
+      performance: {
+        ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10,
+        dateOfBirth: "1992-01-01", heightCm: 175, sex: "male",
+      },
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 70,
+        targetRateKgPerWeek: 0, neat: derived, dayTypeNeat: null,
+      },
+    }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T12:00:00.000Z"));
+    try {
+      (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue({
+        syncedAt: "", wellness: [], powerCurve: [], powerCurveAllTime: [], fitness: null,
+        activities: [{ date: "2026-08-02", activeBurnKcal: 500, kj: null }],
+      });
+
+      const json = await (await GET()).json();
+
+      expect(json.derivation.todayPlan.dailyTarget).toBe(2450);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("withholds today's target when an activity burn is unresolved", async () => {
+    (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(base());
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-02T12:00:00.000Z"));
+    try {
+      (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue({
+        syncedAt: "", wellness: [], powerCurve: [], powerCurveAllTime: [], fitness: null,
+        activities: [{ date: "2026-08-02", activeBurnKcal: null, kj: null }],
+      });
+
+      const json = await (await GET()).json();
+
+      expect(json.derivation.todayPlan).toBeNull();
+      expect(json.derivation.todayActiveBurnKcal).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("PUT /api/profile — nutrition", () => {
   it("rejects a non-positive baseCalories/restDayTarget/targetWeightKg without writing", async () => {

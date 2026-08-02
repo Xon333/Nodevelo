@@ -25,7 +25,7 @@ import {
   WEIGHT_TREND_LONG_WINDOW_DAYS,
   WEIGHT_TREND_WINDOW_DAYS,
 } from "@/lib/nutrition";
-import type { ResolvedBuffer } from "@/lib/nutrition";
+import type { ResolvedBuffer, WorkoutNutritionPlan } from "@/lib/nutrition";
 import { ageYearsFrom, localToday } from "@/lib/date";
 
 interface PerformanceRmrFields {
@@ -77,6 +77,8 @@ interface Derivation {
   // app/api/profile/route.ts fed it, not a second independent computation.
   isRestDayToday: boolean;
   maintenanceKcal: number | null;
+  todayPlan: WorkoutNutritionPlan | null;
+  todayActiveBurnKcal: number | null;
   smoothedWeightKg: number | null;
   rawLatestWeightKg: number | null;
   targetWeightKg: number;
@@ -1023,12 +1025,21 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           />
           <DerivationRow
             label="Today's target"
-            value={
-              derivation.maintenanceKcal !== null
-                ? `${(derivation.maintenanceKcal + derivation.buffer.bufferApplied).toLocaleString()} kcal`
-                : "—"
+            value={derivation.todayPlan ? `${derivation.todayPlan.dailyTarget.toLocaleString()} kcal` : "—"}
+            why={
+              !derivation.todayPlan
+                ? "today's activity burn is unavailable, so NodeVelo will not guess a target"
+                : derivation.todayPlan.floored
+                ? `${(derivation.todayPlan.maintenanceKcal + derivation.todayPlan.bufferApplied).toLocaleString()} kcal calculated, then raised to the RMR safety floor`
+                : `maintenance + ${derivation.todayActiveBurnKcal?.toLocaleString() ?? 0} activity kcal + buffer`
             }
-            why="maintenance + today's burn + buffer — shown here for a rest day; training days add today's burn on top"
+            extra={
+              derivation.todayPlan?.floored && (
+                <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                  Safety floor active — NodeVelo will not prescribe below your {derivation.todayPlan.dailyTarget.toLocaleString()} kcal RMR.
+                </p>
+              )
+            }
           />
         </dl>
 

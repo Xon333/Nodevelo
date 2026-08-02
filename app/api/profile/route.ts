@@ -4,6 +4,8 @@ import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import {
+  activeBurn,
+  calculateDailyTarget,
   calibrateNeat,
   desiredWeightTrend,
   isRestDayFor,
@@ -121,9 +123,21 @@ export async function GET() {
     isRestDayToday
   );
   const rmr = nutritionModel.kind === "derived" ? nutritionModel.rmr : null;
-  // neat.multiplier × rmr — the pre-buffer, pre-training-burn maintenance figure (Task 5 brief). Null
-  // whenever rmr is (legacy, pre-migration profiles), same rule as every other derived figure here.
-  const maintenanceKcal = rmr !== null ? Math.round(profile.nutrition.neat.multiplier * rmr) : null;
+  let todayActiveBurnKcal: number | null = 0;
+  for (const activity of (sync?.activities ?? []).filter((a) => a.date === today)) {
+    const burn = activeBurn(activity);
+    if (burn === null) {
+      todayActiveBurnKcal = null;
+      break;
+    }
+    todayActiveBurnKcal += burn.kcal;
+  }
+  const todayPlan = todayActiveBurnKcal === null
+    ? null
+    : calculateDailyTarget(todayActiveBurnKcal, nutritionModel, bufferStatus.bufferApplied, isRestDayToday);
+  const maintenanceKcal = nutritionModel.kind === "derived"
+    ? Math.round(nutritionModel.neatMultiplier * nutritionModel.rmr)
+    : null;
   // Review fix #5: a LIVE calibration-state check, distinct from `profile.nutrition.neat` (the
   // persisted record actually driving the daily-target formula). calibrateNeat's `stale` sentinel is
   // deliberately never persisted — the /api/sync guard is right to refuse it, since a batch-transfer
@@ -199,6 +213,8 @@ export async function GET() {
       dayTypeNeat: profile.nutrition.dayTypeNeat,
       isRestDayToday,
       maintenanceKcal,
+      todayPlan,
+      todayActiveBurnKcal,
       smoothedWeightKg: smoothedWeightKgRaw,
       rawLatestWeightKg,
       targetWeightKg: profile.nutrition.targetWeightKg,

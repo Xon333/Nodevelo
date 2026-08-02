@@ -77,10 +77,9 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
   corrections. D1 holds on real LLM output; 1614 tests green.
 - ☐ `audit` Nutrition follow-ups — none blocking; magnitudes in
   [09-nutrition § known rough edges](docs/systems/09-nutrition.md#known-rough-edges). `weeklyEnergy`
-  measures adherence against the *configured* not *applied* buffer (reads ~0.99 where the truth is
-  ~0.93); route tests build profiles via `as never` so the **derived** path — what runs in production —
-  has no route-level coverage; `coach-snapshot.ts` still defaults to `utcToday()` where the tile uses
-  `localToday()`; `floored` is computed but not surfaced in the derivation panel.
+  remains approximate because NodeVelo does not yet persist the final prescription for every calendar
+  day; do not reconstruct old buffers or stamp rides only (rest days would be absent). Derived route
+  coverage, coach-snapshot local-date fallback, and conditional RMR-floor transparency are closed.
 - ☐ P3 `feat` Nutrition Phase 4 — daily carbohydrate target (spec §9). Protein deliberately out (the
   athlete already covers it); within-day timing out (needs meal-level logging they've declined);
   wearables out.
