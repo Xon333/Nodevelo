@@ -9,7 +9,7 @@
 // and the tolerance is deliberately generous so rounding or picking the closest-duration table row
 // never false-flags — only an invented number trips it.
 
-import { calculateDailyTarget, estimateWorkoutBurnKcal, type NutritionModel } from "./nutrition";
+import { calculateDailyTarget, estimateWorkoutBurnKcal, type ModelOrResolver, type NutritionModel } from "./nutrition";
 import { toleranceBand } from "./stats";
 import type { PlannedDay } from "./types";
 
@@ -37,8 +37,6 @@ interface DailyIntakeCheck {
 // per row (`buildNutritionReferenceRows`), and this must match it exactly or a correctly-copied rest-day
 // figure gets "corrected" against the wrong multiplier. A bare `NutritionModel` (every existing caller)
 // still works unchanged: it's normalized into a resolver that ignores the day type.
-export type ModelOrResolver = NutritionModel | ((isRestDay: boolean) => NutritionModel);
-
 function resolveModelFor(modelOrResolver: ModelOrResolver, isRestDay: boolean): NutritionModel {
   return typeof modelOrResolver === "function" ? modelOrResolver(isRestDay) : modelOrResolver;
 }

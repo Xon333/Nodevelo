@@ -714,8 +714,8 @@ describe("isRestDayFor", () => {
     expect(isRestDayFor([act({ date: "2026-07-29" })], "2026-07-30")).toBe(true);
   });
 
-  it("is true when the only activity on the date has an unresolvable burn — never reads as training", () => {
-    expect(isRestDayFor([act({ activeBurnKcal: null, kj: null })], "2026-07-30")).toBe(true);
+  it("is false when the only activity on the date has an unresolvable burn — unknown is not rest", () => {
+    expect(isRestDayFor([act({ activeBurnKcal: null, kj: null })], "2026-07-30")).toBe(false);
   });
 
   it("is true when the day's summed resolvable burn is exactly 0", () => {
@@ -1327,6 +1327,26 @@ describe("computeUnderfuelStreak / loggedDaysForStreak", () => {
     const r = computeUnderfuelStreak(wellness, [], DERIVED, TODAY)!;
     expect(r.loggedDays).toBe(4);
     expect(r.daysBelowThreshold).toBe(1); // the 1800 day, vs plain maintenance (no burn)
+  });
+
+  it("uses each historical day's rest or training model", () => {
+    const restModel: NutritionModel = { ...DERIVED, neatMultiplier: 1.5 };
+    const trainModel: NutritionModel = { ...DERIVED, neatMultiplier: 1.2 };
+    const wellness = [
+      wDay("2026-07-11", 2500), wDay("2026-07-12", 2600), wDay("2026-07-13", 2600),
+      wDay("2026-07-14", 2600),
+    ];
+    const activities = [actFor("2026-07-14", 500)];
+
+    const resolved = computeUnderfuelStreak(
+      wellness,
+      activities,
+      (isRestDay) => isRestDay ? restModel : trainModel,
+      TODAY
+    )!;
+
+    expect(resolved.daysBelowThreshold).toBe(1);
+    expect(computeUnderfuelStreak(wellness, activities, restModel, TODAY)!.daysBelowThreshold).toBe(2);
   });
 
   it("evaluates the MOST RECENT up to STREAK_WINDOW_LOGGED_DAYS (7) when more logged days exist in the lookback", () => {

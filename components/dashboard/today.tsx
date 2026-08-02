@@ -615,12 +615,14 @@ export function RecentDataSummary({
 export function EnergyAvailabilityTile({
   sync,
   nutritionModel,
+  nutritionModelsByDayType,
   neatImbalance,
 }: {
   sync: SyncData | null;
   // §10: null when the model hasn't resolved yet (e.g. no sync data) — the streak line withholds
   // rather than guessing a denominator.
   nutritionModel?: NutritionModel | null;
+  nutritionModelsByDayType?: { rest: NutritionModel; train: NutritionModel } | null;
   // §10: the calibrated NEAT solve's out-of-band finding, when present. This pairing is deliberate,
   // not incidental — acting on an apparent deficit while calibration itself is ambiguous (food-log
   // bias vs an RMR-equation mismatch) risks unintended weight gain, so the bias finding must be visible
@@ -631,7 +633,10 @@ export function EnergyAvailabilityTile({
   if (!sync) return null;
   const today = todayIso();
   const ea = computeEnergyAvailability(sync.wellness, sync.activities, today);
-  const streak = nutritionModel ? computeUnderfuelStreak(sync.wellness, sync.activities, nutritionModel, today) : null;
+  const streakModel = nutritionModelsByDayType
+    ? (isRestDay: boolean) => isRestDay ? nutritionModelsByDayType.rest : nutritionModelsByDayType.train
+    : nutritionModel;
+  const streak = streakModel ? computeUnderfuelStreak(sync.wellness, sync.activities, streakModel, today) : null;
   // Below the logged-day floor, computeUnderfuelStreak returns null — genuinely different from "you're
   // fine". Back-fill (batchy MyFitnessPal→Intervals.icu transfer) is normal, so the streak legitimately
   // appears/disappears retroactively; always naming the logged-day count makes a change explicable

@@ -11,7 +11,7 @@ computed in TypeScript. The LLM is handed the finished numbers and phrases them;
 ## The formula
 
 ```
-dailyTarget = (k × RMR)  +  activeBurnKcal  +  buffer
+dailyTarget = (k_dayType × RMR)  +  activeBurnKcal  +  buffer
                ↑ estimated   ↑ measured        ↑ chosen
 ```
 
@@ -20,12 +20,16 @@ Exactly one term is an estimate. That is the whole design.
 | Term | What it is | Where from |
 |---|---|---|
 | `RMR` | Resting metabolic rate | Mifflin-St Jeor over weight/height/age/sex |
-| `k` | Non-exercise multiplier — NEAT **plus** the thermic effect of food, **never exercise** | Derived from the athlete's own logs (§ Calibration) |
+| `k_dayType` | Non-exercise multiplier — NEAT **plus** the thermic effect of food, **never exercise**; calibrated separately for zero-activity and training days | Derived from the athlete's own logs (§ Calibration) |
 | `activeBurnKcal` | The activity's active calorie burn | Intervals.icu, **used verbatim** |
 | `buffer` | The energy the weight goal requires | `rate × 7700 ÷ 7` (§ The buffer) |
 
-**A rest day is simply a day where `activeBurnKcal` is 0.** There is no rest-day branch. That is
-deliberate and load-bearing — see § Why there is no rest-day branch.
+**Every day with zero resolved activity burn counts as a rest day.** This does not depend on whether a
+generated block labels it `Rest`, so the system works when no block is active or the block feature is not
+being used. For future generated plans, `type === "Rest"` is the proxy because no actual activity exists
+yet. A day containing activity whose burn is unresolved is **unknown, not rest**, and is excluded from
+historical balance calculations. Rest and training days use the same formula; only the calibrated
+`k_dayType` input differs.
 
 ### `k` covers NEAT and TEF, never exercise
 
@@ -105,6 +109,28 @@ still cleared the high bar.
 bands. `weightTrendPreciseFromWellness` does not, because calibration multiplies the trend by 7700 kcal/kg
 and a discarded 0.04 kg/week is ~44 kcal/day of fabricated imbalance. Both share one estimator.
 
+### Day-type calibration: why rest maintenance can be higher
+
+The longitudinal falsification test found that one pooled `k` was not exchangeable across days: implied
+rest-day `k` was about **0.31 higher** than training-day `k` (`t ≈ 6.2`), while previous-day load did not
+reliably predict rest-day intake (`r = 0.25`, `n = 10`). NodeVelo therefore does **not** add a speculative
+"recovery calories" term. It solves the existing energy-balance identity separately:
+
+```
+k_dayType = k_rest   when today's resolved active burn is 0
+            k_train  when today's resolved active burn is > 0
+```
+
+Sparse rest-day data is shrunk toward the pooled result with `weight = n / (n + 12)`. At five logged
+rest days, only 29% of the raw rest-specific solve is used; 71% remains the pooled estimate. This is why
+the live rest target moved conservatively from 2080 to 2230 kcal rather than jumping to the raw solve.
+As more rest days accrue, the split changes smoothly instead of jumping at a hard sample threshold.
+
+This is an empirical allocation of the already-observed energy budget, not proof that recovery itself
+costs exactly that amount. Adding EPOC, glycogen replacement or a lagged recovery surcharge on top would
+risk double-counting. Such a term is only justified if future data shows a reproducible previous-workout
+effect after day type is already accounted for.
+
 ## The buffer — feed-forward from the goal, not feedback on the trend
 
 The buffer is **not a servo**. It is the energy the athlete's chosen rate thermodynamically requires:
@@ -152,15 +178,17 @@ which side of target the athlete is on. A rate left over from an earlier goal ca
   `floored`. Before it, a −500 buffer produced **1460 kcal against an RMR of 1631** — and since
   `1.2 × RMR − 500 < RMR` for any RMR below 2500, it always did.
 
-## Why there is no rest-day branch
+## Why there is no separate rest-day formula
 
 `calculateDailyTarget` once ran two independent formulas: `baseCalories + burn + buffer` on training days,
 a flat `restDayTarget` with **no buffer** on rest days. A training day only overtook a rest day once burn
 cleared ~300 kcal — so **every Strength session (225 kcal at 45 min) and every short recovery ride
 prescribed less food than doing nothing.**
 
-One formula, with a rest day being `activeBurnKcal = 0`, makes `training ≥ rest` hold by construction.
-It is unrepresentable now, not merely tuned away — pinned by a regression matrix, and swept across 15,750
+One formula, with a rest day being resolved burn `= 0`, keeps exercise additive and physically readable.
+The day-type calibration can make rest-side background maintenance higher than training-side background
+maintenance, but it never replaces or subtracts measured exercise burn. The old asymmetric formula is
+unrepresentable now, not merely tuned away — pinned by a regression matrix and swept across 15,750
 configurations with zero violations.
 
 The same defect had a second head: `weeklyEnergy` decided rest-vs-training by `dayBurn > 0`, a *different*
@@ -189,6 +217,9 @@ The streak window is **the most recent up to 7 _logged_ days, none older than 14
 floor it returns `null`, and the UI says *"not enough transferred yet"*, which is explicitly different from
 *"you're fine."* Back-fill is normal, so the alert legitimately appears retroactively; the logged-day count
 is always shown so a change is explicable.
+
+Both the streak and weekly energy balance resolve `k_rest` or `k_train` for **each historical day**.
+They never apply whichever model happens to be active today across a mixed multi-day window.
 
 When an `imbalance` finding exists it renders **alongside** the deficit, with **both** candidates. That
 pairing is deliberate: acting on an apparent deficit while body weight is actually stable would drive
@@ -265,5 +296,5 @@ boundary depending on which weigh-in happened to be last. RMR still tracks curre
 Specs and plans, in order: the [accuracy design](../superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md)
 (defects D1–D7, phases 1–4), the [buffer redesign](../superpowers/specs/2026-07-31-buffer-redesign-feedforward.md)
 (why the servo was retired, with the simulation numbers), and the
-[rest-day energy model review](../superpowers/specs/2026-08-01-rest-day-energy-model-review.md) (research
-only, not shipped — whether `k` should be day-type-conditioned; see the rough edge below).
+[rest-day energy model review](../superpowers/specs/2026-08-01-rest-day-energy-model-review.md), followed
+by the shipped [day-type calibration plan](../superpowers/plans/2026-08-01-day-type-neat-calibration.md).

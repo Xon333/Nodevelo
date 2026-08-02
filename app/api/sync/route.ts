@@ -117,12 +117,13 @@ export async function GET(req: Request) {
     (lastSync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
-  const nutritionModelForEnergy = resolveNutritionModel(
-    profile,
-    latestWeightKgForEnergy,
-    today,
-    isRestDayFor(lastSync?.activities ?? [], today)
-  );
+  const nutritionModelsByDayType = {
+    rest: resolveNutritionModel(profile, latestWeightKgForEnergy, today, true),
+    train: resolveNutritionModel(profile, latestWeightKgForEnergy, today, false),
+  };
+  const nutritionModelForEnergy = isRestDayFor(lastSync?.activities ?? [], today)
+    ? nutritionModelsByDayType.rest
+    : nutritionModelsByDayType.train;
   const coachSnapshot = buildCoachSnapshotFromSources({
     date: today,
     ftp: physStore?.current.ftp ?? profile.performance.ftp,
@@ -137,7 +138,15 @@ export async function GET(req: Request) {
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
     athleteStateWeightsOverride: settings.athleteStateWeights,
-    weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForEnergy), today),
+    weeklyBalance: latestWeeklyBalance(
+      weeklyEnergy(
+        lastSync?.activities ?? [],
+        lastSync?.wellness ?? [],
+        today,
+        (isRestDay) => isRestDay ? nutritionModelsByDayType.rest : nutritionModelsByDayType.train
+      ),
+      today
+    ),
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -174,8 +183,9 @@ export async function GET(req: Request) {
     calibration,
     // §10: the raw model + imbalance the Today tile needs for the under-fuelling streak alert and the
     // log-bias reconciliation line. Reuses the same resolved model coachSnapshot's fuel figures use
-    // (nutritionModelForEnergy) rather than re-deriving it — one resolve per request.
+    // `nutritionModelForEnergy` is today's side of the same rest/train pair sent for historical reads.
     nutritionModel: nutritionModelForEnergy,
+    nutritionModelsByDayType,
     neatImbalance: profile.nutrition.neat?.imbalance ?? null,
   });
 }
@@ -914,12 +924,8 @@ export async function POST(req: Request) {
       (lastSync?.wellness ?? [])
         .filter((w) => w.weightKg !== null)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForSnap.performance.weightKg;
-    const nutritionModelForSnapEnergy = resolveNutritionModel(
-      profileForSnap,
-      latestWeightKgForSnapEnergy,
-      today,
-      isRestDayFor(lastSync?.activities ?? [], today)
-    );
+    const nutritionModelForSnapDay = (isRestDay: boolean) =>
+      resolveNutritionModel(profileForSnap, latestWeightKgForSnapEnergy, today, isRestDay);
     const coachSnapshot = buildCoachSnapshotFromSources({
       date: today,
       ftp: physStore?.current.ftp ?? profileForSnap.performance.ftp,
@@ -934,7 +940,7 @@ export async function POST(req: Request) {
       acwrBandsOverride: settingsForSnap.acwrBands,
       tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
       athleteStateWeightsOverride: settingsForSnap.athleteStateWeights,
-      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForSnapEnergy), today),
+      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForSnapDay), today),
     });
 
     // SUB-4: best-effort off-machine snapshot. A no-op (not a failure) when NODEVELO_BACKUP_DIR isn't

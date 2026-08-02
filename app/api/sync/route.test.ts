@@ -261,6 +261,32 @@ describe("GET /api/sync", () => {
     expect(json.autoSyncOnOpen).toBe(true);
   });
 
+  it("returns both day-type nutrition models for historical streak calculations", async () => {
+    const calibration = (multiplier: number) => ({
+      multiplier, confidence: "high", source: "derived", windowDays: 42, loggedDays: 35,
+      weighIns: 20, solvedAt: "2026-06-21", imbalance: null, stale: false,
+    });
+    const pooled = calibration(1.3);
+    vi.mocked(store.readAthleteProfile).mockResolvedValueOnce({
+      ...profile,
+      performance: {
+        ...profile.performance, dateOfBirth: "1995-01-01", heightCm: 180, sex: "male",
+      },
+      nutrition: {
+        ...profile.nutrition,
+        targetRateKgPerWeek: 0.1,
+        neat: pooled,
+        dayTypeNeat: {
+          rest: calibration(1.45), train: calibration(1.2), pooled,
+          shrinkageWeight: { rest: 0.5, train: 0.8 },
+        },
+      },
+    } as never);
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.nutritionModelsByDayType.rest.neatMultiplier).toBe(1.45);
+    expect(json.nutritionModelsByDayType.train.neatMultiplier).toBe(1.2);
+  });
+
   it("filters legacy + compromised entries out of scores but surfaces their dates", async () => {
     scoreEntries = [
       mkScoreEntry({ date: "2026-06-18" }),

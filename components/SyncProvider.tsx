@@ -52,6 +52,9 @@ export interface AppState {
   // GET-only (not returned by the POST sync response); a doSync() invalidates this query, so the
   // following GET refetch fills it in, same pattern as coachAccuracy/autoSyncOnOpen above.
   nutritionModel?: NutritionModel | null;
+  // Historical windows span both day types; JSON cannot carry a resolver function, so GET /api/sync
+  // sends the two plain models and the client selects per day.
+  nutritionModelsByDayType?: { rest: NutritionModel; train: NutritionModel } | null;
   // §10: the calibrated NEAT solve's out-of-band finding, when the energy-balance identity didn't
   // close — surfaced alongside the streak alert so an apparent deficit is never acted on without also
   // seeing the log-bias/RMR-equation ambiguity that could explain it.

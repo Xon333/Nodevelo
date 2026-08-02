@@ -27,7 +27,6 @@ import { resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride } from "@/lib/
 import type { Zone } from "@/lib/zones";
 import {
   buildNutritionReferenceRows,
-  isRestDayFor,
   nutritionTableMarkdown,
   resolveBuffer,
   resolveNutritionModel,
@@ -128,14 +127,11 @@ export async function POST(req: Request) {
 
     // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
     // re-deriving from the raw body or inlining a UTC date.
-    const isRestDayToday = isRestDayFor(sync?.activities ?? [], today);
-    const nutritionModel = resolveNutritionModel(profile, latestWeight, today, isRestDayToday);
-    // DT Task 2b: a resolver, not a bare model, for anything that validates a whole multi-day BLOCK
-    // (repairNutrition below) — the block spans both rest and training days, and `nutritionModel` above
-    // is resolved for "today" only. Passing the bare today-model into a block-wide check would validate
+    // DT Task 2b: a resolver, not a bare model, for anything that spans multiple days. Passing one
+    // day-type model into a block-wide check would validate
     // every day against whichever day type today happens to be, silently "correcting" a correctly-copied
-    // rest-day figure once k_rest and k_train genuinely diverge. weeklyEnergy below is unaffected — it's
-    // about today's own historical energy tracking, not a multi-day block, so the bare model is correct.
+    // rest-day figure once k_rest and k_train genuinely diverge. The same resolver feeds weeklyEnergy:
+    // historical weeks also span both day types.
     const nutritionModelFor = (isRestDay: boolean) => resolveNutritionModel(profile, latestWeight, today, isRestDay);
     // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
     // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback seeded
@@ -150,7 +146,7 @@ export async function POST(req: Request) {
       profile.nutrition.buffer
     );
     // DT Task 2: each reference row resolves its OWN model (rest vs training rows now genuinely differ
-    // once day-type NEAT is adopted) rather than sharing the single `nutritionModel` instance above.
+    // once day-type NEAT is adopted).
     const nutritionTable = nutritionTableMarkdown(
       buildNutritionReferenceRows(profile, latestWeight, today, profile.performance.ftp, bufferStatus.bufferApplied)
     );
@@ -201,7 +197,7 @@ export async function POST(req: Request) {
       scoreLog.entries,
       profile.performance.ftp,
       latestWeeklyBalance(
-        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel),
+        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModelFor),
         today
       )
     );
@@ -472,7 +468,7 @@ export async function POST(req: Request) {
     const reconciledDays = reconcileDurationMin(rawDays);
     // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
     // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
-    // A resolver, not the bare `nutritionModel`: this block spans both rest and training days (DT Task 2b).
+    // A resolver because this block spans both rest and training days (DT Task 2b).
     const nutritionRepair = repairNutrition(reconciledDays, nutritionModelFor, profile.performance.ftp, bufferStatus.bufferApplied);
     const days = nutritionRepair.days;
     const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];

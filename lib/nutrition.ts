@@ -38,12 +38,8 @@ export function activeBurn(a: Pick<ActivitySummary, "activeBurnKcal" | "kj">): A
 }
 
 /**
- * Whether `date` reads as a rest day: the summed RESOLVABLE active burn across every activity on that
- * date is 0 — which includes "no activity at all" and "an activity whose burn can't be resolved" (both
- * contribute nothing to the sum), same convention `calculateDailyTarget`'s `isRestDay` and
- * `weeklyEnergy`'s day-matched need already use (lib/trends.ts's `needBurnByDate.get(date) ?? 0`). One
- * shared implementation so every `resolveNutritionModel` call site derives `isRestDayToday` identically
- * instead of each route reimplementing the sum.
+ * Whether `date` reads as a rest day: no activity, or a resolved total active burn of zero. Any activity
+ * with unknown burn makes the day unknown rather than silently converting it to rest.
  */
 export function isRestDayFor(
   activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
@@ -52,7 +48,9 @@ export function isRestDayFor(
   let sum = 0;
   for (const a of activities) {
     if (a.date !== date) continue;
-    sum += activeBurn(a)?.kcal ?? 0;
+    const burn = activeBurn(a);
+    if (burn === null) return false;
+    sum += burn.kcal;
   }
   return sum === 0;
 }
@@ -1254,6 +1252,8 @@ function unbufferedMaintenance(model: NutritionModel, activeBurnKcal: number): n
   return model.baseCalories + activeBurnKcal;
 }
 
+export type ModelOrResolver = NutritionModel | ((isRestDay: boolean) => NutritionModel);
+
 // Candidate days for the streak window, most-recent-first: intake-logged (kcal > 0 — a logged 0 or
 // negative reads as NOT logged, same convention as computeEnergyAvailability/calibrateNeat), inside
 // [today − STREAK_MAX_LOOKBACK_DAYS, today) — today excluded because it's still being logged — and
@@ -1311,13 +1311,16 @@ export function loggedDaysForStreak(
 export function computeUnderfuelStreak(
   wellness: WellnessEntry[],
   activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
-  model: NutritionModel,
+  modelOrResolver: ModelOrResolver,
   today: string
 ): UnderfuelStreak | null {
   const candidates = streakCandidates(wellness, activities, today);
   if (candidates.length < STREAK_MIN_LOGGED_DAYS) return null;
   const window = candidates.slice(0, STREAK_WINDOW_LOGGED_DAYS);
   const daysBelowThreshold = window.reduce((count, day) => {
+    const model = typeof modelOrResolver === "function"
+      ? modelOrResolver(day.activeBurnKcal === 0)
+      : modelOrResolver;
     const need = unbufferedMaintenance(model, day.activeBurnKcal);
     return count + (need > 0 && day.kcalConsumed / need < UNDERFUEL_RATIO_BELOW ? 1 : 0);
   }, 0);
