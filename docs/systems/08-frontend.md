@@ -45,7 +45,7 @@ Navigation (`components/Nav.tsx`): three tiers — primary (Today/Plan/Trends), 
 
 ## Test coverage reality
 
-Component tests exist only around the Plan/generation flow (8 files: PlanPreview, PowerCurveChart, RescheduleBanner, SeasonRoadmap, SyncProvider, BlockGenerator, PlanView, dashboard/plan). Today/Model/Profile/Settings/Knowledge components have none — but their underlying `lib/` logic is thoroughly unit-tested. Component tests use per-file `/** @vitest-environment jsdom */` docblocks (infra added 2026-07-23).
+Component tests cover the Plan/generation flow plus the Today nutrition-trend warning (9 files: PlanPreview, PowerCurveChart, RescheduleBanner, SeasonRoadmap, SyncProvider, BlockGenerator, PlanView, dashboard/plan, dashboard/today). Model/Profile/Settings/Knowledge components have none — but their underlying `lib/` logic is thoroughly unit-tested. Component tests use per-file `/** @vitest-environment jsdom */` docblocks (infra added 2026-07-23).
 
 ## Known rough edges
 

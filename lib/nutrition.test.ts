@@ -462,6 +462,50 @@ describe("computeNutritionTrendWarning", () => {
     })).toBeNull();
   });
 
+  it("resolves deliberately divergent rest and training models in aggregate adherence", () => {
+    const restModel: NutritionModel = { ...LEGACY, baseCalories: 2_000, restDayTarget: 2_000 };
+    const trainModel: NutritionModel = { ...LEGACY, baseCalories: 3_000, restDayTarget: 3_000 };
+    let restResolutions = 0;
+    let trainResolutions = 0;
+    const wellness = Array.from({ length: 21 }, (_, index) => {
+      const training = index % 2 === 1;
+      return {
+        date: dateAt(index),
+        weightKg: 75 + (0.3 * index) / 7,
+        kcalConsumed: training ? 3_500 : 2_000,
+      } as WellnessEntry;
+    });
+    const activities = wellness
+      .filter((_, index) => index % 2 === 1)
+      .map(({ date }) => ({ date, activeBurnKcal: 500, kj: null }));
+
+    const result = computeNutritionTrendWarning(
+      wellness,
+      activities,
+      (isRestDay) => {
+        if (isRestDay) restResolutions++;
+        else trainResolutions++;
+        return isRestDay ? restModel : trainModel;
+      },
+      TODAY,
+      80,
+      0.15,
+      0
+    );
+
+    expect(result).toMatchObject({ adherenceRatio: 1, loggedDays: 21 });
+    expect(restResolutions).toBe(11);
+    expect(trainResolutions).toBe(10);
+  });
+
+  it("excludes a whole date when resolved and unresolved activities share it", () => {
+    const { wellness, activities } = buildInput();
+    activities.push({ date: dateAt(2), activeBurnKcal: null, kj: null });
+
+    expect(computeNutritionTrendWarning(wellness, activities, TREND_MODEL, TODAY, 80, 0.15, 300))
+      .toMatchObject({ adherenceRatio: 1, loggedDays: 20 });
+  });
+
   it("includes exact trend-error and adherence boundaries", () => {
     const lower = warning({ intakeScale: 0.95 });
     const upper = warning({ intakeScale: 1.05 });
