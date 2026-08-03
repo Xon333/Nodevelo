@@ -1,6 +1,6 @@
 # Dual-agent integration workflow
 
-**Status:** Approved design (pre-implementation)  
+**Status:** Shipped 2026-08-03 ([PR #2](https://github.com/Xon333/Nodevelo/pull/2))
 **Date:** 2026-08-02
 
 ## Goal

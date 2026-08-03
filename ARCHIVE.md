@@ -12,6 +12,19 @@ exact commits.
 
 ---
 
+## Developer workflow — isolated Claude + Codex integration (2026-08-03)
+
+Claude Desktop, Codex Desktop, and optional T3 Code sessions now share one low-friction protocol:
+implementation runs in disposable `claude/<task>` / `codex/<task>` worktrees, while protected `main`
+is integration-only. `npm run finish:agent-task` verifies, pushes, opens a PR, and enables squash
+auto-merge; GitHub repeats the full check before merging. Concurrent agents own disjoint files, or one
+writes while the other reviews. Full runbook: [WORKFLOW.md § Hybrid Claude + Codex
+workflow](WORKFLOW.md#hybrid-claude--codex-workflow). Shipped and live-verified in
+[PR #2](https://github.com/Xon333/Nodevelo/pull/2); the legacy mixed Claude/Codex branch followed the
+new path successfully in [PR #3](https://github.com/Xon333/Nodevelo/pull/3).
+
+---
+
 ## Nutrition rebuild — Phases 1–3 + the buffer redesign (2026-07-30/31)
 
 Full logic: **[docs/systems/09-nutrition.md](docs/systems/09-nutrition.md)**. Specs:
@@ -1703,14 +1716,13 @@ app's. A misconfigured-after-the-fact destination (e.g. an unmounted sync folder
 existing sync `warnings[]` → `SyncNotice` path rather than failing the sync. `export/route.ts` now calls
 the shared bundle builder instead of carrying its own copy of the collect/walk logic.
 
-**Branch discipline (SUB-4's other half) — resolved 2026-06-22, documented convention rather than
-tooling.** `CLAUDE.md`'s "Concurrent Agents" section codifies the operational half of this fragility
-axis: trunk-based, direct on `main`, no per-session branches/worktrees; before treating a build/lint
-error in a file you didn't edit as a real regression, `git status --short` it first (uncommitted =
-almost certainly another agent session mid-edit — wait ~30s and retry once, else report rather than
-patch someone's WIP); stage only the exact files you personally touched, never `git add -A`. Predates
-the 2026-07-22 sweep that still listed this as open. Revisit only if this documented convention proves
-insufficient in practice and actual tooling enforcement (a pre-commit hook, a lockfile) is wanted.
+**Branch discipline (SUB-4's other half) — resolved 2026-06-22, superseded 2026-08-03.** The original
+convention used one shared checkout, direct commits to `main`, exact-path staging, and manual avoidance
+of another agent's WIP. It proved insufficient once Claude and Codex shared implementation work: local
+`main` drifted and an exact `codex` branch blocked namespaced task branches. The replacement is the
+[isolated Claude + Codex integration workflow](#developer-workflow--isolated-claude--codex-integration-2026-08-03):
+disposable worktrees, protected integration-only `main`, CI, and PR auto-merge. This paragraph remains
+as the historical decision record, not current operating guidance.
 
 ---
 
