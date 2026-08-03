@@ -9,7 +9,7 @@
 // and the tolerance is deliberately generous so rounding or picking the closest-duration table row
 // never false-flags — only an invented number trips it.
 
-import { calculateDailyTarget, estimateWorkoutBurnKcal, type NutritionModel } from "./nutrition";
+import { calculateDailyTarget, estimateWorkoutBurnKcal, type ModelOrResolver, type NutritionModel } from "./nutrition";
 import { toleranceBand } from "./stats";
 import type { PlannedDay } from "./types";
 
@@ -32,14 +32,24 @@ interface DailyIntakeCheck {
   withinTolerance: boolean;
 }
 
+// A day-type-aware caller (day-type NEAT calibration) passes a resolver so a rest day is checked
+// against `k_rest` and a training day against `k_train` — the reference table already resolves a model
+// per row (`buildNutritionReferenceRows`), and this must match it exactly or a correctly-copied rest-day
+// figure gets "corrected" against the wrong multiplier. A bare `NutritionModel` (every existing caller)
+// still works unchanged: it's normalized into a resolver that ignores the day type.
+function resolveModelFor(modelOrResolver: ModelOrResolver, isRestDay: boolean): NutritionModel {
+  return typeof modelOrResolver === "function" ? modelOrResolver(isRestDay) : modelOrResolver;
+}
+
 function checkDailyIntake(
   d: PlannedDay,
-  model: NutritionModel,
+  modelOrResolver: ModelOrResolver,
   ftp: number,
   bufferApplied: number
 ): DailyIntakeCheck | null {
   const stated = parseDailyIntakeKcal(d.description);
   if (stated === null) return null;
+  const model = resolveModelFor(modelOrResolver, d.type === "Rest");
   const expected = calculateDailyTarget(
     estimateWorkoutBurnKcal(d.type, d.durationMin, ftp),
     model,
@@ -54,13 +64,13 @@ function checkDailyIntake(
 
 export function validateNutrition(
   days: PlannedDay[],
-  model: NutritionModel,
+  modelOrResolver: ModelOrResolver,
   ftp: number,
   bufferApplied: number
 ): string[] {
   const warnings: string[] = [];
   for (const d of days) {
-    const check = checkDailyIntake(d, model, ftp, bufferApplied);
+    const check = checkDailyIntake(d, modelOrResolver, ftp, bufferApplied);
     if (check && !check.withinTolerance) {
       const tolerance = toleranceBand(check.expected, 0.18, 300);
       warnings.push(
@@ -89,13 +99,13 @@ export interface NutritionRepairResult {
 // stays visible as a `repairs` note, never a silent rewrite).
 export function repairNutrition(
   days: PlannedDay[],
-  model: NutritionModel,
+  modelOrResolver: ModelOrResolver,
   ftp: number,
   bufferApplied: number
 ): NutritionRepairResult {
   const repairs: string[] = [];
   const repairedDays = days.map((d) => {
-    const check = checkDailyIntake(d, model, ftp, bufferApplied);
+    const check = checkDailyIntake(d, modelOrResolver, ftp, bufferApplied);
     if (!check || check.withinTolerance) return d;
     repairs.push(`${d.date} (${d.type}): auto-corrected daily intake ${check.stated} kcal → ${check.expected} kcal (didn't match the reference table).`);
     return { ...d, description: replaceDailyIntakeKcal(d.description, check.expected) };

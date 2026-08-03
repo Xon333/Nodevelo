@@ -1,9 +1,37 @@
-import { describe, expect, it } from "vitest";
-import { buildCoachSnapshot, buildCoachSnapshotFromSources, formatCoachSnapshot, formatFormFuelLine, resolveTsbModifier, type CoachSnapshotInput } from "./coach-snapshot";
+import { describe, expect, it, vi } from "vitest";
+import { buildCoachSnapshot, buildCoachSnapshotFromSources, formatCoachSnapshot, formatFormFuelLine, resolveCoachSignals, resolveTsbModifier, type CoachSnapshotInput } from "./coach-snapshot";
 import { resolveTsbModifierEdges } from "./calibration";
+import { buildAthleteModel } from "./athlete-model";
+import { localToday } from "./date";
 import type { AthleteState, CurrentBlock, DispositionEntry, InterventionLog, MorningCheckEntry, RideScoreEntry, RollingBaselines, SyncData, TodayAnalysis } from "./types";
 
 const TODAY = "2026-06-20";
+
+vi.mock("./date", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./date")>();
+  return { ...actual, localToday: vi.fn(actual.localToday) };
+});
+
+describe("resolveCoachSignals local-date fallback", () => {
+  it("matches an explicitly supplied local day across the UTC-midnight boundary", () => {
+    vi.mocked(localToday).mockReturnValueOnce("2026-06-21");
+    const sync = {
+      syncedAt: "", fitness: { ctl: 50, atl: 50, tsb: 0 }, activities: [], powerCurve: [],
+      wellness: [
+        { date: "2026-06-18", weightKg: 70, kcalConsumed: 2100 },
+        { date: "2026-06-19", weightKg: 70, kcalConsumed: 2100 },
+        { date: "2026-06-20", weightKg: 70, kcalConsumed: 2100 },
+      ],
+    } as unknown as SyncData;
+    const baselines = { avgTss90d: null, avgDecoupling90d: null, avgCtl90d: null, avgWeeklyHours90d: null, ridesPerWeek90d: null, updatedAt: "" };
+
+    const fallback = resolveCoachSignals(sync, buildAthleteModel([]), baselines);
+    const explicit = resolveCoachSignals(sync, buildAthleteModel([]), baselines, null, null, "2026-06-21");
+
+    expect(fallback.energyAvailability).toEqual(explicit.energyAvailability);
+    expect(fallback.energyAvailability).not.toBeNull();
+  });
+});
 
 const intervalComparison = {
   prescribedLabels: ["4×8m @ 300W"],

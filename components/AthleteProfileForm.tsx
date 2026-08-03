@@ -10,7 +10,7 @@ import { Card, PrimaryButton, SectionDivider, Skeleton, SkeletonScreen } from ".
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import type { NeatCalibration, NutritionSettings, PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
+import type { DayTypeNeat, NeatCalibration, NutritionSettings, PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
 import type { IfBandOffsetRow } from "@/lib/calibration";
 import { groupGoalsByFocus } from "@/lib/profile-goals";
 import { FOCUS_LABELS } from "@/lib/season";
@@ -25,7 +25,7 @@ import {
   WEIGHT_TREND_LONG_WINDOW_DAYS,
   WEIGHT_TREND_WINDOW_DAYS,
 } from "@/lib/nutrition";
-import type { ResolvedBuffer } from "@/lib/nutrition";
+import type { ResolvedBuffer, WorkoutNutritionPlan } from "@/lib/nutrition";
 import { ageYearsFrom, localToday } from "@/lib/date";
 
 interface PerformanceRmrFields {
@@ -69,7 +69,16 @@ interface Derivation {
   // `neat.stale`, which is always false for a persisted record (calibrateNeat's `stale` sentinel is
   // deliberately never written to disk). This is what lets neatWhy's stale branch actually fire.
   neatStale: boolean;
+  // DT Task 3: null until the rest/training split has enough data to adopt (DayTypeNeat's doc comment,
+  // lib/types.ts) — the panel renders the single flat `neat` row above unchanged until this flips
+  // non-null, so an athlete without enough day-type data yet sees no regression.
+  dayTypeNeat: DayTypeNeat | null;
+  // Which side of `dayTypeNeat` resolveNutritionModel actually used today — same boolean
+  // app/api/profile/route.ts fed it, not a second independent computation.
+  isRestDayToday: boolean;
   maintenanceKcal: number | null;
+  todayPlan: WorkoutNutritionPlan | null;
+  todayActiveBurnKcal: number | null;
   smoothedWeightKg: number | null;
   rawLatestWeightKg: number | null;
   targetWeightKg: number;
@@ -211,6 +220,28 @@ function neatWhy(neat: NeatCalibration, stale: boolean): string {
     return "population default — not enough logged days yet.";
   }
   return `derived from your last ${neat.windowDays ?? "?"} days (${neat.loggedDays ?? "?"} days logged, ${neat.weighIns ?? "?"} weigh-ins) — ${neat.confidence} confidence.`;
+}
+
+// DT Task 3: one day-type subset's shrinkage weight phrased as plain evidence — the athlete should be
+// able to tell at a glance that a thin sample is being treated cautiously, not silently trusted, rather
+// than reading a bare 0..1 weight. Rounded to a whole percentage (DerivationRow's other rows follow the
+// same low-decimal convention). When the weight rounds all the way to 100%, the "N% pooled" half is
+// dropped rather than shown as a vacuous "0% pooled".
+function dayTypeShrinkagePhrase(cal: NeatCalibration, weight: number, dayType: "rest" | "training"): string {
+  const specificPct = Math.round(weight * 100);
+  const pooledPct = 100 - specificPct;
+  const logged = cal.loggedDays ?? "?";
+  return pooledPct > 0
+    ? `${specificPct}% day-type-specific, ${pooledPct}% pooled — ${logged} logged ${dayType} days so far`
+    : `${specificPct}% day-type-specific — ${logged} logged ${dayType} days so far`;
+}
+
+// DT Task 3: the day-type row's "why" once `dayTypeNeat` has been adopted — both subsets' multiplier
+// and shrinkage evidence in one line, e.g. "Rest-day k: 1.47 (45% day-type-specific, 55% pooled — 10
+// logged rest days so far) · Training-day k: 1.25 (98% day-type-specific)". Which one is ACTIVE today
+// is conveyed separately, via bold in the row's value (not repeated here).
+function dayTypeNeatWhy(dtn: DayTypeNeat): string {
+  return `Rest-day k: ${dtn.rest.multiplier.toFixed(2)} (${dayTypeShrinkagePhrase(dtn.rest, dtn.shrinkageWeight.rest, "rest")}) · Training-day k: ${dtn.train.multiplier.toFixed(2)} (${dayTypeShrinkagePhrase(dtn.train, dtn.shrinkageWeight.train, "training")})`;
 }
 
 // Review fix #2: the population default must never read as "derived" — every `source` handled
@@ -892,8 +923,27 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           />
           <DerivationRow
             label="Non-exercise multiplier"
-            value={`× ${derivation.neat.multiplier.toFixed(2)}`}
-            why={neatWhy(derivation.neat, derivation.neatStale)}
+            value={
+              // DT Task 3: once the rest/train split is adopted, show both — the row that matches
+              // today's actual type (isRestDayToday, resolved server-side the same way
+              // resolveNutritionModel picked its multiplier) stays at the row's normal bold/dark
+              // styling; the inactive one is dimmed down so which one is driving today's target is
+              // obvious at a glance, not just implied by reading the numbers.
+              derivation.dayTypeNeat ? (
+                <>
+                  <span className={derivation.isRestDayToday ? undefined : "font-normal text-zinc-400 dark:text-zinc-500"}>
+                    rest × {derivation.dayTypeNeat.rest.multiplier.toFixed(2)}
+                  </span>
+                  <span className="text-zinc-400 dark:text-zinc-600"> · </span>
+                  <span className={derivation.isRestDayToday ? "font-normal text-zinc-400 dark:text-zinc-500" : undefined}>
+                    train × {derivation.dayTypeNeat.train.multiplier.toFixed(2)}
+                  </span>
+                </>
+              ) : (
+                `× ${derivation.neat.multiplier.toFixed(2)}`
+              )
+            }
+            why={derivation.dayTypeNeat ? dayTypeNeatWhy(derivation.dayTypeNeat) : neatWhy(derivation.neat, derivation.neatStale)}
             extra={
               // Review fix #4: gated on source === "derived" so this can only ever describe a solve
               // that's still live — nonDerivedNeatCalibration (lib/nutrition.ts) already nulls
@@ -975,12 +1025,21 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           />
           <DerivationRow
             label="Today's target"
-            value={
-              derivation.maintenanceKcal !== null
-                ? `${(derivation.maintenanceKcal + derivation.buffer.bufferApplied).toLocaleString()} kcal`
-                : "—"
+            value={derivation.todayPlan ? `${derivation.todayPlan.dailyTarget.toLocaleString()} kcal` : "—"}
+            why={
+              !derivation.todayPlan
+                ? "today's activity burn is unavailable, so NodeVelo will not guess a target"
+                : derivation.todayPlan.floored
+                ? `${(derivation.todayPlan.maintenanceKcal + derivation.todayPlan.bufferApplied).toLocaleString()} kcal calculated, then raised to the RMR safety floor`
+                : `maintenance + ${derivation.todayActiveBurnKcal?.toLocaleString() ?? 0} activity kcal + buffer`
             }
-            why="maintenance + today's burn + buffer — shown here for a rest day; training days add today's burn on top"
+            extra={
+              derivation.todayPlan?.floored && (
+                <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">
+                  Safety floor active — NodeVelo will not prescribe below your {derivation.todayPlan.dailyTarget.toLocaleString()} kcal RMR.
+                </p>
+              )
+            }
           />
         </dl>
 

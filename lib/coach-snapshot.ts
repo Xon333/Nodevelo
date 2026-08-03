@@ -27,7 +27,7 @@ import type { AerobicDiscipline } from "./execution-score";
 import { detectFtpRetest, type FtpRetestSignal } from "./plan-vs-actual";
 import { athleteStateInputsFrom, computeAthleteState } from "./athlete-state";
 import { balanceLevel, computeEnergyAvailability, eaLevel, weightTrendFromWellness, type EnergyAvailability } from "./nutrition";
-import { utcToday } from "./date";
+import { localToday } from "./date";
 import type { WeeklyEnergyBalance } from "./trends";
 import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveAthleteStateWeights, resolveTsbEdgesOverride, resolveTsbModifierEdges, type AcwrBands, type AthleteStateWeights, type DeepPartial, type TsbModifierEdges } from "./calibration";
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
@@ -146,7 +146,7 @@ export function resolveCoachSignals(
   acwrBandsOverride?: Partial<AcwrBands> | null,
   athleteStateWeightsOverride?: DeepPartial<AthleteStateWeights> | null,
   // Resolved local "today" so the ACWR / load-ramp windows anchor to the athlete's calendar day, not
-  // the server's UTC date (they match activities on local date). Absent → the function's UTC default.
+  // UTC (they match activities on local date). Absent → localToday().
   today?: string,
   // #4: the frozen ledger + the FTP currently configured (physiology SoT with profile fallback) —
   // the retest detector's inputs. Omitted → the advisory resolves null (same silent-degradation
@@ -157,22 +157,23 @@ export function resolveCoachSignals(
 ): CoachSignals {
   if (!sync) return { fitness: null, readiness: null, acwr: null, loadRamp: null, athleteState: null, weightTrend7dKg: null, energyAvailability: null, weeklyBalance: null, ftpRetest: null };
   void baselines; // see note above — kept in the signature, not used
-  const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride), today);
+  const resolvedToday = today ?? localToday();
+  const acwr = computeAcwr(sync.activities, resolveAcwrBands(acwrBandsOverride), resolvedToday);
   return {
     fitness: sync.fitness,
     readiness: computeReadiness(sync.fitness, sync.wellness),
     acwr,
-    loadRamp: computeLoadRamp(sync.activities, today),
+    loadRamp: computeLoadRamp(sync.activities, resolvedToday),
     athleteState: computeAthleteState(
-      athleteStateInputsFrom(sync, athleteModel, acwr, today),
+      athleteStateInputsFrom(sync, athleteModel, acwr, resolvedToday),
       resolveAthleteStateWeights(athleteStateWeightsOverride)
     ),
     weightTrend7dKg: weightTrendFromWellness(sync.wellness),
     // Same proxy the Today EA tile shows — anchored to the resolved local day so today's still-logging
     // intake is excluded. Null until ≥3 complete logged days; then it fills the fuel slots below.
-    energyAvailability: computeEnergyAvailability(sync.wellness, sync.activities, today ?? utcToday()),
+    energyAvailability: computeEnergyAvailability(sync.wellness, sync.activities, resolvedToday),
     weeklyBalance,
-    ftpRetest: detectFtpRetest(scoreEntries, today ?? utcToday(), currentFtp),
+    ftpRetest: detectFtpRetest(scoreEntries, resolvedToday, currentFtp),
   };
 }
 

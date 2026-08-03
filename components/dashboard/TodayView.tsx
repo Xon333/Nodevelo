@@ -112,6 +112,7 @@ export default function TodayView() {
         <EnergyAvailabilityTile
           sync={state.lastSync}
           nutritionModel={state.nutritionModel}
+          nutritionModelsByDayType={state.nutritionModelsByDayType}
           neatImbalance={state.neatImbalance}
         />
         {coachContext && <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{coachContext}</p>}

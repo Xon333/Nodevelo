@@ -65,8 +65,12 @@ async function assembleTrends(req: Request): Promise<Response> {
     (sync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
-  const nutritionModel = resolveNutritionModel(profile, latestWeightKgForEnergy, today);
-  const energy = weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel);
+  const energy = weeklyEnergy(
+    sync?.activities ?? [],
+    sync?.wellness ?? [],
+    today,
+    (isRestDay) => resolveNutritionModel(profile, latestWeightKgForEnergy, today, isRestDay)
+  );
 
   // Weekly training volume (hours) — for the Trend Pulse "are you building or slipping?" bar.
   // Keeps the current (in-progress) week, which the Trend Pulse labels "this wk".

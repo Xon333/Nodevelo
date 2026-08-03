@@ -127,7 +127,12 @@ export async function POST(req: Request) {
 
     // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
     // re-deriving from the raw body or inlining a UTC date.
-    const nutritionModel = resolveNutritionModel(profile, latestWeight, today);
+    // DT Task 2b: a resolver, not a bare model, for anything that spans multiple days. Passing one
+    // day-type model into a block-wide check would validate
+    // every day against whichever day type today happens to be, silently "correcting" a correctly-copied
+    // rest-day figure once k_rest and k_train genuinely diverge. The same resolver feeds weeklyEnergy:
+    // historical weeks also span both day types.
+    const nutritionModelFor = (isRestDay: boolean) => resolveNutritionModel(profile, latestWeight, today, isRestDay);
     // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
     // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback seeded
     // from the goal surplus (never the retired profile.nutrition.buffer setting).
@@ -140,8 +145,10 @@ export async function POST(req: Request) {
       weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
       profile.nutrition.buffer
     );
+    // DT Task 2: each reference row resolves its OWN model (rest vs training rows now genuinely differ
+    // once day-type NEAT is adopted).
     const nutritionTable = nutritionTableMarkdown(
-      buildNutritionReferenceRows(nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied)
+      buildNutritionReferenceRows(profile, latestWeight, today, profile.performance.ftp, bufferStatus.bufferApplied)
     );
 
     const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);
@@ -190,7 +197,7 @@ export async function POST(req: Request) {
       scoreLog.entries,
       profile.performance.ftp,
       latestWeeklyBalance(
-        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModel),
+        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModelFor),
         today
       )
     );
@@ -461,9 +468,8 @@ export async function POST(req: Request) {
     const reconciledDays = reconcileDurationMin(rawDays);
     // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
     // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
-    // Takes the resolved model + the buffer applied once above (lib/nutrition-validate.ts owns the
-    // signature/logic).
-    const nutritionRepair = repairNutrition(reconciledDays, nutritionModel, profile.performance.ftp, bufferStatus.bufferApplied);
+    // A resolver because this block spans both rest and training days (DT Task 2b).
+    const nutritionRepair = repairNutrition(reconciledDays, nutritionModelFor, profile.performance.ftp, bufferStatus.bufferApplied);
     const days = nutritionRepair.days;
     const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];
     const expected = weeks.flat();

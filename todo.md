@@ -60,20 +60,30 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
-- ☑ **Nutrition Phases 1–3 + the buffer redesign — shipped & live-verified 2026-07-30/31.**
+- ☑ **Nutrition Phases 1–3, the buffer redesign, and day-type NEAT calibration — shipped &
+  live-verified 2026-07-30 through 2026-08-01.**
   Record → [ARCHIVE.md](ARCHIVE.md) · how it works → [docs/systems/09-nutrition.md](docs/systems/09-nutrition.md).
   Five defects that were **live in production** (training days prescribing less than rest days; no way
   to express a deficit; `targetWeight` never read; mechanical `kj` treated as calories; off-bike burn
   dropped), then NEAT derived from the athlete's own logs, then the buffer changed from a trend servo
-  to a feed-forward goal surplus, then the under-fuelling streak alert.
-  **Live-measured:** k = 1.2584 (derived, high confidence — 42 d, 39 logged days, 21 weigh-ins);
-  rest day 2300 → 2450; buffer 390 in `goal-rate` mode; D1 holds on real LLM output; 1589 tests green.
+  to a feed-forward goal surplus, then the under-fuelling streak alert, then day-type-conditioned NEAT
+  (rest days no longer share a `k` dragged down by training days).
+  **Live-measured, most recent first:** rest-day target 2080 → **2230** (day-type split, weight 0.29 at
+  n=5 logged rest days, grows as data accrues — raw unshrunk rest-day solve 1.55, within rounding of the
+  original review's independent 1.53 finding). Pooled `k` = 1.2584 (high confidence, 42 d/39 logged/21
+  weigh-ins) before the split. Caught and fixed a real bug along the way: the block validator was
+  checking every day against one shared model, which would have falsely "corrected" correct rest-day
+  figures once `k_rest`/`k_train` diverged — confirmed live on a real generated block, zero false
+  corrections. D1 holds on real LLM output; 1614 tests green.
 - ☐ `audit` Nutrition follow-ups — none blocking; magnitudes in
   [09-nutrition § known rough edges](docs/systems/09-nutrition.md#known-rough-edges). `weeklyEnergy`
-  measures adherence against the *configured* not *applied* buffer (reads ~0.99 where the truth is
-  ~0.93); route tests build profiles via `as never` so the **derived** path — what runs in production —
-  has no route-level coverage; `coach-snapshot.ts` still defaults to `utcToday()` where the tile uses
-  `localToday()`; `floored` is computed but not surfaced in the derivation panel.
+  remains approximate because NodeVelo does not yet persist the final prescription for every calendar
+  day; do not reconstruct old buffers or stamp rides only (rest days would be absent). Derived route
+  coverage, coach-snapshot local-date fallback, and conditional RMR-floor transparency are closed.
+- ☐ P2 `feat` Nutrition early trend warning — after roughly 2–3 weeks of reliable intake and
+  weigh-ins, warn when the smoothed weight trend is clearly missing the configured goal rate. Keep it
+  informational: do not enlarge the goal buffer or override the slower maintenance calibration from
+  short-term scale movement (glycogen, hydration, gut mass, and training inflammation can dominate).
 - ☐ P3 `feat` Nutrition Phase 4 — daily carbohydrate target (spec §9). Protein deliberately out (the
   athlete already covers it); within-day timing out (needs meal-level logging they've declined);
   wearables out.

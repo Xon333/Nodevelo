@@ -223,6 +223,39 @@ describe("weeklyEnergy need calculation", () => {
     expect(week.loggedDays).toBe(4);
   });
 
+  it("uses each historical day's rest or training model", () => {
+    const restModel: NutritionModel = { ...MODEL, neatMultiplier: 1.5, buffer: 0 };
+    const trainModel: NutritionModel = { ...MODEL, neatMultiplier: 1.2, buffer: 0 };
+    const activities = [
+      { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null },
+    ] as unknown as ActivitySummary[];
+
+    const [week] = weeklyEnergy(
+      activities,
+      fourLoggedDays,
+      "2026-06-29",
+      (isRestDay) => isRestDay ? restModel : trainModel
+    );
+
+    expect(week.needKcal).toBe(10_760);
+  });
+
+  it("excludes unknown-burn activity days from balance without dropping their intake total", () => {
+    const wellness = [...fourLoggedDays, {
+      date: "2026-06-19", weightKg: 75, kcalConsumed: 5000,
+    }] as unknown as WellnessEntry[];
+    const activities = [{
+      date: "2026-06-19", type: "Run", activeBurnKcal: null, kj: null,
+    }] as unknown as ActivitySummary[];
+
+    const [week] = weeklyEnergy(activities, wellness, "2026-06-29", MODEL);
+
+    expect(week.intakeKcal).toBe(16_200);
+    expect(week.needKcal).toBe(9_840);
+    expect(week.loggedDays).toBe(4);
+    expect(week.ratio).toBe(1.14);
+  });
+
   it("never computes a lower need for a day with activity than for one without", () => {
     const withWalk = weeklyEnergy(
       [{ date: "2026-06-16", type: "Walk", activeBurnKcal: 150, kj: null }] as unknown as ActivitySummary[],

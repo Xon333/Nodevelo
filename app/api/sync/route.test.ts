@@ -261,6 +261,32 @@ describe("GET /api/sync", () => {
     expect(json.autoSyncOnOpen).toBe(true);
   });
 
+  it("returns both day-type nutrition models for historical streak calculations", async () => {
+    const calibration = (multiplier: number) => ({
+      multiplier, confidence: "high", source: "derived", windowDays: 42, loggedDays: 35,
+      weighIns: 20, solvedAt: "2026-06-21", imbalance: null, stale: false,
+    });
+    const pooled = calibration(1.3);
+    vi.mocked(store.readAthleteProfile).mockResolvedValueOnce({
+      ...profile,
+      performance: {
+        ...profile.performance, dateOfBirth: "1995-01-01", heightCm: 180, sex: "male",
+      },
+      nutrition: {
+        ...profile.nutrition,
+        targetRateKgPerWeek: 0.1,
+        neat: pooled,
+        dayTypeNeat: {
+          rest: calibration(1.45), train: calibration(1.2), pooled,
+          shrinkageWeight: { rest: 0.5, train: 0.8 },
+        },
+      },
+    } as never);
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.nutritionModelsByDayType.rest.neatMultiplier).toBe(1.45);
+    expect(json.nutritionModelsByDayType.train.neatMultiplier).toBe(1.2);
+  });
+
   it("filters legacy + compromised entries out of scores but surfaces their dates", async () => {
     scoreEntries = [
       mkScoreEntry({ date: "2026-06-18" }),
@@ -1278,6 +1304,96 @@ describe("POST /api/sync — NEAT recalibration (Task 4)", () => {
 
     expect(res.status).toBe(200);
     expect(store.updateAthleteProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/sync — day-type NEAT recalibration (DT Task 2)", () => {
+  // Mifflin-St Jeor for a 75kg/180cm/30yo male: 10*75 + 6.25*180 - 5*30 + 5 = 1730.
+  const RMR = 1730;
+
+  const derivedProfile = (neatOverride: Record<string, unknown> = {}) => ({
+    ...profile,
+    performance: { ...profile.performance, dateOfBirth: "1996-01-01", heightCm: 180, sex: "male" as const },
+    nutrition: {
+      ...profile.nutrition,
+      targetRateKgPerWeek: null,
+      neat: {
+        multiplier: 1.2, confidence: "low" as const, source: "default" as const,
+        windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+        ...neatOverride,
+      },
+    },
+  });
+
+  // Rest days (no activity, flat k=1.5) followed by training days (activity every day, flat k=1.22)
+  // spanning nRest+nTrain consecutive days ending the day before TODAY — enough of each subset to clear
+  // DAY_TYPE_MIN_LOGGED_DAYS and (with nRest large enough) a genuinely non-zero shrinkageWeight.rest.
+  // Mirrors lib/nutrition.test.ts's calibrateNeatByDayType `synth` helper, adapted to this file's fixtures.
+  const dayTypeWindow = (kRest: number, kTrain: number, nRest: number, nTrain: number, trainBurn = 1000) => {
+    const wellness: SyncData["wellness"] = [];
+    const activities: ActivitySummary[] = [];
+    const totalDays = nRest + nTrain;
+    const startMs = Date.parse(TODAY) - totalDays * 86_400_000;
+    let day = 0;
+    for (let i = 0; i < nRest; i++, day++) {
+      const date = new Date(startMs + day * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({ date, weightKg: 75, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: kRest * RMR, ctl: null, atl: null });
+    }
+    for (let i = 0; i < nTrain; i++, day++) {
+      const date = new Date(startMs + day * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({ date, weightKg: 75, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: kTrain * RMR + trainBurn, ctl: null, atl: null });
+      activities.push(mkActivity({ id: `dt-${date}`, date, activeBurnKcal: trainBurn, kj: null }));
+    }
+    return { wellness, activities };
+  };
+
+  it("persists a fresh dayTypeNeat (rest + train + pooled) in the SAME write as the pooled adoption", async () => {
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(derivedProfile() as never);
+    const { wellness, activities } = dayTypeWindow(1.5, 1.22, 20, 40);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    await postSync();
+
+    // ONE combined write, not two — atomic, so `neat` and `dayTypeNeat.pooled` can never disagree.
+    expect(store.updateAthleteProfile).toHaveBeenCalledTimes(1);
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const result = await mutate(derivedProfile() as never);
+    expect(result.nutrition.dayTypeNeat).not.toBeNull();
+    expect(result.nutrition.dayTypeNeat!.rest.source).toBe("derived");
+    expect(result.nutrition.dayTypeNeat!.train.source).toBe("derived");
+    expect(result.nutrition.dayTypeNeat!.shrinkageWeight.rest).toBeGreaterThan(0);
+    expect(result.nutrition.dayTypeNeat!.pooled.multiplier).toBe(result.nutrition.neat.multiplier);
+  });
+
+  it("never persists dayTypeNeat when the pooled NEAT multiplier is manually overridden", async () => {
+    const overridden = derivedProfile({ source: "override", multiplier: 1.45 });
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(overridden as never);
+    const { wellness, activities } = dayTypeWindow(1.5, 1.22, 20, 40);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    await postSync();
+
+    expect(store.updateAthleteProfile).toHaveBeenCalledTimes(1);
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const result = await mutate(overridden as never);
+    expect(result.nutrition.neat.source).toBe("override");
+    expect(result.nutrition.neat.multiplier).toBe(1.45);
+    // Untouched, not just "still derived elsewhere" — the override guard extends to the day-type path.
+    expect(result.nutrition.dayTypeNeat).toBe((overridden as unknown as { nutrition: { dayTypeNeat: unknown } }).nutrition.dayTypeNeat);
+  });
+
+  it("still persists dayTypeNeat with shrinkageWeight 0 when the rest-day sample is too thin — informative, not withheld like a bare null", async () => {
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(derivedProfile() as never);
+    // Only 2 rest days: below DAY_TYPE_MIN_LOGGED_DAYS (3).
+    const { wellness, activities } = dayTypeWindow(1.5, 1.22, 2, 40);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities }));
+
+    await postSync();
+
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const result = await mutate(derivedProfile() as never);
+    expect(result.nutrition.dayTypeNeat).not.toBeNull();
+    expect(result.nutrition.dayTypeNeat!.shrinkageWeight.rest).toBe(0);
   });
 });
 

@@ -44,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { calibrateNeat, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { calibrateNeat, calibrateNeatByDayType, isRestDayFor, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -117,7 +117,13 @@ export async function GET(req: Request) {
     (lastSync?.wellness ?? [])
       .filter((w) => w.weightKg !== null)
       .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profile.performance.weightKg;
-  const nutritionModelForEnergy = resolveNutritionModel(profile, latestWeightKgForEnergy, today);
+  const nutritionModelsByDayType = {
+    rest: resolveNutritionModel(profile, latestWeightKgForEnergy, today, true),
+    train: resolveNutritionModel(profile, latestWeightKgForEnergy, today, false),
+  };
+  const nutritionModelForEnergy = isRestDayFor(lastSync?.activities ?? [], today)
+    ? nutritionModelsByDayType.rest
+    : nutritionModelsByDayType.train;
   const coachSnapshot = buildCoachSnapshotFromSources({
     date: today,
     ftp: physStore?.current.ftp ?? profile.performance.ftp,
@@ -132,7 +138,15 @@ export async function GET(req: Request) {
     acwrBandsOverride: settings.acwrBands,
     tsbModifierEdgesOverride: settings.tsbModifierEdges,
     athleteStateWeightsOverride: settings.athleteStateWeights,
-    weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForEnergy), today),
+    weeklyBalance: latestWeeklyBalance(
+      weeklyEnergy(
+        lastSync?.activities ?? [],
+        lastSync?.wellness ?? [],
+        today,
+        (isRestDay) => isRestDay ? nutritionModelsByDayType.rest : nutritionModelsByDayType.train
+      ),
+      today
+    ),
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
@@ -169,8 +183,9 @@ export async function GET(req: Request) {
     calibration,
     // §10: the raw model + imbalance the Today tile needs for the under-fuelling streak alert and the
     // log-bias reconciliation line. Reuses the same resolved model coachSnapshot's fuel figures use
-    // (nutritionModelForEnergy) rather than re-deriving it — one resolve per request.
+    // `nutritionModelForEnergy` is today's side of the same rest/train pair sent for historical reads.
     nutritionModel: nutritionModelForEnergy,
+    nutritionModelsByDayType,
     neatImbalance: profile.nutrition.neat?.imbalance ?? null,
   });
 }
@@ -228,29 +243,60 @@ export async function POST(req: Request) {
     // Task 4 (Phase 2): recalibrate the athlete's own NEAT multiplier from the freshly-synced data.
     // Deterministic, no AI. Best-effort — a calibration failure must never break a sync, so this is
     // wrapped independently and logged rather than left to bubble into the outer catch.
+    //
+    // DT Task 2: calibrateNeatByDayType (the rest/train split) is solved ALONGSIDE the pooled solve in
+    // this same try/catch and persisted in the SAME updateAthleteProfile call — one lock acquisition,
+    // one override guard re-check, so `neat` and `dayTypeNeat.pooled` can never observe two different
+    // on-disk states mid-sync.
     try {
       const profileForNeat = await readAthleteProfile();
       const latestWeightKgForNeat =
         lastSync.wellness
           .filter((w) => w.weightKg !== null)
           .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForNeat.performance.weightKg;
-      const nutritionModelForNeat = resolveNutritionModel(profileForNeat, latestWeightKgForNeat, today);
+      const nutritionModelForNeat = resolveNutritionModel(
+        profileForNeat,
+        latestWeightKgForNeat,
+        today,
+        isRestDayFor(lastSync.activities, today)
+      );
       // Only the derived model carries an RMR to calibrate against — a legacy (pre-migration)
-      // profile has nothing for calibrateNeat to solve relative to.
+      // profile has nothing for calibrateNeat/calibrateNeatByDayType to solve relative to.
       if (nutritionModelForNeat.kind === "derived") {
         const neatResult = calibrateNeat(lastSync.wellness, lastSync.activities, nutritionModelForNeat.rmr, today);
+        const dayTypeResult = calibrateNeatByDayType(lastSync.wellness, lastSync.activities, nutritionModelForNeat.rmr, today);
         // Persist only a genuine derived solve. calibrateNeat's `stale` sentinel is also non-null (so
         // its reason survives for a live renderer to show), but persisting it here would silently
         // REVERT a good prior calibration to the population default the moment the athlete's batch
         // transfer lags past the staleness window — worse than just leaving the last good solve in
-        // place until fresh data resumes.
-        if (neatResult !== null && neatResult.source === "derived") {
+        // place until fresh data resumes. `dayTypeResult` shares the identical staleness/floor gate —
+        // it wraps the SAME calibrateNeat call internally — so checking `.pooled.source === "derived"`
+        // (rather than just `dayTypeResult !== null`) excludes that same stale/"default" pooled case
+        // from being adopted as a fresh day-type split. Persisted even at shrinkageWeight 0 (forced
+        // below DAY_TYPE_MIN_LOGGED_DAYS): that's still informative for Task 3's derivation panel, not
+        // withheld like a bare null.
+        const neatOk = neatResult !== null && neatResult.source === "derived";
+        const dayTypeOk = dayTypeResult !== null && dayTypeResult.pooled.source === "derived";
+        if (neatOk || dayTypeOk) {
           await updateAthleteProfile((p) =>
             // Re-checked INSIDE the lock against whatever's actually on disk right now, not the
             // `profileForNeat` snapshot read above — that read can be stale by the time this lock is
             // acquired (e.g. a concurrent PUT just set an override). An athlete's manual value
             // survives every re-solve, forever, until they clear it via the override endpoint (Step 5).
-            p.nutrition.neat?.source === "override" ? p : { ...p, nutrition: { ...p.nutrition, neat: neatResult } }
+            // The same guard covers `dayTypeNeat` too: an override changes what "pooled" means, so a
+            // day-type split shrunk toward the OLD pooled figure must not land while the override is live.
+            p.nutrition.neat?.source === "override"
+              ? p
+              : {
+                  ...p,
+                  nutrition: {
+                    ...p.nutrition,
+                    ...(neatResult !== null && neatResult.source === "derived" ? { neat: neatResult } : {}),
+                    ...(dayTypeResult !== null && dayTypeResult.pooled.source === "derived"
+                      ? { dayTypeNeat: dayTypeResult }
+                      : {}),
+                  },
+                }
           );
         }
       }
@@ -724,7 +770,12 @@ export async function POST(req: Request) {
           // stays on the raw latest reading — RMR should track current mass, not a smoothed goal figure.
           const smoothedWeightKgForToday =
             smoothedCurrentWeightKg(lastSync.wellness, today) ?? latestWeightKgForToday;
-          const todayNutritionModel = resolveNutritionModel(profile, latestWeightKgForToday, today);
+          const todayNutritionModel = resolveNutritionModel(
+            profile,
+            latestWeightKgForToday,
+            today,
+            isRestDayFor(lastSync.activities, today)
+          );
           // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
           // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback
           // seeded from the goal surplus (never the retired profile.nutrition.buffer setting).
@@ -873,7 +924,8 @@ export async function POST(req: Request) {
       (lastSync?.wellness ?? [])
         .filter((w) => w.weightKg !== null)
         .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForSnap.performance.weightKg;
-    const nutritionModelForSnapEnergy = resolveNutritionModel(profileForSnap, latestWeightKgForSnapEnergy, today);
+    const nutritionModelForSnapDay = (isRestDay: boolean) =>
+      resolveNutritionModel(profileForSnap, latestWeightKgForSnapEnergy, today, isRestDay);
     const coachSnapshot = buildCoachSnapshotFromSources({
       date: today,
       ftp: physStore?.current.ftp ?? profileForSnap.performance.ftp,
@@ -888,7 +940,7 @@ export async function POST(req: Request) {
       acwrBandsOverride: settingsForSnap.acwrBands,
       tsbModifierEdgesOverride: settingsForSnap.tsbModifierEdges,
       athleteStateWeightsOverride: settingsForSnap.athleteStateWeights,
-      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForSnapEnergy), today),
+      weeklyBalance: latestWeeklyBalance(weeklyEnergy(lastSync?.activities ?? [], lastSync?.wellness ?? [], today, nutritionModelForSnapDay), today),
     });
 
     // SUB-4: best-effort off-machine snapshot. A no-op (not a failure) when NODEVELO_BACKUP_DIR isn't

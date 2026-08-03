@@ -24,6 +24,18 @@ export const WORKOUT_TYPES: WorkoutType[] = [
   "Rest",
 ];
 
+export type QualityLibraryType = Extract<WorkoutType, "Threshold" | "VO2max" | "SIT" | "RaceSim">;
+export type WorkoutSource = `library:${string}` | `template:${string}` | `ai:${string}/${number}`;
+export interface WorkoutLibraryEvidence { date: string; executionScore: number }
+export interface WorkoutLibraryEntry {
+  id: string; workoutType: QualityLibraryType; durationMin: number; workoutText: string;
+  status: "candidate" | "active" | "retired"; promotedBy?: "automatic" | "manual";
+  evidence: WorkoutLibraryEvidence[]; useCount: number; recentUses: string[];
+  createdAt: string; promotedAt?: string;
+  intervalsExport?: { status: "pending" | "synced" | "failed"; workoutId?: string; error?: string };
+}
+export interface WorkoutLibraryStore { entries: WorkoutLibraryEntry[]; bootstrappedAt?: string }
+
 // ---------- Athlete profile (data/athlete.json) ----------
 
 export interface PerformanceData {
@@ -82,6 +94,19 @@ export interface NeatCalibration {
   stale: boolean;
 }
 
+// Rest-day / training-day split of the pooled calibrateNeat solve (lib/nutrition.ts's
+// calibrateNeatByDayType), each shrunk toward `pooled.multiplier` via empirical-Bayes weighting so a
+// thin day-type sample stays conservative instead of swinging on a handful of days. `pooled` is the
+// SAME unmodified 42-day calibrateNeat call used elsewhere — carried here too so a consumer never has
+// to make a second call just to render the shrinkage anchor. `shrinkageWeight` is 0..1 per subset,
+// surfaced purely for derivation-panel transparency (0 = fully pooled, 1 = fully the subset's own solve).
+export interface DayTypeNeat {
+  rest: NeatCalibration;
+  train: NeatCalibration;
+  pooled: NeatCalibration;
+  shrinkageWeight: { rest: number; train: number };
+}
+
 export interface NutritionSettings {
   // DEPRECATED (2026-07-31 buffer-redesign-feedforward) — retired as an athlete-facing setting.
   // targetRateKgPerWeek now owns "how fast do you want to move"; resolveBuffer (lib/nutrition.ts)
@@ -107,6 +132,12 @@ export interface NutritionSettings {
   // exists; defaults to DEFAULT_NEAT_MULTIPLIER (source: "default") until then. Adopting the derived value
   // into resolveNutritionModel is Task 4 — this field is populated but not yet read there.
   neat: NeatCalibration;
+  // Rest/training split of `neat` (lib/nutrition.ts's calibrateNeatByDayType), adopted on sync under the
+  // same override guard as `neat` itself. Null until the pooled gate clears AND at least one subset clears
+  // DAY_TYPE_MIN_LOGGED_DAYS (persisted even at shrinkageWeight 0 — Task 3's derivation panel renders that
+  // state, it isn't withheld like a bare null). resolveNutritionModel reads this to pick the rest- or
+  // training-day multiplier; falls back to the flat `neat.multiplier` above when this is null.
+  dayTypeNeat: DayTypeNeat | null;
 }
 
 export interface AthleteProfile {
