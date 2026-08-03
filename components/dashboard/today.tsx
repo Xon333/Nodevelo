@@ -25,6 +25,7 @@ import {
   loggedDaysForStreak,
   STREAK_MIN_LOGGED_DAYS,
   type NutritionModel,
+  type NutritionTrendWarning,
 } from "@/lib/nutrition";
 import { addDaysIso, isoDaysAgo, localToday as todayIso, isBlockFinished } from "@/lib/date";
 import { splitLeadSentences } from "@/lib/text";
@@ -91,6 +92,20 @@ export function ReadinessAlerts({
         </div>
       )}
     </div>
+  );
+}
+
+export function NutritionTrendWarningBanner({ warning }: { warning: NutritionTrendWarning | null }) {
+  if (!warning) return null;
+  const signed = (value: number) => `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+  return (
+    <section aria-labelledby="nutrition-trend-warning" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950/50">
+      <h2 id="nutrition-trend-warning" className="text-xs font-semibold text-amber-800 dark:text-amber-300">Weight trend needs attention</h2>
+      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+        Observed {signed(warning.observedKgPerWeek)} kg/week vs intended {signed(warning.intendedKgPerWeek)} kg/week · estimated prescription adherence {Math.round(warning.adherenceRatio * 100)}% ({warning.loggedDays} logged days, {warning.weighIns} weigh-ins).
+      </p>
+      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">Calories are unchanged while maintenance calibration gathers stronger evidence.</p>
+    </section>
   );
 }
 

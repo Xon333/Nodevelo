@@ -9,7 +9,7 @@ import AskCoach from "../AskCoach";
 import AthleteStateCard from "../AthleteStateCard";
 import LoadingPrompt from "../LoadingPrompt";
 import MorningCheckIn from "../MorningCheckIn";
-import { EatToday, EnergyAvailabilityTile, PlannedToday, ReadinessAlerts, RecentDataSummary, TodayRideCard } from "./today";
+import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlannedToday, ReadinessAlerts, RecentDataSummary, TodayRideCard } from "./today";
 
 // The /today page body — one page, two moments (UX v2 §4). A synced ride on today's LOCAL date
 // switches the layout from the pre-ride glance (M1: can I go hard — what's the session?) to the
@@ -142,6 +142,8 @@ export default function TodayView() {
           post-ride mode — so it can't live inside the pre-ride branch only; it self-hides when
           there is nothing to ask. Mounted once, above the mode branch, so it renders in both. */}
       <LoadingPrompt />
+
+      <NutritionTrendWarningBanner warning={state.nutritionTrendWarning ?? null} />
 
       {/* The quiet corner flip (planned ↔ debrief) — exists only once today's ride is in. */}
       {todayRide && (

@@ -225,6 +225,14 @@ When an `imbalance` finding exists it renders **alongside** the deficit, with **
 pairing is deliberate: acting on an apparent deficit while body weight is actually stable would drive
 unintended gain.
 
+## Early goal-trend warning
+
+Today shows an informational warning only after a 21-day evidence gate: at least 7 weigh-ins, 14 usable
+intake days, estimated prescription adherence within 95–105%, and an observed trend at least 0.15 kg/week
+above the intended trend. Historical final prescriptions are not persisted, so the adherence calculation
+uses today's calibrated models and buffer and is explicitly approximate. The warning never adjusts
+calories, calibration, or the goal buffer; maintenance calibration remains the only slower adjustment path.
+
 ## The derivation panel
 
 The Profile page renders the whole chain — RMR → NEAT (with the evidence behind its confidence) →

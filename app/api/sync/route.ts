@@ -44,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { calibrateNeat, calibrateNeatByDayType, isRestDayFor, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, isRestDayFor, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -124,6 +124,25 @@ export async function GET(req: Request) {
   const nutritionModelForEnergy = isRestDayFor(lastSync?.activities ?? [], today)
     ? nutritionModelsByDayType.rest
     : nutritionModelsByDayType.train;
+  const smoothedWeightKgForEnergy = smoothedCurrentWeightKg(lastSync?.wellness ?? [], today) ?? latestWeightKgForEnergy;
+  const bufferStatus = resolveBuffer(
+    profile.nutrition.neat,
+    smoothedWeightKgForEnergy,
+    profile.nutrition.targetWeightKg,
+    profile.nutrition.targetRateKgPerWeek,
+    weightTrendFromWellness(lastSync?.wellness ?? []),
+    weightTrendFromWellness(lastSync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
+    profile.nutrition.buffer
+  );
+  const nutritionTrendWarning = computeNutritionTrendWarning(
+    lastSync?.wellness ?? [],
+    lastSync?.activities ?? [],
+    (isRestDay) => isRestDay ? nutritionModelsByDayType.rest : nutritionModelsByDayType.train,
+    today,
+    profile.nutrition.targetWeightKg,
+    profile.nutrition.targetRateKgPerWeek,
+    bufferStatus.bufferApplied
+  );
   const coachSnapshot = buildCoachSnapshotFromSources({
     date: today,
     ftp: physStore?.current.ftp ?? profile.performance.ftp,
@@ -187,6 +206,7 @@ export async function GET(req: Request) {
     nutritionModel: nutritionModelForEnergy,
     nutritionModelsByDayType,
     neatImbalance: profile.nutrition.neat?.imbalance ?? null,
+    nutritionTrendWarning,
   });
 }
 

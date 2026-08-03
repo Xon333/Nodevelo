@@ -1,6 +1,6 @@
 # Nutrition early trend warning
 
-**Status:** Approved design (pre-implementation)  
+**Status:** Shipped 2026-08-03
 **Date:** 2026-08-03
 
 ## Purpose
@@ -57,4 +57,3 @@ intake days, adherence outside 95–105%, trend error below 0.15 kg/week, and un
 Route coverage confirms the evidence is returned on GET and uses the supplied local date. A focused
 component test verifies triggered copy and absence when the value is `null`; the existing full check
 remains the integration gate.
-
