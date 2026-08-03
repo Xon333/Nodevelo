@@ -1331,6 +1331,81 @@ export function computeUnderfuelStreak(
   };
 }
 
+export const TREND_WARNING_WINDOW_DAYS = 21;
+export const TREND_WARNING_MIN_WEIGH_INS = 7;
+export const TREND_WARNING_MIN_LOGGED_DAYS = 14;
+export const TREND_WARNING_ADHERENCE_MIN = 0.95;
+export const TREND_WARNING_ADHERENCE_MAX = 1.05;
+export const TREND_WARNING_ERROR_KG_PER_WEEK = 0.15;
+
+export interface NutritionTrendWarning {
+  observedKgPerWeek: number;
+  intendedKgPerWeek: number;
+  adherenceRatio: number;
+  weighIns: number;
+  loggedDays: number;
+}
+
+export function computeNutritionTrendWarning(
+  wellness: WellnessEntry[],
+  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  modelOrResolver: ModelOrResolver,
+  today: string,
+  targetWeightKg: number,
+  targetRateKgPerWeek: number | null,
+  bufferApplied: number
+): NutritionTrendWarning | null {
+  const cutoff = new Date(Date.parse(today) - TREND_WARNING_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const windowedWellness = wellness.filter((w) => w.date >= cutoff && w.date < today);
+  const weighIns = windowedWellness.filter((w) => w.weightKg !== null).length;
+  if (weighIns < TREND_WARNING_MIN_WEIGH_INS) return null;
+
+  const observedKgPerWeek = weightTrendPreciseFromWellness(windowedWellness, TREND_WARNING_WINDOW_DAYS);
+  if (observedKgPerWeek === null) return null;
+
+  const unresolvedBurnDates = new Set<string>();
+  const burnByDate = new Map<string, number>();
+  for (const activity of activities) {
+    if (activity.date < cutoff || activity.date >= today) continue;
+    const burn = activeBurn(activity);
+    if (burn === null) {
+      unresolvedBurnDates.add(activity.date);
+      continue;
+    }
+    burnByDate.set(activity.date, (burnByDate.get(activity.date) ?? 0) + burn.kcal);
+  }
+
+  const loggedDays = windowedWellness.filter(
+    (w) => w.kcalConsumed !== null && w.kcalConsumed > 0 && !unresolvedBurnDates.has(w.date)
+  );
+  if (loggedDays.length < TREND_WARNING_MIN_LOGGED_DAYS) return null;
+
+  let totalIntake = 0;
+  let totalTarget = 0;
+  for (const day of loggedDays) {
+    const burn = burnByDate.get(day.date) ?? 0;
+    const model = typeof modelOrResolver === "function" ? modelOrResolver(burn === 0) : modelOrResolver;
+    totalIntake += day.kcalConsumed as number;
+    totalTarget += calculateDailyTarget(burn, model, bufferApplied, burn === 0).dailyTarget;
+  }
+  const adherenceRatio = totalIntake / totalTarget;
+  if (adherenceRatio < TREND_WARNING_ADHERENCE_MIN || adherenceRatio > TREND_WARNING_ADHERENCE_MAX) return null;
+
+  const currentWeightKg = smoothedCurrentWeightKg(windowedWellness, today);
+  if (currentWeightKg === null) return null;
+  const intendedKgPerWeek = desiredWeightTrend(currentWeightKg, targetWeightKg, targetRateKgPerWeek);
+  if (observedKgPerWeek - intendedKgPerWeek < TREND_WARNING_ERROR_KG_PER_WEEK) return null;
+
+  const roundEvidence = (value: number) => Math.round(value * 100) / 100;
+  return {
+    observedKgPerWeek: roundEvidence(observedKgPerWeek),
+    intendedKgPerWeek: roundEvidence(intendedKgPerWeek),
+    adherenceRatio: roundEvidence(adherenceRatio),
+    weighIns,
+    loggedDays: loggedDays.length,
+  };
+}
+
 // ---------- Reference table injected into the AI prompt ----------
 
 export interface NutritionReferenceRow {
