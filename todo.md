@@ -80,10 +80,6 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
   remains approximate because NodeVelo does not yet persist the final prescription for every calendar
   day; do not reconstruct old buffers or stamp rides only (rest days would be absent). Derived route
   coverage, coach-snapshot local-date fallback, and conditional RMR-floor transparency are closed.
-- ☐ P2 `feat` Nutrition early trend warning — after roughly 2–3 weeks of reliable intake and
-  weigh-ins, warn when the smoothed weight trend is clearly missing the configured goal rate. Keep it
-  informational: do not enlarge the goal buffer or override the slower maintenance calibration from
-  short-term scale movement (glycogen, hydration, gut mass, and training inflammation can dominate).
 - ☐ P3 `feat` Nutrition Phase 4 — daily carbohydrate target (spec §9). Protein deliberately out (the
   athlete already covers it); within-day timing out (needs meal-level logging they've declined);
   wearables out.

@@ -27,6 +27,10 @@ new path successfully in [PR #3](https://github.com/Xon333/Nodevelo/pull/3).
 
 ## Nutrition rebuild — Phases 1–3 + the buffer redesign (2026-07-30/31)
 
+- **Nutrition early trend warning (2026-08-03).** Today now surfaces a 21-day evidence-gated, informational
+  weight-trend mismatch warning with estimated prescription adherence; it never changes calories or
+  calibration. `lib/nutrition.ts`, `app/api/sync/route.ts`, `components/dashboard/today.tsx`.
+
 Full logic: **[docs/systems/09-nutrition.md](docs/systems/09-nutrition.md)**. Specs:
 [accuracy design](docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md) ·
 [buffer redesign](docs/superpowers/specs/2026-07-31-buffer-redesign-feedforward.md).

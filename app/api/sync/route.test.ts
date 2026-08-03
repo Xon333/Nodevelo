@@ -287,6 +287,45 @@ describe("GET /api/sync", () => {
     expect(json.nutritionModelsByDayType.train.neatMultiplier).toBe(1.2);
   });
 
+  it("returns early weight-trend evidence for the supplied local date", async () => {
+    const warningProfile = {
+      ...profile,
+      performance: { ...profile.performance, dateOfBirth: "1996-01-01", heightCm: 180, sex: "male" as const },
+      nutrition: {
+        ...profile.nutrition,
+        targetWeightKg: 80,
+        targetRateKgPerWeek: 0.15,
+        neat: {
+          multiplier: 1.2,
+          confidence: "high" as const,
+          source: "derived" as const,
+          windowDays: 42,
+          loggedDays: 35,
+          weighIns: 20,
+          solvedAt: "2026-06-21",
+          imbalance: null,
+          stale: false,
+        },
+        dayTypeNeat: null,
+      },
+    };
+    const wellness = Array.from({ length: 21 }, (_, index) => {
+      const date = new Date(Date.parse("2026-06-01") + index * 86_400_000).toISOString().slice(0, 10);
+      return { date, weightKg: 75 + (0.3 * index) / 7, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: 2240, ctl: null, atl: null };
+    });
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(warningProfile as never);
+    vi.mocked(store.readLastSync).mockResolvedValue(mkSync({ wellness }));
+
+    const body = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(body.nutritionTrendWarning).toMatchObject({
+      adherenceRatio: expect.any(Number),
+      loggedDays: 21,
+    });
+
+    const insufficient = await (await GET(new Request("http://t/api/sync?today=2026-06-12"))).json();
+    expect(insufficient.nutritionTrendWarning).toBeNull();
+  });
+
   it("filters legacy + compromised entries out of scores but surfaces their dates", async () => {
     scoreEntries = [
       mkScoreEntry({ date: "2026-06-18" }),

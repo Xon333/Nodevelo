@@ -11,6 +11,7 @@ import {
   calibrateNeatByDayType,
   CALIBRATION_MAX_WEIGHIN_LAPSE_DAYS,
   computeEnergyAvailability,
+  computeNutritionTrendWarning,
   computeUnderfuelStreak,
   desiredWeightTrend,
   eaLevel,
@@ -32,6 +33,12 @@ import {
   STREAK_MAX_LOOKBACK_DAYS,
   STREAK_MIN_LOGGED_DAYS,
   STREAK_WINDOW_LOGGED_DAYS,
+  TREND_WARNING_ADHERENCE_MAX,
+  TREND_WARNING_ADHERENCE_MIN,
+  TREND_WARNING_ERROR_KG_PER_WEEK,
+  TREND_WARNING_MIN_LOGGED_DAYS,
+  TREND_WARNING_MIN_WEIGH_INS,
+  TREND_WARNING_WINDOW_DAYS,
   UNDERFUEL_RATIO_BELOW,
   weightTrendFromWellness,
   weightTrendPreciseFromWellness,
@@ -351,6 +358,163 @@ describe("no training day may fall below the same athlete's rest day", () => {
       }
     });
   }
+});
+
+describe("computeNutritionTrendWarning", () => {
+  const TODAY = "2026-08-03";
+  const WINDOW_START = "2026-07-13";
+  const TREND_MODEL: NutritionModel = { ...DERIVED, targetWeightKg: 80 };
+  const activityBurnByIndex = new Map([[2, 500], [10, 800]]);
+
+  const dateAt = (index: number) =>
+    new Date(Date.parse(WINDOW_START) + index * 86_400_000).toISOString().slice(0, 10);
+
+  const buildInput = (options: {
+    slopeKgPerWeek?: number;
+    intakeScale?: number;
+    loggedIndices?: number[];
+    unresolvedBurnIndices?: number[];
+  } = {}) => {
+    const {
+      slopeKgPerWeek = 0.3,
+      intakeScale = 1,
+      loggedIndices = Array.from({ length: 21 }, (_, i) => i),
+      unresolvedBurnIndices = [],
+    } = options;
+    const logged = new Set(loggedIndices);
+    const unresolved = new Set(unresolvedBurnIndices);
+    const wellness = Array.from({ length: 21 }, (_, index) => {
+      const date = dateAt(index);
+      const burn = activityBurnByIndex.get(index) ?? 0;
+      const target = 2_160 + burn + 300;
+      return {
+        date,
+        weightKg: 75 + (slopeKgPerWeek * index) / 7,
+        kcalConsumed: logged.has(index) ? Math.round(target * intakeScale) : null,
+      } as WellnessEntry;
+    });
+    const activities = Array.from(new Set([...activityBurnByIndex.keys(), ...unresolvedBurnIndices])).map((index) =>
+      unresolved.has(index)
+        ? { date: dateAt(index), activeBurnKcal: null, kj: null }
+        : { date: dateAt(index), activeBurnKcal: activityBurnByIndex.get(index)!, kj: null }
+    );
+    return { wellness, activities };
+  };
+
+  const warning = (options?: Parameters<typeof buildInput>[0]) => {
+    const { wellness, activities } = buildInput(options);
+    return computeNutritionTrendWarning(
+      wellness,
+      activities,
+      TREND_MODEL,
+      TODAY,
+      80,
+      0.15,
+      300
+    );
+  };
+
+  it("pins the evidence gate constants", () => {
+    expect(TREND_WARNING_WINDOW_DAYS).toBe(21);
+    expect(TREND_WARNING_MIN_WEIGH_INS).toBe(7);
+    expect(TREND_WARNING_MIN_LOGGED_DAYS).toBe(14);
+    expect(TREND_WARNING_ADHERENCE_MIN).toBe(0.95);
+    expect(TREND_WARNING_ADHERENCE_MAX).toBe(1.05);
+    expect(TREND_WARNING_ERROR_KG_PER_WEEK).toBe(0.15);
+  });
+
+  it("returns evidence when the full window clears every gate", () => {
+    expect(warning()).toMatchObject({
+      observedKgPerWeek: expect.any(Number),
+      intendedKgPerWeek: expect.any(Number),
+      adherenceRatio: 1,
+      weighIns: 21,
+      loggedDays: 21,
+    });
+  });
+
+  it("withholds when fewer than 7 weigh-ins remain", () => {
+    const { wellness, activities } = buildInput();
+    for (let index = 6; index < wellness.length; index++) wellness[index].weightKg = null;
+    expect(computeNutritionTrendWarning(wellness, activities, TREND_MODEL, TODAY, 80, 0.15, 300)).toBeNull();
+  });
+
+  it("withholds when only 13 positive-intake days are usable", () => {
+    expect(warning({ loggedIndices: Array.from({ length: 13 }, (_, i) => i) })).toBeNull();
+  });
+
+  it("withholds when aggregate adherence is below 0.95", () => {
+    expect(warning({ intakeScale: 0.94 })).toBeNull();
+  });
+
+  it("withholds when aggregate adherence is above 1.05", () => {
+    expect(warning({ intakeScale: 1.06 })).toBeNull();
+  });
+
+  it("withholds when the observed trend error is below 0.15 kg per week", () => {
+    expect(warning({ slopeKgPerWeek: 0.2 })).toBeNull();
+  });
+
+  it("withholds when an unresolved-burn date leaves fewer than 14 usable days", () => {
+    expect(warning({
+      loggedIndices: Array.from({ length: 14 }, (_, i) => i),
+      unresolvedBurnIndices: [0],
+    })).toBeNull();
+  });
+
+  it("resolves deliberately divergent rest and training models in aggregate adherence", () => {
+    const restModel: NutritionModel = { ...LEGACY, baseCalories: 2_000, restDayTarget: 2_000 };
+    const trainModel: NutritionModel = { ...LEGACY, baseCalories: 3_000, restDayTarget: 3_000 };
+    let restResolutions = 0;
+    let trainResolutions = 0;
+    const wellness = Array.from({ length: 21 }, (_, index) => {
+      const training = index % 2 === 1;
+      return {
+        date: dateAt(index),
+        weightKg: 75 + (0.3 * index) / 7,
+        kcalConsumed: training ? 3_500 : 2_000,
+      } as WellnessEntry;
+    });
+    const activities = wellness
+      .filter((_, index) => index % 2 === 1)
+      .map(({ date }) => ({ date, activeBurnKcal: 500, kj: null }));
+
+    const result = computeNutritionTrendWarning(
+      wellness,
+      activities,
+      (isRestDay) => {
+        if (isRestDay) restResolutions++;
+        else trainResolutions++;
+        return isRestDay ? restModel : trainModel;
+      },
+      TODAY,
+      80,
+      0.15,
+      0
+    );
+
+    expect(result).toMatchObject({ adherenceRatio: 1, loggedDays: 21 });
+    expect(restResolutions).toBe(11);
+    expect(trainResolutions).toBe(10);
+  });
+
+  it("excludes a whole date when resolved and unresolved activities share it", () => {
+    const { wellness, activities } = buildInput();
+    activities.push({ date: dateAt(2), activeBurnKcal: null, kj: null });
+
+    expect(computeNutritionTrendWarning(wellness, activities, TREND_MODEL, TODAY, 80, 0.15, 300))
+      .toMatchObject({ adherenceRatio: 1, loggedDays: 20 });
+  });
+
+  it("includes exact trend-error and adherence boundaries", () => {
+    const lower = warning({ intakeScale: 0.95 });
+    const upper = warning({ intakeScale: 1.05 });
+    expect(lower).not.toBeNull();
+    expect(upper).not.toBeNull();
+    expect(lower!.observedKgPerWeek - lower!.intendedKgPerWeek).toBeGreaterThanOrEqual(0.15);
+    expect(lower!.adherenceRatio).toBe(0.95);
+    expect(upper!.adherenceRatio).toBe(1.05);
+  });
 });
 
 describe("calculateDailyTarget (legacy, pre-migration)", () => {

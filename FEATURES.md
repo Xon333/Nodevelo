@@ -196,6 +196,9 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
   `lib/trends.ts`, `components/Trends.tsx`, `components/trends/sections.tsx`
 
 ## Nutrition (code, not AI)
+- **Early goal-trend warning** — Today surfaces an informational, evidence-gated warning when the
+  observed 21-day weight trend misses the configured goal despite estimated prescription adherence;
+  calories stay unchanged while maintenance calibration gathers stronger evidence.
 - **Deterministic targets** — daily kcal (base + session kJ + buffer; flat on rest days) + pre/in/post
   carbs & protein; buffer self-adjusts ±150 kcal against the 7-day weight trend. The AI only phrases the
   pre-computed table. `lib/nutrition.ts`

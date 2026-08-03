@@ -19,7 +19,7 @@ import type {
   TodayAnalysis,
 } from "@/lib/types";
 import type { CoachSnapshot } from "@/lib/coach-snapshot";
-import type { NutritionModel } from "@/lib/nutrition";
+import type { NutritionModel, NutritionTrendWarning } from "@/lib/nutrition";
 
 export interface AppState {
   configured: boolean;
@@ -55,6 +55,7 @@ export interface AppState {
   // Historical windows span both day types; JSON cannot carry a resolver function, so GET /api/sync
   // sends the two plain models and the client selects per day.
   nutritionModelsByDayType?: { rest: NutritionModel; train: NutritionModel } | null;
+  nutritionTrendWarning?: NutritionTrendWarning | null;
   // §10: the calibrated NEAT solve's out-of-band finding, when the energy-balance identity didn't
   // close — surfaced alongside the streak alert so an apparent deficit is never acted on without also
   // seeing the log-bias/RMR-equation ambiguity that could explain it.
