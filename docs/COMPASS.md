@@ -60,10 +60,11 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 
 ## Session rituals
 
-**Opening (30 seconds):** `git branch --show-current` → `git log --oneline -5` →
-`git status --short`. Implementation must be on a fresh `claude/<task>` or `codex/<task>` worktree;
-if you are on `main`, read only and start an isolated task. Only re-read the mental model above if
-you're actually lost.
+**Opening (30 seconds):** `npm run sync` (fetch + fast-forward `main` + prune stale worktrees) →
+`git branch --show-current` → `git log --oneline -5` → `git status --short`. Implementation must be
+on a fresh `claude/<task>` or `codex/<task>` worktree, created via `npm run start:agent-task -- <agent>
+<task-name>`; if you are on `main`, read only and start an isolated task. Only re-read the mental
+model above if you're actually lost.
 
 **Stuck >10 minutes?** That's the signal to open a doc, not grep harder: GLOSSARY (naming trap?) → FILE_INDEX (who else touches this?) → the numbered systems doc (the diagram shows the missing step) → DECISIONS (is the "weird" thing deliberate?). Six systems docs carry a **"Known rough edges"** section with live judgment calls, tripwires, and rejected alternatives for that area — `01-sync-and-data`, `05-season` (the deepest one — read before touching `season.ts`), `06-generation` (the week skeleton's staged decisions), `07-ai-layer`, `08-frontend`, `09-nutrition` (measured sensitivities and known biases, with their magnitudes). High-traffic files in those areas also carry an inline `// AI:` comment pointing at the relevant anchor.
 
