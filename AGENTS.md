@@ -21,11 +21,16 @@ Four defect shapes have shipped more than once. Check for them explicitly on rel
 
 # Parallel agent integration
 
-- `main` is integration-only. Implementation work runs in a fresh disposable worktree on
-  `claude/<task>` or `codex/<task>`, based on current `origin/main`.
+- On `main`, run `npm run sync` first (fetch + fast-forward + prune stale worktrees) — a stale local
+  `main` reads as wrong state, not just outdated.
+- `main` is integration-only. Start implementation work with
+  `npm run start:agent-task -- <claude|codex> <task-name>`, which creates a disposable worktree on a
+  guaranteed-correct `claude/<task>` or `codex/<task>` branch off current `origin/main`.
 - Parallel tasks must own disjoint files. If tasks overlap, use one writer and the other agent as
   reviewer.
 - Stage only files touched by the active task; never `git add -A` or `git add .`.
 - Finish committed work with `npm run finish:agent-task`. GitHub owns verification and integration;
-  the user does not manually merge normal tasks.
+  the user does not manually merge normal tasks. It is the *only* sanctioned integration path — a
+  manual `git push` + `gh pr create`/`gh pr merge` skips both the branch-naming and check gates and
+  must not be used, regardless of which agent is running.
 - Never bypass checks, force-push `main`, or automatically choose a side in a merge conflict.

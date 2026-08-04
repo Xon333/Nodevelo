@@ -41,6 +41,16 @@ through HR-59) fixed → [ARCHIVE.md](ARCHIVE.md) "Hostile review — block/sync
 
 ---
 
+**Post-2026-08-03: hybrid Claude + Codex workflow — shipped but not exercised live yet.** Sequential
+handoff is proven (3 Codex PRs landed 2026-08-03, zero regressions); the concurrency half of the
+design has not been exercised.
+
+- ☐ `audit` Two-agent concurrency dry run — deliberately run Claude and Codex at the same time on
+  disjoint files, and separately exercise the same-file writer/reviewer fallback once, before relying
+  on either under real time pressure.
+
+---
+
 **Post-2026-07-22-audit: shipped but not exercised live yet.** Not bugs — just never run against real
 data/hardware in the sweep that shipped them. Try when convenient, then check off.
 
