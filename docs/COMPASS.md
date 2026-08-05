@@ -76,6 +76,7 @@ model above if you're actually lost.
 | open/planned work | [../ROADMAP.md](../ROADMAP.md) (append IDs, never renumber) |
 | something that shipped | move its line to [../ARCHIVE.md](../ARCHIVE.md) |
 | a quick bug note | [../todo.md](../todo.md) |
+| a plan you only partially executed | [../ROADMAP.md](../ROADMAP.md) — state exactly which tasks shipped vs remain; never leave the plan doc in `docs/superpowers/plans/` as the only record (a 1-of-10-tasks shipment went untracked and unwired this way once — 2026-08-04) |
 | how a subsystem works | its `systems/0X-*.md` |
 | a file/route/LLM call site | [FILE_INDEX.md](FILE_INDEX.md) (call sites: [07-ai-layer](systems/07-ai-layer.md#every-llm-call-site)) |
 
