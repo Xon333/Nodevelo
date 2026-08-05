@@ -1067,9 +1067,10 @@ function dayTypeConfidence(windowDays: number, loggedDays: number, coverage: num
  * stays conservative instead of swinging on a handful of days. See docs/systems/09-nutrition.md.
  *
  * `pooled` is the SAME `calibrateNeat` call unchanged (its own default, CALIBRATION_PREFERRED_WINDOW_DAYS
- * = 42) — this function never widens or narrows that call's window. If pooled is null, this returns
- * null immediately: a day-type split cannot be more confident than the base calibration it shrinks
- * toward.
+ * = 42) — this function never widens or narrows that call's window. If pooled is null OR not a genuine
+ * derived solve (i.e. `pooled.source !== "derived"`, which also catches calibrateNeat's non-null STALE
+ * sentinel), this returns null immediately: a day-type split cannot be more confident than — nor solve
+ * against the same underlying data as — a base calibration that withheld or flagged itself untrustworthy.
  *
  * The day-type split itself runs over a WIDER trailing window (`windowDays`, default
  * DAY_TYPE_WINDOW_DAYS = 90) than the pooled call, because rest days are sparse for a training
@@ -1086,7 +1087,12 @@ export function calibrateNeatByDayType(
   windowDays: number = DAY_TYPE_WINDOW_DAYS
 ): DayTypeNeat | null {
   const pooled = calibrateNeat(wellness, activities, rmr, today);
-  if (pooled === null) return null;
+  // calibrateNeat signals "don't trust this" two ways: a bare `null` (below its confidence floor), or a
+  // non-null STALE sentinel (`source: "default"`, `stale: true`) when coverage is fine but the last logged
+  // day is more than CALIBRATION_MAX_STALENESS_DAYS ago. Checking only `=== null` let the stale case slip
+  // through and get solved against anyway — reject anything that isn't a genuine derived solve, which
+  // catches the stale sentinel (and any other non-derived shape) more robustly than testing `.stale` alone.
+  if (pooled === null || pooled.source !== "derived") return null;
 
   // Same convention as calibrateNeat: a date lands here when SOME activity on it has a burn that
   // can't be resolved. Excluded from both the day-type map and any subset's day count entirely.
@@ -1186,7 +1192,7 @@ export function calibrateNeatByDayType(
       weighIns: pooled.weighIns, // not day-type-specific in any meaningful sense — reuse verbatim
       solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
       imbalance, // from the PRE-shrink clamp — shrinkage never recomputes it
-      stale: false, // staleness already gated via pooled returning null
+      stale: false, // genuinely always true here: pooled is rejected above unless pooled.source === "derived"
       basis: "net", // solved against exerciseBurn above, and shrunk toward a pooled solve that also is
     };
     return { neat, weight };
