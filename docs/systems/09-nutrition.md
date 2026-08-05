@@ -11,7 +11,7 @@ computed in TypeScript. The LLM is handed the finished numbers and phrases them;
 ## The formula
 
 ```
-dailyTarget = (k_dayType × RMR)  +  activeBurnKcal  +  buffer
+dailyTarget = (k_dayType × RMR)  +  exerciseBurn  +  buffer
                ↑ estimated   ↑ measured        ↑ chosen
 ```
 
@@ -21,7 +21,7 @@ Exactly one term is an estimate. That is the whole design.
 |---|---|---|
 | `RMR` | Resting metabolic rate | Mifflin-St Jeor over weight/height/age/sex |
 | `k_dayType` | Non-exercise multiplier — NEAT **plus** the thermic effect of food, **never exercise**; calibrated separately for zero-activity and training days | Derived from the athlete's own logs (§ Calibration) |
-| `activeBurnKcal` | The activity's active calorie burn | Intervals.icu, **used verbatim** |
+| `exerciseBurn` | The activity's calorie burn **net of the resting cost of its own duration** | Intervals.icu's figure, minus `hours × RMR/24` (§ Active burn) |
 | `buffer` | The energy the weight goal requires | `rate × 7700 ÷ 7` (§ The buffer) |
 
 **Every day with zero resolved activity burn counts as a rest day.** This does not depend on whether a
@@ -42,15 +42,41 @@ Those edges are stated **against Mifflin-St Jeor specifically**. Mifflin under-p
 athletes by ~5–10%, so a derived `k` for such an athlete lands correspondingly high — the upper edge
 carries that bias. It is not a claim about human physiology.
 
-## Active burn is consumed verbatim
+## Active burn: taken verbatim, then netted of its own resting cost
 
 `ActivitySummary.kj` is **mechanical work** at the crank. Intervals.icu separately reports the activity's
-**active calorie burn**, derived from that same power data by the head unit. NodeVelo consumes the latter,
-unmodified.
+**calorie burn**, derived from that same power data by the head unit. NodeVelo takes that figure verbatim —
+no scaling, no re-derivation from `kj` — and then subtracts one thing from it, for one reason.
 
-`activeBurn()` in `lib/nutrition.ts` is the single accessor. No efficiency factor, no resting-cost
-subtraction, no scaling, no re-derivation from `kj`. Its only branch is a flagged `legacy: true` fallback
-to `kj` for activities synced before the field existed, so old and new data never silently mix bases.
+**The source figure is GROSS.** Wahoo (and Intervals passing it through) computes it as
+`kJ ÷ 0.239 ÷ 4.184 ≈ kJ` using **gross** metabolic efficiency, ~23.9%. Gross efficiency is defined in the
+exercise-physiology literature as mechanical work ÷ *total* energy expenditure — Zoladz et al. 2023
+(*J Physiol Pharmacol* 74(5)) states the decomposition outright: "the total V'O2 used for its calculation
+includes three components: (i) resting metabolic rate, (ii) the cost of unloaded cycling ('internal work')
+and (iii) the cost of generation of a given external power output." *Net* efficiency is the one defined
+above rest. Confirmed empirically on 161 of this athlete's activities: median `activeBurnKcal / kj` = 0.997.
+
+`k × RMR` already charges resting metabolism for **all 24 h** of the day, ride hours included. Adding a
+gross figure on top pays for those hours twice — ~130 kcal on a 2 h ride at RMR 1622. Worse, the double
+count scales with ride duration, so it lands **entirely on training days** and manufactures an apparent
+rest-vs-training NEAT difference that is really an accounting artifact. Netting it removed ~30% of the
+measured `k_rest`/`k_train` gap (157 → 109 kcal/day on real data).
+
+Two accessors in `lib/nutrition.ts`, and the distinction is load-bearing:
+
+- **`activeBurn(a)`** — the source figure, verbatim. Answers *"did this athlete train, and how much did
+  the head unit say?"* Day-type classification (rest vs training) uses **this**, because a short session
+  whose exercise cost nets to ~0 is still a training day.
+- **`exerciseBurn(a, restingKcalPerHour)`** — net of `hours × RMR/24`, floored at 0. This is what the
+  daily-target identity and calibration use. Floored because a manually-entered burn for a long easy
+  activity can net negative, and a negative exercise cost would subtract from the day's target.
+
+**The two bases must never mix.** A `k` fit against gross burn is only self-consistent when the target also
+adds gross burn; pairing a gross `k` with net burn under-feeds by exactly the netted amount. `NeatCalibration.basis`
+records which basis a solve used, `resolveNutritionModel` turns that into the model's `restingKcalPerHour`
+(0 = netting off), and every prescription-side burn sum nets by that figure. A pre-migration record — `basis`
+absent, parsing back as `undefined` — therefore keeps its own consistent gross pairing until the next sync
+re-solves. Read it with `=== "net"`, never `!== "gross"`.
 
 **A missing figure returns `null`, never `0`.** Coercing it would make a day of unknown burn read as a rest
 day and silently lower that day's target — the exact class of defect this module is built to avoid.
@@ -61,8 +87,8 @@ Rather than shipping a population guess, `calibrateNeat` solves the energy-balan
 trailing window:
 
 ```
-Σ intake − ( N·k·RMR + Σ activeBurn ) = Δmass · ρ          ρ = KCAL_PER_KG_TISSUE = 7700
-  ⇒  k = ( Σ intake − Σ activeBurn − Δmass·ρ ) / ( N · RMR )
+Σ intake − ( N·k·RMR + Σ exerciseBurn ) = Δmass · ρ        ρ = KCAL_PER_KG_TISSUE = 7700
+  ⇒  k = ( Σ intake − Σ exerciseBurn − Δmass·ρ ) / ( N · RMR )
 ```
 
 Four rules make this correct rather than merely plausible:
@@ -258,13 +284,28 @@ boundary depending on which weigh-in happened to be last. RMR still tracks curre
   hard confidence gate — conservative from day one, no discontinuity as data accrues. Live at n=5 logged
   rest days: weight 0.29, rest-day target 2230 (vs 2080 flat-`k` before this shipped). The raw (unshrunk)
   rest-day solve landed at 1.55 — within rounding of the review's original 1.53 finding from a completely
-  different data window, good convergent evidence the signal is real and stable, not an artifact of one
-  window choice. Plan: [day-type-neat-calibration.md](../superpowers/plans/2026-08-01-day-type-neat-calibration.md).
+  different data window. **That agreement rules out a *window* artifact and nothing more** (corrected
+  2026-08-05; it was previously written up as evidence the signal was real). Both windows share one
+  athlete, one set of logging habits and one gross-burn field, so they reproduce a shared bias rather than
+  independently confirming physiology — and `t≈6.2` measures how *consistent* the effect is, not what
+  causes it. Roughly 30% of it turned out to be the gross-burn double count (next entry).
+  Plan: [day-type-neat-calibration.md](../superpowers/plans/2026-08-01-day-type-neat-calibration.md).
   **A real cross-file bug was caught and fixed during this work, not deferred:** `buildNutritionReferenceRows`
   resolves a model per row (rest vs. training), but `repairNutrition`/`validateNutrition` originally
   validated a whole multi-day block against one shared model — once `k_rest` ≠ `k_train`, a correctly-copied
   rest-day figure would get falsely "corrected." Both now accept a day-type resolver; a live generated
   block confirmed zero false corrections on rest days.
+- **~109 kcal/day of the rest-vs-training `k` gap is still unexplained** (was 157 before the
+  net-of-resting fix, 2026-08-05). The identity cannot attribute it, because `calibrateNeatByDayType`
+  fits both subsets against **one shared `perDayDriftKg`** — there is no per-day-type weight anchor, so
+  any day-type-specific bias in intake logging lands entirely inside `k` with nothing to correct it.
+  Measured directly: a synthetic athlete with *identical* true `k` on both day types and only a
+  200 kcal/day training-day under-log produces `k_rest` 1.2495 vs `k_train` 1.1797 — the raw gap always
+  equals `underlog ÷ RMR`. On this athlete the residual is consistent with an ~11% relative under-log on
+  a 3268 kcal training day, comfortably inside the 20–30% athlete under-reporting range the module
+  already cites. Treat the split as a conservative empirical correction that errs toward more rest-day
+  food, **not** as a measurement of rest-day NEAT. Not resolvable without either day-type-specific weight
+  data or a second, independent intake source.
 - **Sustained non-energy weight offsets fool the identity.** Sensitivity is ~183 kcal/day per kg of
   mis-estimated mass over a 42-day window. Transients are rejected cleanly (±3 kg parked on the last 5 days
   moved `k` by *literally zero*), but a **+1.0 kg step held across half the window** — heat acclimation,

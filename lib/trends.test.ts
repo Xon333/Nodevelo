@@ -113,9 +113,9 @@ describe("weeklyEnergy (TRENDS-2)", () => {
   it("drops the in-progress current week, keeping complete weeks", () => {
     const out = weeklyEnergy(
       [
-        act({ date: "2026-06-02", kj: 500 }), // wk of 06-01
-        act({ date: "2026-06-09", kj: 600 }), // wk of 06-08
-        act({ date: "2026-06-16", kj: 400 }), // current wk 06-15 — dropped
+        act({ date: "2026-06-02", kj: 500, movingTimeSec: 0 }), // wk of 06-01
+        act({ date: "2026-06-09", kj: 600, movingTimeSec: 0 }), // wk of 06-08
+        act({ date: "2026-06-16", kj: 400, movingTimeSec: 0 }), // current wk 06-15 — dropped
       ],
       [],
       today
@@ -127,8 +127,8 @@ describe("weeklyEnergy (TRENDS-2)", () => {
   it("sums burn + intake and takes the median weekly weight", () => {
     const out = weeklyEnergy(
       [
-        act({ date: "2026-06-01", kj: 500 }),
-        act({ date: "2026-06-03", kj: 700 }),
+        act({ date: "2026-06-01", kj: 500, movingTimeSec: 0 }),
+        act({ date: "2026-06-03", kj: 700, movingTimeSec: 0 }),
       ],
       [
         well({ date: "2026-06-01", kcalConsumed: 2000, weightKg: 70 }),
@@ -179,9 +179,9 @@ describe("weeklyEnergy balance columns", () => {
     { date: "2026-06-28", kcalConsumed: 2500 }, // rest day
   ].map((w) => well(w));
   const activities = [
-    { date: "2026-06-23", kj: 1000 },
-    { date: "2026-06-26", kj: 1500 },
-    { date: "2026-06-27", kj: 800 },
+    { date: "2026-06-23", kj: 1000, movingTimeSec: 0 },
+    { date: "2026-06-26", kj: 1500, movingTimeSec: 0 },
+    { date: "2026-06-27", kj: 800, movingTimeSec: 0 },
   ].map((a) => act(a));
 
   it("computes need day-matched to logged-intake days and the ratio", () => {
@@ -204,6 +204,7 @@ describe("weeklyEnergy balance columns", () => {
 describe("weeklyEnergy need calculation", () => {
   const MODEL: NutritionModel = {
     kind: "derived", rmr: 1800, neatMultiplier: 1.2, weightKg: 75, targetWeightKg: 78, buffer: 300,
+    restingKcalPerHour: 0,
   };
   // MIN_LOGGED_DAYS_FOR_BALANCE (4) gates needKcal/ratio regardless of which formula computes need,
   // so these fixtures log 4 days in the week of Mon 2026-06-15 (today "2026-06-29" makes it complete)
@@ -214,7 +215,7 @@ describe("weeklyEnergy need calculation", () => {
 
   it("counts an off-bike activity's active burn toward need", () => {
     const activities = [
-      { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null },
+      { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null, movingTimeSec: 0 },
     ] as unknown as ActivitySummary[];
     const [week] = weeklyEnergy(activities, fourLoggedDays, "2026-06-29", MODEL);
     // 3 days with no activity: 1.2 × 1800 + 300 = 2460 each. The Run's day: 1.2 × 1800 + 500 + 300 =
@@ -227,7 +228,7 @@ describe("weeklyEnergy need calculation", () => {
     const restModel: NutritionModel = { ...MODEL, neatMultiplier: 1.5, buffer: 0 };
     const trainModel: NutritionModel = { ...MODEL, neatMultiplier: 1.2, buffer: 0 };
     const activities = [
-      { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null },
+      { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null, movingTimeSec: 0 },
     ] as unknown as ActivitySummary[];
 
     const [week] = weeklyEnergy(
@@ -245,8 +246,7 @@ describe("weeklyEnergy need calculation", () => {
       date: "2026-06-19", weightKg: 75, kcalConsumed: 5000,
     }] as unknown as WellnessEntry[];
     const activities = [{
-      date: "2026-06-19", type: "Run", activeBurnKcal: null, kj: null,
-    }] as unknown as ActivitySummary[];
+      date: "2026-06-19", type: "Run", activeBurnKcal: null, kj: null, movingTimeSec: 0 }] as unknown as ActivitySummary[];
 
     const [week] = weeklyEnergy(activities, wellness, "2026-06-29", MODEL);
 
@@ -258,7 +258,7 @@ describe("weeklyEnergy need calculation", () => {
 
   it("never computes a lower need for a day with activity than for one without", () => {
     const withWalk = weeklyEnergy(
-      [{ date: "2026-06-16", type: "Walk", activeBurnKcal: 150, kj: null }] as unknown as ActivitySummary[],
+      [{ date: "2026-06-16", type: "Walk", activeBurnKcal: 150, kj: null, movingTimeSec: 0 }] as unknown as ActivitySummary[],
       fourLoggedDays, "2026-06-29", MODEL
     )[0];
     const withNothing = weeklyEnergy([], fourLoggedDays, "2026-06-29", MODEL)[0];

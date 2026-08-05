@@ -9,6 +9,8 @@ import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecor
 const defaultNeat = {
   multiplier: 1.2, confidence: "low" as const, source: "default" as const,
   windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+  // Mirrors DEFAULT_PROFILE: the population prior belongs to the net burn basis (see data-store.ts).
+  basis: "net" as const,
 };
 
 const baseProfile = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
@@ -352,6 +354,30 @@ describe("updateCurrentBlock", () => {
 });
 
 describe("shapeMergeProfile", () => {
+  // The net-of-resting migration hinges on this: a pre-migration `neat` (fit against GROSS burn, no
+  // `basis` key) must come back with `basis` STILL undefined, so resolveNutritionModel keeps netting
+  // off and the record stays paired with the burn basis it was actually solved against. If the
+  // `nutrition` merge ever became a deep merge, DEFAULT_PROFILE's `basis: "net"` would be injected into
+  // that record and silently under-feed by the netted amount (~130 kcal on a 2 h ride).
+  it("does NOT inject a default calibration basis into an existing pre-migration neat record", () => {
+    const preMigration = {
+      performance: { ftp: 250, maxHr: 195, thresholdHr: 175, weightKg: 70, weeklyHoursMin: 5, weeklyHoursMax: 9 },
+      nutrition: {
+        ...baseProfile().nutrition,
+        neat: { multiplier: 1.2749, confidence: "high", source: "derived", windowDays: 42, loggedDays: 39, weighIns: 20, solvedAt: null, imbalance: null, stale: false },
+      },
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    };
+    const merged = shapeMergeProfile(preMigration);
+    expect(merged.nutrition.neat.basis).toBeUndefined();
+    expect(merged.nutrition.neat.multiplier).toBe(1.2749);
+  });
+
+  it("supplies the net basis for a profile that has no neat record at all", () => {
+    const merged = shapeMergeProfile({ performance: { ftp: 250 }, updatedAt: "2026-08-01T00:00:00.000Z" });
+    expect(merged.nutrition.neat.basis).toBe("net");
+  });
+
   it("HR-43: fills in missing fields from an old-format profile (predating goals/weakpoints/nutrition) instead of leaving them undefined", () => {
     const oldFormat = { performance: { ftp: 250, maxHr: 195, thresholdHr: 175, weightKg: 70, weeklyHoursMin: 5, weeklyHoursMax: 9 }, updatedAt: "2025-01-01T00:00:00.000Z" };
     const merged = shapeMergeProfile(oldFormat);

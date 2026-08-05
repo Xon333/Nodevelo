@@ -90,8 +90,8 @@ describe("day-type resolver (DT Task 2b)", () => {
   // Two deliberately DIVERGENT models — mirrors k_rest vs k_train once calibrateNeatByDayType has
   // adopted a real split. A single-model check (the old signature) MUST trip on at least one of these
   // two days; a day-type-aware resolver must trip on neither.
-  const REST_MODEL: NutritionModel = { kind: "derived", rmr: 1630, neatMultiplier: 1.6, weightKg: 62, targetWeightKg: 63, buffer: 60 };
-  const TRAIN_MODEL: NutritionModel = { kind: "derived", rmr: 1630, neatMultiplier: 1.2, weightKg: 62, targetWeightKg: 63, buffer: 60 };
+  const REST_MODEL: NutritionModel = { kind: "derived", rmr: 1630, neatMultiplier: 1.6, restingKcalPerHour: 0, weightKg: 62, targetWeightKg: 63, buffer: 60 };
+  const TRAIN_MODEL: NutritionModel = { kind: "derived", rmr: 1630, neatMultiplier: 1.2, restingKcalPerHour: 0, weightKg: 62, targetWeightKg: 63, buffer: 60 };
   const resolver = (isRestDay: boolean) => (isRestDay ? REST_MODEL : TRAIN_MODEL);
 
   const restIntake = calculateDailyTarget(0, REST_MODEL, 60, true).dailyTarget;

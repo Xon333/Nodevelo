@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   activeBurn,
+  type BurnActivity,
+  exerciseBurn,
   adjustBuffer,
   balanceLevel,
   buildNutritionReferenceRows,
@@ -276,6 +278,7 @@ describe("resolveBuffer", () => {
 
 const DERIVED: NutritionModel = {
   kind: "derived",
+  restingKcalPerHour: 0,
   rmr: 1800,
   neatMultiplier: 1.2,
   weightKg: 75,
@@ -321,6 +324,7 @@ describe("calculateDailyTarget (derived)", () => {
 
   it("never prescribes below resting metabolic rate", () => {
     const m: NutritionModel = { kind: "derived", rmr: 1631, neatMultiplier: 1.2,
+    restingKcalPerHour: 0,
       weightKg: 62, targetWeightKg: 63, buffer: -500 };
     const p = calculateDailyTarget(0, m, -500, true);
     expect(p.dailyTarget).toBeGreaterThanOrEqual(1631);
@@ -329,6 +333,7 @@ describe("calculateDailyTarget (derived)", () => {
 
   it("does not floor a normal day", () => {
     const m: NutritionModel = { kind: "derived", rmr: 1631, neatMultiplier: 1.3,
+    restingKcalPerHour: 0,
       weightKg: 62, targetWeightKg: 63, buffer: 300 };
     expect(calculateDailyTarget(800, m, 300, false).floored).toBe(false);
   });
@@ -395,8 +400,8 @@ describe("computeNutritionTrendWarning", () => {
     });
     const activities = Array.from(new Set([...activityBurnByIndex.keys(), ...unresolvedBurnIndices])).map((index) =>
       unresolved.has(index)
-        ? { date: dateAt(index), activeBurnKcal: null, kj: null }
-        : { date: dateAt(index), activeBurnKcal: activityBurnByIndex.get(index)!, kj: null }
+        ? { date: dateAt(index), activeBurnKcal: null, kj: null, movingTimeSec: 0 }
+        : { date: dateAt(index), activeBurnKcal: activityBurnByIndex.get(index)!, kj: null, movingTimeSec: 0 }
     );
     return { wellness, activities };
   };
@@ -477,7 +482,7 @@ describe("computeNutritionTrendWarning", () => {
     });
     const activities = wellness
       .filter((_, index) => index % 2 === 1)
-      .map(({ date }) => ({ date, activeBurnKcal: 500, kj: null }));
+      .map(({ date }) => ({ date, activeBurnKcal: 500, kj: null, movingTimeSec: 0 }));
 
     const result = computeNutritionTrendWarning(
       wellness,
@@ -495,12 +500,17 @@ describe("computeNutritionTrendWarning", () => {
 
     expect(result).toMatchObject({ adherenceRatio: 1, loggedDays: 21 });
     expect(restResolutions).toBe(11);
-    expect(trainResolutions).toBe(10);
+    // 10 training days + ONE extra: computeNutritionTrendWarning probes the resolver once up front
+    // (`modelOrResolver(false)`) to read the netting rate `exerciseBurn` needs, since both day types
+    // share one rmr and one calibration basis. Deliberately still an exact count rather than a
+    // `toBeGreaterThan` — the point of pinning it is to catch an N+1 resolve per day, which would show
+    // up here as ~20, not as 11.
+    expect(trainResolutions).toBe(10 + 1);
   });
 
   it("excludes a whole date when resolved and unresolved activities share it", () => {
     const { wellness, activities } = buildInput();
-    activities.push({ date: dateAt(2), activeBurnKcal: null, kj: null });
+    activities.push({ date: dateAt(2), activeBurnKcal: null, kj: null, movingTimeSec: 0 });
 
     expect(computeNutritionTrendWarning(wellness, activities, TREND_MODEL, TODAY, 80, 0.15, 300))
       .toMatchObject({ adherenceRatio: 1, loggedDays: 20 });
@@ -732,7 +742,7 @@ describe("computeEnergyAvailability", () => {
   const w = (date: string, kcalConsumed: number | null, weightKg: number | null = 60): WellnessEntry => ({
     date, weightKg, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed, ctl: null, atl: null,
   });
-  const ride = (date: string, kj: number) => ({ date, kj, activeBurnKcal: null });
+  const ride = (date: string, kj: number) => ({ date, kj, activeBurnKcal: null, movingTimeSec: 0 });
 
   it("averages (intake − burn)/kg over complete days and EXCLUDES today's partial intake", () => {
     const wellness = [
@@ -781,11 +791,11 @@ describe("computeEnergyAvailability", () => {
       w("2026-06-14", 3000),
     ];
     const acts = [
-      { date: "2026-06-10", kj: 1200, activeBurnKcal: null },
-      { date: "2026-06-11", kj: 1200, activeBurnKcal: null },
-      { date: "2026-06-12", kj: 1200, activeBurnKcal: null },
-      { date: "2026-06-13", kj: null, activeBurnKcal: null }, // unresolved — NOT a rest day
-      { date: "2026-06-14", kj: 1200, activeBurnKcal: null },
+      { date: "2026-06-10", kj: 1200, activeBurnKcal: null, movingTimeSec: 0 },
+      { date: "2026-06-11", kj: 1200, activeBurnKcal: null, movingTimeSec: 0 },
+      { date: "2026-06-12", kj: 1200, activeBurnKcal: null, movingTimeSec: 0 },
+      { date: "2026-06-13", kj: null, activeBurnKcal: null, movingTimeSec: 0 }, // unresolved — NOT a rest day
+      { date: "2026-06-14", kj: 1200, activeBurnKcal: null, movingTimeSec: 0 },
     ];
     const ea = computeEnergyAvailability(wellness, acts, "2026-06-15")!;
     // Without the fix, 06-13 folds in at (3000 − 0)/60 = 50, dragging the mean up to 32 over 5 days.
@@ -870,9 +880,100 @@ describe("activeBurn", () => {
   });
 });
 
+describe("exerciseBurn (net of resting cost)", () => {
+  const RMR = 1622;
+  const perHour = RMR / 24; // 67.583…
+  const ride = (over: Partial<BurnActivity> = {}): BurnActivity =>
+    ({ date: "2026-08-05", activeBurnKcal: 1474, kj: 1473, movingTimeSec: 7140, ...over });
+
+  it("subtracts the ride's own resting-equivalent cost from the gross source figure", () => {
+    // The live 2026-08-05 ride: 1.983 h at RMR 1622 → 134 kcal of resting metabolism that k×RMR is
+    // already paying for across the full day. 1474 − 134 = 1340.
+    expect(exerciseBurn(ride(), perHour)!.kcal).toBeCloseTo(1474 - (7140 / 3600) * perHour, 6);
+    expect(Math.round(exerciseBurn(ride(), perHour)!.kcal)).toBe(1340);
+  });
+
+  it("is a no-op at rate 0, so a gross-basis calibration keeps its own consistent pairing", () => {
+    // This is the migration guarantee, not a degenerate case: pairing a gross-fit k with net burn
+    // under-feeds by exactly the netted amount, so restingKcalPerHour 0 must return the source figure
+    // untouched.
+    expect(exerciseBurn(ride(), 0)).toEqual({ kcal: 1474, legacy: false });
+  });
+
+  it("nets the legacy kj branch too, and keeps the legacy flag", () => {
+    expect(exerciseBurn(ride({ activeBurnKcal: null }), perHour)).toEqual({
+      kcal: 1473 - (7140 / 3600) * perHour,
+      legacy: true,
+    });
+  });
+
+  it("floors at 0 rather than returning a negative exercise cost", () => {
+    // A manually-entered burn for a long, very easy activity (an hour's walk logged at 30 kcal) nets
+    // below zero. A negative "exercise cost" would SUBTRACT from the day's target — never a real
+    // quantity, and the wrong direction for a chronically underfuelled athlete.
+    expect(exerciseBurn(ride({ activeBurnKcal: 30, kj: null, movingTimeSec: 3600 }), perHour)!.kcal).toBe(0);
+  });
+
+  it("still returns null — never 0 — when the burn itself is unresolvable", () => {
+    // Distinct from the floor above: an unknown burn must stay unknown, so the day is excluded rather
+    // than read as a rest day.
+    expect(exerciseBurn(ride({ activeBurnKcal: null, kj: null }), perHour)).toBeNull();
+  });
+
+  it("treats a missing duration as un-nettable rather than guessing one", () => {
+    const noDuration = { date: "d", activeBurnKcal: 500, kj: null } as unknown as BurnActivity;
+    expect(exerciseBurn(noDuration, perHour)!.kcal).toBe(500);
+  });
+});
+
+describe("resolveNutritionModel — burn basis (net-of-resting migration)", () => {
+  const withRmrInputs = (neat: Partial<NeatCalibration>): AthleteProfile =>
+    ({
+      performance: { dateOfBirth: "2006-05-28", heightCm: 177, sex: "male", weightKg: 62 },
+      nutrition: {
+        baseCalories: 2000,
+        restDayTarget: 2600,
+        buffer: 0,
+        targetWeightKg: 63,
+        targetRateKgPerWeek: null,
+        neat: { multiplier: 1.3, confidence: "high", source: "derived", windowDays: 42, loggedDays: 39, weighIns: 20, solvedAt: null, imbalance: null, stale: false, ...neat },
+        dayTypeNeat: null,
+      },
+    }) as unknown as AthleteProfile;
+
+  it("enables netting once the calibration behind the multiplier is net-basis", () => {
+    const m = resolveNutritionModel(withRmrInputs({ basis: "net" }), 62, "2026-08-05", false);
+    expect(m.kind).toBe("derived");
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.restingKcalPerHour).toBeCloseTo(m.rmr / 24, 9);
+  });
+
+  // AGENTS.md migration-flag gotcha, and the one that actually protects the athlete here: a
+  // profile.json written before `basis` existed parses it back as `undefined`. Netting must stay OFF
+  // for that record — its k was fit against gross burn, and pairing it with net burn silently
+  // under-feeds by ~130 kcal on a 2 h ride until the next sync re-solves.
+  it("leaves netting OFF for a pre-migration record whose basis is absent (undefined)", () => {
+    const m = resolveNutritionModel(withRmrInputs({}), 62, "2026-08-05", false);
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.restingKcalPerHour).toBe(0);
+  });
+
+  it("reads the basis off the day-type record actually supplying the multiplier, not the pooled one", () => {
+    // A gross-basis split must not inherit netting from a net-basis pooled record sitting beside it.
+    const netNeat: NeatCalibration = { multiplier: 1.3, confidence: "high", source: "derived", windowDays: 42, loggedDays: 39, weighIns: 20, solvedAt: null, imbalance: null, stale: false, basis: "net" };
+    const grossSplit: NeatCalibration = { ...netNeat, multiplier: 1.45, basis: undefined };
+    const profile = withRmrInputs({ basis: "net" });
+    profile.nutrition.dayTypeNeat = { rest: grossSplit, train: grossSplit, pooled: netNeat, shrinkageWeight: { rest: 0.3, train: 0.9 } };
+    const m = resolveNutritionModel(profile, 62, "2026-08-05", true);
+    if (m.kind !== "derived") throw new Error("unreachable");
+    expect(m.neatMultiplier).toBe(1.45); // the split IS in force
+    expect(m.restingKcalPerHour).toBe(0); // …so its own gross basis governs
+  });
+});
+
 describe("isRestDayFor", () => {
-  const act = (over: Partial<Parameters<typeof activeBurn>[0] & { date: string }>) =>
-    ({ date: "2026-07-30", activeBurnKcal: null, kj: null, ...over });
+  const act = (over: Partial<BurnActivity>) =>
+    ({ date: "2026-07-30", activeBurnKcal: null, kj: null, ...over, movingTimeSec: 0 });
 
   it("is true when there's no activity at all on the date", () => {
     expect(isRestDayFor([act({ date: "2026-07-29" })], "2026-07-30")).toBe(true);
@@ -892,7 +993,7 @@ describe("isRestDayFor", () => {
 
   it("sums resolvable burn across multiple activities on the same date", () => {
     expect(
-      isRestDayFor([act({ activeBurnKcal: 0 }), act({ kj: 300 }), act({ date: "2026-07-29", activeBurnKcal: 900 })], "2026-07-30")
+      isRestDayFor([act({ activeBurnKcal: 0 }), act({ kj: 300 }), act({ date: "2026-07-29", activeBurnKcal: 900, movingTimeSec: 0 })], "2026-07-30")
     ).toBe(false);
   });
 });
@@ -1092,7 +1193,7 @@ describe("calibrateNeat", () => {
       const date = new Date(Date.UTC(2026, 5, 1) + i * 86_400_000).toISOString().slice(0, 10);
       wellness.push({ date, weightKg: 62, kcalConsumed: k * rmr + burnPerDay } as WellnessEntry);
     }
-    const activities = wellness.map((w) => ({ date: w.date, activeBurnKcal: burnPerDay, kj: null }));
+    const activities = wellness.map((w) => ({ date: w.date, activeBurnKcal: burnPerDay, kj: null, movingTimeSec: 0 }));
     return { wellness, activities };
   };
 
@@ -1165,12 +1266,12 @@ describe("calibrateNeat", () => {
 
     it("decrements N for a day excluded because its activity burn is unresolvable", () => {
       const { wellness, activities: baseActivities } = synth(1.3, 42, 1631, 1000);
-      const activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null }> =
+      const activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null; movingTimeSec: number }> =
         baseActivities.map((a) => ({ ...a }));
       // One mid-window day's burn is unresolvable (no activeBurnKcal AND no kj) — it must drop out of
       // sumBurn AND out of N, or the k·RMR term counts a day whose burn was never actually summed,
       // which is the ~1.5% imbalance the Task 3 implementer flagged.
-      activities[20] = { date: activities[20].date, activeBurnKcal: null, kj: null };
+      activities[20] = { date: activities[20].date, activeBurnKcal: null, kj: null, movingTimeSec: 0 };
       const r = calibrateNeat(wellness, activities, 1631, "2026-07-13", 42)!;
       expect(r).not.toBeNull();
       // Uniform synthetic intake makes the true multiplier exactly recoverable once N excludes the
@@ -1206,7 +1307,7 @@ describe("calibrateNeat", () => {
         const date = new Date(Date.UTC(2026, 5, 1) + i * 86_400_000).toISOString().slice(0, 10); // cutoff = 2026-06-01
         inWindow.push({ date, weightKg: 62, kcalConsumed: k * rmr + burnPerDay } as WellnessEntry);
       }
-      const activities = inWindow.map((w) => ({ date: w.date, activeBurnKcal: burnPerDay, kj: null }));
+      const activities = inWindow.map((w) => ({ date: w.date, activeBurnKcal: burnPerDay, kj: null, movingTimeSec: 0 }));
       return { wellness: [...preWindow, ...inWindow], activities };
     };
 
@@ -1265,7 +1366,7 @@ describe("calibrateNeatByDayType", () => {
   // and the test can assert the raw (pre-shrinkage) recovery of the day-type split.
   function synth(nRest: number, nTrain: number, kRest: number, kTrain: number, trainBurn = 1200) {
     const wellness: WellnessEntry[] = [];
-    const activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null }> = [];
+    const activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null; movingTimeSec: number }> = [];
     let day = 0;
     for (let i = 0; i < nRest; i++, day++) {
       const date = new Date(Date.UTC(2026, 4, 1) + day * 86_400_000).toISOString().slice(0, 10);
@@ -1274,7 +1375,7 @@ describe("calibrateNeatByDayType", () => {
     for (let i = 0; i < nTrain; i++, day++) {
       const date = new Date(Date.UTC(2026, 4, 1) + day * 86_400_000).toISOString().slice(0, 10);
       wellness.push({ date, weightKg: 62, kcalConsumed: kTrain * RMR + trainBurn } as WellnessEntry);
-      activities.push({ date, activeBurnKcal: trainBurn, kj: null });
+      activities.push({ date, activeBurnKcal: trainBurn, kj: null, movingTimeSec: 0 });
     }
     return {
       wellness,
@@ -1358,7 +1459,7 @@ describe("computeUnderfuelStreak / loggedDaysForStreak", () => {
   const wDay = (date: string, kcalConsumed: number | null): WellnessEntry => ({
     date, weightKg: 62, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed, ctl: null, atl: null,
   });
-  const actFor = (date: string, activeBurnKcal: number | null, kj: number | null = null) => ({ date, activeBurnKcal, kj });
+  const actFor = (date: string, activeBurnKcal: number | null, kj: number | null = null) => ({ date, activeBurnKcal, kj, movingTimeSec: 0 });
 
   it("pins the spec's constants verbatim", () => {
     expect(UNDERFUEL_RATIO_BELOW).toBe(0.95);

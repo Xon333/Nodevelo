@@ -3,7 +3,7 @@
 // PRs), then hands the already-fetched results to buildTodayAnalysis, which computes the metrics and
 // assembles the TodayAnalysis. Splitting it out makes the hardest part of the sync (execution scoring,
 // compliance capping, advised intake, coach-note preservation) unit-testable without mocking HTTP.
-import { activeBurn, calculateDailyTarget, type NutritionModel } from "./nutrition";
+import { calculateDailyTarget, exerciseBurn, restingKcalPerHourOf, type NutritionModel } from "./nutrition";
 import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
 import { gradeDurabilityDelivery, EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
@@ -114,7 +114,12 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
   // Resolved burn, not the raw kj field: the highest-visibility consumer of activeBurnKcal must not
   // bypass the one accessor that knows how to read it (C1). withheld (null), never 0, when unknown.
   const intake = computeAdvisedIntake(
-    activeBurn(activity)?.kcal ?? null,
+    // NET of the ride's own resting-equivalent cost, at the rate the model's own calibration basis
+    // dictates — `k × RMR` already charges resting metabolism for these hours (lib/nutrition.ts's
+    // exerciseBurn). Still routed through the shared accessor, so kj-only legacy activities and
+    // activeBurnKcal-only activities are handled the one way the codebase agrees on (C1), and an
+    // unresolvable burn still withholds (null) rather than reading as 0.
+    exerciseBurn(activity, restingKcalPerHourOf(input.nutrition.model))?.kcal ?? null,
     input.nutrition.model,
     input.nutrition.bufferApplied
   );

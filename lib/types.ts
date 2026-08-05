@@ -92,6 +92,19 @@ export interface NeatCalibration {
   // `source: "default"` NeatCalibration rather than a bare null so Task 5 can render the distinction
   // (see calibrateNeat's staleness guard).
   stale: boolean;
+  // Which activity-burn basis this solve was fit against. `"net"` means the burn summed into the
+  // identity had each activity's resting-equivalent cost (`durationHours × RMR/24`) removed first;
+  // absent/`"gross"` means it was fit against the source figure verbatim, which double-counts resting
+  // metabolism for the ride's duration (see lib/nutrition.ts's `exerciseBurn`).
+  //
+  // MIGRATION-CRITICAL, and read with a truthy `=== "net"` check, never `!== "gross"`: a profile.json
+  // written before this field existed parses it back as `undefined`. A `k` fit against gross burn is
+  // only self-consistent when the daily target ALSO adds gross burn — mixing a gross-basis `k` with
+  // net burn silently under-feeds by the netted amount (~130 kcal on a 2 h ride). `resolveNutritionModel`
+  // therefore derives `restingKcalPerHour` from this field and every prescription-side burn sum nets by
+  // that figure, so a pre-migration record keeps its own consistent (gross) pairing until the next sync
+  // re-solves and writes `"net"`. The two never mix.
+  basis?: "gross" | "net";
 }
 
 // Rest-day / training-day split of the pooled calibrateNeat solve (lib/nutrition.ts's
@@ -172,9 +185,13 @@ export interface ActivitySummary {
   kj: number | null; // total work in kJ
   // Intervals.icu's reported ACTIVE CALORIE BURN for the activity, in kcal. Present for every activity
   // type — including runs, hikes and gym work with no power meter — which is what makes off-bike energy
-  // count at all. Used VERBATIM by activeBurn(): never scaled, never adjusted for resting metabolism,
-  // never re-derived from kj. `kj` remains alongside it as what it actually is (mechanical work), and is
-  // no longer an energy proxy except in activeBurn()'s flagged legacy branch.
+  // count at all. This figure is GROSS metabolic cost — it is derived from mechanical work via GROSS
+  // efficiency (~23.9%), which by its literature definition puts resting metabolic rate inside the
+  // denominator, so the resting cost of the activity's own duration is already baked in. `activeBurn()`
+  // returns it verbatim (never scaled, never re-derived from kj); `exerciseBurn()` is the accessor that
+  // nets the resting share out, and is what the daily-target identity uses — see lib/nutrition.ts.
+  // `kj` remains alongside it as what it actually is (mechanical work), and is no longer an energy proxy
+  // except in activeBurn()'s flagged legacy branch.
   activeBurnKcal: number | null;
   trainingLoad: number | null;
   rpe: number | null; // icu_rpe, 1-10
