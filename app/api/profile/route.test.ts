@@ -32,7 +32,7 @@ vi.mock("@/lib/physiology", () => ({
 import * as store from "@/lib/data-store";
 import { GET, PUT } from "@/app/api/profile/route";
 import { DEFAULT_NEAT_MULTIPLIER, NEAT_PLAUSIBLE_MAX, NEAT_PLAUSIBLE_MIN } from "@/lib/nutrition";
-import type { AthleteProfile, ActivitySummary, WellnessEntry } from "@/lib/types";
+import type { AthleteProfile, ActivitySummary, WellnessEntry, DayTypeNeat } from "@/lib/types";
 
 // The route never touches `neat` (it's calibrateNeat's output, adopted on sync — Phase 2), so every
 // fixture/expectation below carries this same value through untouched.
@@ -50,6 +50,16 @@ const base = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   updatedAt: "2026-01-01T00:00:00Z",
   ...over,
 });
+
+// A genuinely-adopted rest/train split (bugfix regression fixture): rest and train multipliers
+// differ meaningfully (as a real calibrateNeatByDayType solve would produce), and the pooled solve's
+// `source` is "derived" so it looks exactly like data that survived a real sync, not a fresh default.
+const dayTypeNeatFixture: DayTypeNeat = {
+  rest: { ...defaultNeat, multiplier: 1.37, source: "derived", confidence: "high", windowDays: 42, loggedDays: 18, weighIns: 9 },
+  train: { ...defaultNeat, multiplier: 1.27, source: "derived", confidence: "high", windowDays: 42, loggedDays: 22, weighIns: 11 },
+  pooled: { ...defaultNeat, multiplier: 1.32, source: "derived", confidence: "high", windowDays: 42, loggedDays: 40, weighIns: 20 },
+  shrinkageWeight: { rest: 0.6, train: 0.7 },
+};
 
 const updateMock = () => store.updateAthleteProfile as ReturnType<typeof vi.fn>;
 // Seeds the plain (unlocked) reads the revert path does BEFORE the lock — readAthleteProfile (for the
@@ -321,6 +331,59 @@ describe("PUT /api/profile — neatMultiplier override (Step 5)", () => {
     seedCurrentProfile(base());
     const json = await (await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null } })).json();
     expect(json.nutrition.neat).toEqual(defaultNeat);
+  });
+
+  // Bugfix: `dayTypeNeat` is a solve-derived sibling of `neat` (same calibration lineage, adopted on
+  // sync under the same override guard). Before this fix, both the reset and manual-override branches
+  // rewrote `neat` via `nonDerivedNeatCalibration` but let `dayTypeNeat` fall through unchanged from
+  // `current.nutrition` — so a stale pre-override rest/train split kept driving resolveNutritionModel's
+  // daily target the instant `neat.source` stopped being `"override"` (i.e. immediately on reset, since
+  // reset lands on `"default"`/`"derived"`), until the athlete's next sync happened to re-solve it.
+  it("reset (neatMultiplier: null) clears a stale dayTypeNeat split instead of leaving it live", async () => {
+    // base()'s performance has no RMR inputs, so this resolves "legacy" and the revert can't re-derive
+    // — falls back to the population default. Irrelevant to what's under test (dayTypeNeat clearing),
+    // which must happen on EITHER outcome of the reset branch.
+    const withSplit = base({
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
+        neat: { ...defaultNeat, multiplier: 1.32, source: "derived", confidence: "high", windowDays: 42, loggedDays: 40, weighIns: 20 },
+        dayTypeNeat: dayTypeNeatFixture,
+      },
+    });
+    seedCurrentProfile(withSplit);
+    seedReadsForRevert(withSplit, null);
+    const json = await (await put({ nutrition: { neatMultiplier: null } })).json();
+    expect(json.nutrition.dayTypeNeat).toBeNull();
+  });
+
+  it("a manual override (neatMultiplier: <value>) clears a stale dayTypeNeat split instead of leaving it live", async () => {
+    const withSplit = base({
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
+        neat: { ...defaultNeat, multiplier: 1.32, source: "derived", confidence: "high", windowDays: 42, loggedDays: 40, weighIns: 20 },
+        dayTypeNeat: dayTypeNeatFixture,
+      },
+    });
+    seedCurrentProfile(withSplit);
+    const json = await (await put({ nutrition: { neatMultiplier: 1.3 } })).json();
+    expect(json.nutrition.neat.source).toBe("override");
+    expect(json.nutrition.dayTypeNeat).toBeNull();
+  });
+
+  it("leaves an existing dayTypeNeat split completely untouched when neatMultiplier is absent (non-regression)", async () => {
+    const withSplit = base({
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
+        neat: { ...defaultNeat, multiplier: 1.32, source: "derived", confidence: "high", windowDays: 42, loggedDays: 40, weighIns: 20 },
+        dayTypeNeat: dayTypeNeatFixture,
+      },
+    });
+    seedCurrentProfile(withSplit);
+    // A base-four-only PUT (no neatMultiplier at all) must not disturb dayTypeNeat.
+    const json = await (
+      await put({ nutrition: { baseCalories: 2200, restDayTarget: 2700, buffer: 350, targetWeightKg: 67, targetRateKgPerWeek: null } })
+    ).json();
+    expect(json.nutrition.dayTypeNeat).toEqual(dayTypeNeatFixture);
   });
 });
 
