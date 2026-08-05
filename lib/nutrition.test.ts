@@ -26,6 +26,7 @@ import {
   NEAT_PLAUSIBLE_MIN,
   preRideCarbTarget,
   resolveBuffer,
+  resolveNeatImbalance,
   resolveNutritionModel,
   restingMetabolicRate,
   DEFAULT_NEAT_MULTIPLIER,
@@ -46,7 +47,7 @@ import {
   weightTrendPreciseFromWellness,
   type NutritionModel,
 } from "./nutrition";
-import type { AthleteProfile, DayTypeNeat, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
+import type { AthleteProfile, DayTypeNeat, EnergyImbalanceFinding, NeatCalibration, WellnessEntry, WorkoutType } from "./types";
 
 
 describe("desiredWeightTrend", () => {
@@ -1471,6 +1472,80 @@ describe("calibrateNeatByDayType", () => {
     const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
     expect(r.rest.imbalance).not.toBeNull();
     expect(r.rest.imbalance!.candidates.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ---------- resolveNeatImbalance (day-type-aware imbalance pick, review task 2.1) ----------
+// Bug this guards: app/api/sync/route.ts used to read ONLY profile.nutrition.neat.imbalance (the
+// pooled solve). Once a rest/train split is adopted, the POOLED solve can clear cleanly while one
+// split alone is out-of-band-clamped — that live finding was silently unreachable. resolveNeatImbalance
+// is the fix's single source of truth for "which imbalance does the Today card show right now".
+describe("resolveNeatImbalance", () => {
+  const finding = (over: Partial<EnergyImbalanceFinding> = {}): EnergyImbalanceFinding => ({
+    direction: "intake-above-model",
+    estimatedKcalPerDay: 60,
+    candidates: ["food-log under-reporting", "RMR-equation error"],
+    note: "test finding",
+    ...over,
+  });
+  const cal = (over: Partial<NeatCalibration> = {}): NeatCalibration => ({
+    multiplier: 1.3, confidence: "high", source: "derived", windowDays: 42, loggedDays: 35,
+    weighIns: 20, solvedAt: "2026-06-21", imbalance: null, stale: false,
+    ...over,
+  });
+
+  it("falls back to the pooled neat.imbalance, untagged, when dayTypeNeat is null (strict superset of old behaviour)", () => {
+    const pooledFinding = finding({ estimatedKcalPerDay: 45 });
+    const result = resolveNeatImbalance(cal({ imbalance: pooledFinding }), null, true);
+    expect(result).toEqual({ dayType: null, finding: pooledFinding });
+  });
+
+  it("returns null when dayTypeNeat is null and the pooled solve has no imbalance", () => {
+    expect(resolveNeatImbalance(cal({ imbalance: null }), null, true)).toBeNull();
+  });
+
+  it("returns null when neat itself is absent (pre-migration profile) and dayTypeNeat is null", () => {
+    expect(resolveNeatImbalance(null, null, true)).toBeNull();
+  });
+
+  // The live regression: this athlete's real dayTypeNeat.rest.imbalance is non-null (a genuine clamp
+  // on the rest split alone) while the pooled solve cleared cleanly (neat.imbalance is null) — the old
+  // `profile.nutrition.neat?.imbalance` read would have returned null here and hidden it entirely.
+  it("surfaces the REST split's imbalance, tagged 'rest', on a rest day — even though the pooled solve is clean", () => {
+    const restFinding = finding({ estimatedKcalPerDay: 60 });
+    const dayTypeNeat: DayTypeNeat = {
+      rest: cal({ multiplier: 1.37, imbalance: restFinding }),
+      train: cal({ multiplier: 1.2, imbalance: null }),
+      pooled: cal({ imbalance: null }),
+      shrinkageWeight: { rest: 0.5, train: 0.9 },
+    };
+    const result = resolveNeatImbalance(dayTypeNeat.pooled, dayTypeNeat, true);
+    expect(result).toEqual({ dayType: "rest", finding: restFinding });
+  });
+
+  it("surfaces the TRAIN split's imbalance, tagged 'train', on a training day", () => {
+    const trainFinding = finding({ direction: "intake-below-model", estimatedKcalPerDay: 80 });
+    const dayTypeNeat: DayTypeNeat = {
+      rest: cal({ imbalance: null }),
+      train: cal({ multiplier: 1.1, imbalance: trainFinding }),
+      pooled: cal({ imbalance: null }),
+      shrinkageWeight: { rest: 0.5, train: 0.9 },
+    };
+    const result = resolveNeatImbalance(dayTypeNeat.pooled, dayTypeNeat, false);
+    expect(result).toEqual({ dayType: "train", finding: trainFinding });
+  });
+
+  it("never falls back to the pooled figure once dayTypeNeat exists, even if the active split's own imbalance is null", () => {
+    const pooledFinding = finding();
+    const dayTypeNeat: DayTypeNeat = {
+      rest: cal({ imbalance: null }),
+      train: cal({ imbalance: null }),
+      pooled: cal({ imbalance: pooledFinding }),
+      shrinkageWeight: { rest: 0.5, train: 0.9 },
+    };
+    // Pooled has a finding, but today's (rest) split is clean — must read as "nothing to show", not
+    // silently reuse the pooled ambiguity for a split that itself resolved fine.
+    expect(resolveNeatImbalance(dayTypeNeat.pooled, dayTypeNeat, true)).toBeNull();
   });
 });
 

@@ -6,7 +6,6 @@
 import type {
   AcwrResult,
   CurrentBlock,
-  EnergyImbalanceFinding,
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
@@ -24,6 +23,7 @@ import {
   eaLevel,
   loggedDaysForStreak,
   STREAK_MIN_LOGGED_DAYS,
+  type NeatImbalanceContext,
   type NutritionModel,
   type NutritionTrendWarning,
 } from "@/lib/nutrition";
@@ -641,8 +641,10 @@ export function EnergyAvailabilityTile({
   // §10: the calibrated NEAT solve's out-of-band finding, when present. This pairing is deliberate,
   // not incidental — acting on an apparent deficit while calibration itself is ambiguous (food-log
   // bias vs an RMR-equation mismatch) risks unintended weight gain, so the bias finding must be visible
-  // wherever the deficit is, never a separate disclosure the athlete has to go find.
-  neatImbalance?: EnergyImbalanceFinding | null;
+  // wherever the deficit is, never a separate disclosure the athlete has to go find. `dayType` is set
+  // once a rest/train split exists (resolveNeatImbalance, lib/nutrition.ts) — it picks whichever split
+  // is active today, since the pooled solve clearing cleanly can mask a clamp on one split alone.
+  neatImbalance?: NeatImbalanceContext | null;
 }) {
   const tipId = useId();
   if (!sync) return null;
@@ -729,9 +731,16 @@ export function EnergyAvailabilityTile({
       )}
       {neatImbalance && (
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-          Your log implies ~{Math.abs(neatImbalance.estimatedKcalPerDay)} kcal/day{" "}
-          {neatImbalance.direction === "intake-below-model" ? "more deficit" : "more surplus"} than your
-          weight shows. Candidates: {neatImbalance.candidates.join(" ")}
+          {/* Tagged once a rest/train split exists — the pooled and per-day-type numbers can differ,
+              so an untagged sentence here would read as the pooled figure even when it isn't. */}
+          {neatImbalance.dayType && (
+            <span className="font-medium text-zinc-600 dark:text-zinc-300">
+              {neatImbalance.dayType === "rest" ? "Rest-day" : "Training-day"} calibration:{" "}
+            </span>
+          )}
+          Your log implies ~{Math.abs(neatImbalance.finding.estimatedKcalPerDay)} kcal/day{" "}
+          {neatImbalance.finding.direction === "intake-below-model" ? "more deficit" : "more surplus"} than
+          your weight shows. Candidates: {neatImbalance.finding.candidates.join(" ")}
         </p>
       )}
     </div>

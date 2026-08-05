@@ -44,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, isRestDayFor, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, isRestDayFor, resolveBuffer, resolveNeatImbalance, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -121,7 +121,10 @@ export async function GET(req: Request) {
     rest: resolveNutritionModel(profile, latestWeightKgForEnergy, today, true),
     train: resolveNutritionModel(profile, latestWeightKgForEnergy, today, false),
   };
-  const nutritionModelForEnergy = isRestDayFor(lastSync?.activities ?? [], today)
+  // Resolved once and reused below for neatImbalance — same boolean the Today card's model pick is
+  // already made from, so the two can never disagree on which day type "today" is.
+  const isRestDayToday = isRestDayFor(lastSync?.activities ?? [], today);
+  const nutritionModelForEnergy = isRestDayToday
     ? nutritionModelsByDayType.rest
     : nutritionModelsByDayType.train;
   const smoothedWeightKgForEnergy = smoothedCurrentWeightKg(lastSync?.wellness ?? [], today) ?? latestWeightKgForEnergy;
@@ -205,7 +208,12 @@ export async function GET(req: Request) {
     // `nutritionModelForEnergy` is today's side of the same rest/train pair sent for historical reads.
     nutritionModel: nutritionModelForEnergy,
     nutritionModelsByDayType,
-    neatImbalance: profile.nutrition.neat?.imbalance ?? null,
+    // Once dayTypeNeat is adopted, the pooled solve clearing cleanly can mask a genuine out-of-band
+    // clamp on the rest- or train-only split alone (docs/systems/09-nutrition.md, Calibration rule 3) —
+    // resolveNeatImbalance picks whichever split is active today (isRestDayToday, same boolean the
+    // model pick above uses) and tags which one it is; falls back to the pooled figure, untagged, when
+    // no split exists yet (unchanged prior behaviour).
+    neatImbalance: resolveNeatImbalance(profile.nutrition.neat, profile.nutrition.dayTypeNeat, isRestDayToday),
     nutritionTrendWarning,
   });
 }

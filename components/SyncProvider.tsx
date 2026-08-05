@@ -8,7 +8,6 @@ import type {
   AcwrResult,
   AthleteState,
   CurrentBlock,
-  EnergyImbalanceFinding,
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
@@ -19,7 +18,7 @@ import type {
   TodayAnalysis,
 } from "@/lib/types";
 import type { CoachSnapshot } from "@/lib/coach-snapshot";
-import type { NutritionModel, NutritionTrendWarning } from "@/lib/nutrition";
+import type { NeatImbalanceContext, NutritionModel, NutritionTrendWarning } from "@/lib/nutrition";
 
 export interface AppState {
   configured: boolean;
@@ -58,8 +57,9 @@ export interface AppState {
   nutritionTrendWarning?: NutritionTrendWarning | null;
   // §10: the calibrated NEAT solve's out-of-band finding, when the energy-balance identity didn't
   // close — surfaced alongside the streak alert so an apparent deficit is never acted on without also
-  // seeing the log-bias/RMR-equation ambiguity that could explain it.
-  neatImbalance?: EnergyImbalanceFinding | null;
+  // seeing the log-bias/RMR-equation ambiguity that could explain it. Tagged with which day-type split
+  // (rest/train) it came from once one is adopted — `dayType: null` is the pre-split pooled figure.
+  neatImbalance?: NeatImbalanceContext | null;
 }
 
 interface SyncContextValue {
