@@ -1203,6 +1203,32 @@ export function calibrateNeatByDayType(
   };
 }
 
+// Once a day-type split is adopted, `rest` and `train` each carry their OWN out-of-band clamp finding
+// (rule 3, above) — a rest-day-only or training-day-only ambiguity that the pooled `neat.imbalance` can
+// silently miss entirely (the pooled solve can clear cleanly while one subset alone gets clamped; this
+// is the live shape on this athlete's own data). Resolves to whichever split is ACTIVE TODAY so the
+// Today card shows the one finding relevant right now, tagged with which day type it came from so the
+// UI copy can say so — never the pooled figure once a split exists, since a pooled-labelled number that
+// is actually the rest (or train) split's own solve would misstate which subset the ambiguity is in.
+// Falls back to the pre-split pooled behaviour verbatim (dayType: null) when `dayTypeNeat` hasn't been
+// adopted yet — this is a strict superset of the old single-value read, not a replacement for it.
+export interface NeatImbalanceContext {
+  dayType: "rest" | "train" | null;
+  finding: EnergyImbalanceFinding;
+}
+
+export function resolveNeatImbalance(
+  neat: NeatCalibration | null | undefined,
+  dayTypeNeat: DayTypeNeat | null | undefined,
+  isRestDay: boolean
+): NeatImbalanceContext | null {
+  if (dayTypeNeat) {
+    const split = isRestDay ? dayTypeNeat.rest : dayTypeNeat.train;
+    return split.imbalance ? { dayType: isRestDay ? "rest" : "train", finding: split.imbalance } : null;
+  }
+  return neat?.imbalance ? { dayType: null, finding: neat.imbalance } : null;
+}
+
 // ---------- Energy availability (deterministic proxy) ----------
 
 export interface EnergyAvailability {

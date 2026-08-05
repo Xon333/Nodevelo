@@ -287,6 +287,62 @@ describe("GET /api/sync", () => {
     expect(json.nutritionModelsByDayType.train.neatMultiplier).toBe(1.2);
   });
 
+  // Review task 2.1: neatImbalance used to read ONLY the pooled `neat.imbalance`. A rest/train split
+  // clamp (dayTypeNeat.rest/train.imbalance) could — and, on this athlete's real data, does — fire
+  // while the pooled solve stays clean, leaving the one live out-of-band finding unreachable. No
+  // activities today (readLastSync resolves null → lastSync?.activities is []) means isRestDayFor
+  // reads today as a rest day, so the REST split's imbalance is the one expected here.
+  it("surfaces the REST split's imbalance (tagged) on a rest day, not the pooled figure, once dayTypeNeat exists", async () => {
+    const calibration = (over: Record<string, unknown> = {}) => ({
+      multiplier: 1.3, confidence: "high", source: "derived", windowDays: 42, loggedDays: 35,
+      weighIns: 20, solvedAt: "2026-06-21", imbalance: null, stale: false,
+      ...over,
+    });
+    const restImbalance = {
+      direction: "intake-above-model", estimatedKcalPerDay: 60,
+      candidates: ["food-log under-reporting", "RMR-equation error"], note: "clamped rest-day solve",
+    };
+    vi.mocked(store.readAthleteProfile).mockResolvedValueOnce({
+      ...profile,
+      performance: { ...profile.performance, dateOfBirth: "1995-01-01", heightCm: 180, sex: "male" },
+      nutrition: {
+        ...profile.nutrition,
+        targetRateKgPerWeek: 0.1,
+        neat: calibration(), // pooled — clean, no imbalance
+        dayTypeNeat: {
+          rest: calibration({ multiplier: 1.37, imbalance: restImbalance }),
+          train: calibration({ multiplier: 1.2 }),
+          pooled: calibration(),
+          shrinkageWeight: { rest: 0.5, train: 0.8 },
+        },
+      },
+    } as never);
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.neatImbalance).toEqual({ dayType: "rest", finding: restImbalance });
+  });
+
+  // Strict-superset guard: an athlete who hasn't adopted a day-type split yet must see EXACTLY the
+  // pre-fix behaviour (the pooled figure, untagged) — no regression for the common case.
+  it("falls back to the pooled neatImbalance, untagged, when dayTypeNeat is null", async () => {
+    const pooledImbalance = {
+      direction: "intake-below-model", estimatedKcalPerDay: 40,
+      candidates: ["food-log under-reporting", "RMR-equation error"], note: "pooled clamp",
+    };
+    vi.mocked(store.readAthleteProfile).mockResolvedValueOnce({
+      ...profile,
+      nutrition: {
+        ...profile.nutrition,
+        neat: {
+          multiplier: 1.3, confidence: "high", source: "derived", windowDays: 42, loggedDays: 35,
+          weighIns: 20, solvedAt: "2026-06-21", imbalance: pooledImbalance, stale: false,
+        },
+        dayTypeNeat: null,
+      },
+    } as never);
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.neatImbalance).toEqual({ dayType: null, finding: pooledImbalance });
+  });
+
   it("returns early weight-trend evidence for the supplied local date", async () => {
     const warningProfile = {
       ...profile,
