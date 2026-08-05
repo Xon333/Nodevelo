@@ -425,6 +425,17 @@ export async function PUT(req: Request) {
                 : "reset" in neatOverride
                   ? (revertRecord ?? nonDerivedNeatCalibration("default", DEFAULT_NEAT_MULTIPLIER))
                   : nonDerivedNeatCalibration("override", neatOverride.multiplier, neatOverride.solvedAt),
+            // Both the reset and manual-override branches also null out `dayTypeNeat` — it's a
+            // solve-derived sibling of `neat` (see the comment above) computed from the SAME kind of
+            // stale-solve data, and `resolveNutritionModel` only trusts `dayTypeNeat` when
+            // `neat.source !== "override"`. On reset, `neat.source` becomes "default"/"derived" (not
+            // "override"), so an untouched `dayTypeNeat` would immediately resume driving the daily
+            // target off a split computed before whatever the athlete just changed — silently, with no
+            // `stale` flag to warn the UI. Falling back to `null` (not re-deriving inline) is correct
+            // because `resolveNutritionModel` already falls back to the fresh pooled `neat.multiplier`
+            // set just above, and the next sync's `calibrateNeatByDayType` call re-solves the real
+            // split from current data anyway.
+            dayTypeNeat: neatOverride === undefined ? current.nutrition.dayTypeNeat : null,
           },
         }
       : {}),
