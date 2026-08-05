@@ -91,6 +91,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `narrative-critic.ts` | Overview-vs-facts critic (haiku, overview-only rewrites) |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
 | `workout-validate.ts` | KB-grounded protocol validator (violations vs advisories) |
+| `workout-library.ts` | Proven-workout selection/evidence/promotion domain model. **Not yet wired in** — no caller in `app/api/generate`, no persistence, no UI. Remaining scope → [ROADMAP.md](../ROADMAP.md) "Later" |
 | `schedule-validate.ts` | Placement validators: spacing, quality budget, taper, sequencing, recovery density, skeleton conformance. Each owns one fact only — check no existing validator already warns about it before adding another |
 | `nutrition-validate.ts` | Kcal check + the ONLY auto-repairing validator |
 | `generate-cache.ts` | 60s in-flight dedupe |

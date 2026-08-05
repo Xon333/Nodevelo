@@ -35,12 +35,14 @@ this is just the daily-use summary.
   `claude/<task>` and `codex/<task>`, created via `npm run start:agent-task`.
 - `npm run finish:agent-task` refuses `main`, detached HEAD, unnamed branches, dirty files, failed
   checks, and missing GitHub authentication.
-- On a valid committed task branch it runs `npm run check`, pushes, opens a pull request, and enables
-  squash auto-merge — stamping the merge commit body `Agent: claude` or `Agent: codex` (derived from
-  the branch prefix), so `git log` on `main` shows which agent shipped what without grepping branch
-  history.
-- GitHub repeats `npm run check`; protected `main` merges only after that check passes. Merged remote
-  task branches are deleted automatically — **local** worktrees/branches are not; `npm run sync` prunes
+- On a valid committed task branch it runs `npm run check`, pushes, and opens a pull request, stamping
+  the PR body `Agent: claude` or `Agent: codex` (derived from the branch prefix) so `git log` on `main`
+  shows which agent shipped what without grepping branch history.
+- `claude/*` branches then get squash auto-merge enabled immediately. `codex/*` branches do **not** —
+  the PR is opened and left there; see "Reviewing a codex PR" below.
+- GitHub repeats `npm run check`; protected `main` merges only after that check passes (for `claude/*`
+  branches, this and the Claude review already done in-session are the only gates). Merged remote task
+  branches are deleted automatically — **local** worktrees/branches are not; `npm run sync` prunes
   those.
 
 Opening or closing an app does **not** create a pull request by itself. Research, review, and planning
@@ -57,11 +59,29 @@ agent.
    give the other agent a task touching different files.
 3. Let the agent implement and verify in its isolated worktree.
 4. Say **“finish and integrate this task”** if it does not do so automatically.
-5. GitHub owns the rest: PR → CI → squash merge → remote branch cleanup. Run `npm run sync` next
-   session to clean up the local worktree/branch.
+5. **Claude tasks:** GitHub owns the rest — PR → CI → squash merge → remote branch cleanup.
+   **Codex tasks:** the PR opens but waits — see "Reviewing a codex PR" below. Run `npm run sync` next
+   session to clean up the local worktree/branch either way.
 
 You do not pull, merge, or rebase normal agent tasks. A branch being behind `main` is harmless unless
 GitHub reports a real conflict or the combined CI check fails.
+
+### Reviewing a codex PR
+
+Codex and Claude don't share a live session — there's no direct link for one to ask the other to
+review in real time. The PR itself is the handoff: `finish:agent-task` opens it and stops instead of
+auto-merging, and a human asks a Claude session (any session, any time later) to review it before it
+merges.
+
+1. Ask Claude: "review PR #`<n>`."
+2. Claude reads the real diff (`gh pr diff <n>`), not just the PR description, against: `AGENTS.md`'s
+   4 recurring bug classes, `docs/INVARIANTS.md`, and whether every caller/persistence/UI path the
+   PR's own plan doc (if any, under `docs/superpowers/plans/`) promised actually landed — or whether
+   the gap is now recorded in `ROADMAP.md`/`todo.md` rather than silently missing. (This exact check
+   caught the workout-library module shipping unwired and untracked, 2026-08-04 — see
+   [ROADMAP.md](ROADMAP.md) "Later.")
+3. Approve + merge: `gh pr merge --squash <n>`. Send back: `gh pr review <n> --request-changes -b
+   "..."` — Codex reads the review comments next session.
 
 ### Two agents at once
 
@@ -82,6 +102,7 @@ GitHub reports a real conflict or the combined CI check fails.
 | Uncommitted files | Agent commits only its own files, then retries the finish command |
 | Tests or lint errors | Implementing agent fixes its branch; nothing merges |
 | Merge conflict | One agent reconciles both changes deliberately; never choose a side automatically |
+| Codex PR awaiting review | Ask Claude to review it (above), then merge or request changes manually |
 | GitHub login expired | Run `gh auth login -h github.com` once, then retry |
 | Task is unfinished | Use `/handoff`; do not open a partial PR merely to end a session |
 

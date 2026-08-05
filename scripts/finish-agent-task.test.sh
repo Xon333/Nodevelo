@@ -21,4 +21,14 @@ if validate_branch feature/example 2>/dev/null; then
   exit 1
 fi
 
+if ! requires_review codex; then
+  echo "codex branches must require review" >&2
+  exit 1
+fi
+
+if requires_review claude; then
+  echo "claude branches must not require review" >&2
+  exit 1
+fi
+
 echo "finish-agent-task guards pass"

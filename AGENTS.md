@@ -33,4 +33,8 @@ Four defect shapes have shipped more than once. Check for them explicitly on rel
   the user does not manually merge normal tasks. It is the *only* sanctioned integration path — a
   manual `git push` + `gh pr create`/`gh pr merge` skips both the branch-naming and check gates and
   must not be used, regardless of which agent is running.
+- `codex/*` branches don't auto-merge — Codex and Claude have no live connection, so
+  `finish:agent-task` opens the PR and stops. A Claude review is required before merge
+  (`WORKFLOW.md § Reviewing a codex PR`); `claude/*` branches keep auto-merging (reviewed in-session
+  as they're written).
 - Never bypass checks, force-push `main`, or automatically choose a side in a merge conflict.

@@ -15,8 +15,16 @@ validate_branch() {
   esac
 }
 
+# Codex and Claude don't share a live session — the PR itself is the only handoff surface between
+# them. A codex/* branch can't safely auto-merge itself unreviewed (see ROADMAP.md's workout-library
+# entry, 2026-08-04: an unreviewed Codex PR shipped 1/10 of its own plan with the other 9 silently
+# untracked). claude/* keeps auto-merging: Claude reviews inline as it writes, in the same session.
+requires_review() {
+  [[ "$1" == "codex" ]]
+}
+
 main() {
-  local branch command pr_url agent pr_body
+  local branch command pr_url agent pr_body pr_number
   for command in git gh npm; do
     command -v "$command" >/dev/null || die "install $command first"
   done
@@ -30,9 +38,17 @@ main() {
   npm run check
   git push -u origin HEAD
   pr_url=$(gh pr view --json url --jq .url 2>/dev/null || gh pr create --fill)
+  pr_number=$(gh pr view --json number --jq .number)
   pr_body=$(gh pr view --json body --jq .body)
-  gh pr merge --auto --squash --body "$(printf '%s\n\nAgent: %s\n' "$pr_body" "$agent")"
-  echo "Auto-merge enabled: $pr_url"
+
+  if requires_review "$agent"; then
+    gh pr edit "$pr_number" --body "$(printf '%s\n\nAgent: %s\n\nNeeds a Claude review before merge (WORKFLOW.md § Reviewing a codex PR) — not auto-merged.\n' "$pr_body" "$agent")"
+    echo "PR opened, NOT auto-merged (codex branches need a Claude review first): $pr_url"
+    echo "Ask a Claude session to review PR #$pr_number, then 'gh pr merge --squash $pr_number' to approve, or 'gh pr review $pr_number --request-changes' to send it back."
+  else
+    gh pr merge --auto --squash --body "$(printf '%s\n\nAgent: %s\n' "$pr_body" "$agent")"
+    echo "Auto-merge enabled: $pr_url"
+  fi
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
