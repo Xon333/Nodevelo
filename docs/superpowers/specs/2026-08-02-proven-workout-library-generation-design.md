@@ -1,7 +1,8 @@
 # Proven workout library generation — Design
 
 **Date:** 2026-08-02  
-**Status:** Design approved 2026-08-02  
+**Status:** Design approved 2026-08-02; re-scoped 2026-08-05 (athlete decision) to defer automatic
+evidence-based promotion and the historical bootstrap — see §5a and §12.  
 **Supersedes:** `2026-07-18-workout-library-sync-design.md` (retired 2026-08-05) — its manual-push-to-Intervals.icu
 mechanism is folded into §8 below; do not implement it separately.
 
@@ -18,22 +19,24 @@ authors only quality slots that have no suitable match. Fixed templates cover ro
 
 ## 2. Goals and non-goals
 
-### Goals
+### Goals (v1)
 
-- Grow a curated library automatically from completed workouts.
 - Allow the athlete to promote a personally valued completed workout manually.
 - Reuse proven prescriptions unchanged while preserving existing block-creation rules.
-- Reduce workout-authoring calls as library coverage grows.
+- Reduce workout-authoring calls as the athlete manually curates the library.
 - Export every promoted workout to Intervals.icu without making that service the source of truth.
 - Make selection, provenance, evidence, retirement, and export state inspectable.
 
-### Non-goals
+### Non-goals (v1)
 
 - Replacing season selection, the block skeleton, scheduling, nutrition, or validators.
 - Learning Z2, Recovery, Rest, or Strength prescriptions from execution history.
 - Scaling or editing proven workout steps to fit a slot.
 - A workout editor, ratings system, folders UI, duplicate-merging UI, or savings dashboard.
 - Depending on Intervals.icu availability during block generation.
+- **Automatic evidence-based promotion and the historical bootstrap** — deferred to a later slice, see
+  §5a. `applyEvidence`'s score-threshold rules (Task 1, already shipped) stay in the codebase as a tested,
+  unused-for-now primitive; nothing calls it in v1.
 
 ## 3. Architecture
 
@@ -95,32 +98,47 @@ count as evidence for the same prescription only when their normalized structure
 The prescription fields are immutable. Evidence, usage count, status, and export state may change.
 Evidence dates are unique.
 
-## 5. Promotion and retirement
+## 5. Promotion and retirement (v1: manual only)
 
-A completed prescription becomes active automatically when either condition is met:
+In v1, the only way a prescription enters the library is an explicit athlete action: manual promotion
+of a completed quality session. It requires at least one completed, non-compromised ride and overrides
+the score thresholds described in §5a, but not structural safety checks. Manual promotion sets
+`status: "active"` and `promotedBy: "manual"` directly — there is no `"candidate"` state to pass through
+in v1, since nothing else creates entries.
 
-1. one uncompromised execution has `executionScore >= 8`; or
-2. two distinct uncompromised executions of the same normalized prescription each have
-   `executionScore >= 6`.
-
-Scores below 6 do not contribute qualifying evidence. A manual promotion requires at least one
-completed ride and overrides the score thresholds, but not structural safety checks.
-
-Both promotion paths require:
+A promotion (manual, in v1) requires:
 
 - a supported quality workout type;
 - non-empty structured workout steps;
 - no severe protocol violation under current validation rules; and
-- a completed, non-compromised ride for every evidence item being counted.
+- a completed, non-compromised ride to promote.
 
 Retirement prevents future selection but preserves the prescription, evidence, usage, and export
 history. New evidence never restores a retired entry automatically. Restore is an explicit athlete
 action.
 
-On first use, one truthy-marker-guarded, idempotent bootstrap scans current-block and enriched
-block-history days. When a preserved prescription can be joined by date to a frozen score-ledger entry,
-the same evidence and promotion rules apply. Days without preserved prescriptions are skipped; no
-workout is reconstructed or guessed, and the append-only score ledger is never mutated.
+## 5a. Deferred: automatic evidence-based promotion + historical bootstrap
+
+Not built in v1 (athlete decision, 2026-08-05) — real evidence is sparse enough right now (see §13) that
+wiring this up before it can prove itself isn't worth the persistence/locking/bootstrap surface it needs.
+Recorded here so the follow-on slice has a design to build from rather than starting cold:
+
+A completed prescription would become active automatically when either condition is met:
+
+1. one uncompromised execution has `executionScore >= 8`; or
+2. two distinct uncompromised executions of the same normalized prescription each have
+   `executionScore >= 6`.
+
+Scores below 6 would not contribute qualifying evidence. On first use, one truthy-marker-guarded,
+idempotent bootstrap would scan current-block and enriched block-history days; when a preserved
+prescription can be joined by date to a frozen score-ledger entry, the same evidence and promotion rules
+would apply. Days without preserved prescriptions would be skipped; no workout would be reconstructed or
+guessed, and the append-only score ledger would never be mutated. Going forward (not just the historical
+backfill), each newly-scored ride would be matched by fingerprint against existing entries and folded in
+via `applyEvidence` (Task 1, already shipped and tested — this is its intended caller).
+
+Reopen this slice once the manually-curated library has enough real usage to show whether repeat
+prescriptions are common enough for the two-distinct-≥6 path to ever fire in practice.
 
 ## 6. Matching and selection
 
@@ -151,8 +169,8 @@ or manual-promotion rules.
 ## 7. Generation flow and provenance
 
 The assembled plan preserves the existing two-phase contract: generation proposes and `/api/write`
-commits. Library promotion and export occur from completed score/history processing or an explicit
-manual action, not from `/api/generate`.
+commits. Library promotion and export occur from an explicit manual action (§5), not from
+`/api/generate` — and not from score/history processing in v1 (§5a is deferred).
 
 Each generated day records one source:
 
@@ -169,9 +187,11 @@ quality sessions only; it must not rewrite library- or template-backed days.
 
 ## 8. Intervals.icu export
 
-Every automatic or manual promotion immediately marks export `pending` and attempts to create the
-workout in the appropriate `NodeVelo — <WorkoutType>` folder. Successful export stores the remote
-workout ID and marks the entry `synced`.
+Every promotion (manual, in v1 — see §5a for the deferred automatic path) immediately marks export
+`pending` and attempts to create the workout in the appropriate `NodeVelo — <WorkoutType>` folder.
+Successful export stores the remote workout ID and marks the entry `synced`. Because v1 only ever
+promotes one entry at a time from an explicit athlete action, export is a single-entry call from the
+promotion route — no bulk "sweep pending entries" pass is needed until §5a's bootstrap ships.
 
 Export failure marks the entry `failed` with a displayable error. The local active entry remains usable
 and block generation continues normally. Retry is explicit and idempotent: an entry with a stored remote
@@ -183,12 +203,13 @@ export plumbing remain applicable.
 
 ## 9. UI
 
-The first release adds a Workout Library view with active, candidate, and retired sections. Each entry
-shows:
+The first release adds a Workout Library view with active, candidate, and retired sections — kept in
+this shape even though v1's "candidate" section is always empty (nothing creates a candidate without
+§5a), so the later slice doesn't force a UI rework. Each entry shows:
 
 - workout type and duration;
 - qualifying evidence count plus best and most recent score;
-- automatic or manual promotion source;
+- manual promotion source (v1 — `promotedBy` will also read `"automatic"` once §5a ships);
 - usage count;
 - active or retired state; and
 - Intervals.icu export state.
@@ -213,9 +234,9 @@ structural or protocol reason. Editing, ratings, folder management, and duplicat
 Automated checks cover:
 
 - fingerprint normalization, stable identity, and evidence-date de-duplication;
-- automatic and manual promotion gates, including compromised rides;
-- aggregation across two distinct successful dates;
-- idempotent historical bootstrap with a truthy migration marker;
+- manual promotion gates, including compromised rides (the automatic score-threshold gates and
+  aggregation-across-two-dates path already have unit coverage on the pure `applyEvidence` primitive from
+  Task 1; no live caller exists to test end-to-end until §5a);
 - retirement, restoration, and validation-based selection exclusion;
 - deterministic filtering, ranking, tie-breaking, and within-block repetition policy;
 - fixed Z2 template selection;
@@ -234,17 +255,24 @@ workout renders as structured steps in Intervals.icu.
 
 This is one feature delivered in slices, not a replacement training engine. The implementation plan
 must preserve the current block skeleton and validators, establish the local library and promotion flow
-first, then change generation to consume it. Savings dashboards, automatic workout adaptation, and
-non-quality learned workouts require separate evidence and design work.
+first, then change generation to consume it. Savings dashboards, automatic workout adaptation,
+non-quality learned workouts, and — per the 2026-08-05 re-scope — automatic evidence-based promotion
+and the historical bootstrap (§5a) require separate evidence and design work, deferred until the
+manually-curated library shows real usage.
 
 ## 13. Known rough edges
 
-- **Promotion will be sparse at launch.** Against the current 147-entry score ledger, only ~12 rides
-  across the three learned types besides RaceSim score ≥8 (the single-execution path); the two-distinct
-  ≥6 path additionally requires an exact normalized-fingerprint repeat, which freehand AI authoring has
-  no obligation to produce. Expect a mostly-empty library and mostly-AI-authored blocks for a while after
-  launch — do not read that as the feature failing; read it as the expected shape of the evidence curve.
+- **The library starts and stays empty until the athlete acts.** v1 has no automatic path in (§5a is
+  deferred), so library growth is bounded entirely by how often the athlete clicks "Add to library" on a
+  completed quality day. This is expected, not a bug — don't read a quiet library as the feature failing.
 - **Fingerprint stability is coupled to prompt stability.** `PROMPT_VERSION` bumps or model changes can
   shift how Claude phrases an otherwise-equivalent prescription (step ordering, rep grouping), producing
-  a new fingerprint for what an athlete would call "the same workout." This isn't fixable by the matcher;
-  it just means library growth rate tracks authoring-style stability, not only execution quality.
+  a new fingerprint for what an athlete would call "the same workout." Low-stakes in v1 (fingerprints
+  only need to match a slot's requirements, not each other, since there's no automatic aggregation
+  path yet) but relevant again once §5a ships and cross-date matching starts to matter.
+- **Real evidence volume, for scoping §5a later:** the current 147-entry score ledger has only ~12 rides
+  across the three learned types besides RaceSim scoring ≥8 (the single-execution path); the
+  two-distinct-≥6 path additionally needs an exact normalized-fingerprint repeat, which freehand AI
+  authoring has no obligation to produce. Whatever the manually-curated library shows about how often
+  athletes reuse near-identical prescriptions is more informative than this historical snapshot for
+  deciding whether §5a is worth building.
