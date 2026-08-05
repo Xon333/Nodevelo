@@ -48,6 +48,10 @@ describe("fingerprintWorkout", () => {
     expect(fingerprintWorkout(THRESHOLD.replace("20m 95%", "18m 95%"))).not.toBe(base);
     expect(fingerprintWorkout(THRESHOLD.replace("20m 95%", "20m 92%"))).not.toBe(base);
   });
+
+  it("normalizes a ramp target to its upper bound, matching prescription.ts's own convention", () => {
+    expect(fingerprintWorkout("Main Set\n- 20m 50-70%")).toBe(fingerprintWorkout("Main Set\n- 20m 70%"));
+  });
 });
 
 describe("applyEvidence", () => {
@@ -105,5 +109,19 @@ describe("selectLibraryWorkout", () => {
     expect(selectLibraryWorkout([far, close], slot(), FTP)?.id).toBe("close");
     expect(selectLibraryWorkout([used, fresh], slot(), FTP)?.id).toBe("fresh");
     expect(selectLibraryWorkout([beta, alpha], slot(), FTP)?.id).toBe("alpha");
+  });
+
+  it("prefers more qualifying evidence at the same best score, before duration distance", () => {
+    const onceAt8 = entry({ id: "once", durationMin: 70, status: "active", evidence: [{ date: "2026-08-01", executionScore: 8 }] });
+    const twiceAt8 = entry({
+      id: "twice",
+      durationMin: 76,
+      status: "active",
+      evidence: [
+        { date: "2026-08-01", executionScore: 8 },
+        { date: "2026-08-05", executionScore: 8 },
+      ],
+    });
+    expect(selectLibraryWorkout([onceAt8, twiceAt8], slot(), FTP)?.id).toBe("twice");
   });
 });

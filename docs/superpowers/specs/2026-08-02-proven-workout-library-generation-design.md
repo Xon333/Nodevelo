@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-02  
 **Status:** Design approved 2026-08-02  
-**Related design:** `2026-07-18-workout-library-sync-design.md`
+**Supersedes:** `2026-07-18-workout-library-sync-design.md` (retired 2026-08-05) — its manual-push-to-Intervals.icu
+mechanism is folded into §8 below; do not implement it separately.
 
 ## 1. Problem
 
@@ -132,10 +133,12 @@ For each quality slot, selection filters active entries by:
 
 Eligible entries are ranked deterministically by:
 
-1. strongest execution evidence;
-2. closest duration to the slot's nominal duration;
-3. fewest recent uses; and
-4. stable entry ID as the final tie-breaker.
+1. strongest execution evidence (highest single score);
+2. most qualifying evidence instances at that strength — repeated proof of the same peak outranks a
+   one-off, before duration is even considered;
+3. closest duration to the slot's nominal duration;
+4. fewest recent uses; and
+5. stable entry ID as the final tie-breaker.
 
 Repeated evidence ranks above a manual promotion with weak evidence; manual promotion grants
 eligibility but does not invent a high score. An entry may appear only once in a block while another
@@ -233,3 +236,15 @@ This is one feature delivered in slices, not a replacement training engine. The 
 must preserve the current block skeleton and validators, establish the local library and promotion flow
 first, then change generation to consume it. Savings dashboards, automatic workout adaptation, and
 non-quality learned workouts require separate evidence and design work.
+
+## 13. Known rough edges
+
+- **Promotion will be sparse at launch.** Against the current 147-entry score ledger, only ~12 rides
+  across the three learned types besides RaceSim score ≥8 (the single-execution path); the two-distinct
+  ≥6 path additionally requires an exact normalized-fingerprint repeat, which freehand AI authoring has
+  no obligation to produce. Expect a mostly-empty library and mostly-AI-authored blocks for a while after
+  launch — do not read that as the feature failing; read it as the expected shape of the evidence curve.
+- **Fingerprint stability is coupled to prompt stability.** `PROMPT_VERSION` bumps or model changes can
+  shift how Claude phrases an otherwise-equivalent prescription (step ordering, rep grouping), producing
+  a new fingerprint for what an athlete would call "the same workout." This isn't fixable by the matcher;
+  it just means library growth rate tracks authoring-style stability, not only execution quality.

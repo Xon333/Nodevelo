@@ -1,52 +1,19 @@
 import { createHash } from "node:crypto";
 import type { DaySlot } from "./block-skeleton";
-import { parsePrescription } from "./prescription";
+import { parsePrescription, walkWorkoutSteps } from "./prescription";
 import type { PlannedDay, QualityLibraryType, WorkoutLibraryEntry, WorkoutLibraryEvidence } from "./types";
 import { validateWorkoutProtocol } from "./workout-validate";
 
 const QUALITY_TYPES = new Set<QualityLibraryType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
 
-function normalizedStructuredSteps(workoutText: string): string[] {
-  const out: string[] = [];
-  let block: string[] = [];
-  let repeats = 1;
-  const flush = () => {
-    for (let i = 0; i < repeats; i++) out.push(...block);
-    block = [];
-    repeats = 1;
-  };
-
-  for (const raw of workoutText.split("\n")) {
-    const line = raw.trim();
-    if (!line) {
-      flush();
-      continue;
-    }
-    if (!line.startsWith("-")) {
-      flush();
-      repeats = Math.max(1, Number(line.match(/\b(\d+)\s*x\b/i)?.[1] ?? 1));
-      continue;
-    }
-
-    const targets = [...line.matchAll(/(\d+(?:\s*-\s*\d+)?)\s*%/g)];
-    let cursor = 0;
-    for (const target of targets) {
-      const beforeTarget = line.slice(cursor, target.index);
-      const inlineReps = Math.max(1, Number(beforeTarget.match(/(\d+)\s*x\s*(?=\d+\s*(?:h|m|s|'|"))/i)?.[1] ?? 1));
-      const durationSec = [...beforeTarget.matchAll(/(\d+)\s*(h|m|s|'|")/gi)].reduce((sum, token) => {
-        const unit = token[2].toLowerCase();
-        return sum + Number(token[1]) * (unit === "h" ? 3600 : unit === "m" || unit === "'" ? 60 : 1);
-      }, 0);
-      if (durationSec > 0) block.push(`${inlineReps}x${durationSec}s@${target[1].replace(/\s/g, "")}%`);
-      cursor = (target.index ?? 0) + target[0].length;
-    }
-  }
-  flush();
-  return out;
-}
-
+// Reuses prescription.ts's own step-grammar walker (repeat-block expansion, multi-clause lines,
+// ramp-to-upper-bound normalization) instead of a second hand-rolled parser, so a future grammar fix
+// there can't silently diverge from what identity fingerprints see. `keep: () => true` retains
+// warmup/cooldown/recovery steps too — unlike parsePrescription's work-only view, workout identity
+// depends on the full structure, not just what counts toward execution scoring.
 export function fingerprintWorkout(workoutText: string): string {
-  return createHash("sha256").update(normalizedStructuredSteps(workoutText).join("\n")).digest("hex");
+  const steps = walkWorkoutSteps(workoutText, () => true).map((s) => [s.durationSec, s.pct]);
+  return createHash("sha256").update(JSON.stringify(steps)).digest("hex");
 }
 
 function plannedDay(entry: WorkoutLibraryEntry): PlannedDay {
