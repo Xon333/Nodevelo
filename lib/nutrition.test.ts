@@ -1443,6 +1443,28 @@ describe("calibrateNeatByDayType", () => {
     expect(calibrateNeatByDayType(wellness, activities, RMR, today, 90)).toBeNull();
   });
 
+  it("returns null when pooled is a STALE default, not a genuine derived solve, even though coverage is otherwise good", () => {
+    // 60 days of otherwise-perfect coverage (every day logged, every day weighed), same shape as the
+    // "recovers day-type-specific k" fixture above — but the trailing 20 days' kcalConsumed are blanked,
+    // pushing the last logged day to 21 days before `today`, past CALIBRATION_MAX_STALENESS_DAYS (14).
+    // calibrateNeat's own staleness guard reports this as a non-null `{ source: "default", stale: true }`
+    // sentinel rather than a bare null — the exact case `pooled === null` alone fails to catch.
+    const { wellness, activities, today } = synth(20, 40, 1.53, 1.22);
+    for (let i = wellness.length - 20; i < wellness.length; i++) wellness[i].kcalConsumed = null;
+
+    const pooled = calibrateNeat(wellness, activities, RMR, today)!;
+    expect(pooled).not.toBeNull();
+    expect(pooled.source).toBe("default");
+    expect(pooled.stale).toBe(true);
+    expect(pooled.multiplier).toBe(DEFAULT_NEAT_MULTIPLIER);
+
+    // Before the fix, calibrateNeatByDayType's `pooled === null` check let this stale-but-non-null pooled
+    // result through, solved its own rest/train subsets against the same stale data, and returned them
+    // with `source: "derived"` and a hardcoded `stale: false` — a false self-report of freshness. It must
+    // now withhold entirely, same as when pooled is a bare null.
+    expect(calibrateNeatByDayType(wellness, activities, RMR, today, 90)).toBeNull();
+  });
+
   it("clamps an implausible raw subset solve and reports an ambiguous imbalance before blending", () => {
     // Rest-day intake wildly high relative to RMR alone — should clamp to NEAT_PLAUSIBLE_MAX pre-shrink.
     const { wellness, activities, today } = synth(20, 40, 2.5, 1.22);
