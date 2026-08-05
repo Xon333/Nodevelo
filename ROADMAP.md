@@ -105,16 +105,15 @@ omission. Detail + the reopen trigger for taking it further:
   automatically, not athlete-initiated); content-edit inbound sync; calendar-side swap-pairing.
 - **Wearable morning-readiness** — objective HRV/sleep/resting-HR replacing the manual fatigue flag,
   once a wearable is in the loop.
-- **Intervals.icu workout-library sync** — write well-executed sessions into Intervals.icu's own
-  workout library `← #4` (needs real scored verdicts, currently n=1–8). Design: build on the
-  block-history-enrichment slice — `docs/superpowers/plans/2026-07-17-season-block-history-enrichment.md`.
-- **In-app proven-workout reuse (generation-time library)** — not to be confused with the entry above
-  (that one writes *into* Intervals.icu's own library; this is NodeVelo selecting from its own during
-  generation). 1 of 10 planned tasks shipped 2026-08-03: `lib/workout-library.ts` (fingerprinting,
-  evidence-based promotion, slot-matched selection) + tests, tracked at
-  [FILE_INDEX.md](docs/FILE_INDEX.md). **Not wired in** — no persistence store, no
-  `app/api/generate` integration, no write-route use-count accounting, no management UI. Remaining 9
-  tasks + full design: `docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md`.
+- **In-app proven-workout library (generation-time reuse + Intervals.icu export)** — NodeVelo builds a
+  local, evidence-backed library from well-executed sessions and selects from it during generation
+  instead of always asking Claude to author `← #4`; every promotion also exports to Intervals.icu's own
+  library, absorbing the older manual-push-only idea (`docs/superpowers/specs/2026-07-18-workout-library-sync-design.md`,
+  retired 2026-08-05 — do not implement that doc). 1 of 10 planned tasks shipped 2026-08-03:
+  `lib/workout-library.ts` (fingerprinting, evidence-based promotion, slot-matched selection) + tests,
+  tracked at [FILE_INDEX.md](docs/FILE_INDEX.md). **Not wired in** — no persistence store, no
+  `app/api/generate` integration, no write-route use-count accounting, no export, no management UI.
+  Remaining 9 tasks + full design: `docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md`.
 - **Mobile density polish** — desktop-first was a deliberate scope call (UX-MASTERPLAN §3); revisit
   only if it causes real confusion, not urgent on its own.
 

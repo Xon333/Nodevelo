@@ -1,8 +1,13 @@
 # Intervals.icu workout-library sync — Design
 
 **Date:** 2026-07-18
-**Status:** Design approved 2026-07-18 — implementation plan: TBD (next step)
-**ROADMAP:** "Intervals.icu workout-library sync" (`ROADMAP.md`, "Larger / scoped (when wanted)").
+**Status:** SUPERSEDED 2026-08-05 by `2026-08-02-proven-workout-library-generation-design.md`. That
+design's §8 "Intervals.icu export" folds this doc's manual-push mechanism into promotion-triggered
+export from a local library, and its plan claims this doc's three planned paths (`lib/workout-library.ts`,
+`data/workout-library.json`, `components/SaveToLibrary.tsx`) for an incompatible schema — Task 1 already
+shipped `lib/workout-library.ts` under the new design. Do not implement this doc as written; it is kept
+only as historical record of the problem framing. Read the new design instead.
+**ROADMAP:** folded into "In-app proven-workout reuse (generation-time library)" (`ROADMAP.md`, "Later").
 Ties `← #4` for the long-run "well-executed" verdict; Track B's per-template durability score is the
 interim quality gate.
 

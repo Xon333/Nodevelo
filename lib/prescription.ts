@@ -96,7 +96,7 @@ export function carriesEmbeddedIntensity(
 // section-excluded flag) counts at all — parsePrescription excludes warmup/cooldown sections and
 // sub-work-floor steps; totalPrescribedMinutes below keeps everything, matching how Intervals.icu's
 // own parser computes real ride duration (it does not distinguish warmup from work).
-function walkWorkoutSteps(
+export function walkWorkoutSteps(
   workoutText: string,
   keep: (step: { durationSec: number; pct: number }, inExcludedSection: boolean) => boolean
 ): Array<{ durationSec: number; pct: number }> {
