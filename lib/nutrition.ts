@@ -15,6 +15,11 @@ export interface ActiveBurn {
   legacy: boolean; // true when derived from kj because the activity predates activeBurnKcal
 }
 
+// The activity shape every burn-summing path in this module needs. `movingTimeSec` is here because
+// netting the resting-equivalent cost (exerciseBurn) requires the duration the burn was accrued over,
+// so it is no longer optional for anything that resolves a burn.
+export type BurnActivity = Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj" | "movingTimeSec">;
+
 /**
  * The ONE energy-expended accessor, so "use the source's active-burn figure verbatim" has a single
  * implementation nothing can drift from. Intervals.icu already reports the activity's active calorie
@@ -38,11 +43,62 @@ export function activeBurn(a: Pick<ActivitySummary, "activeBurnKcal" | "kj">): A
 }
 
 /**
+ * The EXERCISE-ONLY burn: `activeBurn` minus the resting-equivalent cost of the time spent doing it.
+ * This — not `activeBurn` — is what the daily-target identity may add to `k × RMR`.
+ *
+ * WHY (verified 2026-08-05 against this athlete's own data, see docs/reviews/): the source figure is
+ * GROSS metabolic cost. Wahoo derives it as `kJ ÷ 0.239 ÷ 4.184 ≈ kJ` using **gross** metabolic
+ * efficiency (~23.9%), and gross efficiency is defined in the exercise-physiology literature as
+ * mechanical work ÷ TOTAL energy expenditure — Zoladz et al. 2023 (J Physiol Pharmacol 74(5)) states
+ * it outright: "the total V'O2 used for its calculation includes three components: (i) resting
+ * metabolic rate, (ii) the cost of unloaded cycling ('internal work') and (iii) the cost of
+ * generation of a given external power output." Net efficiency is the one defined "above rest".
+ * Confirmed empirically on 161 real activities here: median `activeBurnKcal / kj` = 0.997.
+ *
+ * `k × RMR` already charges resting metabolism for all 24 h of the day, ride hours included. Adding a
+ * gross figure on top therefore pays for those hours twice — ~130 kcal on a 2 h ride at RMR 1622.
+ * This is also why the gross basis manufactures an apparent rest-vs-training NEAT difference: the
+ * double count scales with ride duration, so it lands entirely on training days.
+ *
+ * `restingKcalPerHour` is `RMR / 24`, or **0 to disable netting entirely** — which is required, not
+ * optional, whenever the `k` being paired with it was itself fit against gross burn (a pre-migration
+ * `NeatCalibration` with no `basis: "net"`). A gross `k` with net burn under-feeds by exactly the
+ * netted amount. `resolveNutritionModel` owns that pairing; see `restingKcalPerHourOf`.
+ *
+ * Floored at 0: a manually-entered burn for a long, very low-intensity activity (a walk logged at
+ * 30 kcal over an hour) can net negative, and a negative "exercise cost" is never a real quantity —
+ * it would subtract from the day's target. Flooring errs toward more food, the safe direction here.
+ *
+ * Returns null on the same terms as `activeBurn` — an unresolvable burn stays unknown, never 0.
+ */
+export function exerciseBurn(
+  a: Pick<ActivitySummary, "activeBurnKcal" | "kj" | "movingTimeSec">,
+  restingKcalPerHour: number
+): ActiveBurn | null {
+  const gross = activeBurn(a);
+  if (gross === null) return null;
+  // `movingTimeSec`, not elapsed: the gross-efficiency constant is measured over steady pedalling, so
+  // the resting cost embedded in the figure spans the pedalling time. Stopped time is already covered
+  // by the k×RMR term like any other non-riding hour, and netting it here would double-subtract.
+  const restingKcal = ((a.movingTimeSec ?? 0) / 3600) * restingKcalPerHour;
+  return { kcal: Math.max(0, gross.kcal - restingKcal), legacy: gross.legacy };
+}
+
+/**
+ * The netting rate a given model's burn sums must use, so `k` and the burn it is paired with always
+ * share one basis. 0 (no netting) for a legacy model — it has no RMR — and for any derived model whose
+ * calibration predates the net-basis migration.
+ */
+export function restingKcalPerHourOf(model: NutritionModel): number {
+  return model.kind === "derived" ? model.restingKcalPerHour : 0;
+}
+
+/**
  * Whether `date` reads as a rest day: no activity, or a resolved total active burn of zero. Any activity
  * with unknown burn makes the day unknown rather than silently converting it to rest.
  */
 export function isRestDayFor(
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  activities: BurnActivity[],
   date: string
 ): boolean {
   let sum = 0;
@@ -96,6 +152,11 @@ export type NutritionModel =
       kind: "derived";
       rmr: number;
       neatMultiplier: number;
+      // The rate `exerciseBurn` must net this model's activity burns by, so `neatMultiplier` and the
+      // burn added to it always share one basis (`rmr / 24`, or 0 while the calibration behind
+      // `neatMultiplier` is still gross-basis). Carried ON the model rather than recomputed at each
+      // burn-summing site precisely so the two can never be paired inconsistently.
+      restingKcalPerHour: number;
       weightKg: number;
       targetWeightKg: number;
       buffer: number;
@@ -519,10 +580,20 @@ export function resolveNutritionModel(
         // parses it back as `undefined`, the same class of gap AGENTS.md's migration-flag gotcha
         // warns about — this must fall through to the population prior, not produce NaN.
         : (profile.nutrition.neat?.multiplier ?? DEFAULT_NEAT_MULTIPLIER);
+      const rmr = restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex);
+      // The basis of the record actually SUPPLYING `neatMultiplier` — the day-type split when one is
+      // in force, else the pooled record — never a blanket read of `neat.basis`. calibrateNeatByDayType
+      // writes both together so they agree today, but reading the record in use keeps that an
+      // observation rather than an assumption a future adoption path could quietly break.
+      // `=== "net"`, never `!== "gross"`: a pre-migration profile.json parses `basis` back as
+      // `undefined`, which must land on 0 (no netting) — the same class of gap AGENTS.md's
+      // migration-flag note warns about.
+      const basisRecord = dayTypeNeat ? (isRestDayToday ? dayTypeNeat.rest : dayTypeNeat.train) : profile.nutrition.neat;
       return {
         kind: "derived",
-        rmr: restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex),
+        rmr,
         neatMultiplier,
+        restingKcalPerHour: basisRecord?.basis === "net" ? rmr / 24 : 0,
         ...shared,
       };
     }
@@ -692,6 +763,12 @@ export function nonDerivedNeatCalibration(
     solvedAt,
     imbalance: null,
     stale: false,
+    // Neither a population prior nor an athlete-typed value was fit against burn data at all, so
+    // neither inherited the gross-basis accident. Both belong to the net formulation: `k × RMR +
+    // exercise` is the standard TDEE decomposition, in which the exercise term is net of rest by
+    // definition. Stamping "net" keeps netting ON for these records rather than silently reverting an
+    // athlete who typed a number while looking at net-basis figures.
+    basis: "net",
   };
 }
 
@@ -785,7 +862,7 @@ function solveAndClampK(
  */
 export function calibrateNeat(
   wellness: WellnessEntry[],
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  activities: BurnActivity[],
   rmr: number,
   today: string,
   windowDays: number = CALIBRATION_PREFERRED_WINDOW_DAYS
@@ -796,7 +873,10 @@ export function calibrateNeat(
   const unresolvedBurnDates = new Set<string>();
   const burnByDate = new Map<string, number>();
   for (const a of activities) {
-    const burn = activeBurn(a);
+    // NET, unconditionally: this function DEFINES the net basis (it stamps `basis: "net"` on what it
+    // returns), so it never consults a prior record's basis — that would make the solve depend on the
+    // very record it is about to replace.
+    const burn = exerciseBurn(a, rmr / 24);
     if (burn === null) {
       unresolvedBurnDates.add(a.date);
       continue;
@@ -833,6 +913,7 @@ export function calibrateNeat(
       solvedAt: null,
       imbalance: null,
       stale: true,
+      basis: "net", // carries DEFAULT_NEAT_MULTIPLIER, a population prior — same reasoning as nonDerivedNeatCalibration
     };
   }
 
@@ -938,6 +1019,7 @@ export function calibrateNeat(
     solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
     imbalance,
     stale: false,
+    basis: "net", // solved above against exerciseBurn — the field that makes that pairing legible to readers
   };
 }
 
@@ -998,7 +1080,7 @@ function dayTypeConfidence(windowDays: number, loggedDays: number, coverage: num
  */
 export function calibrateNeatByDayType(
   wellness: WellnessEntry[],
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  activities: BurnActivity[],
   rmr: number,
   today: string,
   windowDays: number = DAY_TYPE_WINDOW_DAYS
@@ -1009,14 +1091,23 @@ export function calibrateNeatByDayType(
   // Same convention as calibrateNeat: a date lands here when SOME activity on it has a burn that
   // can't be resolved. Excluded from both the day-type map and any subset's day count entirely.
   const unresolvedBurnDates = new Set<string>();
-  const burnByDate = new Map<string, number>();
+  // TWO maps, deliberately, because the two questions have different right answers. `netBurnByDate`
+  // feeds the energy identity and is netted like calibrateNeat's. `grossBurnByDate` answers only "did
+  // this athlete train at all today", which must stay on the SOURCE figure: netting can drive a short
+  // or manually-estimated activity to 0 (exerciseBurn floors there), and a day with real training must
+  // never reclassify as a rest day just because its exercise cost netted away. Collapsing these into
+  // one map silently moves such days into the rest subset and corrupts both solves.
+  const netBurnByDate = new Map<string, number>();
+  const grossBurnByDate = new Map<string, number>();
   for (const a of activities) {
-    const burn = activeBurn(a);
-    if (burn === null) {
+    const gross = activeBurn(a);
+    if (gross === null) {
       unresolvedBurnDates.add(a.date);
       continue;
     }
-    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
+    grossBurnByDate.set(a.date, (grossBurnByDate.get(a.date) ?? 0) + gross.kcal);
+    const net = exerciseBurn(a, rmr / 24);
+    if (net !== null) netBurnByDate.set(a.date, (netBurnByDate.get(a.date) ?? 0) + net.kcal);
   }
 
   const cutoff = new Date(Date.parse(today) - windowDays * 86_400_000).toISOString().slice(0, 10);
@@ -1060,10 +1151,10 @@ export function calibrateNeatByDayType(
   for (let ms = cutoffMs; ms <= lastLoggedMs; ms += 86_400_000) {
     const date = new Date(ms).toISOString().slice(0, 10);
     if (unresolvedBurnDates.has(date)) continue; // burn unknown this day — excluded from both subsets
-    const burn = burnByDate.get(date) ?? 0;
-    const subset = burn > 0 ? train : rest;
+    // Classify on GROSS (did training happen), accumulate NET (what it actually cost above rest).
+    const subset = (grossBurnByDate.get(date) ?? 0) > 0 ? train : rest;
     subset.loggableDays++;
-    subset.burnSum += burn; // 0 for every rest-classified date by construction
+    subset.burnSum += netBurnByDate.get(date) ?? 0; // 0 for every rest-classified date by construction
     const w = wellnessByDate.get(date);
     if (w && w.kcalConsumed !== null && w.kcalConsumed > 0) {
       subset.loggedDays++;
@@ -1096,6 +1187,7 @@ export function calibrateNeatByDayType(
       solvedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
       imbalance, // from the PRE-shrink clamp — shrinkage never recomputes it
       stale: false, // staleness already gated via pooled returning null
+      basis: "net", // solved against exerciseBurn above, and shrunk toward a pooled solve that also is
     };
     return { neat, weight };
   };
@@ -1133,7 +1225,7 @@ const EA_MIN_DAYS = 3; // a few logged days before a trailing EA means anything 
 //     (withheld, not a flaky single-day number). A personalised "adequate" line is Track C / §6 calibration.
 export function computeEnergyAvailability(
   wellness: WellnessEntry[],
-  activities: Array<{ date: string; activeBurnKcal: number | null; kj: number | null }>,
+  activities: BurnActivity[],
   today: string,
   windowDays = 7,
 ): EnergyAvailability | null {
@@ -1263,25 +1355,36 @@ export type ModelOrResolver = NutritionModel | ((isRestDay: boolean) => Nutritio
 // day would be skipped).
 function streakCandidates(
   wellness: WellnessEntry[],
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
-  today: string
-): Array<{ date: string; kcalConsumed: number; activeBurnKcal: number }> {
+  activities: BurnActivity[],
+  today: string,
+  restingKcalPerHour: number
+): Array<{ date: string; kcalConsumed: number; activeBurnKcal: number; grossBurnKcal: number }> {
   const unresolvedBurnDates = new Set<string>();
-  const burnByDate = new Map<string, number>();
+  // Net feeds the denominator (`k·RMR + burn`); gross answers the rest/training day-type question.
+  // See calibrateNeatByDayType for why these can't be one map.
+  const netBurnByDate = new Map<string, number>();
+  const grossBurnByDate = new Map<string, number>();
   for (const a of activities) {
-    const burn = activeBurn(a);
-    if (burn === null) {
+    const gross = activeBurn(a);
+    if (gross === null) {
       unresolvedBurnDates.add(a.date);
       continue;
     }
-    burnByDate.set(a.date, (burnByDate.get(a.date) ?? 0) + burn.kcal);
+    grossBurnByDate.set(a.date, (grossBurnByDate.get(a.date) ?? 0) + gross.kcal);
+    const net = exerciseBurn(a, restingKcalPerHour);
+    if (net !== null) netBurnByDate.set(a.date, (netBurnByDate.get(a.date) ?? 0) + net.kcal);
   }
   const cutoff = new Date(Date.parse(today) - STREAK_MAX_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10);
   return wellness
     .filter((w) => w.date >= cutoff && w.date < today)
     .filter((w) => w.kcalConsumed !== null && w.kcalConsumed > 0)
     .filter((w) => !unresolvedBurnDates.has(w.date))
-    .map((w) => ({ date: w.date, kcalConsumed: w.kcalConsumed as number, activeBurnKcal: burnByDate.get(w.date) ?? 0 }))
+    .map((w) => ({
+      date: w.date,
+      kcalConsumed: w.kcalConsumed as number,
+      activeBurnKcal: netBurnByDate.get(w.date) ?? 0,
+      grossBurnKcal: grossBurnByDate.get(w.date) ?? 0,
+    }))
     .sort((a, b) => b.date.localeCompare(a.date)); // most recent first
 }
 
@@ -1291,10 +1394,12 @@ function streakCandidates(
 // STREAK_WINDOW_LOGGED_DAYS: once the floor clears this number stops being interesting to the UI.
 export function loggedDaysForStreak(
   wellness: WellnessEntry[],
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  activities: BurnActivity[],
   today: string
 ): number {
-  return Math.min(streakCandidates(wellness, activities, today).length, STREAK_WINDOW_LOGGED_DAYS);
+  // 0 (no netting): this function only COUNTS usable days, and netting cannot change whether a day's
+  // burn resolved — only its magnitude, which is never read here.
+  return Math.min(streakCandidates(wellness, activities, today, 0).length, STREAK_WINDOW_LOGGED_DAYS);
 }
 
 /**
@@ -1310,16 +1415,23 @@ export function loggedDaysForStreak(
  */
 export function computeUnderfuelStreak(
   wellness: WellnessEntry[],
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  activities: BurnActivity[],
   modelOrResolver: ModelOrResolver,
   today: string
 ): UnderfuelStreak | null {
-  const candidates = streakCandidates(wellness, activities, today);
+  // Both day types share one rmr and one calibration basis, so either side yields the same netting
+  // rate — resolve once rather than per candidate day.
+  const restingKcalPerHour = restingKcalPerHourOf(
+    typeof modelOrResolver === "function" ? modelOrResolver(false) : modelOrResolver
+  );
+  const candidates = streakCandidates(wellness, activities, today, restingKcalPerHour);
   if (candidates.length < STREAK_MIN_LOGGED_DAYS) return null;
   const window = candidates.slice(0, STREAK_WINDOW_LOGGED_DAYS);
   const daysBelowThreshold = window.reduce((count, day) => {
+    // Day type off GROSS: a short session whose exercise cost nets to 0 is still a training day, and
+    // must not be measured against the rest-day multiplier.
     const model = typeof modelOrResolver === "function"
-      ? modelOrResolver(day.activeBurnKcal === 0)
+      ? modelOrResolver(day.grossBurnKcal === 0)
       : modelOrResolver;
     const need = unbufferedMaintenance(model, day.activeBurnKcal);
     return count + (need > 0 && day.kcalConsumed / need < UNDERFUEL_RATIO_BELOW ? 1 : 0);
@@ -1348,7 +1460,7 @@ export interface NutritionTrendWarning {
 
 export function computeNutritionTrendWarning(
   wellness: WellnessEntry[],
-  activities: Array<Pick<ActivitySummary, "date" | "activeBurnKcal" | "kj">>,
+  activities: BurnActivity[],
   modelOrResolver: ModelOrResolver,
   today: string,
   targetWeightKg: number,
@@ -1363,16 +1475,23 @@ export function computeNutritionTrendWarning(
   const observedKgPerWeek = weightTrendPreciseFromWellness(windowedWellness, TREND_WARNING_WINDOW_DAYS);
   if (observedKgPerWeek === null) return null;
 
+  // Both day types share one rmr/basis, so either side gives the same netting rate.
+  const restingKcalPerHour = restingKcalPerHourOf(
+    typeof modelOrResolver === "function" ? modelOrResolver(false) : modelOrResolver
+  );
   const unresolvedBurnDates = new Set<string>();
-  const burnByDate = new Map<string, number>();
+  const netBurnByDate = new Map<string, number>();
+  const grossBurnByDate = new Map<string, number>();
   for (const activity of activities) {
     if (activity.date < cutoff || activity.date >= today) continue;
-    const burn = activeBurn(activity);
-    if (burn === null) {
+    const gross = activeBurn(activity);
+    if (gross === null) {
       unresolvedBurnDates.add(activity.date);
       continue;
     }
-    burnByDate.set(activity.date, (burnByDate.get(activity.date) ?? 0) + burn.kcal);
+    grossBurnByDate.set(activity.date, (grossBurnByDate.get(activity.date) ?? 0) + gross.kcal);
+    const net = exerciseBurn(activity, restingKcalPerHour);
+    if (net !== null) netBurnByDate.set(activity.date, (netBurnByDate.get(activity.date) ?? 0) + net.kcal);
   }
 
   const loggedDays = windowedWellness.filter(
@@ -1383,10 +1502,12 @@ export function computeNutritionTrendWarning(
   let totalIntake = 0;
   let totalTarget = 0;
   for (const day of loggedDays) {
-    const burn = burnByDate.get(day.date) ?? 0;
-    const model = typeof modelOrResolver === "function" ? modelOrResolver(burn === 0) : modelOrResolver;
+    // Day type off GROSS, energy off NET — same split as computeUnderfuelStreak.
+    const isRestDay = (grossBurnByDate.get(day.date) ?? 0) === 0;
+    const burn = netBurnByDate.get(day.date) ?? 0;
+    const model = typeof modelOrResolver === "function" ? modelOrResolver(isRestDay) : modelOrResolver;
     totalIntake += day.kcalConsumed as number;
-    totalTarget += calculateDailyTarget(burn, model, bufferApplied, burn === 0).dailyTarget;
+    totalTarget += calculateDailyTarget(burn, model, bufferApplied, isRestDay).dailyTarget;
   }
   const adherenceRatio = totalIntake / totalTarget;
   if (adherenceRatio < TREND_WARNING_ADHERENCE_MIN || adherenceRatio > TREND_WARNING_ADHERENCE_MAX) return null;

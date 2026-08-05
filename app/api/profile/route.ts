@@ -4,14 +4,15 @@ import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import {
-  activeBurn,
   calculateDailyTarget,
   calibrateNeat,
   desiredWeightTrend,
   isRestDayFor,
   nonDerivedNeatCalibration,
   resolveBuffer,
+  exerciseBurn,
   resolveNutritionModel,
+  restingKcalPerHourOf,
   smoothedCurrentWeightKg,
   weightTrendFromWellness,
   WEIGHT_TREND_LONG_WINDOW_DAYS,
@@ -123,9 +124,13 @@ export async function GET() {
     isRestDayToday
   );
   const rmr = nutritionModel.kind === "derived" ? nutritionModel.rmr : null;
+  // NET of each activity's resting-equivalent cost, at the rate this model's calibration basis
+  // dictates — the same figure calculateDailyTarget is about to add to k×RMR, so the panel's
+  // "+ N activity kcal" line names the number actually used, not the pre-netting source figure.
+  const restingKcalPerHour = restingKcalPerHourOf(nutritionModel);
   let todayActiveBurnKcal: number | null = 0;
   for (const activity of (sync?.activities ?? []).filter((a) => a.date === today)) {
-    const burn = activeBurn(activity);
+    const burn = exerciseBurn(activity, restingKcalPerHour);
     if (burn === null) {
       todayActiveBurnKcal = null;
       break;

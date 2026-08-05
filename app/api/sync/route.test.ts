@@ -1279,8 +1279,15 @@ describe("POST /api/sync — NEAT recalibration (Task 4)", () => {
     const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
     const result = await mutate(derivedProfile() as never);
     expect(result.nutrition.neat.source).toBe("derived");
-    expect(result.nutrition.neat.multiplier).toBeGreaterThan(1.25);
-    expect(result.nutrition.neat.multiplier).toBeLessThan(1.35);
+    // The fixture's intake is built as `k_gross × RMR + burn` — i.e. against the GROSS burn figure.
+    // calibrateNeat now solves against exerciseBurn (net of each activity's resting-equivalent cost),
+    // so it recovers a correspondingly higher k, by exactly the resting cost of the ride's duration
+    // expressed in RMR-multiples: 1.3 + (4500 s / 3600) / 24 = 1.3520833…, which is what it returns to
+    // the last digit. Asserted as the derivation rather than a hardcoded constant so the number can
+    // never drift away from the mechanism that produces it.
+    const NETTING_OFFSET = 4500 / 3600 / 24; // mkActivity's default movingTimeSec, as a fraction of a day
+    expect(result.nutrition.neat.multiplier).toBeCloseTo(1.3 + NETTING_OFFSET, 6);
+    expect(result.nutrition.neat.basis).toBe("net");
     expect(result.nutrition.neat.stale).toBe(false);
   });
 

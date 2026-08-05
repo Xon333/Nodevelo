@@ -261,8 +261,12 @@ describe("PUT /api/profile — neatMultiplier override (Step 5)", () => {
       // Landed on a genuine derived solve close to the synthetic k, not the 1.2 population default —
       // the pre-fix behaviour ("Revert to derived" actually reverting to the default) is what this closes.
       expect(json.nutrition.neat.source).toBe("derived");
-      expect(json.nutrition.neat.multiplier).toBeGreaterThan(1.27);
-      expect(json.nutrition.neat.multiplier).toBeLessThan(1.29);
+      // Bounds shifted up by the net-of-resting migration: the fixture's intake is synthesised against
+      // the GROSS burn figure (k 1.28), and calibrateNeat now solves against exerciseBurn, so it
+      // recovers k + the ride's own resting-equivalent cost in RMR-multiples — 1.28 + (3600 s/3600)/24
+      // ≈ 1.3217 here. Still a ±0.01 band around that, exactly as tight as the pre-migration one.
+      expect(json.nutrition.neat.multiplier).toBeGreaterThan(1.31);
+      expect(json.nutrition.neat.multiplier).toBeLessThan(1.33);
       expect(json.nutrition.neat.confidence).toBe("high");
       expect(json.nutrition.neat.windowDays).toBe(42);
     } finally {

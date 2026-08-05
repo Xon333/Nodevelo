@@ -39,6 +39,12 @@ export const DEFAULT_PROFILE: AthleteProfile = {
       solvedAt: null,
       imbalance: null,
       stale: false,
+      // Matches nonDerivedNeatCalibration: the population prior belongs to the net formulation
+      // (`k × RMR + exercise-above-rest` is the standard TDEE decomposition), so a profile that has
+      // never calibrated still nets its burn. Only a DERIVED record carries the historical gross-basis
+      // accident — and shapeMergeProfile's `nutrition` merge is shallow, so an on-disk `neat` replaces
+      // this wholesale rather than inheriting this `basis`. That is what keeps the migration honest.
+      basis: "net",
     },
     dayTypeNeat: null,
   },
