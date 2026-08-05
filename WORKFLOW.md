@@ -107,7 +107,11 @@ merges.
 | Task is unfinished | Use `/handoff`; do not open a partial PR merely to end a session |
 
 `main` is an integration mirror, not a workspace. If a tool opens the primary checkout on `main`, use
-it for reading only and start an isolated task before editing.
+it for reading only and start an isolated task before editing — meaning `npm run start:agent-task` or
+`EnterWorktree`, not `git checkout -b` run by hand in that same directory. The primary checkout is the
+one shared directory every session for this project opens; git holds only one working-tree state per
+directory, so a manual branch switch there is visible to every other concurrent session on disk,
+instantly (bit us once, 2026-08-05 — see `AGENTS.md` § Parallel agent integration).
 
 ## Skills (`/name`)
 

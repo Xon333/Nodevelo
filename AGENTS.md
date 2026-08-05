@@ -26,6 +26,14 @@ Four defect shapes have shipped more than once. Check for them explicitly on rel
 - `main` is integration-only. Start implementation work with
   `npm run start:agent-task -- <claude|codex> <task-name>`, which creates a disposable worktree on a
   guaranteed-correct `claude/<task>` or `codex/<task>` branch off current `origin/main`.
+- **Never `git checkout`/`git branch -b` directly in the primary checkout to "start" a task.** It is not
+  isolated — the primary checkout is the one shared directory every session for this project opens, and
+  git tracks only one working-tree state per directory, so a manual branch switch there changes what
+  every other concurrent session sees on disk, immediately, not just for the session that ran it.
+  Confirmed live 2026-08-05: a Claude session moved uncommitted work onto a task branch by hand-running
+  `git checkout -b claude/<task>` in the primary checkout instead of an isolated worktree, and that
+  branch's files surfaced in the user's other open sessions. Always start an isolated worktree instead —
+  `npm run start:agent-task`, or Claude's own `EnterWorktree` tool.
 - Parallel tasks must own disjoint files. If tasks overlap, use one writer and the other agent as
   reviewer.
 - Stage only files touched by the active task; never `git add -A` or `git add .`.
