@@ -1488,19 +1488,82 @@ describe("calibrateNeatByDayType", () => {
   it("recovers day-type-specific k when both subsets are well-sampled", () => {
     const { wellness, activities, today } = synth(20, 40, 1.53, 1.22);
     const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
-    // The 42-day POOLED window (unchanged calibrateNeat call) reaches back only to day18 of this
-    // 60-day fixture, so it sees just the trailing 2 of the 20 rest days — it is itself almost pure
-    // training-day signal (verified: pooled.multiplier ≈ 1.2348, not ≈ 1.375 as an even day-type mix
-    // would suggest). At loggedDays=20, shrinkageWeight is 20/(20+12) = 0.625 — day-type dominant but
-    // not overwhelming — so the blend (verified: ≈1.4193) lands meaningfully above pooled and above
-    // the midpoint of [pooled, raw], but not all the way to the raw 1.53. Asserting against the
-    // midpoint (rather than a hardcoded absolute figure) ties the bound to the actual pooled anchor
-    // instead of a number that silently goes stale if the fixture or pooled's own logic changes.
+    // The 42-day POOLED window (unchanged calibrateNeat call, still what `r.pooled` reports) reaches
+    // back only to day18 of this 60-day fixture, so it sees just the trailing 2 of the 20 rest days —
+    // it is itself almost pure training-day signal (verified: pooled.multiplier ≈ 1.2348, not ≈ 1.375 as
+    // an even day-type mix would suggest). Since the window-anchor fix, the SHRINKAGE anchor is no longer
+    // this stale figure — it's a separate internal 90-day pooled solve (`windowPooled`, same window the
+    // subsets themselves use) that sees this fixture's actual ~1:2 rest:train mix (verified: ≈1.4868), and
+    // this 60-day fixture has just enough coverage (60/90 ≈ 0.67) to clear windowPooled's own confidence
+    // floor, so the fix is actually engaged here (see the two window-anchor-specific tests below for the
+    // isolated before/after comparison). At loggedDays=20, shrinkageWeight is 20/(20+12) = 0.625 —
+    // day-type dominant but not overwhelming — so the blend (verified: ≈1.5138, up from the OLD
+    // pre-fix ≈1.4193 that anchored toward the stale 42-day figure) lands meaningfully above the midpoint
+    // of [pooled, raw]. Asserting against the midpoint (rather than a hardcoded absolute figure) ties the
+    // bound to the actual `pooled` field instead of a number that silently goes stale if the fixture or
+    // pooled's own logic changes; it holds even more comfortably post-fix since the fix only raises the
+    // anchor here.
     const midpoint = (r.pooled.multiplier + 1.53) / 2;
     expect(r.rest.multiplier).toBeGreaterThan(midpoint);
     expect(r.rest.multiplier).toBeGreaterThan(1.4);
-    expect(r.train.multiplier).toBeLessThan(1.28);
+    // Pre-fix this asserted <1.28 (train's blend leaned on the training-heavy 42-day pooled anchor,
+    // ≈1.2233 actual). The window-anchor fix raises train's own anchor to the 90-day pooled figure
+    // (≈1.4868) too — which, even at train's high 0.77 shrinkage weight toward the raw 1.22, pulls the
+    // blend up to ≈1.2816, just over the old 1.28 ceiling. The bound is widened here to reflect the
+    // CORRECT (same-window) anchor, not narrowed to merely keep the old buggy-anchor assertion green.
+    expect(r.train.multiplier).toBeLessThan(1.29);
     expect(r.shrinkageWeight.rest).toBeGreaterThan(0.6); // n=20 well above K=12
+  });
+
+  it("shrinks toward the SAME-WINDOW pooled solve, not the stale 42-day pooled figure (window-anchor fix)", () => {
+    // Same fixture as "recovers day-type-specific k" above, isolated to demonstrate the anchor fix on
+    // its own: 60 days of data is enough for the internal 90-day `windowPooled` solve to clear its own
+    // confidence floor (60/90 ≈ 0.67 logged fraction, just above CALIBRATION_MIN_LOGGED_FRACTION 0.65),
+    // so the fix is actually engaged rather than falling back.
+    const { wellness, activities, today } = synth(20, 40, 1.53, 1.22);
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    const windowPooled = calibrateNeat(wellness, activities, RMR, today, 90)!;
+    expect(windowPooled).not.toBeNull();
+    expect(windowPooled.source).toBe("derived");
+    // The two pooled solves diverge substantially — same underlying data, different calendar slice and
+    // rest/train mix (the 42-day pooled call sees almost only training days; the 90-day windowPooled call
+    // sees the fixture's actual ~1:2 rest:train mix) — which is exactly the artifact this fix removes
+    // from the shrinkage anchor.
+    expect(windowPooled.multiplier).toBeGreaterThan(r.pooled.multiplier + 0.2);
+
+    // This noise-free fixture recovers each subset's raw (pre-shrink) k EXACTLY to the TRUE value it was
+    // built with (1.53 rest / 1.22 train — see synth's docstring), so the blend's expected value under
+    // either candidate anchor is directly computable by hand, without needing to reach into buildSubset.
+    const restWeight = r.shrinkageWeight.rest;
+    const expectedWithWindowAnchor = restWeight * 1.53 + (1 - restWeight) * windowPooled.multiplier;
+    const expectedWithOldAnchor = restWeight * 1.53 + (1 - restWeight) * r.pooled.multiplier;
+
+    // The fix: the actual blend matches the SAME-WINDOW anchor almost exactly...
+    expect(r.rest.multiplier).toBeCloseTo(expectedWithWindowAnchor, 6);
+    // ...and sits nowhere near what the OLD (42-day-anchored) blend would have produced.
+    expect(Math.abs(r.rest.multiplier - expectedWithOldAnchor)).toBeGreaterThan(0.05);
+  });
+
+  it("falls back to the 42-day pooled multiplier as the shrinkage anchor when the wider-window solve is unavailable", () => {
+    // Only 45 total days of history (15 rest + 30 train) — enough for the 42-day pooled call to clear
+    // its own confidence floor comfortably (42 of those days fall inside its window, all logged), but
+    // NOT enough for a 90-day windowPooled call: `loggableDays` for that call spans the full 90-day
+    // window regardless of how much real data exists inside it (lastLoggedDate − cutoff, a pure
+    // calendar-day count), so with only 45 real logged days the internal 90-day solve's own logged
+    // fraction is 45/90 = 0.5 — below CALIBRATION_MIN_LOGGED_FRACTION (0.65) — and it returns null.
+    // Exactly the case the fallback exists for: a same-window anchor is an improvement when available,
+    // not a new hard requirement that should take the whole day-type split down when it isn't.
+    const { wellness, activities, today } = synth(15, 30, 1.53, 1.22);
+    const windowPooled = calibrateNeat(wellness, activities, RMR, today, 90);
+    expect(windowPooled).toBeNull();
+
+    const r = calibrateNeatByDayType(wellness, activities, RMR, today, 90)!;
+    expect(r).not.toBeNull();
+    // Same hand-computable-exact-raw-k reasoning as the test above; the anchor used here should be the
+    // OLD `pooled.multiplier` (42-day), verbatim, because the wider-window solve fell back.
+    const restWeight = r.shrinkageWeight.rest;
+    const expectedWithPooledFallback = restWeight * 1.53 + (1 - restWeight) * r.pooled.multiplier;
+    expect(r.rest.multiplier).toBeCloseTo(expectedWithPooledFallback, 6);
   });
 
   it("shrinks HARD toward pooled when the rest-day sample is thin", () => {
