@@ -258,13 +258,15 @@ describe("buildCoachSnapshot", () => {
 });
 
 describe("weekly energy balance in the fuel slot (§6 / #1)", () => {
-  const wb = { weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
+  // intakeKcal deliberately differs from balanceIntakeKcal so assertions prove the fuel line uses
+  // the matched figure (review §2.8), not intakeKcal by coincidence.
+  const wb = { weekOf: "2026-06-22", intakeKcal: 12500, balanceIntakeKcal: 12300, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
 
   it("weekBalance fills and the weekly ratio owns fuelingState over the EA band", () => {
     // Build an input where energyAvailability would band "adequate" (eaKcalPerKg 30) but the
     // weekly ratio is low (0.84) — the precise signal must win.
     const snap = buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }));
-    expect(snap.fuel.weekBalance).toEqual({ weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84 });
+    expect(snap.fuel.weekBalance).toEqual({ weekOf: "2026-06-22", balanceIntakeKcal: 12300, needKcal: 14900, ratio: 0.84 });
     expect(snap.fuel.fuelingState).toBe("low");
   });
 
@@ -285,7 +287,7 @@ describe("weekly energy balance in the fuel slot (§6 / #1)", () => {
 
   it("renders the week line in the prompt only when present", () => {
     const withLine = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: wb })));
-    expect(withLine).toContain("last week 12,500 kcal vs 14,900 needed (ratio 0.84 — low)");
+    expect(withLine).toContain("last week 12,300 kcal vs 14,900 needed (ratio 0.84 — low)"); // balanceIntakeKcal, not intakeKcal
     const without = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: null, energyAvailability: null })));
     expect(without).not.toContain("last week");
   });
@@ -443,7 +445,7 @@ describe("formatFormFuelLine", () => {
   it("labels 'fueling', not 'energy availability', when the weekly ratio owns fuelingState", () => {
     // Same mislabel bug formatCoachSnapshot's fuel line had (fixed 2026-07-11) — this is the milder
     // sibling in the /api/generate block-generation line, which had no test on this path.
-    const wb = { weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
+    const wb = { weekOf: "2026-06-22", intakeKcal: 12500, balanceIntakeKcal: 12300, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
     const line = formatFormFuelLine(
       buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }))
     );

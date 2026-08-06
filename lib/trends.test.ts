@@ -144,6 +144,7 @@ describe("weeklyEnergy (TRENDS-2)", () => {
       intakeKcal: 6300,
       weightKg: 71,
       needKcal: null,
+      balanceIntakeKcal: null,
       ratio: null,
       loggedDays: 0,
     });
@@ -186,12 +187,14 @@ describe("weeklyEnergy balance columns", () => {
 
   it("computes need day-matched to logged-intake days and the ratio", () => {
     const [week] = weeklyEnergy(activities, wellness, "2026-07-01", model);
-    // need = 3 rest days × 2600 + max(2000+1000+300, 2600) + max(2000+1500+300, 2600)
-    //      = 7800 + 3300 + 3800 = 14900 (unchanged: both training days already clear the rest floor)
-    expect(week.needKcal).toBe(14900);
+    // Review §2.8: buffer is 0, not model.buffer (300) — legacy REST days are unaffected (the legacy
+    // formula honours restDayTarget verbatim regardless of buffer), only the two training days move.
+    // need = 3 rest days × 2600 + max(2000+1000+0, 2600) + max(2000+1500+0, 2600)
+    //      = 7800 + 3000 + 3500 = 14300
+    expect(week.needKcal).toBe(14300);
     expect(week.loggedDays).toBe(5);
-    // intake = 5 × 2500 = 12500 → ratio 12500/14900 = 0.8389… → 0.84
-    expect(week.ratio).toBe(0.84);
+    // intake = 5 × 2500 = 12500 → ratio 12500/14300 = 0.8741… → 0.87
+    expect(week.ratio).toBe(0.87);
   });
 
   it("withholds the ratio below 4 logged days and without a model", () => {
@@ -218,9 +221,11 @@ describe("weeklyEnergy need calculation", () => {
       { date: "2026-06-16", type: "Run", activeBurnKcal: 500, kj: null, movingTimeSec: 0 },
     ] as unknown as ActivitySummary[];
     const [week] = weeklyEnergy(activities, fourLoggedDays, "2026-06-29", MODEL);
-    // 3 days with no activity: 1.2 × 1800 + 300 = 2460 each. The Run's day: 1.2 × 1800 + 500 + 300 =
-    // 2960 — the run is no longer invisible. Total: 2460×3 + 2960 = 10340.
-    expect(week.needKcal).toBe(10340);
+    // Review §2.8: historical need uses buffer 0, not MODEL.buffer (300) — MODEL.buffer reads the
+    // deprecated, frozen NutritionSettings.buffer field, which is worse than a neutral baseline, not a
+    // reasonable historical approximation. 3 days with no activity: 1.2 × 1800 + 0 = 2160 each. The
+    // Run's day: 1.2 × 1800 + 500 + 0 = 2660 — the run is no longer invisible. Total: 2160×3 + 2660 = 9140.
+    expect(week.needKcal).toBe(9140);
     expect(week.loggedDays).toBe(4);
   });
 
@@ -250,10 +255,17 @@ describe("weeklyEnergy need calculation", () => {
 
     const [week] = weeklyEnergy(activities, wellness, "2026-06-29", MODEL);
 
+    // needKcal is 4 × (1.2×1800 + 0) = 8,640 — buffer 0, not MODEL.buffer (300, review §2.8).
     expect(week.intakeKcal).toBe(16_200);
-    expect(week.needKcal).toBe(9_840);
+    expect(week.needKcal).toBe(8_640);
     expect(week.loggedDays).toBe(4);
-    expect(week.ratio).toBe(1.14);
+    expect(week.ratio).toBe(1.3);
+    // Review §2.8: balanceIntakeKcal (4 matched days, 11,200) is what ratio actually divides from —
+    // NOT intakeKcal (16,200), which includes the unresolved-burn day's logged 5,000 that needKcal
+    // could never account for. 16,200/8,640 rounds to 1.88, not 1.3 — a consumer pairing intakeKcal
+    // with ratio in one sentence would show numbers that visibly don't divide to the stated percentage.
+    expect(week.balanceIntakeKcal).toBe(11_200);
+    expect(Math.round((week.balanceIntakeKcal! / week.needKcal!) * 100) / 100).toBe(week.ratio);
   });
 
   it("never computes a lower need for a day with activity than for one without", () => {
@@ -268,12 +280,14 @@ describe("weeklyEnergy need calculation", () => {
 
 describe("latestWeeklyBalance", () => {
   it("returns the immediately-prior complete week only", () => {
+    // balanceIntakeKcal deliberately differs from intakeKcal so this proves latestWeeklyBalance
+    // carries the matched figure through, not intakeKcal by coincidence (review §2.8).
     const pts = [
-      { date: "2026-06-15", burnKcal: 1, intakeKcal: 1, weightKg: null, needKcal: 14000, ratio: 0.95, loggedDays: 6 },
-      { date: "2026-06-22", burnKcal: 1, intakeKcal: 12500, weightKg: null, needKcal: 14900, ratio: 0.84, loggedDays: 5 },
+      { date: "2026-06-15", burnKcal: 1, intakeKcal: 1, balanceIntakeKcal: 1, weightKg: null, needKcal: 14000, ratio: 0.95, loggedDays: 6 },
+      { date: "2026-06-22", burnKcal: 1, intakeKcal: 12500, balanceIntakeKcal: 12300, weightKg: null, needKcal: 14900, ratio: 0.84, loggedDays: 5 },
     ];
     expect(latestWeeklyBalance(pts, "2026-07-01")).toEqual({
-      weekOf: "2026-06-22", intakeKcal: 12500, needKcal: 14900, ratio: 0.84, loggedDays: 5,
+      weekOf: "2026-06-22", intakeKcal: 12500, balanceIntakeKcal: 12300, needKcal: 14900, ratio: 0.84, loggedDays: 5,
     });
     // Prior week under-logged (ratio null) → withheld, NOT the older week substituted
     const gap = [pts[0], { ...pts[1], ratio: null }];

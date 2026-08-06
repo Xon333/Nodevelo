@@ -33,6 +33,9 @@ export interface EnergyRow {
   weightKg: number | null;
   // §6 energy balance — see lib/trends.ts WeeklyEnergyPoint.
   needKcal: number | null;
+  // The intake actually paired with needKcal/ratio (same day-set) — use THIS, never intakeKcal above,
+  // wherever a number is shown alongside ratio/needKcal in one sentence (review §2.8).
+  balanceIntakeKcal: number | null;
   ratio: number | null;
   loggedDays: number;
 }
