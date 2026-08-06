@@ -225,7 +225,11 @@ export default function Trends() {
                       const pct = Math.round((last.ratio as number) * 100);
                       return (
                         <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
-                          Last complete week: {last.intakeKcal?.toLocaleString()} kcal eaten vs{" "}
+                          {/* review §2.8: balanceIntakeKcal, not intakeKcal — the day-set actually
+                              matched to needKcal/ratio. A week can log intake on more days than it can
+                              resolve a need for (an unresolved-burn day withholds need, never intake),
+                              so intakeKcal here could disagree with what pct actually divides to. */}
+                          Last complete week: {last.balanceIntakeKcal?.toLocaleString()} kcal eaten vs{" "}
                           {last.needKcal?.toLocaleString()} needed — {pct}% of target ({last.loggedDays}/7 days logged).
                         </p>
                       );

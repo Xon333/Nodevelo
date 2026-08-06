@@ -69,14 +69,24 @@ export function hrrcSeries(activities: ActivitySummary[]): { date: string; value
 
 export interface WeeklyEnergyPoint {
   date: string; // Monday of the week
-  burnKcal: number | null;
+  // Every day this week with logged intake, regardless of whether that day's activity burn resolved —
+  // deliberately never dropped (see the "excludes unknown-burn activity days from balance without
+  // dropping their intake total" test): understating real logged intake because an unrelated activity's
+  // burn didn't sync is the wrong direction for an athlete whose presenting problem is underfuelling.
   intakeKcal: number | null;
+  burnKcal: number | null;
   weightKg: number | null;
   // §6 energy balance — filled only when a nutrition model is supplied AND the week has enough
-  // logged-intake days. Need is DAY-MATCHED: summed only over days whose intake was logged, so
-  // under-logging withholds the ratio instead of faking a deficit.
+  // logged-intake days. Need is DAY-MATCHED: summed only over days whose intake was logged AND whose
+  // activity burn resolved, so under-logging or a sync gap withholds the ratio instead of faking a
+  // deficit — this is why `needKcal` can legitimately span FEWER days than `intakeKcal` above.
   needKcal: number | null;
-  ratio: number | null; // intakeKcal / needKcal, 2 dp
+  // The intake actually paired with `needKcal` — same day-set, so `ratio` = balanceIntakeKcal / needKcal
+  // exactly (review §2.8: this used to be undocumented and unexposed, and the UI fell back to
+  // `intakeKcal` next to the ratio, which could show a numerator that didn't actually divide to it
+  // whenever a week had an unresolved-burn day). `null` under the same `hasBalance` gate as `needKcal`/`ratio`.
+  balanceIntakeKcal: number | null;
+  ratio: number | null; // balanceIntakeKcal / needKcal, 2 dp
   loggedDays: number;
 }
 
@@ -85,6 +95,11 @@ export const MIN_LOGGED_DAYS_FOR_BALANCE = 4; // a weekly verdict needs most of 
 export interface WeeklyEnergyBalance {
   weekOf: string;
   intakeKcal: number;
+  // The intake actually paired with `needKcal`/`ratio` (same day-set) — see WeeklyEnergyPoint's
+  // balanceIntakeKcal doc comment. Consumers pairing a number with `ratio`/`needKcal` in one sentence
+  // must use THIS field, never `intakeKcal`, or the shown figures won't actually divide to the shown
+  // ratio whenever the week had an unresolved-burn day (review §2.8).
+  balanceIntakeKcal: number;
   needKcal: number;
   ratio: number;
   loggedDays: number;
@@ -152,10 +167,16 @@ export function weeklyEnergy(
         const model = typeof modelOrResolver === "function"
           ? modelOrResolver(isRestDay)
           : modelOrResolver;
-        // One formula, with the day-type multiplier selected from this day's burn. Flat configured
-        // buffer: the live weight-trend adjustment is a CURRENT steering signal, unknowable for a past
-        // week, and ±250 kcal/day sits inside the bands' coarseness.
-        e.need += calculateDailyTarget(dayBurn, model, model.buffer, isRestDay).dailyTarget;
+        // One formula, with the day-type multiplier selected from this day's burn. Buffer is 0, not
+        // `model.buffer`: the live weight-trend adjustment (resolveBuffer's output) is a CURRENT
+        // steering signal, unknowable for a past week — but `model.buffer` is worse than not using it,
+        // not a neutral fallback. It reads NutritionSettings.buffer, the setting the buffer-redesign
+        // deprecated and froze (see resolveNutritionModel's `shared` object) — a stale, arbitrary
+        // number from whenever the athlete last saved a nutrition-settings edit before the redesign,
+        // carrying no meaning today. 0 (pure maintenance) is a stable, principled baseline instead of a
+        // frozen artifact; ±250 kcal/day of buffer effect either way already sits inside the bands'
+        // documented coarseness (review §2.8).
+        e.need += calculateDailyTarget(dayBurn, model, 0, isRestDay).dailyTarget;
         e.balanceIntake += w.kcalConsumed;
         e.logged += 1;
       }
@@ -172,6 +193,7 @@ export function weeklyEnergy(
         intakeKcal: e.intakeN > 0 ? Math.round(e.intake) : null,
         weightKg: e.weights.length > 0 ? Math.round(median(e.weights) * 10) / 10 : null,
         needKcal: hasBalance ? Math.round(e.need) : null,
+        balanceIntakeKcal: hasBalance ? Math.round(e.balanceIntake) : null,
         ratio: hasBalance ? Math.round((e.balanceIntake / e.need) * 100) / 100 : null,
         loggedDays: e.logged,
       };
@@ -184,7 +206,9 @@ export function weeklyEnergy(
 export function latestWeeklyBalance(points: WeeklyEnergyPoint[], today: string): WeeklyEnergyBalance | null {
   const priorMonday = addDaysIso(mondayOf(today), -7);
   const p = points.find((x) => x.date === priorMonday);
+  // balanceIntakeKcal is gated by the SAME hasBalance condition as ratio/needKcal in weeklyEnergy, so
+  // it is non-null here whenever ratio/needKcal are — asserted, not re-checked, to keep one gate.
   return p && p.ratio !== null && p.needKcal !== null && p.intakeKcal !== null
-    ? { weekOf: p.date, intakeKcal: p.intakeKcal, needKcal: p.needKcal, ratio: p.ratio, loggedDays: p.loggedDays }
+    ? { weekOf: p.date, intakeKcal: p.intakeKcal, balanceIntakeKcal: p.balanceIntakeKcal as number, needKcal: p.needKcal, ratio: p.ratio, loggedDays: p.loggedDays }
     : null;
 }

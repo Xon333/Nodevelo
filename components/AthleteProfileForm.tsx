@@ -1067,6 +1067,12 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
                 ? "today's activity burn is unavailable, so NodeVelo will not guess a target"
                 : derivation.todayPlan.floored
                 ? `${(derivation.todayPlan.maintenanceKcal + derivation.todayPlan.bufferApplied).toLocaleString()} kcal calculated, then raised to the RMR safety floor`
+                : derivation.isRestDayToday
+                // Review §2.7: `isRestDayToday` is read off today's SYNCED burn, not a plan — before a
+                // ride uploads, today reads as rest by construction (0 kcal seen so far), not because
+                // it necessarily is one. Without this caveat the figure looked final on a training
+                // morning and then jumped once the ride synced, with nothing explaining why.
+                ? "maintenance + buffer — reads as a rest day for now; complete and sync a ride today and this rises to include its burn"
                 : `maintenance + ${derivation.todayActiveBurnKcal?.toLocaleString() ?? 0} activity kcal + buffer`
             }
             extra={

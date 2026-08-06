@@ -85,7 +85,9 @@ export interface CoachSnapshot {
     intakeVsNeed: number | null;
     // §6: the precise weekly ratio for the week that just closed — null when under-logged. Present →
     // owns fuelingState (precedence over the EA proxy band above).
-    weekBalance: { weekOf: string; intakeKcal: number; needKcal: number; ratio: number } | null;
+    // balanceIntakeKcal, not intakeKcal — the figure that actually divides to `ratio` (review §2.8;
+    // WeeklyEnergyBalance's doc comment). The narrative line pairs this with `ratio` in one sentence.
+    weekBalance: { weekOf: string; balanceIntakeKcal: number; needKcal: number; ratio: number } | null;
     fuelingState: string | null;
   };
   state: { score: number; band: AthleteState["band"]; recommendation: AthleteState["recommendation"]; headline: string } | null;
@@ -282,7 +284,7 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
       weightTrend7dKg: input.weightTrend7dKg,
       intakeVsNeed: input.energyAvailability?.eaKcalPerKg ?? null, // EA kcal/kg (Track C / #1)
       weekBalance: input.weeklyBalance
-        ? { weekOf: input.weeklyBalance.weekOf, intakeKcal: input.weeklyBalance.intakeKcal, needKcal: input.weeklyBalance.needKcal, ratio: input.weeklyBalance.ratio }
+        ? { weekOf: input.weeklyBalance.weekOf, balanceIntakeKcal: input.weeklyBalance.balanceIntakeKcal, needKcal: input.weeklyBalance.needKcal, ratio: input.weeklyBalance.ratio }
         : null,
       // Precedence: precise weekly ratio > daily EA proxy band > null (see CoachSignals.weeklyBalance).
       fuelingState: input.weeklyBalance
@@ -445,7 +447,7 @@ export function formatCoachSnapshot(s: CoachSnapshot): string {
   if (s.fuel.weekBalance) {
     const wb = s.fuel.weekBalance;
     fuelParts.push(
-      `last week ${wb.intakeKcal.toLocaleString()} kcal vs ${wb.needKcal.toLocaleString()} needed (ratio ${wb.ratio.toFixed(2)} — ${balanceLevel(wb.ratio)})`
+      `last week ${wb.balanceIntakeKcal.toLocaleString()} kcal vs ${wb.needKcal.toLocaleString()} needed (ratio ${wb.ratio.toFixed(2)} — ${balanceLevel(wb.ratio)})`
     );
   }
   if (fuelParts.length > 0) lines.push(`- Fuel: ${fuelParts.join(" · ")}.`);
