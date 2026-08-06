@@ -6,6 +6,7 @@
 import { activeBurn, calculateDailyTarget, exerciseBurn, restingKcalPerHourOf, type NutritionModel } from "./nutrition";
 import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
+import { isSteadyEnduranceRide } from "./aerobic";
 import { gradeDurabilityDelivery, EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
 import type {
   ActivitySummary,
@@ -232,7 +233,13 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     activityBurnKcal: activeBurn(activity)?.kcal ?? null,
     activityTrainingLoad: activity.trainingLoad,
     activityRpe: activity.rpe,
-    activityDecoupling: activity.decoupling,
+    // Aerobic drift is only meaningful when power demand was uniform. On a mixed ride the whole-ride
+    // figure is a ride-structure artifact (15-46% on this athlete's climbing days), so OMIT it rather
+    // than label it — matching the repo's "better absent than wrong" convention. Segment-scoped drift
+    // is deliberately deferred (Phase 1 scope). This is the ONLY field in buildTodayAnalysis that needs
+    // this gate — aerobicEffPct is already correctly gated at its producer (Task 1's qualifyingPwHr), and
+    // adding a second gate here would be redundant at best (see the plan's header note on Task 3-5).
+    activityDecoupling: isSteadyEnduranceRide(activity, ftp) ? activity.decoupling : null,
     aerobicDiscipline,
     aerobicEffPct: aerobicEffPctForToday,
     activityDistanceMeters: activity.distanceMeters,

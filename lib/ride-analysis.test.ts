@@ -313,6 +313,21 @@ describe("buildTodayAnalysis (CR-G)", () => {
     // The mismatch path ignores the (low) effectiveAdherencePct, so it should not score worse than clean.
     expect(mismatch.executionScore! >= clean.executionScore!).toBe(true);
   });
+
+  it("omits drift entirely for a structurally mixed ride (VI 1.205)", () => {
+    // 118 min, avg 200 / NP 241 -> VI 1.205 > AEROBIC_MAX_VI (1.12): not aerobically comparable, even
+    // though IF (241/288 = 0.837) sits inside the 0.56-0.85 band. This is the 2026-08-06 screenshot ride.
+    const mixed = activity({ movingTimeSec: 118 * 60, avgWatts: 200, normalizedPower: 241, decoupling: 15.7 });
+    const { todayAnalysis } = buildTodayAnalysis({ ...base, activity: mixed, plannedDay: null, ftp: 288 });
+    expect(todayAnalysis.activityDecoupling).toBeNull();
+  });
+
+  it("keeps drift for a genuinely steady ride", () => {
+    // 100 min, avg 200 / NP 206 -> VI 1.03 (comparable), IF 206/288 = 0.715 (in band).
+    const steady = activity({ movingTimeSec: 100 * 60, avgWatts: 200, normalizedPower: 206, decoupling: 3.8 });
+    const { todayAnalysis } = buildTodayAnalysis({ ...base, activity: steady, plannedDay: null, ftp: 288 });
+    expect(todayAnalysis.activityDecoupling).toBe(3.8);
+  });
 });
 
 // The Today debrief header renders this under a "kcal" label. It used to render `activityKj` —

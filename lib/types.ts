@@ -993,6 +993,10 @@ export interface TodayAnalysis {
   activityBurnKcal: number | null;
   activityTrainingLoad: number | null;
   activityRpe: number | null;
+  // Whole-ride Pw:HR drift %, or null when the ride wasn't aerobically comparable (isSteadyEnduranceRide
+  // in lib/aerobic.ts — outdoor, >=45 min, 0.56-0.85 band, VI <= AEROBIC_MAX_VI, fail-closed on missing
+  // NP). Null also on a ride Intervals.icu reported no decoupling for. The debrief renders the chip only
+  // when this is non-null.
   activityDecoupling: number | null;
   // Easy-ride effort read (Z2/Recovery only): "dialed" | "drift" | "hot" from HR-zone time above aerobic,
   // or null for interval/off-plan days. Surfaced in the debrief; mirrors the HR execution signal.
