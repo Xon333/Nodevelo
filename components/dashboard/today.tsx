@@ -126,6 +126,26 @@ export function PlanEaWarningBanner({ level, kcalPerKg }: { level: EaLevel | nul
 
 // ---------- Today's ride analysis ----------
 
+// The Today page shows a ride's energy cost TWICE, on two different bases, ~10 lines apart: the
+// debrief header carries the source figure (gross) and "Eat today" carries what the fuelling formula
+// actually adds (net of the resting metabolism of those same hours — see exerciseBurn in
+// lib/nutrition.ts for the physiology and the double-count it exists to prevent). Both are correct
+// answers to different questions, but unlabelled they read as the app contradicting itself, and as
+// the app contradicting every other tool the athlete uses — Wahoo, Strava and Intervals.icu all
+// report gross, so the smaller number is the surprising one and needs the explanation.
+//
+// These live as module constants because the two tips are a matched pair: they only make sense as
+// two halves of one explanation, so editing one in isolation is the thing to avoid. Keep them to
+// ~3 lines at 375px — the fixed bottom nav covers the tail of anything longer on the Eat today
+// anchor, which is the last card on the page and has nothing below it to scroll into view.
+const GROSS_RIDE_BURN_TIP =
+  "Gross energy for the ride, from Intervals.icu — the basis Strava and your head unit use too. It " +
+  "includes the resting metabolism of those hours, which is why Eat today's \"ride\" figure is lower.";
+
+const NET_RIDE_FUEL_TIP =
+  "The ride's cost above resting metabolism — lower than Strava, Intervals.icu or your head unit, " +
+  "which report the gross total. The resting share of your ride hours is already counted in \"base\".";
+
 export function TodayRideCard({
   analysis,
   onPostNote,
@@ -268,7 +288,9 @@ export function TodayRideCard({
           <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityAvgHr} bpm avg</span>
         )}
         {analysis.activityKj !== null && (
-          <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityKj} kcal</span>
+          <span className="text-zinc-500 dark:text-zinc-400">
+            {analysis.activityKj} kcal <InfoDot text={GROSS_RIDE_BURN_TIP} align="center" />
+          </span>
         )}
       </div>
 
@@ -532,6 +554,12 @@ export function EatToday({ analysis }: { analysis: TodayAnalysis }) {
             {parts.baseKcal.toLocaleString()} base
             {parts.rideFuelKcal ? ` + ${parts.rideFuelKcal.toLocaleString()} ride` : ""}
             {parts.bufferKcal ? ` + ${parts.bufferKcal.toLocaleString()} buffer` : ""}
+            {parts.rideFuelKcal ? (
+              <>
+                {" "}
+                <InfoDot text={NET_RIDE_FUEL_TIP} align="center" />
+              </>
+            ) : null}
           </p>
         </div>
       )}

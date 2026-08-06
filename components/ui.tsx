@@ -5,20 +5,32 @@
 
 import { useEffect, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 
-// One-line explanation shown on hover/focus over a metric/title. `align` flips the tooltip to the
-// right edge so it doesn't clip when the anchor sits near a container's right. Wrap the trigger
-// element in `group relative`; the tip fades in on group-hover AND group-focus-within — hover is
-// the mouse accelerator, focus is the keyboard door (UX-CONSTITUTION §6: never hover alone). Give
-// the trigger element `tabIndex` (or use InfoDot, whose trigger is a focusable span) and pass `id`
-// wired to the trigger's `aria-describedby` so assistive tech gets the text too.
-export function MetricTip({ text, align = "left", id }: { text: string; align?: "left" | "right"; id?: string }) {
+// Which edge of the trigger the 256px-wide panel hangs from. The anchor is the trigger itself (often
+// a ~10px ⓘ), so at 375px the panel only fits if the trigger sits within 256px of the chosen edge:
+// "left" needs room to its right, "right" needs room to its left, and "center" — the one that saves a
+// trigger stranded mid-line — needs only 128px either side. There is no auto-flip; a tip that clips
+// on a phone is invisible text, not a cosmetic bug, so check new call sites at mobile width.
+type TipAlign = "left" | "right" | "center";
+
+const TIP_ALIGN: Record<TipAlign, string> = {
+  left: "left-0",
+  right: "right-0",
+  center: "left-1/2 -translate-x-1/2",
+};
+
+// One-line explanation shown on hover/focus over a metric/title. `align` moves the tooltip off the
+// left edge so it doesn't clip when the anchor sits near a container's right (or, with "center", in
+// the middle of a line). Wrap the trigger element in `group relative`; the tip fades in on
+// group-hover AND group-focus-within — hover is the mouse accelerator, focus is the keyboard door
+// (UX-CONSTITUTION §6: never hover alone). Give the trigger element `tabIndex` (or use InfoDot, whose
+// trigger is a focusable span) and pass `id` wired to the trigger's `aria-describedby` so assistive
+// tech gets the text too.
+export function MetricTip({ text, align = "left", id }: { text: string; align?: TipAlign; id?: string }) {
   return (
     <span
       id={id}
       role="tooltip"
-      className={`pointer-events-none absolute ${
-        align === "right" ? "right-0" : "left-0"
-      } top-full z-30 mt-1 w-64 max-w-[80vw] rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-normal normal-case leading-snug text-zinc-600 opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300`}
+      className={`pointer-events-none absolute ${TIP_ALIGN[align]} top-full z-30 mt-1 w-64 max-w-[80vw] rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-normal normal-case leading-snug text-zinc-600 opacity-0 shadow-md transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300`}
     >
       {text}
     </span>
@@ -32,7 +44,7 @@ export function MetricTip({ text, align = "left", id }: { text: string; align?: 
 // (invalid HTML → a hydration error). `tabIndex` makes it Tab-reachable, `aria-describedby` hands
 // the text to assistive tech, and there's no click behavior to lose — the reveal is purely
 // hover/focus, so no activation semantics (role="button") are implied.
-export function InfoDot({ text, align }: { text: string; align?: "left" | "right" }) {
+export function InfoDot({ text, align }: { text: string; align?: TipAlign }) {
   const id = useId();
   return (
     <span className="group relative inline-flex align-middle text-zinc-500 dark:text-zinc-400">

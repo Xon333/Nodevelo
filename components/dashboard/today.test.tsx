@@ -138,3 +138,32 @@ describe("EatToday breakdown", () => {
     expect(screen.getByText("3,550 base")).toBeTruthy();
   });
 });
+
+// The Today page prints a ride's energy cost twice on two different bases (gross in the debrief
+// header, net in Eat today). Unlabelled, that reads as the app contradicting itself — and as it
+// contradicting Wahoo/Strava/Intervals, which all report gross. Both need the explanation attached.
+describe("net-vs-gross ride burn tooltips", () => {
+  const withRide = {
+    advisedIntakeKcal: 3550,
+    advisedBaseKcal: 2207,
+    advisedBufferKcal: 60,
+    advisedRideFuelKcal: 1283,
+    fuelPrompt: null,
+  } as unknown as TodayAnalysis;
+
+  it("explains the net ride figure, and wires the tip to its trigger for assistive tech", () => {
+    render(<EatToday analysis={withRide} />);
+    const trigger = screen.getByLabelText("Explain this metric");
+    const tip = screen.getByRole("tooltip");
+    expect(trigger.getAttribute("aria-describedby")).toBe(tip.id);
+    expect(tip.textContent).toContain("above resting metabolism");
+    expect(tip.textContent).toContain("Strava");
+  });
+
+  // A rest day has no ride term in the breakdown, so there is nothing to reconcile against the
+  // other apps — the tip would be explaining a number that isn't on screen.
+  it("omits the tip when there is no ride term", () => {
+    render(<EatToday analysis={{ ...withRide, advisedRideFuelKcal: 0 } as unknown as TodayAnalysis} />);
+    expect(screen.queryByLabelText("Explain this metric")).toBeNull();
+  });
+});
