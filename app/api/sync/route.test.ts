@@ -1394,6 +1394,38 @@ describe("POST /api/sync — NEAT recalibration (Task 4)", () => {
     expect(result.nutrition.neat.stale).toBe(false);
   });
 
+  // Review §3 (calibration RMR window-mean weight, 2026-08-06): the RMR fed into a calibration solve is
+  // applied as one constant across that solve's ENTIRE window — so it must reflect the athlete's weight
+  // OVER the window, not a single latest reading a scale-noise outlier could skew.
+  it("derives the calibration RMR from the window's weight, not a single-day outlier on the latest reading", async () => {
+    // 90 flat days at 65kg (RMR 1630: 10×65+6.25×180-5×30+5) except the SINGLE most recent weigh-in,
+    // which reads 90kg (RMR 1880) — a one-day scale-noise outlier, not a real 25kg mass change. Intake
+    // is flat at k_true(1.3)×1630 every day, so a correct (window-median) RMR recovers k=1.3 exactly;
+    // the old single-latest-weight bug would instead feed 1880 into the identity and — verified directly
+    // against calibrateNeat with this exact fixture — clamp to NEAT_PLAUSIBLE_MIN (1.15), a result
+    // unambiguously distinguishable from 1.3 (this isn't a rounding-sized difference).
+    const RMR_CORRECT = 1630; // 10×65 + 6.25×180 - 5×30 + 5
+    const wellness: SyncData["wellness"] = [];
+    for (let i = 90; i >= 1; i--) {
+      const date = new Date(Date.parse(TODAY) - i * 86_400_000).toISOString().slice(0, 10);
+      wellness.push({
+        date,
+        weightKg: i === 1 ? 90 : 65, // the single most recent weigh-in is the outlier
+        hrv: null, sleepHours: null, sleepQuality: null, ctl: null, atl: null,
+        kcalConsumed: 1.3 * RMR_CORRECT,
+      });
+    }
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(derivedProfile() as never);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ wellness, activities: [] }));
+
+    await postSync();
+
+    const mutate = vi.mocked(store.updateAthleteProfile).mock.calls[0][0];
+    const result = await mutate(derivedProfile() as never);
+    expect(result.nutrition.neat.multiplier).toBeCloseTo(1.3, 6);
+    expect(result.nutrition.dayTypeNeat?.rest.multiplier).toBeCloseTo(1.3, 6);
+  });
+
   it("never overwrites a manual override, even when a fresh solve would succeed", async () => {
     const overridden = derivedProfile({ source: "override", multiplier: 1.45 });
     vi.mocked(store.readAthleteProfile).mockResolvedValue(overridden as never);
