@@ -18,7 +18,7 @@ import type {
   TodayAnalysis,
 } from "@/lib/types";
 import type { CoachSnapshot } from "@/lib/coach-snapshot";
-import type { NeatImbalanceContext, NutritionModel, NutritionTrendWarning } from "@/lib/nutrition";
+import type { EaLevel, NeatImbalanceContext, NutritionModel, NutritionTrendWarning } from "@/lib/nutrition";
 
 export interface AppState {
   configured: boolean;
@@ -55,6 +55,8 @@ export interface AppState {
   // sends the two plain models and the client selects per day.
   nutritionModelsByDayType?: { rest: NutritionModel; train: NutritionModel } | null;
   nutritionTrendWarning?: NutritionTrendWarning | null;
+  planEaKcalPerKg?: number | null;
+  planEaLevel?: EaLevel | null;
   // §10: the calibrated NEAT solve's out-of-band finding, when the energy-balance identity didn't
   // close — surfaced alongside the streak alert so an apparent deficit is never acted on without also
   // seeing the log-bias/RMR-equation ambiguity that could explain it. Tagged with which day-type split

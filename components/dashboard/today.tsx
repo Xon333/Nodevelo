@@ -23,6 +23,7 @@ import {
   eaLevel,
   loggedDaysForStreak,
   STREAK_MIN_LOGGED_DAYS,
+  type EaLevel,
   type NeatImbalanceContext,
   type NutritionModel,
   type NutritionTrendWarning,
@@ -105,6 +106,19 @@ export function NutritionTrendWarningBanner({ warning }: { warning: NutritionTre
         Observed {signed(warning.observedKgPerWeek)} kg/week vs intended {signed(warning.intendedKgPerWeek)} kg/week · estimated prescription adherence {Math.round(warning.adherenceRatio * 100)}% ({warning.loggedDays} logged days, {warning.weighIns} weigh-ins).
       </p>
       <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">Calories are unchanged while maintenance calibration gathers stronger evidence.</p>
+    </section>
+  );
+}
+
+export function PlanEaWarningBanner({ level, kcalPerKg }: { level: EaLevel | null; kcalPerKg: number | null }) {
+  if (level !== "low" || kcalPerKg === null) return null;
+  return (
+    <section aria-labelledby="plan-ea-warning" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950/50">
+      <h2 id="plan-ea-warning" className="text-xs font-semibold text-amber-800 dark:text-amber-300">Today&apos;s target is low-energy-availability</h2>
+      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+        The prescribed target works out to {Math.round(kcalPerKg)} kcal/kg once exercise fuel is set aside — below the level the app treats as adequate.
+      </p>
+      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">This is about the size of today&apos;s plan, not your logged intake — informational only, calories are unchanged.</p>
     </section>
   );
 }
