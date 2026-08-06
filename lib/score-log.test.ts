@@ -545,6 +545,88 @@ describe("buildRideScores — easy-ride merged-read provenance (Task 2)", () => 
   });
 });
 
+describe("aerobic-efficiency penalty is withheld on non-comparable rides via qualifyingPwHr alone (Task 1)", () => {
+  const ftp = () => 288;
+  // Baseline-forming rides: steady, outdoor, well inside the band, ~1.5 Pw:HR.
+  const baseline = ["2026-06-01", "2026-06-05", "2026-06-09"].map((date) =>
+    activity({ date, movingTimeSec: 90 * 60, avgWatts: 200, normalizedPower: 206, icuFtp: 288, powerHrZ2: 1.5, powerHrZ2Mins: 40 })
+  );
+
+  it("off-plan: scores a surgy mixed ride at baseline instead of applying the -2 aerobic penalty", () => {
+    // 118 min, NP 241 / avg 200 -> VI 1.205 (> AEROBIC_MAX_VI), IF 0.837 (in band, irrelevant here since
+    // this is off-plan). Pw:HR 1.35 is ~10% below the 1.5 baseline -> would be -2 without Task 1's gate.
+    const mixed = activity({
+      date: "2026-06-15", movingTimeSec: 118 * 60, avgWatts: 200, normalizedPower: 241,
+      icuFtp: 288, powerHrZ2: 1.35, powerHrZ2Mins: 20,
+    });
+    const entry = buildRideScores(null, [...baseline, mixed], ftp, "2026-06-15", "2026-01-01").find((e) => e.date === "2026-06-15")!;
+    expect(entry.planned).toBe(false);
+    expect(entry.executionScore).toBe(5); // no aerobic penalty, no VI penalty (Task 2)
+  });
+
+  it("off-plan: still applies the aerobic read to a genuinely steady mixed ride", () => {
+    const steady = activity({
+      date: "2026-06-15", movingTimeSec: 100 * 60, avgWatts: 200, normalizedPower: 206,
+      icuFtp: 288, powerHrZ2: 1.35, powerHrZ2Mins: 40,
+    });
+    const entry = buildRideScores(null, [...baseline, steady], ftp, "2026-06-15", "2026-01-01").find((e) => e.date === "2026-06-15")!;
+    expect(entry.executionScore).toBe(4); // 5 baseline + 1 VI bonus (steady) - 2 aerobic penalty (below baseline)
+  });
+
+  it("planned Z2: withholds the aerobic-efficiency penalty on a ride that turned surgy, no explicit gate needed", () => {
+    const z2Block = block([{ date: "2026-06-15", type: "Z2", durationMin: 118 }]);
+    // Same shape as the off-plan case above: VI 1.205 (not comparable via qualifyingPwHr), Pw:HR 1.35
+    // (10% below baseline). hrZoneTimes [3000,3000,1080] -> 1080/7080 = 15.25% above aerobic -> "drift"
+    // (>10% dialed ceiling, <=25% drift ceiling) — deliberately NOT "hot", so the untouched HR-zone-time
+    // discipline signal stays in its 0-contribution branch, isolating what qualifyingPwHr's tightening
+    // alone changed.
+    const surgyPlanned = activity({
+      date: "2026-06-15", movingTimeSec: 118 * 60, avgWatts: 200, normalizedPower: 241,
+      icuFtp: 288, powerHrZ2: 1.35, powerHrZ2Mins: 20, hrZoneTimes: [3000, 3000, 1080],
+    });
+    const entry = buildRideScores(z2Block, [...baseline, surgyPlanned], ftp, "2026-06-15").find((e) => e.date === "2026-06-15")!;
+    expect(entry.planned).toBe(true);
+    // qualifyingPwHr(surgyPlanned) is null (VI 1.205), so aerobicEffPct is null, so easyStampFor never
+    // receives a value to freeze — no explicit gate anywhere in score-log.ts made this happen.
+    expect(entry.easy?.aerobicEffPct).toBeUndefined();
+    // 5 baseline + 2 duration compliance (100%) + 0 intensity (IF 0.837 outside the Z2 0.60-0.74 band,
+    // Z2 is reward-only so no penalty either) + 0 mergedEasyRead ("drift" HR read, but aerobicEffPct is
+    // null so its penalty-if-corroborated branch returns 0 instead of -2) + 0 VI (1.205 doesn't clear
+    // the Z2 <=1.06 bonus threshold) = 7.
+    expect(entry.executionScore).toBe(7);
+  });
+
+  it("planned Z2: still applies the aerobic read on a ride that stayed steady", () => {
+    const z2Block = block([{ date: "2026-06-15", type: "Z2", durationMin: 100 }]);
+    const steadyPlanned = activity({
+      date: "2026-06-15", movingTimeSec: 100 * 60, avgWatts: 200, normalizedPower: 206,
+      icuFtp: 288, powerHrZ2: 1.35, powerHrZ2Mins: 40, hrZoneTimes: [3600, 2400, 0], // 0% above aerobic -> dialed
+    });
+    const entry = buildRideScores(z2Block, [...baseline, steadyPlanned], ftp, "2026-06-15").find((e) => e.date === "2026-06-15")!;
+    expect(entry.easy?.aerobicEffPct).toBeDefined();
+    // 5 baseline + 2 duration compliance (100%) + 1 intensity (IF 0.715, inside the Z2 0.60-0.74 band)
+    // + 0 mergedEasyRead ("dialed" HR read, but aerobicEffPct -10% clears the -2x-deadband threshold,
+    // so dialed's table gives 0, not the +1 it would give above that threshold) + 1 VI (1.03 <= 1.06
+    // bonus) = 9.
+    expect(entry.executionScore).toBe(9);
+  });
+
+  // Guards the over-suppression bug an earlier draft introduced: a short, low-intensity ride that
+  // qualifyingPwHr correctly trusts (steady VI, enough Z2 minutes) must NOT be suppressed just because
+  // it fails isSteadyEnduranceRide's UNRELATED duration/IF-band criteria — those predicates answer
+  // different questions (see Task 1's module comment) and score-log.ts must only ever consult the one
+  // that matches what it's actually scoring.
+  it("off-plan: a short Recovery ride below the endurance IF band still gets its aerobic read", () => {
+    const shortEasy = activity({
+      date: "2026-06-15", movingTimeSec: 25 * 60, avgWatts: 150, normalizedPower: 152, // IF 0.53, VI 1.013
+      icuFtp: 288, powerHrZ2: 1.65, powerHrZ2Mins: 20,
+    });
+    const entry = buildRideScores(null, [...baseline, shortEasy], ftp, "2026-06-15", "2026-01-01").find((e) => e.date === "2026-06-15")!;
+    // (1.65-1.5)/1.5*100 = +10% -> above baseline -> +2 bonus on the intrinsic axis, NOT withheld.
+    expect(entry.executionScore).toBeGreaterThan(5);
+  });
+});
+
 describe("mergeScoreLog", () => {
   const mk = (date: string, score: number): RideScoreEntry => ({
     date,
