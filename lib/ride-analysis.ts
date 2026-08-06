@@ -166,9 +166,10 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
   // On interval days, power-target adherence is the primary execution signal; otherwise duration
   // compliance. A structural plan/detection mismatch drops adherence so a correct session isn't
   // mis-scored on an untrustworthy rep-duration comparison.
-  // Off-plan (no planned session) → infer a scoring type so the VI pacing read applies, exactly as the
-  // ledger does. `intrinsic` still guards the circular intensity-vs-type branch, so this only enables VI;
-  // the OUTPUT plannedType field below stays null (nothing was planned).
+  // Off-plan (no planned session) → infer a scoring type, exactly as the ledger does, so the VI pacing
+  // BONUS can still apply. As of 2026-08-06 the VI penalty is suppressed for intrinsic rides (it was
+  // circular — the type comes from the ride's own intensity; see computeExecutionScore's VI block), so
+  // this enables the reward half only. The OUTPUT plannedType field below stays null (nothing was planned).
   const scoringType = plannedDay?.type ?? inferWorkoutType(metrics.intensityFactor, metrics.actualMin);
   // Track B: grade a durability long ride against its template's expected signal — did the prescribed
   // efforts happen, at the right intensity + timing? Only the today path has the ride's intervals. Null

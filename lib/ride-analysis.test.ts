@@ -179,17 +179,21 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.advisedRideFuelKcal).toBeNull();
   });
 
-  it("applies the VI pacing read to an off-plan ride (infers a type so steady ≠ surgy)", () => {
+  it("rewards steady pacing on an off-plan ride but never penalises surgy pacing (VI is reward-only when intrinsic)", () => {
     // Off-plan = no planned session; both rides infer the same type (IF 0.80 → Threshold), so only VI
-    // differs. Without inferring a scoring type, off-plan rides got no VI and these would tie.
+    // differs. Without inferring a scoring type, off-plan rides got no VI signal at all and these would tie.
     const offPlan = (avgWatts: number) => ({
       ...base,
       plannedDay: null,
       activity: activity({ avgWatts, normalizedPower: 200, rpe: null }),
     });
-    const steady = buildTodayAnalysis(offPlan(190)).executionScore!; // VI 1.05 → controlled (+1)
-    const surgy = buildTodayAnalysis(offPlan(165)).executionScore!; // VI 1.21 → surgy (−1)
-    expect(steady).toBeGreaterThan(surgy);
+    // VI 1.0526 ≤ 1.08 → Threshold's steady bonus (+1). A bonus is never circular, so it applies to
+    // off-plan rides exactly as it would to a planned one.
+    expect(buildTodayAnalysis(offPlan(190)).executionScore).toBe(6);
+    // VI 1.2121 ≥ 1.15 would penalise a PLANNED Threshold ride (-1), but this ride's type was INFERRED
+    // from its own intensity — penalising it for missing that type's steadiness would be circular, so
+    // the penalty is suppressed for intrinsic rides. Baseline, no VI effect either way.
+    expect(buildTodayAnalysis(offPlan(165)).executionScore).toBe(5);
     // The OUTPUT plannedType stays null (nothing was planned) even though scoring inferred one.
     expect(buildTodayAnalysis(offPlan(190)).todayAnalysis.plannedType).toBeNull();
   });
