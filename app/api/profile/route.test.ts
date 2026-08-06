@@ -175,6 +175,68 @@ describe("GET /api/profile — RMR floor transparency", () => {
   });
 });
 
+// DT Task 6: the app owner's decision that shrinkage toward pooled isn't, on its own, enough
+// protection for a thin day-type subset — a "low"-confidence active split must not drive today's
+// actual prescription, only remain visible. `dayTypeSplitTrusted` is the field the derivation panel
+// reads to avoid bolding (or otherwise implying) a split that isn't really in force; these tests pin
+// down BOTH halves of the UI-consistency guarantee end to end through the real route: the flag itself,
+// and that `maintenanceKcal` (the prescription) agrees with it.
+describe("GET /api/profile — day-type split confidence gate (DT Task 6)", () => {
+  const rmrPerformance: AthleteProfile["performance"] = {
+    ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10,
+    dateOfBirth: "1992-01-01", heightCm: 175, sex: "male",
+  };
+  const pooled = {
+    ...defaultNeat, multiplier: 1.32, source: "derived" as const, confidence: "high" as const,
+    windowDays: 42, loggedDays: 40, weighIns: 20,
+  };
+  const train = { ...pooled, multiplier: 1.22, windowDays: 90, loggedDays: 40 };
+
+  it("marks the active split trusted, and derives maintenance from it, once it clears medium/high confidence — no regression", async () => {
+    const trustedRest = { ...pooled, multiplier: 1.47, confidence: "high" as const, windowDays: 90, loggedDays: 20 };
+    (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(base({
+      performance: rmrPerformance,
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
+        neat: pooled, dayTypeNeat: { rest: trustedRest, train, pooled, shrinkageWeight: { rest: 0.6, train: 0.9 } },
+      },
+    }));
+    // No synced activities today → isRestDayFor sums to 0 → isRestDayToday is true, putting `rest` in force.
+    (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const json = await (await GET()).json();
+
+    expect(json.derivation.isRestDayToday).toBe(true);
+    expect(json.derivation.dayTypeSplitTrusted).toBe(true);
+    expect(json.derivation.maintenanceKcal).toBe(Math.round(trustedRest.multiplier * json.derivation.rmr));
+  });
+
+  it("marks the active split untrusted, and falls maintenance back to the pooled multiplier, when it's only 'low' confidence — real production-data shape (rest split under CALIBRATION_MIN_WEIGH_INS)", async () => {
+    const lowConfidenceRest = { ...pooled, multiplier: 1.47, confidence: "low" as const, windowDays: 90, loggedDays: 6 };
+    (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(base({
+      performance: rmrPerformance,
+      nutrition: {
+        baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 68, targetRateKgPerWeek: null,
+        neat: pooled, dayTypeNeat: { rest: lowConfidenceRest, train, pooled, shrinkageWeight: { rest: 0.3, train: 0.9 } },
+      },
+    }));
+    (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const json = await (await GET()).json();
+
+    expect(json.derivation.isRestDayToday).toBe(true);
+    expect(json.derivation.dayTypeSplitTrusted).toBe(false);
+    // The UI-consistency guarantee this task exists for: the real prescription (maintenanceKcal, and by
+    // extension the daily target) is NOT driven by the low-confidence split's multiplier — it falls all
+    // the way back to pooled, exactly as if dayTypeNeat didn't exist, so the derivation panel (which
+    // reads dayTypeSplitTrusted to decide what to bold) can never disagree with what actually happened.
+    expect(json.derivation.maintenanceKcal).toBe(Math.round(pooled.multiplier * json.derivation.rmr));
+    expect(json.derivation.maintenanceKcal).not.toBe(Math.round(lowConfidenceRest.multiplier * json.derivation.rmr));
+    // The split itself stays exposed for transparency — it's shown, just not treated as active.
+    expect(json.derivation.dayTypeNeat!.rest.multiplier).toBe(lowConfidenceRest.multiplier);
+  });
+});
+
 describe("PUT /api/profile — nutrition", () => {
   it("rejects a non-positive baseCalories/restDayTarget/targetWeightKg without writing", async () => {
     seedCurrentProfile(base());

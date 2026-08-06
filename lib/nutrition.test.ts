@@ -29,6 +29,7 @@ import {
   resolveNeatImbalance,
   resolveNutritionModel,
   restingMetabolicRate,
+  trustedDayTypeSplit,
   DEFAULT_NEAT_MULTIPLIER,
   DAY_TYPE_MIN_LOGGED_DAYS,
   smoothedCurrentWeightKg,
@@ -1183,6 +1184,105 @@ describe("resolveNutritionModel with day-type calibration (DT Task 2)", () => {
     if (rest.kind !== "derived" || train.kind !== "derived") throw new Error("unreachable");
     expect(rest.neatMultiplier).toBe(1.5);
     expect(train.neatMultiplier).toBe(1.5);
+  });
+
+  // DT Task 6 (app owner decision, 2026-08-05): shrinkage toward pooled alone isn't sufficient
+  // protection for a thin day-type subset — reviewed and rejected in favour of also gating on the
+  // active split's OWN confidence, mirroring calibrationIsTrustworthy's exact tier boundary
+  // (medium/high, "low" never counts) rather than trusting shrinkage to have done enough on its own.
+  describe("confidence gate — trustedDayTypeSplit (DT Task 6)", () => {
+    it("falls back to the POOLED multiplier AND basis when the active split's own confidence is 'low'", () => {
+      const lowRest: NeatCalibration = { ...restCal, confidence: "low", basis: "net" };
+      const netPooled: NeatCalibration = { ...pooled, basis: "net" };
+      const dtn: DayTypeNeat = { rest: lowRest, train: trainCal, pooled: netPooled, shrinkageWeight: { rest: 0.3, train: 0.9 } };
+      const p = profileWith(netPooled, dtn);
+      const m = resolveNutritionModel(p, 62, "2026-07-30", true);
+      if (m.kind !== "derived") throw new Error("unreachable");
+      expect(m.neatMultiplier).toBe(netPooled.multiplier); // NOT lowRest.multiplier
+      // restingKcalPerHour must come off the POOLED record's basis, not the split's — proving
+      // basisRecord and neatMultiplier derive from the SAME trusted-or-fallback value (the exact
+      // divergence class the pre-existing validator bug this file's comments document was caused by).
+      expect(m.restingKcalPerHour).toBeCloseTo(m.rmr / 24, 9);
+    });
+
+    // The critical non-regression case: most of this feature's existing fixtures (above) use "high"
+    // confidence and must keep behaving exactly as before this task.
+    it.each(["medium", "high"] as const)(
+      "still resolves to the split's own multiplier AND basis, unchanged, when confidence is '%s'",
+      (confidence) => {
+        const trustedRest: NeatCalibration = { ...restCal, confidence, basis: "gross" };
+        const netPooled: NeatCalibration = { ...pooled, basis: "net" };
+        const dtn: DayTypeNeat = { rest: trustedRest, train: trainCal, pooled: netPooled, shrinkageWeight: { rest: 0.6, train: 0.9 } };
+        const p = profileWith(netPooled, dtn);
+        const m = resolveNutritionModel(p, 62, "2026-07-30", true);
+        if (m.kind !== "derived") throw new Error("unreachable");
+        expect(m.neatMultiplier).toBe(trustedRest.multiplier);
+        // The split's own (gross) basis governs — netting stays OFF — even though the pooled record
+        // beside it is net-basis. Proves basisRecord tracks the trusted split, not a blanket pooled read.
+        expect(m.restingKcalPerHour).toBe(0);
+      }
+    );
+
+    // Mirrors data/athlete.json's live rest-day split (loggedDays well under CALIBRATION_MIN_WEIGH_INS
+    // = 12) — the concrete real-data shape this task was written to fix.
+    it("does not let a thin (low-confidence) rest split outrank pooled on a rest day, even with a non-trivial shrinkage weight", () => {
+      const thinRest: NeatCalibration = { ...restCal, confidence: "low", loggedDays: 6 };
+      const dtn: DayTypeNeat = { rest: thinRest, train: trainCal, pooled, shrinkageWeight: { rest: 0.33, train: 0.9 } };
+      const p = profileWith(pooled, dtn);
+      const m = resolveNutritionModel(p, 62, "2026-07-30", true);
+      if (m.kind !== "derived") throw new Error("unreachable");
+      expect(m.neatMultiplier).toBe(pooled.multiplier);
+      expect(m.neatMultiplier).not.toBe(thinRest.multiplier);
+    });
+
+    // The gate is per-side: a low-confidence TRAIN split must not silently borrow trust from a
+    // trustworthy REST split (or vice versa) just because they're carried on the same DayTypeNeat.
+    it("gates each side independently — a trustworthy rest split does not launder a low-confidence train split", () => {
+      const dtn: DayTypeNeat = {
+        rest: { ...restCal, confidence: "high" },
+        train: { ...trainCal, confidence: "low" },
+        pooled,
+        shrinkageWeight: { rest: 0.9, train: 0.3 },
+      };
+      const p = profileWith(pooled, dtn);
+      const rest = resolveNutritionModel(p, 62, "2026-07-30", true);
+      const train = resolveNutritionModel(p, 62, "2026-07-30", false);
+      if (rest.kind !== "derived" || train.kind !== "derived") throw new Error("unreachable");
+      expect(rest.neatMultiplier).toBe(dtn.rest.multiplier); // trusted — unchanged
+      expect(train.neatMultiplier).toBe(pooled.multiplier); // untrusted — falls back
+    });
+  });
+});
+
+describe("trustedDayTypeSplit", () => {
+  const defaultNeat: NeatCalibration = {
+    multiplier: DEFAULT_NEAT_MULTIPLIER, confidence: "low", source: "default",
+    windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
+  };
+  const pooled: NeatCalibration = { ...defaultNeat, multiplier: 1.28, confidence: "high", source: "derived" };
+  const mk = (confidence: NeatCalibration["confidence"]): NeatCalibration => ({ ...pooled, confidence, multiplier: 1.47 });
+  const dtn = (restConfidence: NeatCalibration["confidence"], trainConfidence: NeatCalibration["confidence"]): DayTypeNeat => ({
+    rest: mk(restConfidence), train: mk(trainConfidence), pooled, shrinkageWeight: { rest: 0.5, train: 0.5 },
+  });
+
+  it("returns null when dayTypeNeat itself is null — nothing to trust either way", () => {
+    expect(trustedDayTypeSplit(pooled, null, true)).toBeNull();
+  });
+
+  it("returns null when an override is in force, regardless of the active split's own confidence", () => {
+    const overridden: NeatCalibration = { ...pooled, source: "override" };
+    expect(trustedDayTypeSplit(overridden, dtn("high", "high"), true)).toBeNull();
+  });
+
+  it.each(["medium", "high"] as const)("returns the active side's own record when its confidence is '%s'", (confidence) => {
+    const split = dtn(confidence, "low");
+    expect(trustedDayTypeSplit(pooled, split, true)).toBe(split.rest);
+  });
+
+  it("returns null for the active side alone when its own confidence is 'low', independent of the other side", () => {
+    const split = dtn("low", "high");
+    expect(trustedDayTypeSplit(pooled, split, true)).toBeNull(); // rest is active here, and low
+    expect(trustedDayTypeSplit(pooled, split, false)).toBe(split.train); // train is active here, and high
   });
 });
 

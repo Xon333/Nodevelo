@@ -14,6 +14,7 @@ import {
   resolveNutritionModel,
   restingKcalPerHourOf,
   smoothedCurrentWeightKg,
+  trustedDayTypeSplit,
   weightTrendFromWellness,
   WEIGHT_TREND_LONG_WINDOW_DAYS,
   DEFAULT_NEAT_MULTIPLIER,
@@ -217,6 +218,15 @@ export async function GET() {
       // default and only switches to the rest/train view once this is non-null.
       dayTypeNeat: profile.nutrition.dayTypeNeat,
       isRestDayToday,
+      // DT Task 6: whether the split matching `isRestDayToday` above is the one ACTUALLY driving
+      // today's target, vs. merely being displayed. Computed via the exact same trustedDayTypeSplit
+      // call resolveNutritionModel makes internally (not a second independent read of the confidence
+      // field) — the whole point of that shared helper is that the derivation panel and the real
+      // prescription can never disagree about which number is in force. False whenever dayTypeNeat is
+      // null (nothing to be trusted or not), an override is active, or the active side's own
+      // confidence is "low" — the profile UI must not bold a split value, or imply it's active, in any
+      // of those cases when the real formula has actually fallen back to pooled.
+      dayTypeSplitTrusted: trustedDayTypeSplit(profile.nutrition.neat, profile.nutrition.dayTypeNeat, isRestDayToday) !== null,
       maintenanceKcal,
       todayPlan,
       todayActiveBurnKcal,
@@ -427,10 +437,11 @@ export async function PUT(req: Request) {
                   : nonDerivedNeatCalibration("override", neatOverride.multiplier, neatOverride.solvedAt),
             // Both the reset and manual-override branches also null out `dayTypeNeat` — it's a
             // solve-derived sibling of `neat` (see the comment above) computed from the SAME kind of
-            // stale-solve data, and `resolveNutritionModel` only trusts `dayTypeNeat` when
-            // `neat.source !== "override"`. On reset, `neat.source` becomes "default"/"derived" (not
-            // "override"), so an untouched `dayTypeNeat` would immediately resume driving the daily
-            // target off a split computed before whatever the athlete just changed — silently, with no
+            // stale-solve data, and `trustedDayTypeSplit` (lib/nutrition.ts) requires — among other
+            // things — `neat.source !== "override"` before it will trust it. On reset, `neat.source`
+            // becomes "default"/"derived" (not "override"), so an untouched `dayTypeNeat` would
+            // immediately resume driving the daily target off a split computed before whatever the
+            // athlete just changed — silently, with no
             // `stale` flag to warn the UI. Falling back to `null` (not re-deriving inline) is correct
             // because `resolveNutritionModel` already falls back to the fresh pooled `neat.multiplier`
             // set just above, and the next sync's `calibrateNeatByDayType` call re-solves the real
