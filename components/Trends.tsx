@@ -216,7 +216,7 @@ export default function Trends() {
                   >
                     <MultiSparkline series={energySeries} />
                     <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
-                      Per complete week: total ride burn (kJ≈kcal) and total intake against the week&apos;s median weight, each on its own scale. The current in-progress week is excluded until it closes. Tap a legend chip to show/hide; isolating one fills the area.
+                      Per complete week: total ride burn (gross, as your head unit reports it) and total intake against the week&apos;s median weight, each on its own scale. The current in-progress week is excluded until it closes. Tap a legend chip to show/hide; isolating one fills the area.
                     </p>
                     {(() => {
                       const withRatio = data.energy.filter((e) => e.ratio != null);

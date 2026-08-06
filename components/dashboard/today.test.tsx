@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner } from "./today";
+import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner, TodayRideCard } from "./today";
 import type { NeatImbalanceContext, NutritionTrendWarning } from "@/lib/nutrition";
 import type { SyncData, TodayAnalysis } from "@/lib/types";
 
@@ -165,5 +165,39 @@ describe("net-vs-gross ride burn tooltips", () => {
   it("omits the tip when there is no ride term", () => {
     render(<EatToday analysis={{ ...withRide, advisedRideFuelKcal: 0 } as unknown as TodayAnalysis} />);
     expect(screen.queryByLabelText("Explain this metric")).toBeNull();
+  });
+});
+
+// The header used to print activityKj (mechanical work, kJ) under a "kcal" label. It now prints the
+// resolved gross burn — with a fallback for today-analysis.json records written before that field.
+describe("TodayRideCard gross-burn header", () => {
+  const analysis = (over: Record<string, unknown>) =>
+    ({
+      activityDate: "2026-08-06",
+      activityName: "Cycling",
+      activityDurationMin: 118,
+      activityAvgHr: 147,
+      executionScore: null,
+      powerPRs: [],
+      ...over,
+    }) as unknown as TodayAnalysis;
+
+  it("shows the resolved kcal figure, not the kJ one", () => {
+    render(<TodayRideCard analysis={analysis({ activityKj: 1421, activityBurnKcal: 1417 })} />);
+    expect(screen.getByText("1,417 kcal", { exact: false })).toBeTruthy();
+    expect(screen.queryByText("1421 kcal", { exact: false })).toBeNull();
+  });
+
+  // A record written before activityBurnKcal existed parses the key back as absent. Falling back to
+  // activityKj mirrors activeBurn's own legacy branch, so old records read exactly as they did.
+  it("falls back to activityKj on a pre-migration record", () => {
+    render(<TodayRideCard analysis={analysis({ activityKj: 1421 })} />);
+    expect(screen.getByText("1,421 kcal", { exact: false })).toBeTruthy();
+  });
+
+  // `??`, not `||` — a genuine zero-cost activity must render "0 kcal", not fall through to kj.
+  it("renders a real zero burn rather than falling through", () => {
+    render(<TodayRideCard analysis={analysis({ activityKj: 1421, activityBurnKcal: 0 })} />);
+    expect(screen.getByText("0 kcal", { exact: false })).toBeTruthy();
   });
 });

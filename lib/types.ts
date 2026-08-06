@@ -984,6 +984,13 @@ export interface TodayAnalysis {
   activityAvgHr: number | null;
   activityMaxHr: number | null;
   activityKj: number | null;
+  // The ride's GROSS energy cost in kcal, resolved through `activeBurn` — the source figure
+  // Strava/Intervals.icu report, before `exerciseBurn` nets the resting cost of the ride hours off it
+  // for fuelling. Distinct from `activityKj` above, which is mechanical work in kJ and stays kJ:
+  // the debrief renders this one under a "kcal" label, and kJ under that label was the actual defect.
+  // Null on a record written before this field existed — the debrief falls back to `activityKj`, which
+  // is exactly `activeBurn`'s own legacy branch (kJ ≈ kcal) rather than a new approximation.
+  activityBurnKcal: number | null;
   activityTrainingLoad: number | null;
   activityRpe: number | null;
   activityDecoupling: number | null;

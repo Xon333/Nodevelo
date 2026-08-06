@@ -74,6 +74,9 @@ export interface WeeklyEnergyPoint {
   // dropping their intake total" test): understating real logged intake because an unrelated activity's
   // burn didn't sync is the wrong direction for an athlete whose presenting problem is underfuelling.
   intakeKcal: number | null;
+  // Rides only, and GROSS — the source active-burn figure, the same basis Strava/Intervals.icu report,
+  // NOT the rest-netted `exerciseBurn` the need side uses. Genuinely kcal, matching the name: it is
+  // charted against `intakeKcal` on one kcal axis, so the two must share a unit.
   burnKcal: number | null;
   weightKg: number | null;
   // §6 energy balance — filled only when a nutrition model is supplied AND the week has enough
@@ -105,8 +108,8 @@ export interface WeeklyEnergyBalance {
   loggedDays: number;
 }
 
-// Energy balance & weight aggregated by week (Monday-anchored): total ride burn (≈kJ) and total
-// intake for the week, against the week's MEDIAN bodyweight. The in-progress current week is
+// Energy balance & weight aggregated by week (Monday-anchored): total ride burn (kcal, gross) and
+// total intake for the week, against the week's MEDIAN bodyweight. The in-progress current week is
 // dropped — its running totals are always misleadingly low until the week closes, so only
 // COMPLETE weeks are shown (TRENDS-2). Day-level granularity is untouched in the synced data.
 export function weeklyEnergy(
@@ -150,9 +153,16 @@ export function weeklyEnergy(
   };
   for (const a of activities) {
     if (a.type !== "Ride" && a.type !== "VirtualRide") continue;
-    if (a.kj === null) continue;
+    // `activeBurn`, not a raw `a.kj` read. `burnKcal` below is plotted by Trends.tsx on a kcal-formatted
+    // axis directly against the `intakeKcal` series, so summing kJ here put two different units on one
+    // chart under one unit label. Going through the ONE energy accessor also stops a ride that synced
+    // with `activeBurnKcal` and no `kj` from dropping out of the series entirely — the old `a.kj === null`
+    // guard skipped it. GROSS, deliberately: this series answers "what did the riding cost", the
+    // question every other tool answers too, and it is NOT the need-side figure (that one nets, above).
+    const burn = activeBurn(a);
+    if (burn === null) continue;
     const e = getW(mondayOf(a.date));
-    e.burn += a.kj;
+    e.burn += burn.kcal;
     e.burnN += 1;
   }
   for (const w of wellness) {

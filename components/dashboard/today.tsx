@@ -173,6 +173,14 @@ export function TodayRideCard({
   // Coach takeaway ≤3 sentences visible (court rule 3); the rest is one disclosure away.
   const takeaway = note ? splitLeadSentences(note, 3) : null;
 
+  // The header's "N kcal". `activityBurnKcal` is the resolved GROSS burn; the header used to print
+  // `activityKj` — mechanical work in kJ — under a kcal label. `??`, not `||`: a genuine 0 kcal burn
+  // is a real value and must not fall through. The fallback covers today-analysis.json records
+  // written before `activityBurnKcal` existed (the key parses back absent, per this file's
+  // truthy-check convention) and mirrors `activeBurn`'s own legacy branch, which treats kJ as kcal —
+  // so an old record reads exactly as it did before rather than through a new approximation.
+  const grossBurnKcal = analysis.activityBurnKcal ?? analysis.activityKj ?? null;
+
   // Compliance % removed — execution (the duration/completion-aware 1–10 shown above) is the
   // single completion-anchored index; a separate macro % only duplicated the same story.
   const metrics: Array<{ label: string; value: string; sub?: string; tip?: string; highlight?: string }> = [];
@@ -287,9 +295,9 @@ export function TodayRideCard({
         {analysis.activityAvgHr !== null && (
           <span className="text-zinc-500 dark:text-zinc-400">{analysis.activityAvgHr} bpm avg</span>
         )}
-        {analysis.activityKj !== null && (
+        {grossBurnKcal !== null && (
           <span className="text-zinc-500 dark:text-zinc-400">
-            {analysis.activityKj} kcal <InfoDot text={GROSS_RIDE_BURN_TIP} align="center" />
+            {Math.round(grossBurnKcal).toLocaleString()} kcal <InfoDot text={GROSS_RIDE_BURN_TIP} align="center" />
           </span>
         )}
       </div>

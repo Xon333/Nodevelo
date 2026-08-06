@@ -3,7 +3,7 @@
 // PRs), then hands the already-fetched results to buildTodayAnalysis, which computes the metrics and
 // assembles the TodayAnalysis. Splitting it out makes the hardest part of the sync (execution scoring,
 // compliance capping, advised intake, coach-note preservation) unit-testable without mocking HTTP.
-import { calculateDailyTarget, exerciseBurn, restingKcalPerHourOf, type NutritionModel } from "./nutrition";
+import { activeBurn, calculateDailyTarget, exerciseBurn, restingKcalPerHourOf, type NutritionModel } from "./nutrition";
 import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
 import { gradeDurabilityDelivery, EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
@@ -226,6 +226,9 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     activityAvgHr: activity.avgHr,
     activityMaxHr: activity.maxHr,
     activityKj: activity.kj,
+    // GROSS kcal, via the one accessor — the figure the debrief header shows under a "kcal" label.
+    // `activityKj` above stays the raw mechanical-work field (kJ) that coach-snapshot reads AS kJ.
+    activityBurnKcal: activeBurn(activity)?.kcal ?? null,
     activityTrainingLoad: activity.trainingLoad,
     activityRpe: activity.rpe,
     activityDecoupling: activity.decoupling,
