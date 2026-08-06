@@ -44,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, eaLevel, isRestDayFor, planEaKcalPerKg, resolveBuffer, resolveNeatImbalance, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, eaLevel, isRestDayFor, planEaKcalPerKg, resolveBuffer, resolveNeatImbalance, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, CALIBRATION_PREFERRED_WINDOW_DAYS, DAY_TYPE_WINDOW_DAYS, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -290,17 +290,30 @@ export async function POST(req: Request) {
         lastSync.wellness
           .filter((w) => w.weightKg !== null)
           .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ?? profileForNeat.performance.weightKg;
-      const nutritionModelForNeat = resolveNutritionModel(
-        profileForNeat,
-        latestWeightKgForNeat,
-        today,
-        isRestDayFor(lastSync.activities, today)
-      );
+      const isRestDayForNeat = isRestDayFor(lastSync.activities, today);
+      const nutritionModelForNeat = resolveNutritionModel(profileForNeat, latestWeightKgForNeat, today, isRestDayForNeat);
       // Only the derived model carries an RMR to calibrate against — a legacy (pre-migration)
       // profile has nothing for calibrateNeat/calibrateNeatByDayType to solve relative to.
       if (nutritionModelForNeat.kind === "derived") {
-        const neatResult = calibrateNeat(lastSync.wellness, lastSync.activities, nutritionModelForNeat.rmr, today);
-        const dayTypeResult = calibrateNeatByDayType(lastSync.wellness, lastSync.activities, nutritionModelForNeat.rmr, today);
+        // The RMR fed into a calibration solve is applied uniformly across that solve's ENTIRE window
+        // (calibrateNeat/calibrateNeatByDayType treat it as one constant), so it should reflect the
+        // athlete's weight OVER that window, not today's single latest reading — a meaningful weight
+        // change across a 42- or 90-day window biases `k` by ~2% per kg of drift. Only the calibration
+        // RMR changes here: `nutritionModelForNeat`/`latestWeightKgForNeat` above stay on the raw
+        // latest reading for the legacy-profile gate check (kind doesn't depend on weight) and are
+        // untouched elsewhere in this file, where RMR SHOULD track current mass (today's actual target).
+        const pooledWeightKgForNeat =
+          smoothedCurrentWeightKg(lastSync.wellness, today, CALIBRATION_PREFERRED_WINDOW_DAYS) ?? latestWeightKgForNeat;
+        const dayTypeWeightKgForNeat =
+          smoothedCurrentWeightKg(lastSync.wellness, today, DAY_TYPE_WINDOW_DAYS) ?? latestWeightKgForNeat;
+        const pooledRmr = resolveNutritionModel(profileForNeat, pooledWeightKgForNeat, today, isRestDayForNeat);
+        const dayTypeRmr = resolveNutritionModel(profileForNeat, dayTypeWeightKgForNeat, today, isRestDayForNeat);
+        // Both are guaranteed "derived" here — `kind` depends only on dateOfBirth/heightCm/sex, which
+        // are identical across all three resolves; only the weight input (and therefore rmr) differs.
+        const pooledRmrValue = pooledRmr.kind === "derived" ? pooledRmr.rmr : nutritionModelForNeat.rmr;
+        const dayTypeRmrValue = dayTypeRmr.kind === "derived" ? dayTypeRmr.rmr : nutritionModelForNeat.rmr;
+        const neatResult = calibrateNeat(lastSync.wellness, lastSync.activities, pooledRmrValue, today);
+        const dayTypeResult = calibrateNeatByDayType(lastSync.wellness, lastSync.activities, dayTypeRmrValue, today);
         // Persist only a genuine derived solve. calibrateNeat's `stale` sentinel is also non-null (so
         // its reason survives for a live renderer to show), but persisting it here would silently
         // REVERT a good prior calibration to the population default the moment the athlete's batch
