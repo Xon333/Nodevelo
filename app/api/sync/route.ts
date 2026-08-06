@@ -44,7 +44,7 @@ import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
-import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, isRestDayFor, resolveBuffer, resolveNeatImbalance, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
+import { calibrateNeat, calibrateNeatByDayType, computeNutritionTrendWarning, eaLevel, isRestDayFor, planEaKcalPerKg, resolveBuffer, resolveNeatImbalance, resolveNutritionModel, smoothedCurrentWeightKg, weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS } from "@/lib/nutrition";
 import { isSteadyEnduranceRide, latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
@@ -137,6 +137,12 @@ export async function GET(req: Request) {
     weightTrendFromWellness(lastSync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
     profile.nutrition.buffer
   );
+  // The prescribed target's OWN EA proxy — informational, see
+  // docs/superpowers/specs/2026-08-06-prescribed-ea-warning-design.md. Uses the SAME
+  // nutritionModelForEnergy + bufferStatus.bufferApplied the Today card's fuel figures already use —
+  // one resolve, no second call.
+  const planEaKcalPerKgValue = planEaKcalPerKg(nutritionModelForEnergy, bufferStatus.bufferApplied);
+  const planEaLevel = planEaKcalPerKgValue === null ? null : eaLevel(planEaKcalPerKgValue);
   const nutritionTrendWarning = computeNutritionTrendWarning(
     lastSync?.wellness ?? [],
     lastSync?.activities ?? [],
@@ -215,6 +221,8 @@ export async function GET(req: Request) {
     // no split exists yet (unchanged prior behaviour).
     neatImbalance: resolveNeatImbalance(profile.nutrition.neat, profile.nutrition.dayTypeNeat, isRestDayToday),
     nutritionTrendWarning,
+    planEaKcalPerKg: planEaKcalPerKgValue,
+    planEaLevel,
   });
 }
 

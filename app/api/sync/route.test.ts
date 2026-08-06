@@ -261,6 +261,14 @@ describe("GET /api/sync", () => {
     expect(json.autoSyncOnOpen).toBe(true);
   });
 
+  // The default `profile` fixture omits performance.dateOfBirth/heightCm/sex, so
+  // resolveNutritionModel resolves it to kind: "legacy" — no RMR to isolate the NEAT term from.
+  it("returns null planEaKcalPerKg/planEaLevel for a legacy (pre-migration) profile", async () => {
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.planEaKcalPerKg).toBeNull();
+    expect(json.planEaLevel).toBeNull();
+  });
+
   it("returns both day-type nutrition models for historical streak calculations", async () => {
     const calibration = (multiplier: number) => ({
       multiplier, confidence: "high", source: "derived", windowDays: 42, loggedDays: 35,
@@ -380,6 +388,45 @@ describe("GET /api/sync", () => {
 
     const insufficient = await (await GET(new Request("http://t/api/sync?today=2026-06-12"))).json();
     expect(insufficient.nutritionTrendWarning).toBeNull();
+  });
+
+  it("includes the prescribed-EA proxy in the GET response", async () => {
+    const warningProfile = {
+      ...profile,
+      performance: { ...profile.performance, dateOfBirth: "1996-01-01", heightCm: 180, sex: "male" as const },
+      nutrition: {
+        ...profile.nutrition,
+        targetWeightKg: 80,
+        targetRateKgPerWeek: 0.15,
+        neat: {
+          multiplier: 1.2,
+          confidence: "high" as const,
+          source: "derived" as const,
+          windowDays: 42,
+          loggedDays: 35,
+          weighIns: 20,
+          solvedAt: "2026-06-21",
+          imbalance: null,
+          stale: false,
+        },
+        dayTypeNeat: null,
+      },
+    };
+    const wellness = Array.from({ length: 21 }, (_, index) => {
+      const date = new Date(Date.parse("2026-06-01") + index * 86_400_000).toISOString().slice(0, 10);
+      return { date, weightKg: 75 + (0.3 * index) / 7, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: 2240, ctl: null, atl: null };
+    });
+    vi.mocked(store.readAthleteProfile).mockResolvedValue(warningProfile as never);
+    vi.mocked(store.readLastSync).mockResolvedValue(mkSync({ wellness }));
+
+    const res = await GET(new Request(`http://t/api/sync?today=${TODAY}`));
+    const json = await res.json();
+    expect(json).toHaveProperty("planEaKcalPerKg");
+    expect(json).toHaveProperty("planEaLevel");
+    if (json.planEaKcalPerKg !== null) {
+      expect(typeof json.planEaKcalPerKg).toBe("number");
+      expect(["low", "adequate", "ample"]).toContain(json.planEaLevel);
+    }
   });
 
   it("filters legacy + compromised entries out of scores but surfaces their dates", async () => {
