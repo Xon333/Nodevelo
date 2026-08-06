@@ -19,6 +19,15 @@ export const AEROBIC_DEADBAND_PCT = 3; // within ±this of baseline = no signal 
 // comparability) below — the ONLY thing the two predicates share; they otherwise test different things.
 export const AEROBIC_MAX_VI = 1.12;
 
+// Shared by qualifyingPwHr and isSteadyEnduranceRide — the ONE place the fail-closed variability check
+// lives, so the two predicates' shared AEROBIC_MAX_VI threshold can't drift apart from each other. The
+// predicates themselves stay independent (different earlier criteria, different callers) — only this
+// low-level arithmetic check is common between them.
+function withinVariabilityLimit(normalizedPower: number | null, avgWatts: number | null): boolean {
+  if (normalizedPower == null || avgWatts == null || avgWatts <= 0) return false; // fail closed
+  return normalizedPower / avgWatts <= AEROBIC_MAX_VI;
+}
+
 export interface PwHrRide {
   date: string; // YYYY-MM-DD
   type: string; // activity type — only OUTDOOR "Ride" qualifies (see qualifyingPwHr)
@@ -52,8 +61,7 @@ export interface PwHrRide {
 // plan corrected before implementation — do not reintroduce it (see aerobic.test.ts's Recovery-ride test).
 export function qualifyingPwHr(r: PwHrRide): number | null {
   if (r.type !== "Ride" || r.powerHrZ2 == null || (r.powerHrZ2Mins ?? 0) < AEROBIC_MIN_Z2_MINS) return null;
-  if (r.normalizedPower == null || r.avgWatts == null || r.avgWatts <= 0) return null; // fail closed
-  if (r.normalizedPower / r.avgWatts > AEROBIC_MAX_VI) return null;
+  if (!withinVariabilityLimit(r.normalizedPower, r.avgWatts)) return null;
   return r.powerHrZ2;
 }
 
@@ -111,7 +119,6 @@ export function isSteadyEnduranceRide(a: ComparableRide, ftp: number): boolean {
   const power = a.normalizedPower ?? a.avgWatts;
   if (power === null) return false;
   if (ftp > 0 && (power / ftp < 0.56 || power / ftp > 0.85)) return false;
-  if (a.normalizedPower == null || a.avgWatts == null || a.avgWatts <= 0) return false; // fail closed
-  if (a.normalizedPower / a.avgWatts > AEROBIC_MAX_VI) return false;
+  if (!withinVariabilityLimit(a.normalizedPower, a.avgWatts)) return false;
   return true;
 }
