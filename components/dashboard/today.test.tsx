@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { EnergyAvailabilityTile, NutritionTrendWarningBanner } from "./today";
+import { EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner } from "./today";
 import type { NeatImbalanceContext, NutritionTrendWarning } from "@/lib/nutrition";
 import type { SyncData } from "@/lib/types";
 
@@ -32,6 +32,30 @@ describe("NutritionTrendWarningBanner", () => {
   it("withholds absent evidence", () => {
     const { container } = render(<NutritionTrendWarningBanner warning={null} />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("PlanEaWarningBanner", () => {
+  it("renders when the level is low", () => {
+    render(<PlanEaWarningBanner level="low" kcalPerKg={27.2} />);
+
+    const heading = screen.getByRole("heading", { name: "Today's target is low-energy-availability" });
+    expect(screen.getByRole("region", { name: heading.textContent! })).toBeTruthy();
+    expect(screen.getByText("27 kcal/kg", { exact: false })).toBeTruthy();
+    expect(screen.getByText("informational only, calories are unchanged", { exact: false })).toBeTruthy();
+  });
+
+  it("withholds when the level is adequate or ample", () => {
+    const { container: c1 } = render(<PlanEaWarningBanner level="adequate" kcalPerKg={32} />);
+    expect(c1.firstChild).toBeNull();
+    cleanup();
+    const { container: c2 } = render(<PlanEaWarningBanner level="ample" kcalPerKg={45} />);
+    expect(c2.firstChild).toBeNull();
+  });
+
+  it("withholds when level is null (legacy model, no RMR to compute from)", () => {
+    const { container } = render(<PlanEaWarningBanner level={null} kcalPerKg={null} />);
+    expect(container.firstChild).toBeNull();
   });
 });
 
