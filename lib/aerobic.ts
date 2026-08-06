@@ -35,7 +35,7 @@ export interface PwHrRide {
   powerHrZ2Mins: number | null;
   // Both required (not optional), matching ActivitySummary's own non-optional-but-nullable shape, so a
   // real ActivitySummary satisfies this interface with zero changes. Added 2026-08-06 so qualifyingPwHr
-  // can apply the same variability gate isSteadyEnduranceRide does — see AEROBIC_MAX_VI below.
+  // can apply the same variability gate isSteadyEnduranceRide does — see AEROBIC_MAX_VI above.
   avgWatts: number | null;
   normalizedPower: number | null;
 }
@@ -116,6 +116,8 @@ export interface ComparableRide {
 export function isSteadyEnduranceRide(a: ComparableRide, ftp: number): boolean {
   if (a.type !== "Ride") return false;
   if (a.movingTimeSec < ENDURANCE_MIN_SEC) return false;
+  // Note: when normalizedPower is null, the fail-closed variability check below returns false
+  // regardless of this fallback's result — this line only matters if that check is ever relaxed.
   const power = a.normalizedPower ?? a.avgWatts;
   if (power === null) return false;
   if (ftp > 0 && (power / ftp < 0.56 || power / ftp > 0.85)) return false;
