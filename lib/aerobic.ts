@@ -10,21 +10,51 @@ export const AEROBIC_BASELINE_DAYS = 90; // trailing window the baseline is draw
 export const AEROBIC_MIN_BASELINE = 3; // need a few readings before a baseline is trustworthy
 export const AEROBIC_DEADBAND_PCT = 3; // within ±this of baseline = no signal (per-ride Pw:HR is noisy — see the decoupling demotion)
 
+// Derived from the athlete's own 187-activity sync window (2026-08-06), not chosen: 1.12 is the loosest
+// threshold that still excludes every ride whose whole-ride decoupling exceeds DECOUPLING_GOOD_BOUNDS.max
+// (8% — the repo's own "above this a cutoff is meaningless" line), while keeping the majority of plausible
+// steady rides. A PROVISIONAL, athlete-specific value, not a universal physiological constant — treat it
+// the way the design spec treats its 30-minute segment threshold: revisit with real data if it stops
+// fitting. Shared by qualifyingPwHr (Z2-segment trustworthiness) and isSteadyEnduranceRide (whole-ride
+// comparability) below — the ONLY thing the two predicates share; they otherwise test different things.
+export const AEROBIC_MAX_VI = 1.12;
+
 export interface PwHrRide {
   date: string; // YYYY-MM-DD
   type: string; // activity type — only OUTDOOR "Ride" qualifies (see qualifyingPwHr)
   powerHrZ2: number | null;
   powerHrZ2Mins: number | null;
+  // Both required (not optional), matching ActivitySummary's own non-optional-but-nullable shape, so a
+  // real ActivitySummary satisfies this interface with zero changes. Added 2026-08-06 so qualifyingPwHr
+  // can apply the same variability gate isSteadyEnduranceRide does — see AEROBIC_MAX_VI below.
+  avgWatts: number | null;
+  normalizedPower: number | null;
 }
 
-// A ride's Z2 Pw:HR if it's an OUTDOOR ride that clears the Z2-minutes floor, else null. Outdoor-only
-// (`type === "Ride"`, excluding VirtualRide) for parity with the Trends Pw:HR (`isSteadyEnduranceRide`):
-// indoor/virtual rides have no wind cooling → cardiac drift, and ERG holds power flat, so their Z2 Pw:HR is
-// distorted. Including them would both pollute the baseline AND mis-grade an indoor ride against a
-// mostly-outdoor baseline (an indoor-conditions penalty misread as aerobic strain — EC-1). One gate, so the
-// baseline builder and the per-ride read can't drift apart.
+// A ride's Z2 Pw:HR if it's an OUTDOOR ride that clears the Z2-minutes floor AND was steady enough for its
+// own Z2 samples to be trustworthy, else null. Outdoor-only (`type === "Ride"`, excluding VirtualRide) for
+// parity with the Trends Pw:HR (`isSteadyEnduranceRide`): indoor/virtual rides have no wind cooling →
+// cardiac drift, and ERG holds power flat, so their Z2 Pw:HR is distorted.
+//
+// VARIABILITY GATE (2026-08-06): a ride's Z2-isolated Pw:HR is only trustworthy when the ride as a WHOLE
+// was steady — on a structurally mixed ride (Z2 cruising between hard climbs), the Z2-zone power samples
+// still carry cardiac drift from the efforts around them (HR doesn't reset the instant power drops back
+// into Z2), so "Z2 power" does not mean "undisturbed aerobic HR" on a surgy ride. Measured over the real
+// 90-day sync window: 24 of 38 (63%) of the rides that previously qualified for the baseline fell outside
+// this gate, 10 of those with implausible (>8%) decoupling — this was NOT a marginal, single-ride effect.
+// Fails CLOSED (excludes) when VI can't be computed: verified against real data that 0 of 43 candidate
+// rides lack normalizedPower, so this costs nothing in practice.
+//
+// DELIBERATELY narrower than isSteadyEnduranceRide: no duration floor, no whole-ride IF band. Those
+// answer "is the WHOLE ride comparable for a whole-ride metric" (decoupling, EF trend) — a different
+// question from "is THIS ride's Z2-isolated reading trustworthy." A short, gentle Recovery ride below the
+// 0.56 IF band is a perfectly legitimate Pw:HR reading; conflating the two gates was a real mistake this
+// plan corrected before implementation — do not reintroduce it (see aerobic.test.ts's Recovery-ride test).
 export function qualifyingPwHr(r: PwHrRide): number | null {
-  return r.type === "Ride" && r.powerHrZ2 != null && (r.powerHrZ2Mins ?? 0) >= AEROBIC_MIN_Z2_MINS ? r.powerHrZ2 : null;
+  if (r.type !== "Ride" || r.powerHrZ2 == null || (r.powerHrZ2Mins ?? 0) < AEROBIC_MIN_Z2_MINS) return null;
+  if (r.normalizedPower == null || r.avgWatts == null || r.avgWatts <= 0) return null; // fail closed
+  if (r.normalizedPower / r.avgWatts > AEROBIC_MAX_VI) return null;
+  return r.powerHrZ2;
 }
 
 // The athlete's aerobic baseline as-of a ride: mean Z2 Pw:HR over qualifying rides STRICTLY BEFORE `date`
@@ -48,4 +78,40 @@ export function aerobicEffPct(ride: PwHrRide, baseline: number | null): number |
   const v = qualifyingPwHr(ride);
   if (v == null || baseline == null || baseline <= 0) return null;
   return ((v - baseline) / baseline) * 100;
+}
+
+// ---------- ride-level aerobic comparability (a DIFFERENT question from qualifyingPwHr above — see the
+// module-level note on AEROBIC_MAX_VI) ----------
+
+export const ENDURANCE_MIN_SEC = 45 * 60;
+
+// Structural shape, not ActivitySummary — so the predicate stays testable without a 30-field fixture.
+// ActivitySummary satisfies it structurally, so real callers pass activities directly with no cast.
+export interface ComparableRide {
+  type: string;
+  movingTimeSec: number;
+  avgWatts: number | null;
+  normalizedPower: number | null;
+}
+
+// The like-for-like gate that makes a WHOLE-RIDE aerobic metric (Intervals.icu's decoupling, the Trends EF
+// series) comparable across rides. Moved here from lib/trends.ts (2026-08-06). NOT the same question as
+// qualifyingPwHr (Z2-segment trustworthiness, above) — this one needs the WHOLE ride to be steady-endurance
+// shaped, because decoupling/EF are whole-ride metrics; qualifyingPwHr only needs the Z2 portion to be
+// trustworthy. Do not use one to gate the other's consumer.
+//
+//   • OUTDOOR only — indoor/virtual rides have no wind cooling (cardiac drift) and ERG flattens power.
+//   • >= 45 min — shorter rides don't yield a meaningful whole-ride aerobic signal.
+//   • endurance band ~0.56-0.85 FTP — hard/easy days aren't comparable. Skipped when FTP is unknown.
+//   • VI <= AEROBIC_MAX_VI, fail CLOSED when uncomputable — a mixed-terrain ride averages into the band
+//     but reports 15-46% "drift" that is a ride-structure artifact, not aerobic fade.
+export function isSteadyEnduranceRide(a: ComparableRide, ftp: number): boolean {
+  if (a.type !== "Ride") return false;
+  if (a.movingTimeSec < ENDURANCE_MIN_SEC) return false;
+  const power = a.normalizedPower ?? a.avgWatts;
+  if (power === null) return false;
+  if (ftp > 0 && (power / ftp < 0.56 || power / ftp > 0.85)) return false;
+  if (a.normalizedPower == null || a.avgWatts == null || a.avgWatts <= 0) return false; // fail closed
+  if (a.normalizedPower / a.avgWatts > AEROBIC_MAX_VI) return false;
+  return true;
 }

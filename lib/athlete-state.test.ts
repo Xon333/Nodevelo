@@ -212,6 +212,23 @@ describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
       expect(inputs.aerobicEffLatest).toBeNull(); // sits out entirely rather than reporting a lone ride
     });
   });
+
+  it("excludes a high-VI ride from the aerobic-efficiency baseline (2026-08-06 tightening)", () => {
+    // Dates sit in the BASELINE window (>14d recency, <90d window), not the recency window — same
+    // shape as the RV2-4 test above (iso(20)/iso(30)/iso(45)) — so this actually exercises baseVals,
+    // not recentQual.
+    const s = sync([
+      act({ date: iso(20), powerHrZ2: 1.55, powerHrZ2Mins: 60 }), // steady, VI 1.0 (default)
+      act({ date: iso(25), powerHrZ2: 1.5, powerHrZ2Mins: 50 }),
+      act({ date: iso(30), powerHrZ2: 1.6, powerHrZ2Mins: 70 }),
+      // A high-VI ride with an outlier Z2 reading — must NOT enter the baseline despite clearing the
+      // Z2-minutes floor and the outdoor-only gate.
+      act({ date: iso(28), powerHrZ2: 9.9, powerHrZ2Mins: 60, avgWatts: 200, normalizedPower: 241 }),
+    ]);
+    const inputs = athleteStateInputsFrom(s, model, null, iso(0));
+    expect(inputs.aerobicEffBaseline).not.toBeNull();
+    expect(inputs.aerobicEffBaseline!).toBeLessThan(2); // would be skewed far above 2 if the outlier leaked in
+  });
 });
 
 describe("aerobic efficiency: a modest dip nudges but doesn't alone corroborate fatigue", () => {

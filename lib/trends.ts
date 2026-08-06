@@ -4,6 +4,7 @@
 import type { ActivitySummary, WellnessEntry } from "./types";
 import { addDaysIso } from "./date";
 import { activeBurn, calculateDailyTarget, exerciseBurn, restingKcalPerHourOf, type ModelOrResolver } from "./nutrition";
+import { isSteadyEnduranceRide } from "./aerobic";
 
 // Monday (UTC) of the ISO week containing `dateStr`, as YYYY-MM-DD.
 export function mondayOf(dateStr: string): string {
@@ -19,31 +20,10 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-// Efficiency Factor = NP / avg HR — the standard aerobic-efficiency marker. Restricted so the
-// trend compares like-for-like:
-//   • OUTDOOR rides only — indoor/virtual rides (no wind cooling → cardiac drift, ERG-flattened
-//     power) have a distorted Pw:HR and would corrupt the trend (TRENDS-1).
-//   • steady endurance band (~0.56–0.85 FTP) — hard/easy days aren't comparable.
-//   • ≥45 min — short rides don't yield a meaningful aerobic signal.
-// Uses Intervals.icu's icu_efficiency_factor when present, falling back to NP/HR. If FTP is
-// unknown the band is skipped and the duration floor still applies.
-const ENDURANCE_MIN_SEC = 45 * 60;
-
-// The like-for-like gate that makes an aerobic metric (Pw:HR / decoupling) comparable across rides:
-// OUTDOOR (excludes indoor/virtual, whose Pw:HR is distorted), steady-endurance band (~0.56–0.85 FTP —
-// hard/easy days aren't comparable), and ≥45 min. Shared by the Trends EF series and the athlete-state
-// decoupling signal so both apply the SAME definition. Metric presence (avgHr for EF, decoupling for the
-// state) is checked by each caller. When FTP is unknown the band is skipped (duration + outdoor still apply).
-export function isSteadyEnduranceRide(
-  a: { type: string; movingTimeSec: number; avgWatts: number | null; normalizedPower?: number | null },
-  ftp: number
-): boolean {
-  if (a.type !== "Ride") return false;
-  if (a.movingTimeSec < ENDURANCE_MIN_SEC) return false;
-  const power = a.normalizedPower ?? a.avgWatts;
-  if (power === null) return false;
-  return ftp <= 0 || (power / ftp >= 0.56 && power / ftp <= 0.85);
-}
+// Efficiency Factor = NP / avg HR — the standard aerobic-efficiency marker. Restricted by
+// isSteadyEnduranceRide (lib/aerobic.ts) so the trend compares like-for-like: outdoor only, >= 45 min,
+// steady-endurance band, and low variability. Uses Intervals.icu's icu_efficiency_factor when present,
+// falling back to NP/HR.
 
 export function efSeries(activities: ActivitySummary[], ftp: number): { date: string; value: number }[] {
   return activities

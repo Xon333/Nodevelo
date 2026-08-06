@@ -17,7 +17,7 @@ import { formatBlockSkeleton, formatWeekTargets, type BlockSkeleton, type WeekTa
 import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
-import { isSteadyEnduranceRide } from "./trends";
+import { isSteadyEnduranceRide } from "./aerobic";
 import type { AerobicDiscipline } from "./execution-score";
 import { round1 } from "./stats";
 import { AEROBIC_DEADBAND_PCT } from "./aerobic";
