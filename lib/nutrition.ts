@@ -1101,15 +1101,18 @@ function dayTypeConfidence(windowDays: number, loggedDays: number, coverage: num
 }
 
 /**
- * Rest-day / training-day split of calibrateNeat's pooled solve, shrunk toward the pooled multiplier
- * via empirical-Bayes weighting (`weight = n / (n + DAY_TYPE_SHRINKAGE_K)`) so a thin subset sample
- * stays conservative instead of swinging on a handful of days. See docs/systems/09-nutrition.md.
+ * Rest-day / training-day split of calibrateNeat's pooled solve, shrunk toward a same-window pooled
+ * anchor via empirical-Bayes weighting (`weight = n / (n + DAY_TYPE_SHRINKAGE_K)`) so a thin subset
+ * sample stays conservative instead of swinging on a handful of days. See docs/systems/09-nutrition.md.
  *
  * `pooled` is the SAME `calibrateNeat` call unchanged (its own default, CALIBRATION_PREFERRED_WINDOW_DAYS
- * = 42) — this function never widens or narrows that call's window. If pooled is null OR not a genuine
- * derived solve (i.e. `pooled.source !== "derived"`, which also catches calibrateNeat's non-null STALE
- * sentinel), this returns null immediately: a day-type split cannot be more confident than — nor solve
- * against the same underlying data as — a base calibration that withheld or flagged itself untrustworthy.
+ * = 42) — this function never widens or narrows that call's window, and `pooled` is exposed on the
+ * returned `DayTypeNeat` verbatim so a consumer can compare against "the same pooled figure used
+ * elsewhere" (`profile.nutrition.neat` is always this same 42-day call) without a second lookup. If
+ * pooled is null OR not a genuine derived solve (i.e. `pooled.source !== "derived"`, which also catches
+ * calibrateNeat's non-null STALE sentinel), this returns null immediately: a day-type split cannot be
+ * more confident than — nor solve against the same underlying data as — a base calibration that
+ * withheld or flagged itself untrustworthy.
  *
  * The day-type split itself runs over a WIDER trailing window (`windowDays`, default
  * DAY_TYPE_WINDOW_DAYS = 90) than the pooled call, because rest days are sparse for a training
@@ -1117,6 +1120,17 @@ function dayTypeConfidence(windowDays: number, loggedDays: number, coverage: num
  * this wider window are computed with the same convention calibrateNeat uses for its own (shorter)
  * window — ONE shared boundary for both subsets, not a per-subset one, because a transfer gap affects
  * both day types equally.
+ *
+ * Critically, the SHRINKAGE anchor each subset blends toward is `shrinkAnchor` below, not `pooled`
+ * itself — `windowPooled`, a second internal-only `calibrateNeat` call over this SAME wider
+ * `windowDays`. `pooled`'s 42-day window reaches back over a different slice of calendar time, with a
+ * different incidental rest/training day mix, than the 90-day data the subsets are actually solved
+ * from; anchoring the blend to it makes the anchor move on a window-length artifact rather than the
+ * athlete's physiology (e.g. a 42-day window that happens to catch mostly training days pulls the
+ * anchor toward the training-day rate even though the subsets themselves span three times that
+ * calendar range). `windowPooled` is used ONLY for this internal shrinkage math and is never exposed
+ * on the returned object — exposing it too would give a consumer two different "pooled" figures with
+ * no way to tell which is which, which was never the design.
  */
 export function calibrateNeatByDayType(
   wellness: WellnessEntry[],
@@ -1132,6 +1146,19 @@ export function calibrateNeatByDayType(
   // through and get solved against anyway — reject anything that isn't a genuine derived solve, which
   // catches the stale sentinel (and any other non-derived shape) more robustly than testing `.stale` alone.
   if (pooled === null || pooled.source !== "derived") return null;
+
+  // Second calibrateNeat solve, over the SAME windowDays the subsets below are actually solved from —
+  // see the doc comment above for why the shrinkage anchor needs this instead of the 42-day `pooled`.
+  const windowPooled = calibrateNeat(wellness, activities, rmr, today, windowDays);
+  // The anchor subsets shrink toward. Prefer a pooled solve computed over the SAME `windowDays` the
+  // subsets themselves use — `pooled` (calibrateNeat's own default 42-day window) reflects a different
+  // slice of calendar time and a different rest/training mix than the 90-day data the subsets are
+  // actually solved from, making the anchor artifactually window-dependent rather than physiologically
+  // meaningful. Falls back to `pooled.multiplier` (the ORIGINAL behavior) when the wider-window solve
+  // itself isn't available (null, or non-derived e.g. stale) — a same-window anchor is an improvement
+  // when obtainable, not a new requirement that should take down the whole day-type split when it isn't.
+  const shrinkAnchor =
+    windowPooled !== null && windowPooled.source === "derived" ? windowPooled.multiplier : pooled.multiplier;
 
   // Same convention as calibrateNeat: a date lands here when SOME activity on it has a burn that
   // can't be resolved. Excluded from both the day-type map and any subset's day count entirely.
@@ -1218,7 +1245,7 @@ export function calibrateNeatByDayType(
     const { multiplier: clampedSubsetK, imbalance } = solveAndClampK(sumIntakeImputed, s.burnSum, deltaMass, n, rmr);
     const weight =
       s.loggedDays < DAY_TYPE_MIN_LOGGED_DAYS ? 0 : s.loggedDays / (s.loggedDays + DAY_TYPE_SHRINKAGE_K);
-    const finalMultiplier = weight * clampedSubsetK + (1 - weight) * pooled.multiplier;
+    const finalMultiplier = weight * clampedSubsetK + (1 - weight) * shrinkAnchor;
     const neat: NeatCalibration = {
       multiplier: finalMultiplier,
       confidence: dayTypeConfidence(windowDays, s.loggedDays, coverage),
