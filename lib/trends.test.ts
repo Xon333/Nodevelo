@@ -124,6 +124,39 @@ describe("weeklyEnergy (TRENDS-2)", () => {
     expect(out.find((e) => e.date === "2026-06-15")).toBeUndefined();
   });
 
+  // The `burn` series is charted on a kcal axis directly against `intakeKcal`, so it has to BE kcal.
+  // It used to sum `a.kj` — mechanical work — putting two units on one axis under one label.
+  it("sums the burn series in kcal from activeBurnKcal, not raw kj", () => {
+    const out = weeklyEnergy(
+      [act({ date: "2026-06-01", kj: 900, activeBurnKcal: 1000, movingTimeSec: 3600 })],
+      [],
+      today
+    );
+    expect(out.find((e) => e.date === "2026-06-01")?.burnKcal).toBe(1000);
+  });
+
+  // The old `if (a.kj === null) continue` guard dropped these entirely, understating the week for an
+  // athlete whose presenting problem is underfuelling.
+  it("counts a ride that synced an active-burn figure but no kj", () => {
+    const out = weeklyEnergy(
+      [act({ date: "2026-06-01", kj: null, activeBurnKcal: 800, movingTimeSec: 3600 })],
+      [],
+      today
+    );
+    expect(out.find((e) => e.date === "2026-06-01")?.burnKcal).toBe(800);
+  });
+
+  // activeBurn's legacy branch: a pre-activeBurnKcal activity carries only kj, and treating it as
+  // kcal is the app-wide convention — unchanged behaviour for old data.
+  it("falls back to kj for a legacy activity carrying no active-burn figure", () => {
+    const out = weeklyEnergy(
+      [act({ date: "2026-06-01", kj: 640, activeBurnKcal: null, movingTimeSec: 3600 })],
+      [],
+      today
+    );
+    expect(out.find((e) => e.date === "2026-06-01")?.burnKcal).toBe(640);
+  });
+
   it("sums burn + intake and takes the median weekly weight", () => {
     const out = weeklyEnergy(
       [

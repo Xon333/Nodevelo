@@ -1320,7 +1320,9 @@ export interface EnergyAvailability {
 const EA_MIN_DAYS = 3; // a few logged days before a trailing EA means anything (mirrors the other baselines)
 
 // Energy-availability PROXY: per-kg-body-mass energy left after exercise, averaged over recent COMPLETE
-// days. Deliberately simple ((intake − exercise burn)/kg, kJ≈kcal as elsewhere — burn sums ALL activities
+// days. Deliberately simple ((intake − exercise burn)/kg, both sides in kcal — burn goes through
+// activeBurn, so kJ stands in for kcal on its LEGACY branch only, not as this function's basis — and
+// sums ALL activities
 // carrying a resolvable active-burn figure, not only rides; a day whose activity has NO resolvable burn
 // is excluded from the mean entirely, never folded in at 0 — 0 reads identically to a genuine rest day
 // and would silently inflate EA, hiding underfuelling) and honest about limits:

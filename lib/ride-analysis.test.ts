@@ -310,3 +310,52 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(mismatch.executionScore! >= clean.executionScore!).toBe(true);
   });
 });
+
+// The Today debrief header renders this under a "kcal" label. It used to render `activityKj` —
+// mechanical work in kJ — which is a different unit and, on a real activity, a different number
+// (this athlete's 2026-08-06 ride: kj 1421, activeBurnKcal 1417).
+describe("buildTodayAnalysis — gross burn in kcal", () => {
+  const base = {
+    today: "2026-06-22",
+    activity: activity(),
+    plannedDay: null,
+    ftp: 250,
+    nutrition: { model: LEGACY_MODEL, bufferApplied: 300 },
+    powerZoneTimes: null,
+    hrZoneTimes: null,
+    powerZoneTopsPct: null,
+    aerobicEffPct: null,
+    executed: [] as ExecutedInterval[],
+    intervalComparison: null,
+    trace: null,
+    powerPRs: [],
+    preserved: null,
+    resolvedCal: {},
+  };
+
+  it("reports activeBurnKcal, and keeps activityKj on its own kJ basis", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      activity: activity({ kj: 1421, activeBurnKcal: 1417 }),
+    });
+    expect(todayAnalysis.activityBurnKcal).toBe(1417);
+    expect(todayAnalysis.activityKj).toBe(1421);
+  });
+
+  // activeBurn's legacy branch — a pre-activeBurnKcal activity carries only kj, treated as kcal.
+  it("falls back to kj for a legacy activity", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      activity: activity({ kj: 600, activeBurnKcal: null }),
+    });
+    expect(todayAnalysis.activityBurnKcal).toBe(600);
+  });
+
+  it("withholds rather than zeroing when neither figure resolves", () => {
+    const { todayAnalysis } = buildTodayAnalysis({
+      ...base,
+      activity: activity({ kj: null, activeBurnKcal: null }),
+    });
+    expect(todayAnalysis.activityBurnKcal).toBeNull();
+  });
+});
