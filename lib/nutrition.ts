@@ -1373,6 +1373,27 @@ export function eaLevel(eaKcalPerKg: number): EaLevel {
   return "ample";
 }
 
+/**
+ * The daily target's OWN energy-availability proxy — same units and bands as the observed-intake
+ * proxy (`eaLevel`), applied to the PRESCRIBED target instead of logged behaviour. This is what the
+ * RMR floor doesn't catch: `dailyTarget >= RMR` guards against an invalid formula output, not against
+ * a target that is valid but already low-EA by construction (e.g. at `BUFFER_MIN_KCAL`, when the
+ * athlete's own RMR sits below the low-EA line too).
+ *
+ * = (k × RMR + bufferApplied) / weightKg — maintenance minus the exercise term (EA definitions are
+ * always net of exercise energy), buffer's effect included. `null` for a legacy model: there is no RMR
+ * to isolate the NEAT term from, same convention `maintenanceKcal` follows in `app/api/profile/route.ts`.
+ *
+ * Informational only (docs/superpowers/specs/2026-08-06-prescribed-ea-warning-design.md) — never feeds
+ * back into the target. A hard floor was reviewed and explicitly rejected: no body-fat data exists
+ * anywhere in this app, and a hard override built on an approximation could move real calories on a
+ * guess.
+ */
+export function planEaKcalPerKg(model: NutritionModel, bufferApplied: number): number | null {
+  if (model.kind !== "derived") return null;
+  return (model.neatMultiplier * model.rmr + bufferApplied) / model.weightKg;
+}
+
 // Weekly energy-balance band (§6): intake ÷ the app's OWN prescribed need for the same logged days.
 // Unlike eaLevel (a kcal/kg body-weight proxy), this is a precise ratio against the deterministic
 // daily-target formula — so 1.0 means "ate what the coach's formula advised" (which already embeds the

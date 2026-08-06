@@ -24,6 +24,7 @@ import {
   loggedDaysForStreak,
   NEAT_PLAUSIBLE_MAX,
   NEAT_PLAUSIBLE_MIN,
+  planEaKcalPerKg,
   preRideCarbTarget,
   resolveBuffer,
   resolveNeatImbalance,
@@ -840,6 +841,61 @@ describe("eaLevel — soft body-weight-basis read (FB-2026-06-30)", () => {
     expect(eaLevel(39)).toBe("adequate");
     expect(eaLevel(40)).toBe("ample"); // boundary is ample
     expect(eaLevel(55)).toBe("ample");
+  });
+});
+
+describe("planEaKcalPerKg", () => {
+  it("returns null for a legacy model — no RMR to isolate the NEAT term from", () => {
+    const legacy: NutritionModel = {
+      kind: "legacy",
+      baseCalories: 2000,
+      restDayTarget: 2600,
+      weightKg: 70,
+      targetWeightKg: 68,
+      buffer: 0,
+    };
+    expect(planEaKcalPerKg(legacy, -500)).toBeNull();
+  });
+
+  it("computes (k x RMR + buffer) / weightKg for a derived model, excluding the exercise term", () => {
+    // Rounded from this athlete's real post-net-of-resting-fix calibration (RMR 1622, k~1.3493,
+    // weight 62kg) at the buffer floor — the concrete case the design doc's review was grounded in.
+    const model: NutritionModel = {
+      kind: "derived",
+      rmr: 1622,
+      neatMultiplier: 1.3493,
+      restingKcalPerHour: 1622 / 24,
+      weightKg: 62,
+      targetWeightKg: 63,
+      buffer: 0,
+    };
+    const result = planEaKcalPerKg(model, -500);
+    expect(result).not.toBeNull();
+    expect(result!).toBeCloseTo((1.3493 * 1622 - 500) / 62, 2);
+    expect(result!).toBeCloseTo(27.24, 1);
+  });
+
+  it("is independent of activeBurnKcal — the exercise term never enters this calculation", () => {
+    const model: NutritionModel = {
+      kind: "derived",
+      rmr: 1500,
+      neatMultiplier: 1.3,
+      restingKcalPerHour: 1500 / 24,
+      weightKg: 60,
+      targetWeightKg: 60,
+      buffer: 0,
+    };
+    expect(planEaKcalPerKg(model, 0)).toBe((1.3 * 1500) / 60);
+  });
+
+  it("combined with eaLevel(): lands on 'low' just below 25 kcal/kg and 'adequate' at exactly 25", () => {
+    const justBelow: NutritionModel = {
+      kind: "derived", rmr: 1499, neatMultiplier: 1, restingKcalPerHour: 1499 / 24,
+      weightKg: 60, targetWeightKg: 60, buffer: 0,
+    };
+    const exactlyAt: NutritionModel = { ...justBelow, rmr: 1500 };
+    expect(eaLevel(planEaKcalPerKg(justBelow, 0)!)).toBe("low"); // 1499/60 = 24.98
+    expect(eaLevel(planEaKcalPerKg(exactlyAt, 0)!)).toBe("adequate"); // 1500/60 = 25.0 exactly
   });
 });
 
