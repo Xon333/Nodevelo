@@ -17,6 +17,7 @@ import { ifBandLabel } from "@/lib/zones";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { prDurationLabel } from "@/lib/pr";
 import { formatPrescriptionLabel } from "@/lib/prescription";
+import { advisedIntakeParts } from "@/lib/ride-analysis";
 import {
   computeEnergyAvailability,
   computeUnderfuelStreak,
@@ -512,17 +513,25 @@ export function TodayRideCard({
 // today-analysis.json written before a field existed parses back with the key simply absent.
 export function EatToday({ analysis }: { analysis: TodayAnalysis }) {
   if (analysis.advisedIntakeKcal == null && !analysis.fuelPrompt) return null;
+  // Re-normalised at RENDER, not trusted as stored. computeAdvisedIntake already writes whole,
+  // exactly-summing parts, but today-analysis.json holds whatever was written at the last sync — and
+  // records written before that fix carry raw floats ("2,202.512 base + 1,283.488 ride + 60 buffer"
+  // under a 3,550 headline). Same helper both sides, so the stored and shown breakdowns can't diverge.
+  const parts =
+    analysis.advisedIntakeKcal != null
+      ? advisedIntakeParts(analysis.advisedIntakeKcal, analysis.advisedRideFuelKcal ?? 0, analysis.advisedBufferKcal ?? 0)
+      : null;
   return (
     <Card title="Eat today">
-      {analysis.advisedIntakeKcal != null && (
+      {analysis.advisedIntakeKcal != null && parts && (
         <div className="flex items-baseline gap-3">
           <p className="font-mono text-xl font-bold text-zinc-900 dark:text-[#ff49c8] dark:[text-shadow:0_0_8px_rgba(255,73,200,0.3)]">
             {analysis.advisedIntakeKcal.toLocaleString()} kcal
           </p>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            {analysis.advisedBaseKcal?.toLocaleString()} base
-            {analysis.advisedRideFuelKcal ? ` + ${analysis.advisedRideFuelKcal.toLocaleString()} ride` : ""}
-            {analysis.advisedBufferKcal ? ` + ${analysis.advisedBufferKcal.toLocaleString()} buffer` : ""}
+            {parts.baseKcal.toLocaleString()} base
+            {parts.rideFuelKcal ? ` + ${parts.rideFuelKcal.toLocaleString()} ride` : ""}
+            {parts.bufferKcal ? ` + ${parts.bufferKcal.toLocaleString()} buffer` : ""}
           </p>
         </div>
       )}

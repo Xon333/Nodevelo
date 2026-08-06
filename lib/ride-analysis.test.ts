@@ -79,6 +79,46 @@ describe("computeAdvisedIntake", () => {
   it("withholds (returns null) rather than zeroing an unresolved burn", () => {
     expect(computeAdvisedIntake(null, LEGACY_MODEL, 300)).toBeNull();
   });
+
+  // The live defect: exerciseBurn nets a per-hour resting rate off the source figure, so the burn
+  // reaching this function is fractional. `maintenanceKcal - rideBurnKcal` was a rounded total minus an
+  // unrounded part, which rendered as "2,202.512 base + 1,283.488 ride + 60 buffer" under a 3,550
+  // headline — decimals the athlete has no use for, on a line that didn't add up to its own total.
+  const DERIVED_MODEL: NutritionModel = {
+    kind: "derived",
+    rmr: 1627,
+    neatMultiplier: 1.3537870346661005,
+    restingKcalPerHour: 1627 / 24,
+    weightKg: 61.6,
+    targetWeightKg: 63,
+    buffer: 60,
+  };
+
+  it("reports whole kcal for every part of the breakdown", () => {
+    const i = computeAdvisedIntake(1283.488, DERIVED_MODEL, 60)!;
+    for (const v of [i.advisedIntakeKcal, i.advisedBaseKcal, i.advisedBufferKcal, i.advisedRideFuelKcal]) {
+      expect(Number.isInteger(v)).toBe(true);
+    }
+    expect(i.advisedRideFuelKcal).toBe(1283);
+  });
+
+  // dailyTarget rounds to the nearest 10, so the ≤5 kcal residual has to land SOMEWHERE — on base, the
+  // one estimated term. What must never happen is the three parts summing to something other than the
+  // headline the card prints them under.
+  it("keeps base + ride + buffer exactly equal to the advised total", () => {
+    for (const burn of [1283.488, 0, 1.4, 999.5, 2007]) {
+      const i = computeAdvisedIntake(burn, DERIVED_MODEL, 60)!;
+      expect(i.advisedBaseKcal + i.advisedRideFuelKcal + i.advisedBufferKcal).toBe(i.advisedIntakeKcal);
+    }
+  });
+
+  // The RMR safety floor raises dailyTarget above what the formula computed. The breakdown is a
+  // breakdown OF THE PRESCRIBED NUMBER, so it has to keep summing there too.
+  it("still sums when the RMR safety floor raised the target", () => {
+    const i = computeAdvisedIntake(0, DERIVED_MODEL, -900)!;
+    expect(i.advisedIntakeKcal).toBe(1627); // floored at RMR
+    expect(i.advisedBaseKcal + i.advisedRideFuelKcal + i.advisedBufferKcal).toBe(1627);
+  });
 });
 
 describe("buildTodayAnalysis (CR-G)", () => {

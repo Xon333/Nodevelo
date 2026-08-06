@@ -48,6 +48,42 @@ export interface AdvisedIntake {
   advisedRideFuelKcal: number;
 }
 
+export interface AdvisedIntakeParts {
+  baseKcal: number;
+  rideFuelKcal: number;
+  bufferKcal: number;
+}
+
+/**
+ * Whole-kcal breakdown of an advised daily target, guaranteed to sum back to that target.
+ *
+ * ONE implementation, used both when the breakdown is COMPUTED (computeAdvisedIntake, below) and when
+ * an already-persisted one is RENDERED (EatToday in components/dashboard/today.tsx) — `TodayAnalysis`
+ * is written to today-analysis.json at sync time and read back for the rest of the day, so a record
+ * written before this normalisation existed is still on disk and still has to display cleanly. Two
+ * copies of this arithmetic would let the stored figure and the shown figure drift.
+ *
+ * Both properties this enforces broke when `exerciseBurn` started netting a per-hour resting cost off
+ * the source burn figure. `rideBurnKcal` went fractional, so the old `plan.maintenanceKcal -
+ * rideBurnKcal` (a ROUNDED total minus an UNROUNDED part) surfaced the residual as "2,202.512 base",
+ * and because `dailyTarget` rounds to the nearest 10 the line read 2202.512 + 1283.488 + 60 under a
+ * 3,550 headline — a breakdown that visibly failed to add up to the number it was breaking down.
+ *
+ * The ≤5 kcal rounding residual lands on `baseKcal` deliberately: base is the one ESTIMATED term
+ * (k × RMR). The ride figure is measured and the buffer is an explicit goal choice, and neither should
+ * absorb an artifact of display rounding. Deriving base as the remainder also keeps the identity true
+ * when the RMR safety floor raised the target above what the formula computed.
+ */
+export function advisedIntakeParts(
+  advisedIntakeKcal: number,
+  rideBurnKcal: number,
+  bufferKcalRaw: number
+): AdvisedIntakeParts {
+  const rideFuelKcal = Math.round(rideBurnKcal);
+  const bufferKcal = Math.round(bufferKcalRaw);
+  return { baseKcal: advisedIntakeKcal - rideFuelKcal - bufferKcal, rideFuelKcal, bufferKcal };
+}
+
 // Advised daily intake for a completed ride: base + the ride's resolved active burn + weight-adjusted
 // buffer. Same buffer formula block generation uses, so the Today card and the plan never disagree.
 //
@@ -66,11 +102,14 @@ export function computeAdvisedIntake(
   // Delegates to THE formula rather than re-deriving base + burn + buffer, so the Today card and the
   // generated plan can never disagree. isRestDay is false: this path only runs for a completed ride.
   const plan = calculateDailyTarget(rideBurnKcal, model, bufferApplied, false);
+  // Whole kcal, and the three parts sum to `advisedIntakeKcal` — see advisedIntakeParts for why the
+  // old `plan.maintenanceKcal - rideBurnKcal` satisfied neither once burns went fractional.
+  const parts = advisedIntakeParts(plan.dailyTarget, rideBurnKcal, bufferApplied);
   return {
     advisedIntakeKcal: plan.dailyTarget,
-    advisedBaseKcal: plan.maintenanceKcal - rideBurnKcal,
-    advisedBufferKcal: bufferApplied,
-    advisedRideFuelKcal: rideBurnKcal,
+    advisedBaseKcal: parts.baseKcal,
+    advisedBufferKcal: parts.bufferKcal,
+    advisedRideFuelKcal: parts.rideFuelKcal,
   };
 }
 

@@ -1763,8 +1763,50 @@ describe("resolveNeatImbalance", () => {
       shrinkageWeight: { rest: 0.5, train: 0.9 },
     };
     // Pooled has a finding, but today's (rest) split is clean — must read as "nothing to show", not
-    // silently reuse the pooled ambiguity for a split that itself resolved fine.
+    // silently reuse the pooled ambiguity for a split that itself resolved fine. (The split is trusted
+    // here: `cal()` defaults to confidence "high".)
     expect(resolveNeatImbalance(dayTypeNeat.pooled, dayTypeNeat, true)).toBeNull();
+  });
+
+  // The live regression this gate closes. This athlete's real rest split is confidence "low" (6 logged
+  // rest days in 90) AND out-of-band-clamped, so resolveNutritionModel falls back to pooled on a rest
+  // day — but the old direct `dayTypeNeat.rest` read still reported the rest clamp, describing a solve
+  // nothing was using. Same condition trustedDayTypeSplit applies to the multiplier itself.
+  it("ignores a LOW-confidence active split and reports the pooled finding the formula is actually on", () => {
+    const pooledFinding = finding({ estimatedKcalPerDay: 45 });
+    const dayTypeNeat: DayTypeNeat = {
+      rest: cal({ confidence: "low", imbalance: finding({ estimatedKcalPerDay: 60 }) }),
+      train: cal({ imbalance: null }),
+      pooled: cal({ imbalance: pooledFinding }),
+      shrinkageWeight: { rest: 0.33, train: 0.85 },
+    };
+    expect(resolveNeatImbalance(dayTypeNeat.pooled, dayTypeNeat, true)).toEqual({
+      dayType: null,
+      finding: pooledFinding,
+    });
+  });
+
+  it("reports nothing when the active split is LOW-confidence and the pooled solve it falls back to is clean", () => {
+    const dayTypeNeat: DayTypeNeat = {
+      rest: cal({ confidence: "low", imbalance: finding({ estimatedKcalPerDay: 60 }) }),
+      train: cal({ imbalance: null }),
+      pooled: cal({ imbalance: null }),
+      shrinkageWeight: { rest: 0.33, train: 0.85 },
+    };
+    expect(resolveNeatImbalance(dayTypeNeat.pooled, dayTypeNeat, true)).toBeNull();
+  });
+
+  // An override outranks every derived figure in resolveNutritionModel, split included — so the
+  // imbalance shown must be the overridden record's, not a frozen pre-override split's.
+  it("ignores the split entirely while an athlete override is in force", () => {
+    const dayTypeNeat: DayTypeNeat = {
+      rest: cal({ imbalance: finding({ estimatedKcalPerDay: 60 }) }),
+      train: cal({ imbalance: finding({ estimatedKcalPerDay: 80 }) }),
+      pooled: cal({ imbalance: null }),
+      shrinkageWeight: { rest: 0.5, train: 0.9 },
+    };
+    const override = cal({ source: "override", confidence: "low", imbalance: null });
+    expect(resolveNeatImbalance(override, dayTypeNeat, false)).toBeNull();
   });
 });
 

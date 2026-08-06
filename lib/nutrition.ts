@@ -1278,12 +1278,12 @@ export function calibrateNeatByDayType(
 // Once a day-type split is adopted, `rest` and `train` each carry their OWN out-of-band clamp finding
 // (rule 3, above) — a rest-day-only or training-day-only ambiguity that the pooled `neat.imbalance` can
 // silently miss entirely (the pooled solve can clear cleanly while one subset alone gets clamped; this
-// is the live shape on this athlete's own data). Resolves to whichever split is ACTIVE TODAY so the
-// Today card shows the one finding relevant right now, tagged with which day type it came from so the
-// UI copy can say so — never the pooled figure once a split exists, since a pooled-labelled number that
-// is actually the rest (or train) split's own solve would misstate which subset the ambiguity is in.
-// Falls back to the pre-split pooled behaviour verbatim (dayType: null) when `dayTypeNeat` hasn't been
-// adopted yet — this is a strict superset of the old single-value read, not a replacement for it.
+// is the live shape on this athlete's own data). Resolves to the finding belonging to the record that
+// is ACTUALLY DRIVING today's target, tagged with which day type it came from so the UI copy can say
+// so. That means the active split when `trustedDayTypeSplit` vouches for it — and the pooled figure
+// (dayType: null) in every case where the formula itself is on pooled: no split adopted yet, an
+// athlete override in force, or the active side's own confidence still "low". The tag and the number
+// must describe the same record, or the card reports an ambiguity in a solve nothing is using.
 export interface NeatImbalanceContext {
   dayType: "rest" | "train" | null;
   finding: EnergyImbalanceFinding;
@@ -1294,9 +1294,17 @@ export function resolveNeatImbalance(
   dayTypeNeat: DayTypeNeat | null | undefined,
   isRestDay: boolean
 ): NeatImbalanceContext | null {
-  if (dayTypeNeat) {
-    const split = isRestDay ? dayTypeNeat.rest : dayTypeNeat.train;
-    return split.imbalance ? { dayType: isRestDay ? "rest" : "train", finding: split.imbalance } : null;
+  // trustedDayTypeSplit, NOT a bare `isRestDay ? dayTypeNeat.rest : dayTypeNeat.train` — the same ONE
+  // decision resolveNutritionModel makes about which record is actually in force. Reading the split
+  // directly reported a clamp on a solve the formula had already fallen back away from: this athlete's
+  // `dayTypeNeat.rest` is confidence "low" (6 logged rest days in 90) and out-of-band-clamped, so on a
+  // rest day the card claimed a ~60 kcal/day rest-day imbalance while the prescription was actually
+  // running on the pooled k — which had no imbalance at all. It also swallowed the pooled finding in
+  // that state, so a genuine pooled clamp could go unreported. An untrusted split falls all the way
+  // back to pooled here for exactly the reason it does in the formula.
+  const trusted = trustedDayTypeSplit(neat, dayTypeNeat, isRestDay);
+  if (trusted) {
+    return trusted.imbalance ? { dayType: isRestDay ? "rest" : "train", finding: trusted.imbalance } : null;
   }
   return neat?.imbalance ? { dayType: null, finding: neat.imbalance } : null;
 }

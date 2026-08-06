@@ -210,6 +210,14 @@ function fmtSigned(v: number, decimals = 2): string {
   return v > 0 ? `+${s}` : s;
 }
 
+// Prefill value for the NEAT override box. Two decimals, matching the input's own `step={0.01}` and
+// every other place the multiplier is rendered (`.toFixed(2)`): a raw `String(1.3546558650913105)`
+// spilled eight decimals of solver precision into a field whose granularity is 0.01, and the box is
+// narrow enough that it silently clipped mid-number.
+function neatInputValue(multiplier: number): string {
+  return multiplier.toFixed(2);
+}
+
 // The NEAT multiplier row's "why" — confidence rendered WITH the evidence behind it (window/logged
 // days/weigh-ins), never as a bare word, and "stale" kept distinct from "not enough data yet" (see
 // NeatCalibration.stale in lib/types.ts — same good-data-but-old-transfer distinction). `stale` is
@@ -335,7 +343,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           heightCm: response.performance?.heightCm != null ? String(response.performance.heightCm) : "",
           sex: response.performance?.sex ?? "",
         });
-        setNeatInput(String(response.derivation.neat.multiplier));
+        setNeatInput(neatInputValue(response.derivation.neat.multiplier));
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load your profile — try again.");
       }
@@ -437,7 +445,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
       setNeatSaveState({ state: "saved" });
       const fresh = await api<ProfileResponse>("/api/profile");
       setData(fresh);
-      setNeatInput(String(fresh.derivation.neat.multiplier));
+      setNeatInput(neatInputValue(fresh.derivation.neat.multiplier));
     } catch (err) {
       setNeatSaveState({ state: "error", message: err instanceof Error ? err.message : "Couldn't revert — try again." });
     }
@@ -1073,7 +1081,11 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
                 // it necessarily is one. Without this caveat the figure looked final on a training
                 // morning and then jumped once the ride synced, with nothing explaining why.
                 ? "maintenance + buffer — reads as a rest day for now; complete and sync a ride today and this rises to include its burn"
-                : `maintenance + ${derivation.todayActiveBurnKcal?.toLocaleString() ?? 0} activity kcal + buffer`
+                // Rounded HERE, not in the API: `todayActiveBurnKcal` is the exact figure fed to
+                // calculateDailyTarget and must stay exact on the wire. It went fractional once
+                // exerciseBurn started netting a per-hour resting rate off the source figure, which
+                // rendered as "+ 1,283.488 activity kcal" — sub-kcal precision the athlete has no use for.
+                : `maintenance + ${Math.round(derivation.todayActiveBurnKcal ?? 0).toLocaleString()} activity kcal + buffer`
             }
             extra={
               derivation.todayPlan?.floored && (
