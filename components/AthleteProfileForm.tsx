@@ -76,6 +76,13 @@ interface Derivation {
   // Which side of `dayTypeNeat` resolveNutritionModel actually used today — same boolean
   // app/api/profile/route.ts fed it, not a second independent computation.
   isRestDayToday: boolean;
+  // DT Task 6: whether the split matching `isRestDayToday` is actually the one driving today's
+  // prescription, vs. merely being shown. False whenever `resolveNutritionModel`'s trustedDayTypeSplit
+  // (lib/nutrition.ts) fell back to pooled — an override in force, or the active side's own confidence
+  // is "low". The route computes this via that exact same shared helper, so this can never disagree
+  // with what the real formula did. Meaningless while `dayTypeNeat` is null (nothing to trust either
+  // way); only consulted below once `dayTypeNeat` is non-null.
+  dayTypeSplitTrusted: boolean;
   maintenanceKcal: number | null;
   todayPlan: WorkoutNutritionPlan | null;
   todayActiveBurnKcal: number | null;
@@ -240,8 +247,17 @@ function dayTypeShrinkagePhrase(cal: NeatCalibration, weight: number, dayType: "
 // and shrinkage evidence in one line, e.g. "Rest-day k: 1.47 (45% day-type-specific, 55% pooled — 10
 // logged rest days so far) · Training-day k: 1.25 (98% day-type-specific)". Which one is ACTIVE today
 // is conveyed separately, via bold in the row's value (not repeated here).
-function dayTypeNeatWhy(dtn: DayTypeNeat): string {
-  return `Rest-day k: ${dtn.rest.multiplier.toFixed(2)} (${dayTypeShrinkagePhrase(dtn.rest, dtn.shrinkageWeight.rest, "rest")}) · Training-day k: ${dtn.train.multiplier.toFixed(2)} (${dayTypeShrinkagePhrase(dtn.train, dtn.shrinkageWeight.train, "training")})`;
+//
+// DT Task 6: `trusted` is `derivation.dayTypeSplitTrusted` — false whenever today's active side is
+// still "low" confidence (or an override pre-empted the split entirely, though that case nulls
+// `dayTypeNeat` before this function is ever called). When false, the split numbers above are still
+// shown (informational), but a trailing clause makes explicit that today's real target is using the
+// pooled k instead — matching the UI-consistency fix's requirement that the panel never let a bolded,
+// visually "active" number imply it's driving the prescription when it isn't.
+function dayTypeNeatWhy(dtn: DayTypeNeat, isRestDay: boolean, trusted: boolean, pooledMultiplier: number): string {
+  const base = `Rest-day k: ${dtn.rest.multiplier.toFixed(2)} (${dayTypeShrinkagePhrase(dtn.rest, dtn.shrinkageWeight.rest, "rest")}) · Training-day k: ${dtn.train.multiplier.toFixed(2)} (${dayTypeShrinkagePhrase(dtn.train, dtn.shrinkageWeight.train, "training")})`;
+  if (trusted) return base;
+  return `${base} — today's ${isRestDay ? "rest" : "training"}-day split is still low confidence, not yet confident enough to use, so today's target uses the pooled k (×${pooledMultiplier.toFixed(2)}) instead.`;
 }
 
 // Review fix #2: the population default must never read as "derived" — every `source` handled
@@ -926,16 +942,32 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
             value={
               // DT Task 3: once the rest/train split is adopted, show both — the row that matches
               // today's actual type (isRestDayToday, resolved server-side the same way
-              // resolveNutritionModel picked its multiplier) stays at the row's normal bold/dark
-              // styling; the inactive one is dimmed down so which one is driving today's target is
-              // obvious at a glance, not just implied by reading the numbers.
+              // resolveNutritionModel picked its multiplier) AND clears its own confidence floor
+              // (dayTypeSplitTrusted, DT Task 6) stays at the row's normal bold/dark styling; every
+              // other case — the inactive side, or the active side when it's not actually trusted —
+              // is dimmed down. A low-confidence active split must NOT render bold: bold means "this is
+              // the number driving your target today," and once a split's own confidence is "low" that
+              // is no longer true (resolveNutritionModel has fallen back to the pooled k instead), so
+              // bolding it would tell the athlete a lie the UI-consistency fix exists to prevent.
               derivation.dayTypeNeat ? (
                 <>
-                  <span className={derivation.isRestDayToday ? undefined : "font-normal text-zinc-400 dark:text-zinc-500"}>
+                  <span
+                    className={
+                      derivation.isRestDayToday && derivation.dayTypeSplitTrusted
+                        ? undefined
+                        : "font-normal text-zinc-400 dark:text-zinc-500"
+                    }
+                  >
                     rest × {derivation.dayTypeNeat.rest.multiplier.toFixed(2)}
                   </span>
                   <span className="text-zinc-400 dark:text-zinc-600"> · </span>
-                  <span className={derivation.isRestDayToday ? "font-normal text-zinc-400 dark:text-zinc-500" : undefined}>
+                  <span
+                    className={
+                      !derivation.isRestDayToday && derivation.dayTypeSplitTrusted
+                        ? undefined
+                        : "font-normal text-zinc-400 dark:text-zinc-500"
+                    }
+                  >
                     train × {derivation.dayTypeNeat.train.multiplier.toFixed(2)}
                   </span>
                 </>
@@ -943,7 +975,11 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
                 `× ${derivation.neat.multiplier.toFixed(2)}`
               )
             }
-            why={derivation.dayTypeNeat ? dayTypeNeatWhy(derivation.dayTypeNeat) : neatWhy(derivation.neat, derivation.neatStale)}
+            why={
+              derivation.dayTypeNeat
+                ? dayTypeNeatWhy(derivation.dayTypeNeat, derivation.isRestDayToday, derivation.dayTypeSplitTrusted, derivation.neat.multiplier)
+                : neatWhy(derivation.neat, derivation.neatStale)
+            }
             extra={
               // Review fix #4: gated on source === "derived" so this can only ever describe a solve
               // that's still live — nonDerivedNeatCalibration (lib/nutrition.ts) already nulls

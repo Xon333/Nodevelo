@@ -540,6 +540,41 @@ export function calculateDailyTarget(
 }
 
 /**
+ * The active day type's split (whichever `isRestDay` selects) — but only when it clears its OWN
+ * confidence floor, never a bare "it exists" check. Mirrors `calibrationIsTrustworthy`'s exact tier
+ * boundary (`confidence === "medium" || confidence === "high"`, "low" never counts) applied to the
+ * SUBSET record instead of the pooled one, reused rather than a new threshold invented for this case —
+ * so "why low specifically" has one textual answer for both call sites.
+ *
+ * App owner decision (2026-08-05): the empirical-Bayes shrinkage `calibrateNeatByDayType` already
+ * applies toward the pooled multiplier is not, on its own, enough protection for a thin subset. A
+ * "low"-confidence, thin, sometimes-clamped split must not drive today's actual prescription — it
+ * should stay visible in the derivation panel for transparency while its own sample accrues, exactly
+ * like `calibrateNeat`'s existing philosophy of withholding below a confidence floor rather than
+ * serving a flaky number, now applied one level down.
+ *
+ * This is the ONE place that decision is made — used by both `resolveNutritionModel` below (the real
+ * prescription) and `app/api/profile/route.ts` (what the derivation panel bolds as "active today"),
+ * so the two can never independently diverge on which number is actually in force. Divergence between
+ * "what the UI shows as active" and "what the formula actually uses" is exactly the defect class the
+ * basis-migration comments elsewhere in this function warn about.
+ *
+ * Returns null — meaning "fall back to pooled, exactly as if dayTypeNeat didn't exist" — when there is
+ * no split at all, an athlete override is in force (an explicit override must win over every derived
+ * figure, split included — same guard `resolveNutritionModel` has always applied), or the active
+ * side's own confidence is "low".
+ */
+export function trustedDayTypeSplit(
+  neat: NeatCalibration | null | undefined,
+  dayTypeNeat: DayTypeNeat | null | undefined,
+  isRestDay: boolean
+): NeatCalibration | null {
+  if (neat?.source === "override" || !dayTypeNeat) return null;
+  const active = isRestDay ? dayTypeNeat.rest : dayTypeNeat.train;
+  return active.confidence === "medium" || active.confidence === "high" ? active : null;
+}
+
+/**
  * Pick the model for this athlete. The presence of all three RMR inputs IS the migration gate — there is
  * no separate timestamp flag to keep in sync.
  *
@@ -571,24 +606,28 @@ export function resolveNutritionModel(
       // split included. The split shrinks toward "pooled", and an override changes what "pooled" means —
       // a stale pre-override day-type split (frozen by the same override guard on the sync-adoption side)
       // must never silently outrank the override the athlete just set, on either rest or training days.
-      const dayTypeNeat = profile.nutrition.neat?.source === "override" ? null : profile.nutrition.dayTypeNeat;
-      const neatMultiplier = dayTypeNeat
-        ? isRestDayToday
-          ? dayTypeNeat.rest.multiplier
-          : dayTypeNeat.train.multiplier
+      //
+      // Confidence gate (DT Task 6, 2026-08-05): trustedDayTypeSplit adds one more condition alongside
+      // the override guard above — the active side's OWN confidence must clear "low" too, same as the
+      // override case falling all the way back to pooled. See trustedDayTypeSplit's doc comment for why.
+      // Both neatMultiplier and basisRecord derive from this ONE call so they can never disagree on
+      // which record is actually in force.
+      const trustedSplit = trustedDayTypeSplit(profile.nutrition.neat, profile.nutrition.dayTypeNeat, isRestDayToday);
+      const neatMultiplier = trustedSplit
+        ? trustedSplit.multiplier
         // Optional chaining AND `??`, not just one: a profile JSON written before `neat` existed
         // parses it back as `undefined`, the same class of gap AGENTS.md's migration-flag gotcha
         // warns about — this must fall through to the population prior, not produce NaN.
         : (profile.nutrition.neat?.multiplier ?? DEFAULT_NEAT_MULTIPLIER);
       const rmr = restingMetabolicRate(latestWeightKg, p.heightCm, ageYears, p.sex);
-      // The basis of the record actually SUPPLYING `neatMultiplier` — the day-type split when one is
-      // in force, else the pooled record — never a blanket read of `neat.basis`. calibrateNeatByDayType
+      // The basis of the record actually SUPPLYING `neatMultiplier` — the trusted split when one is in
+      // force, else the pooled record — never a blanket read of `neat.basis`. calibrateNeatByDayType
       // writes both together so they agree today, but reading the record in use keeps that an
       // observation rather than an assumption a future adoption path could quietly break.
       // `=== "net"`, never `!== "gross"`: a pre-migration profile.json parses `basis` back as
       // `undefined`, which must land on 0 (no netting) — the same class of gap AGENTS.md's
       // migration-flag note warns about.
-      const basisRecord = dayTypeNeat ? (isRestDayToday ? dayTypeNeat.rest : dayTypeNeat.train) : profile.nutrition.neat;
+      const basisRecord = trustedSplit ?? profile.nutrition.neat;
       return {
         kind: "derived",
         rmr,
