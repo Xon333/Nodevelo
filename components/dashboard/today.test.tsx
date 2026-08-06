@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner } from "./today";
+import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner } from "./today";
 import type { NeatImbalanceContext, NutritionTrendWarning } from "@/lib/nutrition";
-import type { SyncData } from "@/lib/types";
+import type { SyncData, TodayAnalysis } from "@/lib/types";
 
 afterEach(() => {
   cleanup();
@@ -106,5 +106,35 @@ describe("EnergyAvailabilityTile — neatImbalance day-type labelling", () => {
     expect(screen.queryByText("Rest-day", { exact: false })).toBeNull();
     expect(screen.queryByText("Training-day", { exact: false })).toBeNull();
     expect(screen.getByText(/60 kcal\/day/)).toBeTruthy();
+  });
+});
+
+describe("EatToday breakdown", () => {
+  // A today-analysis.json written before advisedIntakeParts existed is still on disk and still read
+  // back all day, so the render has to normalise rather than trust the stored figures. These are this
+  // athlete's real persisted values from 2026-08-06.
+  const stored = {
+    advisedIntakeKcal: 3550,
+    advisedBaseKcal: 2202.5119212962964,
+    advisedBufferKcal: 60,
+    advisedRideFuelKcal: 1283.4880787037036,
+    fuelPrompt: null,
+  } as unknown as TodayAnalysis;
+
+  it("renders a legacy fractional record as whole kcal that sum to the headline", () => {
+    render(<EatToday analysis={stored} />);
+    expect(screen.getByText("3,550 kcal")).toBeTruthy();
+    // 2,207 + 1,283 + 60 = 3,550. Base carries the ≤5 kcal residual of dailyTarget's round-to-10.
+    expect(screen.getByText("2,207 base + 1,283 ride + 60 buffer")).toBeTruthy();
+    expect(screen.queryByText(/\d\.\d/)).toBeNull(); // no decimals anywhere in the card
+  });
+
+  it("omits a zero ride/buffer term rather than printing '+ 0'", () => {
+    render(
+      <EatToday
+        analysis={{ ...stored, advisedRideFuelKcal: 0, advisedBufferKcal: 0 } as unknown as TodayAnalysis}
+      />
+    );
+    expect(screen.getByText("3,550 base")).toBeTruthy();
   });
 });
