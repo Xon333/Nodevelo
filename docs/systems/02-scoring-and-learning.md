@@ -68,6 +68,27 @@ Replaces population magic numbers with athlete-derived values *only when honestl
 
 Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-data.md)); the model/insights are computed on demand by `/api/trends`, `/api/generate`, `/api/write`; interventions are recorded at write time and validated at sync time.
 
+## Known rough edges
+
+- **Off-plan (and planned-but-surgy) rides score flat until intent lands.** Phase 1 (2026-08-06) removed
+  the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,
+  and the contaminated intrinsic/merged-read Pw:HR efficiency signal (fixed entirely at its producer,
+  `qualifyingPwHr` in `lib/aerobic.ts` — no gate was added in `score-log.ts` or `ride-analysis.ts` for this
+  signal). Both removals are correct, but they leave a mixed ride with almost no quality differentiator:
+  expect scores clustering around baseline (5/10) for most of them. The differentiator returns in Phase 2,
+  when the athlete's activity note becomes the scoring target. Don't "fix" the flatness by re-adding a
+  structure-derived penalty, and don't re-add a consumer-side comparability gate for `aerobicEffPct` — it's
+  already correctly gated where it's computed.
+- **The Pw:HR baseline and decoupling-good cutoff moved when Phase 1 shipped, and will keep moving.** The
+  athlete's true steady-ride drift mean was measured well under `DECOUPLING_GOOD_BOUNDS.min` as of the
+  2026-08-06 sync window, so `deriveDecouplingGood` clamps to its floor — that's the bounds doing their job
+  on a pool that used to include structurally mixed rides, not a calibration failure. Both this value and
+  the exact pool sizes are recalculated fresh on every sync from a rolling 90-day window; don't treat any
+  specific number recorded in this plan's own text as durable.
+- **`qualifyingPwHr` and `isSteadyEnduranceRide` are deliberately different gates.** See INVARIANT 34. A
+  future change that needs "is this ride aerobically trustworthy" almost always means ONE of these two,
+  not both — check which question is actually being asked before reaching for either.
+
 ## Common modifications
 
 | Change | Where | Watch out |

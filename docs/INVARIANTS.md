@@ -44,6 +44,22 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 23. **The sync route stays LLM-free** — the coach note is `/api/analyze`'s job (fast sync, isolated Anthropic failures).
 24. **CSRF enforcement stays central** in `proxy.ts` — routes must not grow their own opt-outs.
 25. **`compliance` is capped by execution** (`resolveCompliance`) — a badly-executed session can never report 100%.
+34. **A shared variability criterion, not one comparability definition.** `isSteadyEnduranceRide` and
+    `qualifyingPwHr` (`lib/aerobic.ts`) both gate on `AEROBIC_MAX_VI`, fail CLOSED when normalized power is
+    unavailable — that is the ONLY thing they share. They answer different questions (whole-ride
+    comparability for decoupling/EF vs. Z2-segment trustworthiness for the Pw:HR baseline) and must not be
+    merged or used to gate each other's consumers: `aerobicEffPct()` already calls `qualifyingPwHr()`
+    internally on the ride being scored, so a consumer-side `isSteadyEnduranceRide` check on the SAME value
+    is redundant at best and silently over-suppressive at worst (it adds a duration/IF-band requirement
+    `qualifyingPwHr` never needed, discarding legitimate short/low-intensity readings). Before gating a
+    value against ride comparability, check whether it already flows through a gated producer.
+35. **Inferred types may reward, never punish.** An off-plan ride's `plannedType` comes from
+    `inferWorkoutType` on its own intensity, so any axis that penalises it against that type is circular.
+    `computeExecutionScore` guards this for intensity-vs-type, the easy-ride merged read, and (since
+    2026-08-06) the variability index — the bonus half of an axis is not circular (it measures a
+    different quantity than the one that inferred the type) and stays live for intrinsic rides; only
+    penalties are suppressed. A new penalty axis must add the same `!intrinsic` guard; a new bonus axis
+    does not need one.
 
 ## Documentation & repo process
 
