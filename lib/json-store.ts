@@ -31,6 +31,7 @@ const CRITICAL = new Set([
   "athlete.json",
   "block-settings.json",
   "dispositions.json",
+  "intent-overlays.json",
 ]);
 
 // HR-42: like readJsonFile, but also signals WHY the fallback fired — specifically, whether at least

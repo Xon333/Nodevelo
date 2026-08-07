@@ -651,6 +651,68 @@ export interface LoadRampAlert {
 
 export type RideOrigin = "prescribed" | "self-directed" | "unspecified";
 
+export type OverlayStatus = "pending" | "active" | "disabled";
+
+export type NotScoredReason =
+  | "no-intent-found"
+  | "intent-unreliable"
+  | "no-measurable-objectives"
+  | "interpreter-failed";
+
+export interface StructuredIntent {
+  primaryPurpose: string;
+  phases: Array<{ description: string; durationMin?: number; targetZone?: string; targetWatts?: number }>;
+}
+
+export interface ScoredObjective {
+  description: string;
+  measurable: boolean;
+  scored: boolean;
+  evidence: string | null;
+}
+
+export interface IntentInterpretation {
+  intent: StructuredIntent;
+  confidence: "high" | "medium" | "low";
+  objectives: ScoredObjective[];
+  model: string;
+  promptVersion: number;
+}
+
+export interface IntentOverlay {
+  id: string;
+  activityId: string;
+  date: string;
+  noteFingerprint: string;
+  status: OverlayStatus;
+  origin: RideOrigin;
+  effectiveExecutionScore: number | null;
+  notScoredReason: NotScoredReason | null;
+  interpretation: IntentInterpretation | null;
+  scoringVersion: number | null;
+  schemaVersion: number;
+  createdAt: string;
+  approvedAt: string | null;
+  supersededBy: string | null;
+}
+
+export interface IntentOverlayStore {
+  overlays: IntentOverlay[];
+  updatedAt: string;
+}
+
+export interface EffectiveOutcome {
+  effectiveExecutionScore: number | null;
+  origin: RideOrigin;
+  source: "overlay" | "ledger";
+  overlay: IntentOverlay | null;
+}
+
+export interface ResolvedRide {
+  entry: RideScoreEntry;
+  outcome: EffectiveOutcome;
+}
+
 export interface RideScoreEntry {
   date: string;
   executionScore: number;
