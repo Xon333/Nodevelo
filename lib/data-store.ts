@@ -437,12 +437,21 @@ export async function readIntentOverlays(): Promise<IntentOverlayStore> {
   return readJson<IntentOverlayStore>("intent-overlays.json", DEFAULT_INTENT_OVERLAYS);
 }
 
+export async function updateIntentOverlayStore(
+  mutate: (store: IntentOverlayStore) => IntentOverlayStore | Promise<IntentOverlayStore>
+): Promise<IntentOverlayStore> {
+  return updateJson<IntentOverlayStore>("intent-overlays.json", DEFAULT_INTENT_OVERLAYS, async (store) => ({
+    ...await mutate(store),
+    updatedAt: new Date().toISOString(),
+  }));
+}
+
 export async function updateIntentOverlays(
   mutate: (overlays: IntentOverlay[]) => IntentOverlay[] | Promise<IntentOverlay[]>
 ): Promise<IntentOverlayStore> {
-  return updateJson<IntentOverlayStore>("intent-overlays.json", DEFAULT_INTENT_OVERLAYS, async (store) => ({
+  return updateIntentOverlayStore(async (store) => ({
+    ...store,
     overlays: await mutate(store.overlays),
-    updatedAt: new Date().toISOString(),
   }));
 }
 

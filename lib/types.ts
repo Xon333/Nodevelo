@@ -675,11 +675,22 @@ export type NotScoredReason =
   | "no-measurable-objectives" // intent understood; nothing the ride data can verify
   | "interpreter-failed"; // the parse itself errored
 
+export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative";
+export type ZoneBasis = "power" | "heart-rate" | "unspecified";
+
+export interface IntentTarget {
+  durationMin?: number;
+  watts?: number;
+  targetPctFtp?: number;
+  zone?: string;
+  reps?: number;
+}
+
 // The structured intent recovered from a note. Deliberately loose — Phase 2b's zod schema is the
 // authority on validity; duplicating those constraints here would create two definitions to drift.
 export interface StructuredIntent {
   primaryPurpose: string;
-  phases: Array<{ description: string; durationMin?: number; targetZone?: string; targetWatts?: number }>;
+  phases: Array<{ description: string; kind: ObjectiveKind; durationMin?: number; targetZone?: string; targetWatts?: number }>;
 }
 
 // One stated objective and what the ride data could say about it. `scored: false` with
@@ -687,8 +698,16 @@ export interface StructuredIntent {
 // descending, which sensors cannot validate) — a flat evidence string list could not express it.
 export interface ScoredObjective {
   description: string;
+  kind: ObjectiveKind;
+  target: IntentTarget | null;
+  zoneBasis: ZoneBasis;
+  grounded: boolean;
+  sourceText: string | null;
   measurable: boolean;
   scored: boolean;
+  // Evidence scope: how much of the ride this objective's evidence speaks about. Filled by the
+  // scorer, never the model; it is NOT how much of the objective went well.
+  scopeMin: number | null;
   evidence: string | null;
 }
 
@@ -728,6 +747,9 @@ export interface IntentOverlay {
   // §11.2 requires retro scoring to use "the same deterministic scorer" as future rides, which is
   // unverifiable without recording which one ran. null exactly when no score was produced.
   scoringVersion: number | null;
+  // The type stated by the athlete, never inferred from whole-ride intensity. Optional so Phase 2a
+  // records still parse; only self-directed overlays may carry it (isCoherent enforces this).
+  effectiveWorkoutType?: WorkoutType | null;
   schemaVersion: number; // this envelope's version, bumped on structural change
   createdAt: string;
   approvedAt: string | null; // set when a human approves a `pending` overlay; provenance, not a gate
@@ -740,6 +762,8 @@ export interface IntentOverlay {
 
 export interface IntentOverlayStore {
   overlays: IntentOverlay[];
+  // Persisted Phase 2b rollout floor. Optional so a Phase 2a store still parses back as undefined.
+  autoFromDate?: string | null;
   updatedAt: string;
 }
 
