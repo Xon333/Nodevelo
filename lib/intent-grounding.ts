@@ -28,15 +28,9 @@ export function groundsDuration(note: string, min: number): boolean {
   const masked = maskZoneTokens(note);
   const minutes = valuesFor(masked, "(?:minutes?|mins?|min)\\b|'", 1);
   const hours = valuesFor(masked, "(?:hours?|hrs?|hr|h)\\b", 60);
-  // Colon notation is ambiguous. Keep it deterministic: 0–5 is H:MM; 6+ is M:SS.
-  const clocks = [...masked.matchAll(/\b(\d+):(\d{2})\b/g)].flatMap(([, first, second]) => {
-    const major = Number(first);
-    const minor = Number(second);
-    if (minor >= 60) return [];
-    return [major <= 5 ? major * 60 + minor : major + minor / 60];
-  });
+  // ponytail: bare colon notation is ambiguous; add contextual grammar only when note syntax disambiguates it.
   return (
-    hasValue([...minutes, ...hours, ...clocks], min, 1) ||
+    hasValue([...minutes, ...hours], min, 1) ||
     inRanges(masked, min, "(?:minutes?|mins?|min)\\b|'", 1) ||
     inRanges(masked, min, "(?:hours?|hrs?|hr|h)\\b", 60)
   );

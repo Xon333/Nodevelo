@@ -22,19 +22,19 @@ describe("semantic intent grounding", () => {
     expect(groundsDuration("45 W", 45)).toBe(false);
   });
 
-  it("uses a deterministic convention for colon durations", () => {
-    expect(groundsDuration("0:45", 45)).toBe(true);
-    expect(groundsDuration("0:45", 0.75)).toBe(false);
-    expect(groundsDuration("4:30", 270)).toBe(true);
+  it("does not ground ambiguous colon durations", () => {
     expect(groundsDuration("4:30", 4.5)).toBe(false);
-    expect(groundsDuration("9:00", 9)).toBe(true);
+    expect(groundsDuration("4:30", 270)).toBe(false);
+    expect(groundsDuration("9:00", 9)).toBe(false);
     expect(groundsDuration("9:00", 540)).toBe(false);
+    expect(groundsDuration("4:60", 300)).toBe(false);
   });
 
   it("grounds watts only from watt forms", () => {
     expect(groundsWatts("9 min around 292 W", 292)).toBe(true);
     expect(groundsWatts("290-300 W", 295)).toBe(true);
     expect(groundsWatts("292%", 292)).toBe(false);
+    expect(groundsWatts("45 min steady Z2", 45)).toBe(false);
   });
 
   it("grounds FTP percentages only from percentage forms", () => {
