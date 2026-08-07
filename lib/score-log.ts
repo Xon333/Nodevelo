@@ -15,8 +15,9 @@ import {
 import { aerobicEffPct, z2PwHrBaselineBefore } from "./aerobic";
 import { EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
 import { inferWorkoutType } from "./ride-classify";
+import { countsAsDrift } from "./ride-origin";
 import { round1, round2 } from "./stats";
-import type { ActivitySummary, BehaviourSummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, RideEntryContext, RideScoreEntry } from "./types";
+import type { ActivitySummary, BehaviourSummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, ResolvedRide, RideEntryContext, RideScoreEntry } from "./types";
 
 const MAX_ENTRIES = 400; // ~6 months of all rides
 
@@ -388,26 +389,29 @@ function carryForwardContext(fresh: RideScoreEntry, prev: RideScoreEntry | undef
   };
 }
 
-// Complete-riding-behaviour signal from ALL logged rides (planned + off-plan).
-export function summariseBehaviour(entries: RideScoreEntry[]): BehaviourSummary {
-  const total = entries.length;
-  const plannedRides = entries.filter((e) => e.planned).length;
+// Complete-riding-behaviour signal from resolved rides: effective origin decides drift.
+export function summariseBehaviour(resolved: ResolvedRide[]): BehaviourSummary {
+  const total = resolved.length;
+  const plannedRides = resolved.filter((r) => r.outcome.origin === "prescribed").length;
   const unplannedRides = total - plannedRides;
-  const offPlanPct = total > 0 ? Math.round((unplannedRides / total) * 100) : 0;
+  const driftRides = resolved.filter((r) => countsAsDrift(r.outcome.origin, r.entry.legacy));
+  const offPlanPct = total > 0 ? Math.round((driftRides.length / total) * 100) : 0;
 
-  const unplannedScores = entries.filter((e) => !e.planned).map((e) => e.executionScore);
-  const unplannedAvgQuality = unplannedScores.length
-    ? round1(unplannedScores.reduce((s, v) => s + v, 0) / unplannedScores.length)
+  const driftScores = driftRides
+    .map((r) => r.outcome.effectiveExecutionScore)
+    .filter((v): v is number => v !== null);
+  const driftAvgQuality = driftScores.length
+    ? round1(driftScores.reduce((s, v) => s + v, 0) / driftScores.length)
     : null;
 
   let weeklyHours: number | null = null;
   if (total > 0) {
-    const dates = entries.map((e) => e.date).sort();
+    const dates = resolved.map((r) => r.entry.date).sort();
     const spanDays = (Date.parse(dates[dates.length - 1]) - Date.parse(dates[0])) / 86_400_000 + 1;
     const weeks = Math.max(1, spanDays / 7);
-    const totalHours = entries.reduce((s, e) => s + e.durationMin, 0) / 60;
+    const totalHours = resolved.reduce((s, r) => s + r.entry.durationMin, 0) / 60;
     weeklyHours = round1(totalHours / weeks);
   }
 
-  return { totalRides: total, plannedRides, unplannedRides, offPlanPct, unplannedAvgQuality, weeklyHours };
+  return { totalRides: total, plannedRides, unplannedRides, offPlanPct, driftAvgQuality, weeklyHours };
 }

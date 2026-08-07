@@ -2,8 +2,9 @@
 // recency-weighted athlete model, then derive coaching insights from it. Pure +
 // deterministic so it's testable and cheap to recompute on demand (no persistence).
 
-import type { AthleteModel, AthleteTypeStat, Insight, RideScoreEntry, WorkoutType } from "./types";
+import type { AthleteModel, AthleteTypeStat, Insight, IntentOverlay, RideScoreEntry, WorkoutType } from "./types";
 import { summariseBehaviour } from "./score-log";
+import { resolveAll } from "./intent-overlay";
 import { autoEwmaAlpha } from "./calibration";
 import { round1, round2 } from "./stats";
 import { AEROBIC_HR_DRIFT_MAX } from "./execution-score";
@@ -80,23 +81,21 @@ function easyDiagnostics(entries: RideScoreEntry[]): AthleteTypeStat["easy"] {
   };
 }
 
-export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
+export function buildAthleteModel(scores: RideScoreEntry[], overlays: IntentOverlay[] = []): AthleteModel {
   const sorted = [...scores].sort((a, b) => a.date.localeCompare(b.date));
-
-  // Execution EWMA is computed from PLANNED rides only — "execution" means how well a
-  // prescription was carried out, and off-plan rides have no prescription to grade against.
-  // Off-plan riding feeds the behaviour summary instead (so the model still sees all riding).
-  // Compromised sessions (equipment/sickness) are excluded — the raw score stays honest but it
-  // must not teach the model.
-  const planned = sorted.filter((s) => s.planned && !s.compromised);
-  // EWMA responsiveness adapts to how much history we have (replaces the fixed α = 0.35):
-  // early on, recent rides count more; as the ledger grows, smooth out noise.
-  const alpha = autoEwmaAlpha(planned.length);
+  const resolved = resolveAll(sorted, overlays);
+  const prescribed = resolved.filter((r) => r.outcome.origin === "prescribed" && !r.entry.compromised);
+  const overallScored = resolved.filter(
+    (r) => !r.entry.compromised && r.outcome.effectiveExecutionScore !== null &&
+      (r.outcome.origin === "prescribed" || r.outcome.origin === "self-directed")
+  );
+  const overallAlpha = autoEwmaAlpha(overallScored.length);
+  const typeAlpha = autoEwmaAlpha(prescribed.length);
   const byTypeMap = new Map<WorkoutType, RideScoreEntry[]>();
-  for (const s of planned) {
-    const arr = byTypeMap.get(s.inferredType) ?? [];
-    arr.push(s);
-    byTypeMap.set(s.inferredType, arr);
+  for (const r of prescribed) {
+    const arr = byTypeMap.get(r.entry.inferredType) ?? [];
+    arr.push(r.entry);
+    byTypeMap.set(r.entry.inferredType, arr);
   }
 
   const byType: AthleteTypeStat[] = [];
@@ -106,8 +105,8 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
     byType.push({
       type,
       n: entries.length,
-      execEwma: round1(ewma(execs, alpha)),
-      complianceEwma: comps.length ? Math.round(ewma(comps, alpha)) : 0,
+      execEwma: round1(ewma(execs, typeAlpha)),
+      complianceEwma: comps.length ? Math.round(ewma(comps, typeAlpha)) : 0,
       trend: trendOf(execs),
       easy: type === "Z2" || type === "Recovery" ? easyDiagnostics(entries) : undefined,
     });
@@ -119,22 +118,22 @@ export function buildAthleteModel(scores: RideScoreEntry[]): AthleteModel {
   // in two windows: a recent slice (last ~8 weeks, anchored to the most recent ride so it's
   // deterministic and survives a layoff) that drives the drift signal, plus the full ledger
   // (~6 months) retained for longer-range context.
-  const structured = sorted.filter((s) => !s.legacy);
-  const recentEntries = structured.length
+  const structured = resolved.filter((r) => !r.entry.legacy);
+  const recentResolved = structured.length
     ? (() => {
-        const latest = structured[structured.length - 1].date;
+        const latest = structured[structured.length - 1].entry.date;
         const cutoff = addDaysIso(latest, -(RECENT_BEHAVIOUR_DAYS - 1));
-        return structured.filter((s) => s.date >= cutoff);
+        return structured.filter((r) => r.entry.date >= cutoff);
       })()
     : structured;
 
-  const allExecs = planned.map((s) => s.executionScore);
+  const allExecs = overallScored.map((r) => r.outcome.effectiveExecutionScore as number);
   return {
     byType,
-    overallExecEwma: round1(ewma(allExecs, alpha)),
+    overallExecEwma: round1(ewma(allExecs, overallAlpha)),
     overallTrend: trendOf(allExecs),
-    sampleSize: planned.length,
-    behaviour: summariseBehaviour(recentEntries),
+    sampleSize: overallScored.length,
+    behaviour: summariseBehaviour(recentResolved),
     behaviourAllTime: summariseBehaviour(structured),
   };
 }
@@ -240,7 +239,7 @@ export function deriveInsights(model: AthleteModel): Insight[] {
       dimension: "Structure",
       severity: "watch",
       title: "Training is drifting off-plan",
-      evidence: `${b.offPlanPct}% of your last ${b.totalRides} rides (≈8 wk) were off-plan${b.unplannedAvgQuality !== null ? ` (avg quality ${b.unplannedAvgQuality}/10)` : ""}${context}.`,
+      evidence: `${b.offPlanPct}% of your last ${b.totalRides} rides (≈8 wk) were off-plan${b.driftAvgQuality !== null ? ` (avg quality ${b.driftAvgQuality}/10)` : ""}${context}.`,
       suggestion: "Tighten adherence, or generate a block that fits the volume and intensity you actually ride.",
     });
   }

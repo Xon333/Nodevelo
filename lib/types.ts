@@ -844,8 +844,8 @@ export interface BehaviourSummary {
   totalRides: number;
   plannedRides: number;
   unplannedRides: number;
-  offPlanPct: number; // unplanned / total, 0-100
-  unplannedAvgQuality: number | null; // mean intrinsic execution score of off-plan rides
+  offPlanPct: number; // drift / total, 0-100
+  driftAvgQuality: number | null; // mean effective execution score of drift rides
   weeklyHours: number | null; // mean weekly ride hours across the logged window
 }
 

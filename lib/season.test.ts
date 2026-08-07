@@ -538,8 +538,8 @@ describe("scoreFocusCandidates / selectBuildFocus — goal × trainability × ur
     const model: AthleteModel = {
       byType: [stat("Threshold", 3.2), stat("Z2", 7.1)],
       overallExecEwma: 6, overallTrend: "flat", sampleSize: 10,
-      behaviour: { totalRides: 10, plannedRides: 8, unplannedRides: 2, offPlanPct: 20, unplannedAvgQuality: null, weeklyHours: 7 },
-      behaviourAllTime: { totalRides: 40, plannedRides: 30, unplannedRides: 10, offPlanPct: 25, unplannedAvgQuality: null, weeklyHours: 7 },
+      behaviour: { totalRides: 10, plannedRides: 8, unplannedRides: 2, offPlanPct: 20, driftAvgQuality: null, weeklyHours: 7 },
+      behaviourAllTime: { totalRides: 40, plannedRides: 30, unplannedRides: 10, offPlanPct: 25, driftAvgQuality: null, weeklyHours: 7 },
     };
     // Z2 execEwma feeds BOTH durability and aerobic-base — same dimension, no finer distinction.
     expect(execQualityByFocus(model)).toEqual({ threshold: 3.2, durability: 7.1, "aerobic-base": 7.1 });
@@ -562,8 +562,8 @@ describe("aerobic-base as a scored candidate (season-continuous-focus-selection 
     const model: AthleteModel = {
       byType: [{ type: "Z2", n: 5, execEwma: 7.1, complianceEwma: 90, trend: "flat" as const }],
       overallExecEwma: 7, overallTrend: "flat" as const, sampleSize: 5,
-      behaviour: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, unplannedAvgQuality: null, weeklyHours: 8 },
-      behaviourAllTime: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, unplannedAvgQuality: null, weeklyHours: 8 },
+      behaviour: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, driftAvgQuality: null, weeklyHours: 8 },
+      behaviourAllTime: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, driftAvgQuality: null, weeklyHours: 8 },
     };
     const out = execQualityByFocus(model);
     expect(out["aerobic-base"]).toBe(7.1);

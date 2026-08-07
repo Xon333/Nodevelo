@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
-import type { RideScoreEntry, WorkoutType } from "./types";
+import type { IntentOverlay, RideScoreEntry, WorkoutType } from "./types";
 import type { AerobicDiscipline } from "./execution-score";
 
 let day = 0;
@@ -30,6 +30,71 @@ const easyEntry = (
   easy,
   tss: opts.tss ?? null,
   durationMin: opts.durationMin ?? 60,
+});
+
+describe("buildAthleteModel — effective outcomes", () => {
+  const scored = (date: string, over: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
+    date, executionScore: 8, plannedType: "Z2", inferredType: "Z2", planned: true, legacy: false,
+    compliancePct: 100, intensityFactor: 0.68, ftpUsed: 288, durationMin: 60, tss: 60, ...over,
+  });
+  const selfDirected = (activityId: string, date: string, score: number | null): IntentOverlay => ({
+    id: `ov-${activityId}`, activityId, date, noteFingerprint: "fp", status: "active",
+    origin: "self-directed", effectiveExecutionScore: score,
+    notScoredReason: score === null ? "no-measurable-objectives" : null,
+    interpretation: null, schemaVersion: 1, scoringVersion: score === null ? null : 1,
+    createdAt: `${date}T10:00:00.000Z`, approvedAt: null, supersededBy: null,
+  });
+
+  it("keeps the empty-overlay path backward compatible", () => {
+    const entries = [scored("2026-01-01"), scored("2026-01-02", { planned: false, compliancePct: null })];
+    expect(buildAthleteModel(entries)).toEqual(buildAthleteModel(entries, []));
+    expect(buildAthleteModel(entries).sampleSize).toBe(1);
+  });
+
+  it("uses a self-directed overlay for overall execution and drift", () => {
+    const entries = [scored("2026-01-01"), scored("2026-01-02", {
+      planned: false, compliancePct: null, activityId: "a2", executionScore: 4,
+    })];
+    const model = buildAthleteModel(entries, [selfDirected("a2", "2026-01-02", 9)]);
+    expect(model.sampleSize).toBe(2);
+    expect(model.overallExecEwma).toBeGreaterThan(8);
+    expect(model.behaviour.offPlanPct).toBe(0);
+    expect(model.behaviour.unplannedRides).toBe(1);
+  });
+
+  it("keeps self-directed rides out of per-type and compliance statistics", () => {
+    const entries = [
+      scored("2026-01-01", { inferredType: "Threshold", plannedType: "Threshold" }),
+      scored("2026-01-02", { planned: false, compliancePct: null, activityId: "a2", inferredType: "Threshold" }),
+    ];
+    const model = buildAthleteModel(entries, [selfDirected("a2", "2026-01-02", 9)]);
+    expect(model.byType.find((t) => t.type === "Threshold")?.n).toBe(1);
+    expect(model.byType.find((t) => t.complianceEwma === 0)).toBeUndefined();
+  });
+
+  it("does not let self-directed volume change prescribed type smoothing", () => {
+    const prescribed = [
+      scored("2026-01-01", { executionScore: 6 }),
+      scored("2026-01-03", { executionScore: 9 }),
+      scored("2026-01-05", { inferredType: "Threshold", plannedType: "Threshold", executionScore: 7 }),
+    ];
+    const extra = Array.from({ length: 6 }, (_, i) => scored(`2026-02-${String(i + 1).padStart(2, "0")}`, {
+      planned: false, compliancePct: null, activityId: `sd${i}`,
+    }));
+    const before = buildAthleteModel(prescribed);
+    const after = buildAthleteModel([...prescribed, ...extra], extra.map((e, i) => selfDirected(`sd${i}`, e.date, 9)));
+    expect(after.sampleSize).toBeGreaterThan(before.sampleSize);
+    expect(after.byType).toEqual(before.byType);
+  });
+
+  it("excludes Not-scored, pending, and compromised self-directed outcomes", () => {
+    const base = scored("2026-01-01");
+    const unplanned = scored("2026-01-02", { planned: false, compliancePct: null, activityId: "a2" });
+    expect(buildAthleteModel([base, unplanned], [selfDirected("a2", unplanned.date, null)]).sampleSize).toBe(1);
+    const pending = { ...selfDirected("a2", unplanned.date, 9), status: "pending" as const };
+    expect(buildAthleteModel([base, unplanned], [pending]).sampleSize).toBe(1);
+    expect(buildAthleteModel([base, { ...unplanned, compromised: true }], [selfDirected("a2", unplanned.date, 9)]).sampleSize).toBe(1);
+  });
 });
 
 describe("buildAthleteModel", () => {
