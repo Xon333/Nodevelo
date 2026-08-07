@@ -649,6 +649,8 @@ export interface LoadRampAlert {
 // Accumulates over time so the trends view can chart execution quality across
 // blocks, even after a block is cleared from current-block.json.
 
+export type RideOrigin = "prescribed" | "self-directed" | "unspecified";
+
 export interface RideScoreEntry {
   date: string;
   executionScore: number;
@@ -658,6 +660,9 @@ export interface RideScoreEntry {
   // intensity/duration. Always present so every ride can join the model.
   inferredType: WorkoutType;
   planned: boolean; // false = ridden off-plan (scored on intrinsic quality, not adherence)
+  // Stable Intervals.icu activity key for intent-overlay resolution. Optional because frozen rows
+  // written before Phase 2a do not carry it; those use the legacy date fallback.
+  activityId?: string;
   // Pre-structure ride (before the first block): stored as history but excluded from the
   // execution-quality metric and the drift signal — there was no plan for it to be "off."
   legacy: boolean;
