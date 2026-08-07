@@ -428,6 +428,9 @@ export async function writeLoadingLog(store: LoadingLogStore): Promise<void> {
   await writeJson("loading-log.json", store);
 }
 
+// Phase 2a: the permanent intent-overlay store. Append-oriented and CRITICAL-backed — an approved
+// overlay is a human decision, not a re-derivable computation. Transactional update so a sync, the
+// deferred analyze step and a future review action can't clobber one another (why updateScoreLog exists).
 const DEFAULT_INTENT_OVERLAYS: IntentOverlayStore = { overlays: [], updatedAt: new Date(0).toISOString() };
 
 export async function readIntentOverlays(): Promise<IntentOverlayStore> {

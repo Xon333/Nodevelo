@@ -264,6 +264,9 @@ export function buildRideScores(
           inferredType: planned.type,
           planned: true,
           legacy: false,
+          // Phase 2a: the stable key intent overlays bind to (decision #9). `act` is already the
+          // date's winning ride here (the longest — see the byDate reconciliation below), so this is
+          // the primary-ride id by construction.
           activityId: act.id,
           // Capped by execution so a poorly-executed session never reads as fully compliant.
           compliancePct: resolveCompliance(durationCompliancePct, executionScore),

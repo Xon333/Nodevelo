@@ -89,10 +89,14 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 37. **Drift uses effective origin, never a raw ledger row.** `summariseBehaviour` accepts
     `ResolvedRide[]`, and `buildAthleteModel` resolves once for both execution and behaviour. A
     self-directed ride must never increase `offPlanPct`.
-38. **Only coherent, active, unsuperseded overlays apply.** `isApplicable` requires
-    `status === "active"`, `supersededBy === null`, matching score/reason/scoring-version nullability,
-    and an origin consistent with the outcome. Applicability is filtered before newest-wins selection;
-    incoherent, pending, disabled, and superseded records fall back to the ledger.
+38. **Only coherent, active, unsuperseded overlays apply.** `isApplicable` requires `status === "active"`
+    and `supersededBy === null`, plus `isCoherent` (`lib/intent-overlay.ts`): `effectiveExecutionScore`
+    and `notScoredReason` must be null/non-null together, `effectiveExecutionScore` and `scoringVersion`
+    must be null/non-null together, an overlay whose `notScoredReason` is `no-intent-found`,
+    `interpreter-failed`, or `intent-unreliable` must carry `origin: "unspecified"`, and `origin` may
+    never be `"prescribed"` — only the ledger's own `planned` flag may establish that. Applicability is
+    filtered before newest-wins selection; incoherent, pending, disabled, and superseded records fall
+    back to the ledger.
 39. **A prescribed ride always resolves to the ledger.** `resolveEffectiveOutcome` returns before overlay
     lookup for `entry.planned`; a post-ride note cannot redefine a formal session or replace its score.
 40. **Self-directed outcomes join overall execution only.** Per-type statistics and compliance remain

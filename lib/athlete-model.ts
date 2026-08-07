@@ -86,7 +86,7 @@ export function buildAthleteModel(scores: RideScoreEntry[], overlays: IntentOver
   const resolved = resolveAll(sorted, overlays);
   const prescribed = resolved.filter((r) => r.outcome.origin === "prescribed" && !r.entry.compromised);
   const overallScored = resolved.filter(
-    (r) => !r.entry.compromised && r.outcome.effectiveExecutionScore !== null &&
+    (r) => !r.entry.compromised && !r.entry.legacy && r.outcome.effectiveExecutionScore !== null &&
       (r.outcome.origin === "prescribed" || r.outcome.origin === "self-directed")
   );
   const overallAlpha = autoEwmaAlpha(overallScored.length);

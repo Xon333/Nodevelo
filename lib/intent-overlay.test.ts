@@ -172,6 +172,22 @@ describe("origin and score coherence", () => {
       ).toBe("ledger");
     }
   });
+
+  it("rejects an overlay that asserts origin: prescribed — only the ledger's `planned` flag can establish that", () => {
+    // A malformed overlay claiming `origin: "prescribed"` on an unplanned row would otherwise be admitted
+    // into `buildAthleteModel`'s `prescribed` filter (keyed on `outcome.origin === "prescribed"`), reviving
+    // per-type grouping on whole-ride-IF-derived type and hitting the `comps.length ? … : 0` compliance
+    // fallback for a ride with no compliance concept at all.
+    const badOverlay = overlay({ origin: "prescribed" });
+    const result = resolveEffectiveOutcome(
+      entry({ activityId: "a1", planned: false, executionScore: 4 }),
+      indexOverlaysByActivity([badOverlay]),
+      new Map()
+    );
+    expect(result.source).toBe("ledger");
+    expect(result.origin).toBe("unspecified");
+    expect(result.effectiveExecutionScore).toBe(4);
+  });
 });
 
 describe("supersession lifecycle", () => {
@@ -185,8 +201,12 @@ describe("supersession lifecycle", () => {
   });
 
   it("keeps the active overlay while a pending successor awaits approval", () => {
+    // Distinct scores (8 vs 3) so the assertion unambiguously proves the ACTIVE overlay applied, not
+    // merely that some overlay did and it happened to carry the same value regardless of which.
     const active = overlay({ id: "active", effectiveExecutionScore: 8, createdAt: "2026-06-15T10:00:00.000Z" });
-    const pending = overlay({ id: "pending", status: "pending", createdAt: "2026-06-16T10:00:00.000Z" });
+    const pending = overlay({
+      id: "pending", status: "pending", effectiveExecutionScore: 3, createdAt: "2026-06-16T10:00:00.000Z",
+    });
     const result = resolveEffectiveOutcome(
       entry({ activityId: "a1" }),
       indexOverlaysByActivity([active, pending]),
@@ -203,6 +223,15 @@ describe("index helpers", () => {
     const newer = overlay({ id: "new", createdAt: "2026-06-16T10:00:00.000Z" });
     expect(indexOverlaysByActivity([newer, older]).get("a1")?.id).toBe("new");
     expect(indexOverlaysByActivity([older, newer]).get("a1")?.id).toBe("new");
+  });
+
+  it("indexOverlaysByDate also keeps the newest applicable overlay independent of input order", () => {
+    // This is the fallback path every legacy ledger row (no activityId) resolves through, so its
+    // newest-wins behaviour matters just as much as indexOverlaysByActivity's.
+    const older = overlay({ id: "old", createdAt: "2026-06-15T10:00:00.000Z" });
+    const newer = overlay({ id: "new", createdAt: "2026-06-16T10:00:00.000Z" });
+    expect(indexOverlaysByDate([newer, older]).get("2026-06-15")?.id).toBe("new");
+    expect(indexOverlaysByDate([older, newer]).get("2026-06-15")?.id).toBe("new");
   });
 
   it("excludes missing keys and inapplicable overlays", () => {

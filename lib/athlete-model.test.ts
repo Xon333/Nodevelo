@@ -69,7 +69,21 @@ describe("buildAthleteModel — effective outcomes", () => {
     ];
     const model = buildAthleteModel(entries, [selfDirected("a2", "2026-01-02", 9)]);
     expect(model.byType.find((t) => t.type === "Threshold")?.n).toBe(1);
-    expect(model.byType.find((t) => t.complianceEwma === 0)).toBeUndefined();
+  });
+
+  it("excludes a type with NO prescribed rides at all from byType, even with self-directed volume", () => {
+    // Unlike the fixture above (which pairs the self-directed ride with a prescribed ride of the same
+    // type, so `complianceEwma === 0` passes whether or not the code is correct — there's nothing
+    // self-directed for it to catch), every ride here is self-directed and shares one inferredType with
+    // no prescribed ride to anchor it. If self-directed rides were wrongly admitted into per-type
+    // grouping, this would produce a bogus "VO2max" byType entry; the correct behaviour is no entry at all.
+    const entries = [
+      scored("2026-01-01", { planned: false, compliancePct: null, activityId: "sd1", inferredType: "VO2max", plannedType: null }),
+      scored("2026-01-02", { planned: false, compliancePct: null, activityId: "sd2", inferredType: "VO2max", plannedType: null }),
+    ];
+    const overlays = [selfDirected("sd1", "2026-01-01", 9), selfDirected("sd2", "2026-01-02", 8)];
+    const model = buildAthleteModel(entries, overlays);
+    expect(model.byType.find((t) => t.type === "VO2max")).toBeUndefined();
   });
 
   it("does not let self-directed volume change prescribed type smoothing", () => {
@@ -94,6 +108,23 @@ describe("buildAthleteModel — effective outcomes", () => {
     const pending = { ...selfDirected("a2", unplanned.date, 9), status: "pending" as const };
     expect(buildAthleteModel([base, unplanned], [pending]).sampleSize).toBe(1);
     expect(buildAthleteModel([base, { ...unplanned, compromised: true }], [selfDirected("a2", unplanned.date, 9)]).sampleSize).toBe(1);
+  });
+
+  it("keeps a legacy ride out of execution modelling even with an active, coherent self-directed overlay", () => {
+    // Before this branch, a legacy row (planned: false, legacy: true) could never enter execution
+    // modelling at all, because legacy only occurs on rows with planned: false and the old admission
+    // rule was exactly `planned === true`. This branch's admission rule became "origin is prescribed OR
+    // self-directed with a real score" — which a legacy row CAN now satisfy via a matching overlay
+    // unless `overallScored` also excludes `legacy` explicitly. On the real ledger, 100 of 149 rows are
+    // legacy, so this is not a hypothetical population.
+    const base = scored("2026-01-01");
+    const legacyRide = scored("2026-01-02", {
+      planned: false, legacy: true, compliancePct: null, activityId: "legacy1",
+    });
+    const baseline = buildAthleteModel([base]);
+    const withLegacyOverlay = buildAthleteModel([base, legacyRide], [selfDirected("legacy1", legacyRide.date, 9)]);
+    expect(baseline.sampleSize).toBe(1);
+    expect(withLegacyOverlay.sampleSize).toBe(1);
   });
 });
 
