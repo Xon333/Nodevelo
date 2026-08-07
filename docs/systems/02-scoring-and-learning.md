@@ -77,6 +77,27 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 - **Per-type learning deliberately excludes self-directed rides.** Their current inferred type comes
   from whole-ride IF, so including it would revive circular type learning. Revisit only when Phase 2b
   supplies an authoritative intent-derived type; see INVARIANT 40.
+- **Phase 2a's review found the same defect shape four times, across two different authors — read this
+  before adding a new place that reads `origin`, `status`, or `legacy`.** Two were caught in the plan
+  before implementation: drift accounting read the raw ledger row's origin instead of the effective,
+  overlay-resolved one — the ledger freezes at `unspecified` before any parse can ever run, so a
+  self-directed ride would have inflated drift forever, the exact inversion of decision #1; and overlay
+  selection picked the newest candidate BEFORE checking whether it was even applicable, so a `pending`
+  record could silently suppress an already-approved one the moment it existed. Two more survived into
+  the implementation of the corrected plan: `isCoherent` validated an overlay's internal consistency but
+  never rejected `origin: "prescribed"` — a status only the ledger's own `planned` flag may legitimately
+  establish — so a malformed overlay could claim it and revive per-type/compliance pollution; and the new
+  `overallScored` admission filter dropped the `legacy` exclusion that used to hold for free under the OLD
+  `planned === true` admission rule, once that rule widened to admit self-directed rides too (100 of 149
+  rows on the real ledger are legacy — not a hypothetical population). All four share one shape: a
+  validity check correct at the ONE point its author was reasoning about, silently absent at a DIFFERENT
+  point that reads the same field through a different path. None were visible from "do the tests pass" —
+  each needed the actual data lifecycle simulated by hand (a record's real sequence of states over time,
+  or two admission points compared side by side) before it surfaced. When a later phase adds a new
+  consumer of `origin`, `status`, `supersededBy`, or `legacy`, re-derive from scratch whether every
+  existing guarantee still holds there — don't assume it does because it held somewhere else. All four are
+  fixed on `main` as of PR #29; see `lib/intent-overlay.ts`'s `isCoherent`/`isApplicable` and
+  `lib/athlete-model.ts`'s `overallScored` filter for the closed shape.
 - **Off-plan (and planned-but-surgy) rides score flat until intent lands.** Phase 1 (2026-08-06) removed
   the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,
   and the contaminated intrinsic/merged-read Pw:HR efficiency signal (fixed entirely at its producer,
