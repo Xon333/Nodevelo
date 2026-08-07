@@ -3,103 +3,140 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the athlete's activity note into a trustworthy, deterministically-scored execution
-verdict, written as a correctly-versioned `active` `IntentOverlay`, and read by every current
-`buildAthleteModel` consumer — so a no-block self-directed ride with valid intent stops counting as
-drift and starts earning an honest score, while missing or unreliable intent produces `Not scored`
-rather than a bad one.
+verdict, written as a correctly-versioned `active` `IntentOverlay` for rides **on or after a persisted
+rollout boundary**, and read by every current `buildAthleteModel` consumer — so a no-block
+self-directed ride with valid intent stops counting as drift and starts teaching the athlete model an
+honest score, while missing or unreliable intent produces `Not scored` rather than a bad one.
 
 **Architecture:** The LLM does exactly one job — translate free text into a constrained
-`StructuredIntent` with per-objective grounding flags. Everything that decides *whether* that intent
-can be trusted, *which* objectives may be graded, and *what number* comes out is deterministic
-TypeScript ([DECISIONS](../../DECISIONS.md) ADR-0002, INVARIANT 12). Parsing runs in a new
-`POST /api/intent` sibling of `/api/analyze`, driven by a **derivable work queue** so `POST /api/sync`
-stays LLM-free (INVARIANT 23) and any newly-synced *or edited* activity is covered, not just today.
-Overlays are written through 2a's `updateIntentOverlays`, with supersession and activation in one
-transaction.
+`StructuredIntent`. Everything that decides *whether* that intent can be trusted, *which* objectives
+may be graded, and *what number* comes out is deterministic TypeScript
+([DECISIONS](../../DECISIONS.md) ADR-0002, INVARIANT 12). Parsing runs in a new `POST /api/intent`
+sibling of `/api/analyze`, driven by a **derivable work queue** so `POST /api/sync` stays LLM-free
+(INVARIANT 23) and any newly-synced *or edited* activity is covered, not just today. Overlays are
+written through 2a's `updateIntentOverlays`, with supersession and activation in one transaction.
 
 **Tech Stack:** TypeScript 5, Next.js 16 (App Router), Vitest, zod 4 (already a dependency),
 `@anthropic-ai/sdk` (already a dependency), Node `crypto` (built-in). No new dependencies. No new
-`data/` files — 2a's `intent-overlays.json` is the only store.
+`data/` files — 2a's `intent-overlays.json` is the only store, gaining one field.
 
 ---
 
-## What this phase changes for the athlete
+## What this phase changes, and what it does not
 
-This is the first phase in the programme that **does** change what the athlete sees. Phase 2a shipped
-inert on purpose; 2b supplies its producer. After this lands:
+**Phase 2b changes derived state. It does not change the ride debrief.**
 
-- a no-block ride whose note states measurable objectives gets an execution score derived from those
-  objectives, and stops inflating `offPlanPct`;
-- a no-block ride with no note, an unreadable note, or nothing measurable reads `Not scored` with a
-  named reason, and still contributes every physical-load number it always did;
-- a prescribed ride is completely unaffected — the resolution seam returns before overlay lookup
-  (INVARIANT 39).
+Stated precisely, because an earlier draft of this plan got the framing wrong. The per-ride number the
+athlete sees on Today comes from `TodayAnalysis.executionScore` and the frozen `score-log.json` row —
+neither of which an overlay touches (INVARIANT 1). A ride that reads `2/10 Poor` today will **still
+read `2/10 Poor` after this phase ships.** What changes is everything computed *from* the ledger
+through `buildAthleteModel`:
 
-**Out of scope, deliberately:** the Phase 2c debrief UI (§12.2 — the "Intent used:" line, the
-evidence trail, the `Not scored` rendering), the Phase 4 historical repair (§11), the Phase 3 TSS
-envelope and session suggestion (§8/§9), any pre-ride button, confirmation step or new athlete
-friction (locked decision #1), and segment-scoped decoupling (§7 step 2 — see Task 7's deferral gate).
-2b writes the data 2c will render; it renders nothing new itself.
+| Surface | Changes in 2b? | Why |
+|---|---|---|
+| Today's ride card score + debrief | **No** | Reads `TodayAnalysis`/ledger directly; 2c renders the resolved overlay |
+| `offPlanPct` / drift narrative | **Yes** | `summariseBehaviour` reads effective origin (2a seam) |
+| `overallExecEwma`, `overallTrend`, `sampleSize` | **Yes** | Admits self-directed effective scores |
+| Insights, generation directives, season signals, athlete state | **Yes** | All downstream of the model |
+| Per-type stats, `compliancePct` | **No** | Prescribed-only, INVARIANT 40 (see question 3) |
+| Rides before `autoFromDate` | **No** | Phase 4 owns them (see question 0) |
+
+So the honest acceptance bar for 2b is **"the overlay carries a defensible score and the ride stops
+counting as drift"** — not "the card no longer says 2/10." That sentence only becomes true in 2c.
+
+**Out of scope, deliberately:** the Phase 2c debrief UI (§12.2 — the "Intent used:" line, the evidence
+trail, the `Not scored` rendering), the Phase 4 historical repair (§11) including the entire no-block
+period before `autoFromDate`, the Phase 3 TSS envelope and session suggestion (§8/§9), any pre-ride
+button, confirmation step or new athlete friction (locked decision #1), and segment-scoped decoupling
+(§7 step 2 — see question 8d).
 
 ---
 
 ## Global constraints
 
 - **The sync route stays LLM-free** (INVARIANT 23). `POST /api/sync` gains no Anthropic call and no
-  import that transitively reaches one. Pinned by a test that greps the route's module graph.
+  import that transitively reaches one. Pinned by a static test.
 - **The ledger stays append-only and is never rewritten** (INVARIANT 1). An overlay layers over it.
-- **Deterministic numbers, LLM phrasing** (INVARIANT 12). The model returns *structure and grounding
-  flags only*. It never returns a score, a percentage, a compliance figure, or a decoupling value, and
-  the tool schema makes those fields unexpressible.
-- **LLM confidence may downgrade, never promote** (locked decision #7, and the single most important
-  rule in this plan). The deterministic gate decides scoreability first; confidence can only shrink
-  the gradable set or veto it entirely.
+- **Deterministic numbers, LLM phrasing** (INVARIANT 12). The model returns structure only; the tool
+  schema makes a score, percentage, compliance figure or drift value unexpressible.
+- **LLM confidence may downgrade, never promote** (locked decision #7). The deterministic gate decides
+  first; confidence can only shrink the gradable set or veto it.
+- **2b never writes for a date Phase 4 owns** (question 0). `autoFromDate` is a hard, persisted floor.
 - **A prescribed ride is never touched** (INVARIANT 39, decision #14). The queue never enqueues one.
-- **Per-type learning and compliance stay prescribed-only** (INVARIANT 40). 2b adds
-  `effectiveWorkoutType` as provenance but does **not** admit self-directed rides into per-type stats
-  — see Task 1's rationale.
+- **Per-type learning and compliance stay prescribed-only** (INVARIANT 40, question 3).
 - **Every new consumer of `origin` / `status` / `supersededBy` / `activityId` / `legacy` re-derives
-  the whole record lifecycle for itself.** This is the Phase 2a review lesson
+  the whole record lifecycle for itself.** The Phase 2a review lesson
   ([02-scoring-and-learning § Known rough edges](../../systems/02-scoring-and-learning.md#known-rough-edges)):
   four bugs, one shape — a validity gate correct where its author was looking and silently absent one
-  path over. Every task below that reads one of those fields carries a **lifecycle test** (a record's
-  real sequence of states over time), not only an isolated unit fixture.
-- **Migration flags use truthy checks, never `=== null`** (INVARIANT 3). Overlays written before a
-  field existed parse back `undefined`.
-- **All persistence goes through `json-store.ts`** (INVARIANT 2), via 2a's `updateIntentOverlays`.
-- **"Today" is the athlete's local day** (INVARIANT 10) — `resolveToday()` in the new route, exactly
-  as `/api/analyze` does.
+  path over. Every task below that reads one of those fields carries a **lifecycle test**.
+- **Migration flags use truthy checks, never `=== null`** (INVARIANT 3).
+- **All persistence goes through `json-store.ts`** (INVARIANT 2), via `updateIntentOverlays`.
+- **"Today" is the athlete's local day** (INVARIANT 10) — `resolveToday()` in the new route.
+- **Test fixtures avoid `.x5` float boundaries** (INVARIANT 30).
 - Tests are colocated `lib/*.test.ts`, Vitest. **`npm run check` before every commit.** Stage only the
   files the task names — never `git add -A`.
 
 ---
 
-## The eight questions this plan had to resolve
+## Ground truth measured against the real stores (2026-08-07)
 
-Recorded up front because they are the decisions a reviewer should attack first.
+Every number below was read from `/Users/otis/Cycling App/data/` before this plan was written. They
+are the reason several decisions differ from what a reasonable guess would have produced.
+
+- **No ledger row carries `activityId`.** All ~400 rows predate Phase 2a and parse back `undefined`.
+  Consequence: overlays written by 2b will resolve through `indexOverlaysByDate`, **not**
+  `indexOverlaysByActivity`, until fresh rows accumulate. This makes question 9's queue rule load-bearing.
+- **169 rides in the sync window, 29 carrying a note.** Note lengths: max **823**, then 483, 477,
+  **455**, 431, 355, 321, 274. The 2026-08-06 acceptance note is **455 characters** — the inherited
+  400-char prompt cap would truncate it (question 7).
+- **The contiguous no-block period is 2026-07-24 → today**, with an earlier partial gap 2026-07-13 →
+  07-19. `current-block.json` is null. This whole span is Phase 4's, not 2b's (question 0).
+- **`data/intent-overlays.json` does not exist yet.** 2a shipped the accessor with an in-code default;
+  no file has been written. Anything reading it must tolerate absence (it already does).
+- **`NODEVELO_DATA_DIR` overrides the data directory** at runtime, read fresh on every call
+  ([json-store.ts:20](../../../lib/json-store.ts)). This is what makes question 12's safe smoke run
+  possible. **The worktree has no `data/` directory at all.**
+
+---
+
+## The questions this plan resolves
+
+### 0. The rollout boundary — `autoFromDate`
+
+**2b may auto-write `active` overlays only for rides dated on or after a persisted `autoFromDate`. It
+writes nothing at all — not even `pending` — for earlier dates.**
+
+Phase 4 owns the historical no-block period (design §11, locked decision #10: "every ride in the
+three-week no-block period is manually reviewed from an AI-prepared report … AI reduces repetitive
+extraction; it does not silently approve history"). Auto-processing that period would be precisely the
+silent approval decision #10 forbids, and it would do it to the ~15-day window that most affects the
+athlete model. 2b writing `pending` records there is also wrong: Phase 4's preparation includes the
+original score, the proposed score, the ambiguities and the exact inclusive dates for approval, none
+of which 2b produces.
+
+**Where it lives.** `IntentOverlayStore.autoFromDate?: string | null` — colocated with what it governs,
+in the CRITICAL-backed store, so the boundary and the records it produced can never be separated by a
+partial restore.
+
+**How it initialises.** On the runner's first execution, if `!store.autoFromDate` (truthy check —
+INVARIANT 3; a store written by 2a parses back `undefined`, not `null`), set it to the runner's
+`today` and persist it in the same transaction. The default is therefore **"the day 2b first ran"**,
+which means no historical ride is ever auto-processed by accident. It is a plain JSON field the
+athlete or a later phase can move deliberately; 2b builds no UI for it.
+
+**How it's enforced.** `buildIntentQueue` takes `autoFromDate` and drops every candidate with
+`date < autoFromDate`. Enforced in the queue rather than the runner so a `force` request cannot cross
+it either — `force` bypasses idempotency, never the boundary. Pinned by a test asserting a `force`d
+historical ride yields nothing.
 
 ### 1. The deterministic scoreability threshold
 
-Three pure predicates in `lib/intent-scoring.ts`, applied in this order:
+Three predicates in `lib/intent-scoring.ts`, applied in order, then confidence.
 
-**(a) Grounding — applies at every confidence level.** An objective is *grounded* only when every
-numeric target it carries appears in the raw note. The interpreter must return `sourceText` (the
-substring it read the objective from) and `grounded`; the deterministic check re-verifies grounding
-itself by scanning the normalized note for each number, and **overrides the model's flag downward**
-when it can't confirm it. This is design §5.2's "reject invented specificity" made enforceable rather
-than requested: `"some Z4 and Z5 efforts"` cannot become `4 × 5 min`, because `4` and `5 min` are not
-in the note.
+**(a) Semantic grounding — question 2.** See below; an objective survives only when each of its
+fields is supported by an appropriate *unit-bearing* token in the note.
 
-**(b) Kind eligibility by confidence.** Five objective kinds:
-
-| kind | target | graded from | needs a delimited time window? |
-|---|---|---|---|
-| `duration` | total ride minutes | `movingTimeSec` | no |
-| `zone-time` | minutes in a named zone | `powerZoneTimes` / `hrZoneTimes` | no (total across the ride) |
-| `zone-emphasis` | "mostly Z2", no number | zone times, as a *share* of the ride | no |
-| `effort` | explicit watts and/or duration for a named effort | executed laps (`fetchIntervals`) | no |
-| `structure` | ordered phases | phase-boundary attribution | **yes** |
-| `qualitative` | skill/technique claims | — never graded | — |
+**(b) Kind eligibility by confidence.**
 
 ```
 GRADABLE_KINDS_BY_CONFIDENCE = {
@@ -108,143 +145,182 @@ GRADABLE_KINDS_BY_CONFIDENCE = {
   low:    [],
 }
 ```
-`qualitative` is never in any list — it is *acknowledged* (`measurable: false, scored: false`) so the
-debrief can say the athlete attempted it, and never graded (design §6: speed/braking/GPS cannot
-establish that cornering was good).
 
-**(c) The coverage gate.** At least one gradable objective must survive (a) and (b), and the gradable
-set must speak about enough of the ride:
+`qualitative` is in no list — it is *acknowledged* (`measurable: false, scored: false`) and never
+graded (design §6: speed/braking/GPS cannot establish that cornering was good).
+
+**(c) The evidence-scope gate — question 3.** At least one gradable objective must survive (a) and
+(b), and the evidence behind the surviving set must speak about enough of the ride:
 
 ```ts
-export const INTENT_MIN_COVERED_MIN = 20;   // absolute floor, minutes
-export const INTENT_COVERAGE_MIN = 0.33;    // fraction of the ride's moving time
+export const INTENT_MIN_SCOPE_MIN = 20;    // absolute floor, minutes
+export const INTENT_SCOPE_MIN_FRACTION = 0.33;
 
 scoreable  ⇔  gradable.length >= 1
-           && coveredMin >= Math.max(INTENT_MIN_COVERED_MIN, INTENT_COVERAGE_MIN * durationMin)
+           && evidenceScopeMin >= Math.max(INTENT_MIN_SCOPE_MIN, INTENT_SCOPE_MIN_FRACTION * rideMin)
 ```
 
-`coveredMin` is the **measured** minutes each gradable objective speaks about, not the claimed ones:
-`duration` covers the whole ride; `zone-time` and `zone-emphasis` cover the measured minutes actually
-in that zone; `effort` covers the matched lap's duration; `structure` adds nothing on its own
-(it re-describes objectives already counted). Overlap is not double-counted — coverage is computed as
-the union of covered minutes by kind, with `duration` short-circuiting to the full ride.
+**`evidenceScopeMin` measures how much of the ride the evidence SPEAKS ABOUT, never how much of it
+went well.** This is the correction that removes the earlier draft's contradiction. Per kind:
 
-**Why measured, not claimed:** a note claiming "3 hours of Z2" on a 40-minute ride would otherwise
-pass coverage on a fiction. Measuring it means an unfulfilled claim reduces coverage *and* costs
-score, which is the correct pair of consequences.
+| kind | evidence scope | why |
+|---|---|---|
+| `duration` | the whole ride | a claim about the ride's total; observing the total observes the ride |
+| `zone-time` | the whole ride, **iff** the needed zone array exists | zone arrays are whole-ride aggregates — reading one reads the entire distribution |
+| `zone-emphasis` | the whole ride, **iff** the needed zone array exists | same |
+| `effort` | the summed duration of the matched laps | genuinely local: a 9-min lap says nothing about the other 109 minutes |
+| `structure` | 0 | re-describes objectives already counted |
+| ungradable / no data | 0 | missing data is not evidence |
 
-**Why a coverage gate at all:** without it, one grounded 9-minute effort would license a whole-ride
-1–10 verdict on 8% of a 118-minute ride — the "confident number from thin evidence" failure the
-`Not scored` state exists to prevent (design §6: "a score requires enough objective evidence to be
-meaningful").
+Two consequences, both required by blocker 3 and both pinned by test:
 
-**Confidence is one-way.** `low` ⇒ `intent-unreliable`, unconditionally, whatever (a)–(c) say.
-`medium` ⇒ run (a)–(c) with the smaller kind list. `high` ⇒ run (a)–(c) unchanged. **There is no path
-by which a higher confidence makes a ride scoreable that the deterministic gate rejected.** Pinned by
-a property-style test that runs every fixture at all three confidences and asserts the scoreable set
-is monotonically non-increasing as confidence falls, and never larger at `high` than the gate alone
-allows.
+- **A stated target the athlete missed lowers the score; it never causes `Not scored`.** "3 hours of
+  Z2" on a 40-minute ride is a `duration` objective with whole-ride scope, so it *passes* the gate and
+  scores `40/180 = 22%` → **−2**. The earlier draft asserted both "duration always covers the ride"
+  and "3h on 40m fails coverage"; those contradicted, and the second was wrong on the product too —
+  turning a clearly-stated missed target into `Not scored` hides a real failure.
+- **The gate now does exactly one job:** it stops a whole-ride 1–10 verdict resting only on *local*
+  evidence. A note whose only gradable content is "9 min at 292 W" on a 118-minute ride yields scope 9
+  < `max(20, 39)` → `no-measurable-objectives`. That is the case the gate exists for, and now the only one.
 
-### 2. Where parsing runs, with sync still LLM-free
+**Confidence is one-way.** `low` ⇒ `intent-unreliable`, unconditionally. `medium` ⇒ run (a)–(c) with
+the smaller kind list. `high` ⇒ run (a)–(c) unchanged. **No confidence level can make a ride scoreable
+that the gate rejected.** Pinned by a monotonicity test across all three levels for every fixture, not
+by per-level examples — the inverse bug is invisible to those.
 
-**A new `POST /api/intent`, a sibling of `/api/analyze`, driven by a derivable queue.**
+### 2. Semantic, field-specific grounding
 
-Rejected alternatives and why:
+Number-presence grounding was wrong and would have manufactured exactly the invented specificity
+design §5.2 forbids: in `"some Z4 and Z5 efforts"`, a naive scan finds `4` and `5` and would ground
+`reps: 4` and `durationMin: 5`.
 
-- *Inside `POST /api/sync`* — violates INVARIANT 23 outright.
-- *Widen `/api/analyze`* — `addCoachNote` early-returns unless `analysis.activityDate === today`
-  ([sync-analysis.ts:42](../../../lib/sync-analysis.ts)), and decision #12 requires coverage of *any*
-  newly-synced or edited activity. Widening it would also fuse two prompts, two prompt versions and
-  two failure domains into one route; an Anthropic hiccup parsing a 12-day-old ride would then take
-  today's coach note down with it.
-- *A background cron/worker* — no such runtime exists in this local-first app, and it would add a
-  scheduler for a workload of at most a handful of calls per sync.
+**Mechanism.** Before any numeric scan, **mask every zone token out of the note**:
 
-The queue is **derivable, not persisted**. `buildIntentQueue` (pure) recomputes it from
-`readLastSync()` + `readScoreLog()` + `readIntentOverlays()`. An activity is enqueued iff:
+```
+ZONE_TOKEN = /\b(?:z|zone\s*)([1-7])\b/gi        // "z4", "Z4", "zone 4", "zone4"
+maskedNote = normalizedNote.replace(ZONE_TOKEN, "   ")
+```
 
-1. it is a `Ride` / `VirtualRide` in the sync window with `date <= today`; **and**
-2. its ledger entry exists and has `planned === false` (a prescribed ride is never enqueued —
-   decision #14 enforced at the producer as well as at the seam); **and**
-3. it is the **primary (longest) ride of its date** (see question 5); **and**
-4. no overlay for that `activityId` carries the current note's `noteFingerprint` with
-   `supersededBy === null` (see question 4).
+Zone objectives are grounded against the *unmasked* note; every other field is grounded against the
+*masked* one, so a digit that is part of a zone label can never ground a duration, a wattage or a rep
+count. Then each field requires its own unit-bearing form:
 
-`/api/intent` processes at most `INTENT_MAX_PER_RUN = 5` per invocation, newest date first, and
-returns `{ processed, remaining, warnings }` so the client can call again while `remaining > 0`
-(bounded loop, max 6 rounds, so a first-ever run over a 182-day window can't fan out unbounded LLM
-calls or spend unbounded wall time). `SyncProvider` triggers it in the same deferred step that
-already calls `/api/analyze`, and the existing manual re-analyse action passes `force: true`. **No
-new button, no new athlete-facing control** (locked decision #1, non-goal "new pre-ride planning,
-confirmation or completion buttons").
+| field | grounded by (case-insensitive, on the masked note) | never by |
+|---|---|---|
+| `durationMin: N` | `N min`, `N mins`, `N minute(s)`, `Nmin`, `N'`, `N:SS`; or `H h`/`H hr`/`H hour(s)`/`H:MM` converted to minutes and compared with ±1 min tolerance | a bare `N`; `zN`; `N W`; `N x` |
+| `watts: W` | `W w`, `W watt(s)`, `Ww`, `W W`; or `W%` of FTP converted against the ride's `ftpUsed` | a bare `W`; `zW`; `W min` |
+| `reps: R` | `R x`, `R×`, `Rx`, `R reps`, `R sets`, `R rounds`, or `R` immediately preceding an `×`/`x` token | a bare `R`; `zR` |
+| `zone: "ZN"` | `zN`, `zone N`, or an explicit zone word (`recovery`, `endurance`, `tempo`, `threshold`, `vo2`, `sweet spot`) mapped to its zone | a bare `N` |
 
-### 3. `effectiveWorkoutType` — add it, but keep per-type learning prescribed-only
+Ranges (`"40–50 min"`, `"290-300 W"`) ground a target falling inside the range. Approximation words
+(`~`, `about`, `around`, `roughly`) do not weaken grounding — they weaken nothing measurable.
+
+**The deterministic check is authoritative and one-way.** The model returns `grounded` and
+`sourceText`; `verifyGrounding` recomputes it and may only lower the flag, never raise it. A model
+claiming `grounded: true` for an unsupported field is overridden; a model admitting `false` is
+believed.
+
+**Required tests** (each an assertion, not an example):
+- `"some Z4 and Z5 efforts"` grounds `zone: Z4` and `zone: Z5` and **nothing else** — explicitly not
+  `reps: 4`, not `durationMin: 5`, not `watts: 4`;
+- `"45 min steady Z2"` grounds `durationMin: 45` and `zone: Z2`, not `watts: 45`;
+- `"9 min around 292 W"` grounds `durationMin: 9` and `watts: 292`;
+- `"4 x 5 min at 300w"` grounds `reps: 4`, `durationMin: 5`, `watts: 300`;
+- `"1.5 h endurance"` grounds `durationMin: 90` (±1) and `zone: Z2`;
+- a model-claimed `grounded: true` on an unsupported field is overridden to `false`.
+
+### 3. `effectiveWorkoutType` — add it, keep per-type learning prescribed-only
 
 **Add the field. Do not admit self-directed rides into per-type statistics in 2b.**
 
-`IntentOverlay.effectiveWorkoutType: WorkoutType | null` is derived by a pure
-`intentWorkoutType(intent)` from the *stated* purpose and zones — never from IF, which is the
-circularity INVARIANT 35/40 exist to prevent. It is genuinely authoritative in a way `inferWorkoutType`
-never was: the athlete said what the session was for.
+`intentWorkoutType(intent)` derives it from the *stated* purpose and zones — never from IF, the
+circularity INVARIANTS 35/40 exist to prevent. It is genuinely authoritative in a way
+`inferWorkoutType` never was: the athlete said what the session was for.
 
-It is nevertheless **provenance only** in 2b, and INVARIANT 40 stands unchanged. Two independent
-reasons, both of which must be cleared before a later phase flips it:
+It is nevertheless **provenance only** in 2b, and INVARIANT 40 stands. Two independent unlock
+conditions, both of which a later phase must clear:
 
-1. **The two score populations are not yet known to be comparable.** A prescribed ride's score comes
-   from adherence/duration-compliance/IF-band axes; a self-directed score comes from
-   objective-grading axes (Task 3). Pooling them into one per-type EWMA asserts the two scales mean
-   the same thing on the same 1–10 ruler. Nothing has measured that, because the overlay store is
-   empty as this plan is written. Establishing it needs a real corpus and a comparison — Phase 2c/4
-   work with data in hand, not a 2b assumption.
+1. **The two score populations are not yet known to be comparable.** A prescribed score comes from
+   adherence / duration-compliance / IF-band axes; a self-directed score from objective-grading axes
+   (Task 3). Pooling them asserts the two scales mean the same thing on one 1–10 ruler. Nothing has
+   measured that — the overlay store is empty as this is written. That needs a real corpus.
 2. **Compliance still has no meaning for these rides** (decision #7). `complianceEwma`'s
-   `comps.length ? … : 0` fallback would report 0% for a group with no compliance concept — the
-   defect the 2a review caught. Admitting them per-type reopens it.
+   `comps.length ? … : 0` fallback would report 0% for a group with no compliance concept — the exact
+   defect the 2a review caught.
 
-So Task 1 adds the field and its coherence rule, Task 6 leaves `buildAthleteModel`'s per-type filter
-untouched, and Task 8 records the exact unlock condition in
-[02-scoring-and-learning.md](../../systems/02-scoring-and-learning.md) beside INVARIANT 40's existing
-revisit note. **A reviewer expecting per-type behaviour to change in this phase should read this
-section first.**
+Task 6 leaves `buildAthleteModel`'s per-type filter untouched; Task 8 records the unlock condition
+beside INVARIANT 40's existing revisit note.
 
-### 4. Fingerprinting, idempotency, retry, atomic supersession
+### 4. Where parsing runs, with sync still LLM-free
 
-**Fingerprint.** `noteFingerprint(description)` = first 16 hex chars of
-`sha256(normalize(description))`, where `normalize = (d ?? "").trim().replace(/\s+/g, " ")`. Node
-`crypto.createHash`, no dependency. Whitespace-only and absent notes normalize to `""` and therefore
-share one stable fingerprint — which is what makes "no note" idempotent rather than a permanent
-re-queue.
+**A new `POST /api/intent`, a sibling of `/api/analyze`, driven by a derivable queue.**
 
-**Idempotency — the lifecycle rule.** The skip test reads **all** overlays for the activity, not the
-applicable ones:
+Rejected: *inside `POST /api/sync`* (violates INVARIANT 23); *widening `/api/analyze`* (`addCoachNote`
+early-returns unless `analysis.activityDate === today`
+[sync-analysis.ts:42](../../../lib/sync-analysis.ts), while decision #12 needs any newly-synced or
+edited activity — and fusing them would take today's coach note down with a failed parse of a 12-day-old
+ride); *a background worker* (no such runtime exists in this local-first app).
+
+The queue is **derivable, not persisted** — `buildIntentQueue` recomputes it from `readLastSync()` +
+`readScoreLog()` + `readIntentOverlays()`, which makes idempotency free. An activity is enqueued iff:
+
+1. it is a `Ride` / `VirtualRide` with `date <= today` **and `date >= autoFromDate`** (question 0);
+2. a ledger entry exists for its date with `planned === false`;
+3. it is `primaryRideOfDate(...)`, **and the ledger row agrees** (question 9);
+4. `needsParse(activityId, fingerprint, overlays)` (question 5).
+
+`/api/intent` processes at most `INTENT_MAX_PER_RUN = 5` per invocation, newest first, returning
+`{ processed, remaining, stalled, warnings }`. `SyncProvider` calls it in the same deferred step that
+already calls `/api/analyze`, looping while `remaining > 0 && !stalled` up to 6 rounds. **No new
+button, no new athlete-facing control** (locked decision #1).
+
+### 5. Fingerprinting, idempotency, retry, atomic supersession
+
+**Fingerprint.** `noteFingerprint(description)` = first 16 hex of `sha256(normalize(description))`,
+`normalize = (d ?? "").trim().replace(/\s+/g, " ")`. Node `crypto.createHash`, no dependency.
+Whitespace-only and absent notes normalize to `""` and share one stable fingerprint — which is what
+makes "no note" idempotent rather than a permanent re-queue.
+
+**Idempotency — the lifecycle rule.** The skip test reads **all** overlays, not the applicable ones:
 
 ```ts
 needsParse(activityId, fp, overlays) =
   !overlays.some(o => o.activityId === activityId && o.noteFingerprint === fp && o.supersededBy === null);
 ```
 
-Deliberately *not* `isApplicable`. Each status means something different to a re-parse:
-
-| existing record for this `(activityId, fingerprint)` | re-parse? | why |
+| existing record for `(activityId, fingerprint)` | re-parse? | why |
 |---|---|---|
 | `active`, not superseded | no | already done |
 | `disabled`, not superseded | **no** | a human turned it off; re-parsing would resurrect it |
-| `pending`, not superseded | **no** | Phase 4 prepared it for review; re-parsing would race the reviewer |
+| `pending`, not superseded | **no** | Phase 4 prepared it; re-parsing would race the reviewer |
 | any status, `supersededBy !== null` | yes | it interpreted a note that no longer exists |
 | none | yes | never parsed |
 
-Using `isApplicable` here — the natural-looking choice, and exactly the shape of all four Phase 2a
-bugs — would silently re-parse and re-bill every `disabled` and `pending` record on every sync, and
-would resurrect decisions a human deliberately made. A lifecycle test walks one activity through
-`absent → active → note edited → superseded + new active → disabled` and asserts the queue decision at
-each step.
+Using `isApplicable` here — the natural-looking choice, and the shape of all four Phase 2a bugs —
+would re-parse and re-bill every `disabled` and `pending` record on every sync and resurrect
+deliberate human decisions.
 
-**Retry.** A parse failure writes an `interpreter-failed` overlay immediately
-(`origin: "unspecified"`, `effectiveExecutionScore: null`, `interpretation: null`,
-`scoringVersion: null`) rather than leaving the activity silently queued forever. The athlete's
-existing re-analyse action passes `force: true`, which bypasses the skip test for that activity and
-supersedes the failed record. This is design §13's "leave the existing re-analysis retry path
-available" with no attempt counter and no new UI. Anthropic-not-configured is **not** a parse failure:
-it writes nothing at all and the activity stays queued for whenever a key exists.
+**Retry semantics — question 10.** The critical distinction is between an outcome the model produced
+and a call that never completed:
+
+| what happened | writes an overlay? | queue effect | reason recorded |
+|---|---|---|---|
+| note is empty | yes, **with no LLM call** | dequeued permanently | `no-intent-found` |
+| Anthropic not configured | **no** | stays queued | — |
+| `parseRideIntent` **throws** (network, timeout, 429, 5xx) | **no** | **stays queued** | — |
+| call completed, no usable tool output (`null`) | yes | dequeued | `interpreter-failed` |
+| parsed, `confidence: "low"` | yes | dequeued | `intent-unreliable` |
+| parsed, gate found nothing gradable / scope too small | yes | dequeued | `no-measurable-objectives` |
+| parsed and scoreable | yes | dequeued | — (a score) |
+
+**A transient exception must never burn the fingerprint.** Writing `interpreter-failed` on a network
+blip would permanently skip a non-today ride: the fingerprint is then matched by an unsuperseded
+record, `needsParse` returns false forever, and `force` only ever targets *today's* ride (question 11)
+— so a 12-day-old ride with a perfectly good note would be silently lost with no path back except
+hand-editing JSON. Leaving it queued costs one retry on the next sync and nothing else.
+
+**Zero-progress stop.** The route reports `stalled: processed === 0 && remaining > 0`. The client
+stops looping on `stalled`, so a persistent outage produces one failed round per sync, not six.
 
 **Atomic supersession.** One `updateIntentOverlays` call does both halves:
 
@@ -257,100 +333,206 @@ await updateIntentOverlays((existing) => [
 ]);
 ```
 
-Every unsuperseded record for the activity is superseded regardless of status — including `pending`
-and `disabled` — because the note they interpreted is gone. `updateJson` reads inside the lock
-(INVARIANT 2), so a concurrent sync and re-analyse cannot interleave into two live records.
-Resolution never *depends* on that atomicity (2a rejects a superseded record whatever its status), but
-the write must still be atomic so the store never contains two unsuperseded records for one activity.
-Pinned by a test that asserts the invariant `overlays.filter(o => o.activityId === X && !o.supersededBy).length <= 1`
-holds after every write in a simulated edit sequence.
+Every unsuperseded record for the activity is superseded regardless of status — the note it
+interpreted is gone. `updateJson` reads inside the lock (INVARIANT 2). Pinned by an invariant
+assertion after every write: `overlays.filter(o => o.activityId === X && !o.supersededBy).length <= 1`.
 
-### 5. Primary-ride binding on multi-ride dates
+### 6. Objective canonicalisation — the LLM must not control the score by how it splits
 
-The queue binds an overlay to the **longest** ride of its date — the same rule `buildRideScores`
-applies when it stamps `activityId` ([score-log.ts:334-336](../../../lib/score-log.ts)). Secondary
-rides get no overlay in 2b; the ledger doesn't score them either, so an overlay for one would have
-nothing to layer over.
+An unbounded per-objective delta sum lets the model's *decomposition choice* move the score: emitting
+`"45 min Z2"` once versus three times, or splitting it into `"20 min Z2"` + `"25 min Z2"`, would
+produce three different numbers for one intent. That is the model computing a number by the back door
+(INVARIANT 12).
 
-The rule is extracted into one exported pure helper, `primaryRideOfDate(activities, date)`, so the two
-cannot drift — **including the tie-break.** `buildRideScores` keeps the first-seen ride on an exact
-duration tie (`entry.durationMin > prior.durationMin` is a strict comparison over the array in
-Intervals' own order), so `primaryRideOfDate` must use the identical strict comparison over the
-identical array order. A test asserts, on a two-ride and a tied-duration fixture, that
-`primaryRideOfDate(...).id === buildRideScores(...)[0].activityId`. Getting this wrong binds an
-overlay to a ride the ledger never scored, and the overlay would then resolve against nothing —
-invisible from either side's unit tests, which is why the assertion is cross-module.
+**Canonicalisation, before any grading:**
 
-### 6. How a missing note avoids an LLM call
+| kind | canonical key | merge rule |
+|---|---|---|
+| `duration` | `("duration")` | at most one; take the **max** stated target (they are claims about one total) |
+| `zone-time` | `("zone-time", zone)` | **sum** the targets for that zone — a split phase list states parts of one total |
+| `zone-emphasis` | `("zone-emphasis", zone)` | dedupe; **dropped entirely if a `zone-time` exists for the same zone** (subsumed by the stronger claim) |
+| `effort` | `("effort", durationMin, watts, zone)` after rounding duration to the minute and watts to 5 W | dedupe; `reps` fields are **summed** across merged duplicates |
+| `structure` | `("structure")` | at most one |
+| `qualitative` | `("qualitative", description)` | dedupe; never graded |
 
-The fingerprint and the emptiness test are computed **before** the Anthropic client is touched. When
-`normalize(description) === ""` the runner writes a deterministic overlay
-(`no-intent-found`, `origin: "unspecified"`, `interpretation: null`, `scoringVersion: null`) and moves
-on. Because the empty fingerprint is stable, the ride is decided exactly once and never re-queued.
-Pinned by a test that injects a throwing parse function and asserts a note-less activity still yields
-a correct overlay — the call is not merely skipped by luck of ordering, it is structurally unreachable.
+**Bounded aggregation:** grade each canonical objective once, then sum **one contribution per kind**,
+each clamped to that kind's band, then clamp the total to 1–10. Within a kind that can hold several
+canonical entries (`zone-time` across different zones, `effort` across different targets), the kind's
+contribution is the **mean** of its members' deltas, rounded, then clamped. So adding a third zone
+objective cannot triple a bonus.
 
-### 7. How medium confidence grades supported objectives only
+**Required invariance test:**
 
-Mechanically: `medium` drops the `structure` kind from `GRADABLE_KINDS_BY_CONFIDENCE`, and the
-grounding check (question 1a) drops any objective whose numbers the note doesn't contain — at every
-confidence. What is left at `medium` is precisely "objectives directly supported by the note and
-data" (design §5.3).
+```ts
+it("scores identically however the model splits or duplicates one intent", () => {
+  const single    = [obj("zone-time", { zone: "Z2", durationMin: 45 })];
+  const duplicate = [single[0], { ...single[0] }, { ...single[0], description: "steady Z2 block" }];
+  const split     = [obj("zone-time", { zone: "Z2", durationMin: 20 }), obj("zone-time", { zone: "Z2", durationMin: 25 })];
+  const reordered = [...split].reverse();
+  const ev = evidence({ durationMin: 90, z2Min: 44 });
+  const base = scoreIntentExecution(interp({ objectives: single }), ev).score;
+  for (const variant of [duplicate, split, reordered]) {
+    expect(scoreIntentExecution(interp({ objectives: variant }), ev).score).toBe(base);
+  }
+});
+```
 
-`structure` is the one kind that needs the interpreter to have correctly *ordered and delimited* the
-ride's phases, which is the thing medium confidence is saying it is unsure about. Grading ordering on
-an uncertain ordering is a fabricated verdict; grading "you were in Z2 for 44 minutes" is not, because
-that reading needs no phase boundaries at all.
+Grounding runs **before** canonicalisation (a merged target must not inherit grounding from a
+different objective's note substring), and the merged target is re-grounded against the note as a
+whole after merging — with the merge accepted only when the summed target is itself grounded or when
+every merged part was individually grounded. State this explicitly in the module comment; it is the
+one place merging could smuggle an ungrounded number through.
 
-Acceptance example 14.2 (the scouting ride) is the executable fixture: no durations, no ordering,
-`medium` → grade the Z2 emphasis and any grounded effort, invent no interval targets, and do not score
-poorly merely because no block existed.
+### 7. Effort grading — every combination defined
 
-### 8. Mixed rides, whole-ride decoupling, and the segment deferral
+Laps come from `fetchIntervals(activityId)` → `ExecutedInterval[]` (`durationSec`, `avgWatts`,
+`npWatts`, `avgHr`, `type`). Matching is deterministic: candidate laps are those whose duration is
+within **±20%** of the target; efforts are matched **longest target first**, and a lap once matched is
+**consumed** so two efforts cannot both claim it.
 
-Three separate statements, because they are three separate mechanisms:
+| combination | graded? | rule | scope |
+|---|---|---|---|
+| duration + watts | ✅ | best-watt matching lap; `avgWatts / targetWatts` on `computeExecutionScore`'s non-SIT adherence band (95–106 → +2, 90–94/107–112 → +1, 85–89 → 0, 80–84 → −1, else −2) | matched lap duration |
+| duration only | ✅ presence | a matching lap exists → **+1**; none → **−1** | matched lap duration (0 if none) |
+| watts only, no duration | ❌ | no window over which to evaluate; `measurable: true, scored: false, evidence: "no duration stated for this effort"` | 0 |
+| zone only ("some Z4 efforts") | — | not an `effort`; canonicalised to `zone-emphasis` for that zone | via that kind |
+| reps `N` + duration + watts | ✅ | require ≥ `Math.ceil(0.75 * N)` matching laps; grade the **mean** `avgWatts / targetWatts` across matched laps on the same band; short of the threshold → **−1** and no watt grading | sum of matched lap durations |
+| reps `N` + duration only | ✅ presence | matched laps ≥ `ceil(0.75 * N)` → **+1**; else **−1** | sum of matched lap durations |
+| reps `N` + watts only | ❌ | same reason as watts-only | 0 |
+| no lap data at all (`fetchIntervals` failed or returned `[]`) | ❌ | `measurable: true, scored: false, evidence: "no interval data"`, **no delta** | 0 |
 
-**(a) The intent path never sees whole-ride decoupling.** The parse prompt receives the note text and
-the ride's duration — nothing else. No decoupling, no scores, no zone data, no efficiency figures. Two
-tests: the built prompt string contains none of them, and `lib/intent-scoring.ts` has no reference to
-`decoupling` anywhere in its module graph. This is both the anti-contamination rule and the mechanism
-that keeps the model from computing a number (INVARIANT 12): it cannot report a drift verdict it was
-never shown.
+Missing data is never a failed metric (design §13): every ❌ row contributes no delta and no scope.
+An ungradable effort is still returned in `objectives[]` so 2c can show it was acknowledged.
+
+### 8. Zone evidence — units, arrays, and the honest dependency
+
+**Units.** `powerZoneTimes` and `hrZoneTimes` are **seconds** per zone, index 0 = zone 1
+([intervals-api.ts:253](../../../lib/intervals-api.ts) — `icu_power_zone_times ?? icu_zone_times`,
+`icu_hr_zone_times`). Convert with `round1(seconds / 60)`; never round the seconds first. `"Z2"` →
+index 1. An array that is `null`, shorter than the requested index + 1, or sums to 0 yields **no
+evidence** (ungradable, no delta, no scope) rather than a zero reading.
+
+**Which array.** Following `computeExecutionScore`'s established easy-ride precedent (HR is the
+terrain-immune judge; outdoor Z2 *power* is unholdable):
+
+- aerobic zones (Z1, Z2, and the `recovery`/`endurance` words): prefer `hrZoneTimes`, fall back to `powerZoneTimes`;
+- Z3 and above: prefer `powerZoneTimes`, fall back to `hrZoneTimes`.
+
+Which array was used is recorded in the objective's `evidence` string, so a later reader never has to
+guess. Indoor rides (`VirtualRide`) use power for every zone — ERG holds power flat and HR drifts, the
+inverse of the outdoor argument.
+
+**`zone-emphasis` grading** uses the measured share of total zone-array time in the named zone:
+≥60% → +2 · ≥45% → +1 · ≥30% → 0 · else −1.
+
+**No union of covered minutes — question 4 corrected.** Zone arrays are whole-ride aggregates with no
+timestamps, and `ExecutedInterval.startIndex`/`endIndex` are stream *indices* whose sample interval is
+not stated by the API. There is therefore no sound way to compute the union of the ride-time two
+objectives jointly cover. The rule is **maximum evidence scope**, not union:
+
+```ts
+evidenceScopeMin = Math.max(...gradable.map(scopeOf), 0)
+```
+
+A conservative lower bound on true coverage, computable from what actually exists.
+
+**The honest zone dependency — question 8 corrected.** The earlier draft claimed Intervals' zone
+definitions "bias individual gradings, never the scoreable decision." Under *that* draft's
+minutes-based coverage, that was false: zone minutes fed coverage, so a boundary shift could flip
+scoreable/not. Under the evidence-scope rule above it is no longer minutes-based — a zone objective's
+scope is the whole ride whenever the array *exists*. The honest statement is therefore:
+
+- **Zone boundary definitions affect the zone objective's grade**, and for non-today rides those
+  boundaries are Intervals.icu's own, not the athlete's physiology store — unlike today's ride, which
+  `/api/sync` re-buckets from raw streams. The two can disagree at zone edges.
+- **Zone-array presence/absence affects scoreability.** A ride with no zone data whose only gradable
+  objectives are zone objectives has scope 0 and is `no-measurable-objectives`. That is a real,
+  intended dependency, not a bias.
+- **Boundary definitions cannot flip scoreability**, because scope is presence-based rather than
+  minutes-based. This is now true by construction, and is asserted by a test that perturbs a fixture's
+  zone distribution across boundaries and checks `scoreable` is invariant while the score moves.
+
+Both facts go in the systems doc. 2b accepts Intervals' buckets rather than fetching and re-bucketing
+every historical stream (a per-ride stream fetch across a backlog is a materially larger change).
+
+### 9. Queue-to-ledger binding on multi-ride dates
+
+`primaryRideOfDate(activities, date)` selects the **longest** ride using the identical strict `>`
+comparison and array order `buildRideScores` uses when it stamps `activityId`
+([score-log.ts:334-336](../../../lib/score-log.ts)) — first-wins on an exact tie. A cross-module test
+asserts `primaryRideOfDate(...).id === buildRideScores(...)[0].activityId` on both a two-ride and a
+tied-duration fixture.
+
+**Date matching alone is insufficient, and the queue must say so.** For each candidate:
+
+```ts
+const primary = primaryRideOfDate(activities, entry.date);
+if (!primary) continue;
+if (entry.activityId && entry.activityId !== primary.id) {
+  // The ledger scored a DIFFERENT ride than the current activity set calls primary. Binding an
+  // overlay to `primary` would attach it to a row the resolver will never match: 2a's
+  // resolveEffectiveOutcome uses the ACTIVITY index for a row that has an id and never falls back to
+  // the date index for it, so the overlay would resolve against nothing — silently, from both sides.
+  warnings.push(`intent: ledger/primary mismatch on ${entry.date}`);
+  continue;                              // skip and report; never guess
+}
+```
+
+For a row with **no** `activityId` — which is *every row in the real ledger today* — the overlay
+binds to `primary.id` and `entry.date`, and resolution goes through `indexOverlaysByDate`. That index
+is not primary-ride-aware, so what makes the date path safe is the queue's own guarantee that **only
+the primary ride is ever enqueued for a date**, hence at most one active overlay per date. Pinned by a
+test that writes an overlay for a two-ride legacy date and asserts it resolves onto the ledger row
+whose duration matches the primary ride.
+
+### 10. `force` — a boolean contract, resolved server-side
+
+`SyncProvider` already has `force: boolean` and has no activity id to send. The route contract is
+therefore `{ today?: string, force?: boolean }`, and **the server derives the target itself**:
+`primaryRideOfDate(activities, resolveToday(body.today))`. `force` bypasses `needsParse` for that one
+id only. It never bypasses the prescribed rule, the primary-ride rule, or `autoFromDate` — those are
+correctness, not caching. No activity id crosses the wire, and the client keeps its existing signature.
+
+### 11. Prompt cap
+
+`INTENT_NOTE_MAX_CHARS = 2000` — a dedicated constant, **not** `buildRideAnalysisPrompt`'s inherited
+400-char slice, which would truncate the 455-character 2026-08-06 acceptance note and the 823-character
+longest note in the corpus. Truncation beyond 2000 appends an explicit `… [note truncated]` marker so
+the model knows it is seeing a fragment rather than silently interpreting a partial note. Tests assert
+the literal 455-char acceptance note and an 823-char note reach the prompt intact.
+
+### 12. Mixed rides, whole-ride decoupling, the segment deferral
+
+**(a) The intent path never sees whole-ride decoupling.** The parse prompt receives the note and the
+ride's duration — nothing else. Two tests: the built prompt contains no decoupling/IF/TSS/score
+figures, and `lib/intent-scoring.ts` contains no reference to `decoupling`. This is both the
+anti-contamination rule and the mechanism keeping the model from computing a number — it cannot report
+a drift verdict it was never shown.
 
 **(b) The already-closed paths stay closed.** Phase 1 gated whole-ride decoupling behind
-`isSteadyEnduranceRide` at both debrief producers — [ride-analysis.ts:242](../../../lib/ride-analysis.ts)
-and [anthropic-prompts.ts:535](../../../lib/anthropic-prompts.ts). A mixed ride's 15.7% is already
-`null` there, so the acceptance-14.1 failure ("treated a whole-ride 15.7% drift as an aerobic
-durability failure") cannot recur through the debrief. 2b adds nothing to those paths and must not
+`isSteadyEnduranceRide` at both debrief producers ([ride-analysis.ts:242](../../../lib/ride-analysis.ts),
+[anthropic-prompts.ts:535](../../../lib/anthropic-prompts.ts)). 2b adds nothing there and must not
 loosen them.
 
 **(c) One remaining LLM-facing leak is closed here (Task 7).**
 [app/api/retrospective/route.ts:122](../../../app/api/retrospective/route.ts) averages
-`activity.decoupling` across **all** block activities with no comparability gate and feeds the result
-verbatim into the retrospective prompt. That is a raw mixed-ride number presented to a model as
-evidence — the same defect shape in a different path, which is exactly the class the Phase 2a review
-told us to hunt. It is a one-line gate with the ftp already in scope at that call site.
-`lib/readiness.ts`'s `computeRollingBaselines` (`avgDecoupling90d` on the Recent Baselines card) is
-**deliberately left**: it needs a parameter widening plus an ftp thread from three call sites, it is a
-descriptive 90-day average rather than a per-ride aerobic-failure claim, and no LLM reads it. It stays
-recorded as a named follow-up in the systems doc, not silently dropped.
+`activity.decoupling` across all block activities with no comparability gate and feeds the result
+verbatim into the retrospective prompt — a raw mixed-ride number handed to a model as evidence, the
+same defect shape one path over. `lib/readiness.ts`'s `computeRollingBaselines` is **deliberately
+left**: it needs a parameter widening plus an ftp thread from three call sites, it is a descriptive
+90-day average rather than a per-ride aerobic-failure claim, and no LLM reads it. Recorded as a named
+follow-up, not silently dropped.
 
-**(d) Segment decoupling stays absent.** Design §7 step 2 (search the stream for a qualifying steady
-segment) is **not implemented in 2b**, and a ride with no whole-ride-steady qualification renders
-`Aerobic drift not measurable` — design §7 step 5, which is already the current behaviour. The
-unlock gate, to be cleared with real data before any future phase writes segment code:
+**(d) Segment decoupling stays absent.** Design §7 step 2 is not implemented; a ride that doesn't
+qualify whole-ride renders `Aerobic drift not measurable` (§7 step 5 — already current behaviour). The
+unlock gate, to be cleared with real data first:
 
-1. measure the actual sample rate of `fetchActivityStream` output across ≥20 of this athlete's real
-   activities (the endpoint returns one array with no timestamps — the per-sample interval is assumed,
-   not stated);
-2. characterise dropout: how gaps and sensor cut-outs are represented (absent samples vs. zero-fill),
-   because a zero-filled gap inside a candidate window silently depresses the second half and
-   manufactures drift;
-3. show on real data that a 30-minute window's half-split result is stable under (1) and (2) —
-   specifically that re-deriving it from a re-fetched stream reproduces the same value.
-
-Until all three are evidenced, a segment number would be a confident figure from unverified inputs,
-which is the exact thing this whole programme exists to stop.
+1. measure the actual sample rate of `fetchActivityStream` output across ≥20 real activities (the
+   endpoint returns one array with no timestamps — the per-sample interval is assumed, not stated);
+2. characterise dropout: gaps as absent samples vs. zero-fill (a zero-filled gap inside a candidate
+   window depresses the second half and manufactures drift);
+3. show on real data that a 30-minute window's half-split reproduces under (1) and (2) from a
+   re-fetched stream.
 
 ---
 
@@ -359,222 +541,68 @@ which is the exact thing this whole programme exists to stop.
 | File | Change | Responsibility after this plan |
 |---|---|---|
 | `docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md` | **Restore** | The approved design basis, durable on `main`; status stamp only |
-| `lib/types.ts` | Modify | `ObjectiveKind`; `ScoredObjective` gains `kind`/`grounded`/`sourceText`/`target`; `StructuredIntent.phases[].kind`; `IntentOverlay.effectiveWorkoutType` |
+| `lib/types.ts` | Modify | `ObjectiveKind`; `ScoredObjective` gains `kind`/`grounded`/`sourceText`/`target`/`scopeMin`; `StructuredIntent.phases[].kind`; `IntentOverlay.effectiveWorkoutType`; `IntentOverlayStore.autoFromDate` |
 | `lib/intent-overlay.ts` | Modify | `isCoherent` gains the `effectiveWorkoutType` rule |
 | `lib/intent-overlay.test.ts` | Modify | Coherence + lifecycle for the new field |
+| `lib/data-store.ts` | Modify | `updateIntentOverlays` gains a store-level mutator variant so `autoFromDate` can be set in the same transaction |
 | `lib/intent-queue.ts` | **Create** | Pure: `normalizeNote`, `noteFingerprint`, `primaryRideOfDate`, `needsParse`, `buildIntentQueue` |
-| `lib/intent-queue.test.ts` | **Create** | Queue rules, primary-ride parity with the ledger, the full status lifecycle |
-| `lib/intent-scoring.ts` | **Create** | Pure: `INTENT_SCORING_VERSION`, grounding, `gradableObjectives`, `coveredMinutes`, `assessScoreability`, `scoreIntentExecution`, `intentWorkoutType`, `buildOverlay` |
-| `lib/intent-scoring.test.ts` | **Create** | The threshold, the one-way confidence rule, every grader, the acceptance examples |
+| `lib/intent-queue.test.ts` | **Create** | Queue rules, `autoFromDate` floor, ledger/primary binding, the full status lifecycle |
+| `lib/intent-grounding.ts` | **Create** | Pure: zone masking + the four field matchers + `verifyGrounding` |
+| `lib/intent-grounding.test.ts` | **Create** | The `Z4`/`Z5` case and every field form |
+| `lib/intent-scoring.ts` | **Create** | Pure: canonicalisation, graders, scope, `assessScoreability`, `scoreIntentExecution`, `intentWorkoutType`, `buildOverlay` |
+| `lib/intent-scoring.test.ts` | **Create** | Gate, one-way confidence, decomposition invariance, every effort combination, acceptance examples |
 | `lib/intent-schema.ts` | **Create** | zod schema + `INTENT_TOOL` + `parseIntentToolOutput` |
 | `lib/intent-schema.test.ts` | **Create** | Schema rejects unexpressible fields and malformed output |
-| `lib/intent-prompt.ts` | **Create** | Pure `buildIntentPrompt(note, durationMin)` + `INTENT_PROMPT_VERSION` |
-| `lib/intent-prompt.test.ts` | **Create** | Prompt carries the note and duration and *nothing else* |
+| `lib/intent-prompt.ts` | **Create** | Pure `buildIntentPrompt` + `INTENT_PROMPT_VERSION` + `INTENT_NOTE_MAX_CHARS` |
+| `lib/intent-prompt.test.ts` | **Create** | Real 455/823-char notes reach the parser; no ride metrics leak in |
 | `lib/anthropic-api.ts` | Modify | `parseRideIntent()` — the thin SDK shell (RV-8 split convention) |
-| `lib/ai-usage.test.ts` | Modify | Every model id used by a call site is present in `PRICING` (INVARIANT 18) |
-| `lib/intent-runner.ts` | **Create** | Impure orchestrator: read stores → decide → parse or not → write atomically |
-| `lib/intent-runner.test.ts` | **Create** | Missing-note short-circuit, failure handling, atomic supersession, `force` |
-| `app/api/intent/route.ts` | **Create** | `POST` — `resolveToday`, bounded batch, `{ processed, remaining, warnings }` |
-| `components/SyncProvider.tsx` | Modify | Fire the deferred intent step alongside `/api/analyze`; `force` on re-analyse |
-| `lib/coach-snapshot.ts`, `lib/season-signals.ts`, `app/api/generate/route.ts`, `app/api/write/route.ts`, `app/api/trends/route.ts`, `app/api/sync/route.ts` (×3) | Modify | Thread the real overlay store into `buildAthleteModel` |
+| `lib/ai-usage.test.ts` | Modify | Every model id used by a call site is priced (INVARIANT 18) |
+| `lib/intent-runner.ts` | **Create** | Impure orchestrator: boundary init, decide, parse or not, write atomically |
+| `lib/intent-runner.test.ts` | **Create** | Missing-note short-circuit, transient-vs-terminal failure, atomic supersession, `force`, `autoFromDate` |
+| `app/api/intent/route.ts` | **Create** | `POST` — `resolveToday`, boolean `force`, bounded batch, `stalled` |
+| `components/SyncProvider.tsx` | Modify | Deferred intent step alongside `/api/analyze`; stop on `stalled` |
+| `lib/coach-snapshot.ts`, `lib/season-signals.ts`, `app/api/generate/route.ts`, `app/api/write/route.ts`, `app/api/trends/route.ts`, `app/api/sync/route.ts` (×3) | Modify | Thread the overlay store into `buildAthleteModel` |
 | `app/api/retrospective/route.ts` | Modify | Gate the block decoupling average on `isSteadyEnduranceRide` |
-| `docs/INVARIANTS.md`, `docs/systems/02-scoring-and-learning.md`, `docs/FILE_INDEX.md`, `docs/systems/07-ai-layer.md`, `ROADMAP.md`, `FEATURES.md` | Modify | Record the contracts, the new call site, the shipped capability |
+| `docs/INVARIANTS.md`, `docs/systems/02-scoring-and-learning.md`, `docs/systems/07-ai-layer.md`, `docs/FILE_INDEX.md`, `ROADMAP.md`, `FEATURES.md` | Modify | Record the contracts |
 
 ---
 
 ## Task list
 
-| # | Task | Files touched | Commit |
-|---|---|---|---|
-| 0 | Restore the approved design spec + this plan | 2 docs | `docs: restore the approved adaptive-coach design scope` |
-| 1 | Overlay schema: objective kinds + `effectiveWorkoutType` coherence | `types.ts`, `intent-overlay.ts` (+test) | `feat(scoring): extend the intent-overlay schema` |
-| 2 | Note fingerprinting + the derivable parse queue | `intent-queue.ts` (+test) | `feat(scoring): derive the intent-parse queue` |
-| 3 | Deterministic scoreability + objective grading | `intent-scoring.ts` (+test) | `feat(scoring): score self-directed intent deterministically` |
-| 4 | The LLM seam: schema, prompt, call, pricing | `intent-schema.ts`, `intent-prompt.ts`, `anthropic-api.ts` (+tests) | `feat(ai): parse activity-note intent into structured objectives` |
-| 5 | The runner + `POST /api/intent` + client wiring | `intent-runner.ts`, `app/api/intent/route.ts`, `SyncProvider.tsx` (+test) | `feat(api): run intent parsing outside the LLM-free sync` |
-| 6 | Thread overlays into every `buildAthleteModel` consumer | 6 files (+tests) | `feat(scoring): read intent overlays in every athlete-model consumer` |
-| 7 | Close the retrospective decoupling leak | `app/api/retrospective/route.ts` (+test) | `fix(retrospective): gate the block decoupling average` |
-| 8 | Real-data verification, live smoke run, docs | 6 docs | `docs: record the intent-scoring contracts` |
+| # | Task | Commit |
+|---|---|---|
+| 0 | Restore the approved design spec + this plan | `docs: restore the approved adaptive-coach design scope` ✅ |
+| 1 | Overlay schema: kinds, `effectiveWorkoutType`, `autoFromDate` | `feat(scoring): extend the intent-overlay schema` |
+| 2 | Semantic grounding (pure) | `feat(scoring): ground intent fields semantically, not by digit` |
+| 3 | Fingerprinting + the derivable parse queue | `feat(scoring): derive the intent-parse queue` |
+| 4 | Canonicalisation, grading, the evidence-scope gate | `feat(scoring): score self-directed intent deterministically` |
+| 5 | The LLM seam: schema, prompt, call, pricing | `feat(ai): parse activity-note intent into structured objectives` |
+| 6 | The runner + `POST /api/intent` + client wiring | `feat(api): run intent parsing outside the LLM-free sync` |
+| 7 | Thread overlays into every `buildAthleteModel` consumer | `feat(scoring): read intent overlays in every athlete-model consumer` |
+| 8 | Close the retrospective decoupling leak | `fix(retrospective): gate the block decoupling average` |
+| 9 | Sandboxed real-data verification, live smoke run, docs | `docs: record the intent-scoring contracts` |
 
-Each task is independently committable and leaves the suite green. Tasks 2–4 have no dependency on
-each other beyond Task 1's types and can be parallelised if dispatched to more than one agent; Task 5
-depends on 2–4; Task 6 depends on 1; Tasks 7–8 depend on everything.
-
----
-
-### Task 0: Restore the approved design spec
-
-**Files:** `docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md` (restore),
-`docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md` (this file).
-
-The approved design (commit `8041077`) never reached `main` — the phase plans reference it but it
-exists only in that commit. Restoring it makes the design basis durable and reviewable alongside the
-code it authorises. **Its §2 locked product decisions are preserved verbatim**; the only edit is the
-`Status:` stamp recording which phases have shipped.
-
-- [ ] **Step 1: Bring the file across and stamp its status** (already done in this worktree — verify)
-
-```bash
-git diff --stat 8041077 -- docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md
-```
-
-Expected: only the `Status:` block differs. If anything in §2 differs, **stop** — the locked
-decisions must not be edited.
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md
-git commit -m "$(cat <<'EOF'
-docs: restore the approved adaptive-coach design scope and plan Phase 2b
-
-The design spec approved 2026-08-06 never reached main — Phases 1 and 2a shipped
-against a document that existed only in commit 8041077. Restored verbatim except
-its status stamp so the locked product decisions are durable and reviewable
-alongside the code they authorise.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+Tasks 2, 3 and 5 are independent given Task 1's types. Task 4 depends on 2. Task 6 depends on 3–5.
+Task 7 depends on 1. Tasks 8–9 depend on everything.
 
 ---
 
-### Task 1: Overlay schema — objective kinds and `effectiveWorkoutType`
+### Task 1: Overlay schema — kinds, `effectiveWorkoutType`, `autoFromDate`
 
-**Files:**
-- Modify: `lib/types.ts`, `lib/intent-overlay.ts`, `lib/intent-overlay.test.ts`
+**Files:** modify `lib/types.ts`, `lib/intent-overlay.ts`, `lib/intent-overlay.test.ts`, `lib/data-store.ts`
 
-**Interfaces:**
-- Consumes: 2a's `IntentOverlay`, `ScoredObjective`, `StructuredIntent`, `WorkoutType`.
-- Produces:
-  - `export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative"`
-  - `ScoredObjective` gains `kind`, `grounded`, `sourceText`, `target`, `coveredMin`
-  - `StructuredIntent.phases[]` gains `kind: ObjectiveKind`
-  - `IntentOverlay.effectiveWorkoutType?: WorkoutType | null`
-  - `isCoherent` rejects an overlay carrying `effectiveWorkoutType` with a non-`self-directed` origin
+**Produces:**
+- `export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative"`
+- `ScoredObjective` gains `kind`, `target`, `grounded`, `sourceText`, `scopeMin`
+- `StructuredIntent.phases[]` gains `kind: ObjectiveKind`
+- `IntentOverlay.effectiveWorkoutType?: WorkoutType | null`
+- `IntentOverlayStore.autoFromDate?: string | null`
+- `updateIntentOverlayStore(mutate: (store) => store)` in `data-store.ts` — the store-level transaction
+  the runner needs so `autoFromDate` initialisation and the first overlay write are one atomic write.
+  Keep the existing `updateIntentOverlays(mutate)` array-level helper; implement it in terms of the new
+  one so there is one write path, not two.
 
-Tasks 3–6 consume all of these.
-
-**Why `effectiveWorkoutType` is optional (`?`).** Every overlay written before this field existed
-parses back `undefined`, not `null` (INVARIANT 3) — and although the store ships empty today, Phase 4
-will write records this code must still read. The coherence rule therefore tests
-`overlay.effectiveWorkoutType` truthily, never `!== null`. A literal pre-2b fixture pins it.
-
-**Why the coherence rule exists at all.** `effectiveWorkoutType` is a fifth field a consumer can read
-through a different path, which is precisely the Phase 2a defect shape. An `unspecified` overlay
-means "no trustworthy intent was recovered" — a record that simultaneously asserts an authoritative
-workout type contradicts itself, and a future per-type consumer reading the type without re-checking
-the origin would pick up a type derived from nothing. The gate lives beside the existing
-origin-coherence rules so there is one place to look.
-
-- [ ] **Step 1: Write the failing tests**
-
-Add to `lib/intent-overlay.test.ts` (extend, do not rewrite — the file's existing `overlay()` /
-`notScored()` helpers are reused; add `effectiveWorkoutType: null` to `overlay()`'s defaults):
-
-```ts
-describe("isCoherent — effectiveWorkoutType (Phase 2b)", () => {
-  it("accepts an authoritative type on a self-directed overlay", () => {
-    const o = overlay({ origin: "self-directed", effectiveWorkoutType: "Z2" });
-    const r = resolveEffectiveOutcome(entry({ activityId: "a1", executionScore: 5 }), indexOverlaysByActivity([o]), new Map());
-    expect(r.source).toBe("overlay");
-    expect(r.overlay?.effectiveWorkoutType).toBe("Z2");
-  });
-
-  it("REJECTS an authoritative type on an unspecified overlay", () => {
-    // `unspecified` means no trustworthy intent was recovered. A record that then claims to know the
-    // session's type contradicts itself, and a later per-type consumer reading the type through a
-    // different path would inherit a type derived from nothing.
-    const o = notScored("intent-unreliable", { effectiveWorkoutType: "Threshold" });
-    const r = resolveEffectiveOutcome(entry({ activityId: "a1", executionScore: 5 }), indexOverlaysByActivity([o]), new Map());
-    expect(r.source).toBe("ledger");
-  });
-
-  it("accepts a self-directed overlay with nothing measurable and no type", () => {
-    const o = notScored("no-measurable-objectives", { effectiveWorkoutType: null });
-    expect(resolveEffectiveOutcome(entry({ activityId: "a1" }), indexOverlaysByActivity([o]), new Map()).source).toBe("overlay");
-  });
-
-  it("treats a pre-2b record with the field ABSENT as coherent (INVARIANT 3)", () => {
-    // Not `=== null` — a record written before the field existed parses back `undefined`. Guarding
-    // with an equality check would reject every historical overlay Phase 4 has to read.
-    const legacyRecord = { ...overlay({ origin: "self-directed" }) } as IntentOverlay;
-    delete (legacyRecord as Partial<IntentOverlay>).effectiveWorkoutType;
-    const r = resolveEffectiveOutcome(entry({ activityId: "a1", executionScore: 5 }), indexOverlaysByActivity([legacyRecord]), new Map());
-    expect(r.source).toBe("overlay");
-  });
-});
-```
-
-- [ ] **Step 2: Run the tests to verify they fail**
-
-```bash
-npx vitest run lib/intent-overlay.test.ts -t "effectiveWorkoutType"
-```
-
-Expected: FAIL — the field doesn't exist (`tsc` will also object; that is the red state).
-
-- [ ] **Step 3: Extend the types in `lib/types.ts`**
-
-Locate the Phase 2a block (`OverlayStatus` around line 668). Add before `StructuredIntent`:
-
-```ts
-// What KIND of thing an objective is, which decides which grader can judge it and — for `structure`
-// — whether medium confidence may grade it at all. `qualitative` is never graded: sensors cannot
-// establish that cornering technique was good (design §6), so it is acknowledged and left alone.
-export type ObjectiveKind =
-  | "duration" // total ride time vs a stated total
-  | "zone-time" // stated minutes in a named zone, measured across the whole ride
-  | "zone-emphasis" // "mostly Z2" — a share claim with no number
-  | "effort" // a named effort with explicit watts and/or duration
-  | "structure" // ordered phases — the ONLY kind needing delimited time windows
-  | "qualitative"; // skill/technique — acknowledged, never graded
-```
-
-Extend `StructuredIntent.phases[]` with `kind: ObjectiveKind` and replace `ScoredObjective` with:
-
-```ts
-// One stated objective, what the ride data could say about it, and the provenance that lets the
-// deterministic layer re-verify the interpreter's claim instead of trusting it.
-//   • `grounded` — every numeric target appears in the raw note. The interpreter reports it; the
-//     deterministic check RE-VERIFIES and may only lower it (design §5.2, reject invented specificity).
-//   • `sourceText` — the note substring the objective was read from, so grounding is auditable.
-//   • `coveredMin` — the MEASURED minutes this objective speaks about, filled by the scorer, not the
-//     model. Claimed minutes would let a note pass the coverage gate on a fiction.
-// `scored: false` with `measurable: false` is the acknowledged-but-ungraded case (design §12.2).
-export interface ScoredObjective {
-  description: string;
-  kind: ObjectiveKind;
-  target: { durationMin?: number; watts?: number; zone?: string; reps?: number } | null;
-  grounded: boolean;
-  sourceText: string | null;
-  measurable: boolean;
-  scored: boolean;
-  coveredMin: number | null;
-  evidence: string | null;
-}
-```
-
-Add to `IntentOverlay`, after `origin`:
-
-```ts
-  // The authoritative workout type the ATHLETE STATED — derived from the parsed intent, never from
-  // whole-ride IF (that inference is the circularity INVARIANTS 35/40 forbid). OPTIONAL: records
-  // written before this field existed parse back `undefined`, so every read is a truthy check, never
-  // `=== null` (INVARIANT 3).
-  //
-  // PROVENANCE ONLY in Phase 2b — per-type learning stays prescribed-only (INVARIANT 40). Two
-  // conditions must both be cleared before a later phase may admit these into per-type statistics:
-  // (1) the prescribed and self-directed 1–10 scales must be shown comparable on a real corpus, and
-  // (2) compliance must gain a meaning for rides that have none (decision #7). Neither is a 2b claim.
-  // MUST be null/absent whenever `origin !== "self-directed"` — `isCoherent` enforces it.
-  effectiveWorkoutType?: WorkoutType | null;
-```
-
-- [ ] **Step 4: Extend `isCoherent` in `lib/intent-overlay.ts`**
-
-Add, immediately after the existing `origin === "prescribed"` rejection:
+**Coherence rule added to `isCoherent`:**
 
 ```ts
   // An authoritative workout type may only accompany a recovered intent. `unspecified` means no
@@ -585,31 +613,32 @@ Add, immediately after the existing `origin === "prescribed"` rejection:
   if (overlay.effectiveWorkoutType && overlay.origin !== "self-directed") return false;
 ```
 
-- [ ] **Step 5: Run the tests, then the full check**
-
-```bash
-npx vitest run lib/intent-overlay.test.ts && npm run check
-```
-
-Expected: both PASS. `ScoredObjective`'s new required fields will break any existing literal in the
-2a test file — extend those fixtures; **do not change an existing assertion's expected value.**
-
+- [ ] **Step 1: Failing tests** in `lib/intent-overlay.test.ts` — accepts a type on a self-directed
+  overlay; **rejects** one on an `unspecified` overlay; accepts `no-measurable-objectives` +
+  self-directed + `null` type; and accepts a record with the key **deleted** (INVARIANT 3 — use
+  `delete (record as Partial<IntentOverlay>).effectiveWorkoutType`, not `= null`).
+- [ ] **Step 2:** `npx vitest run lib/intent-overlay.test.ts -t "effectiveWorkoutType"` → FAIL.
+- [ ] **Step 3:** Add the types. `ScoredObjective.scopeMin: number | null` is documented as *evidence
+  scope* — "how much of the ride this objective's evidence speaks about, filled by the scorer, never by
+  the model; NOT how much of it went well" — so the blocker-3 correction is visible at the type.
+- [ ] **Step 4:** Add the coherence rule and `updateIntentOverlayStore`.
+- [ ] **Step 5:** `npx vitest run lib/intent-overlay.test.ts && npm run check`. `ScoredObjective`'s new
+  required fields break 2a's literal fixtures — extend them; **do not change an existing expected value.**
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/types.ts lib/intent-overlay.ts lib/intent-overlay.test.ts
+git add lib/types.ts lib/intent-overlay.ts lib/intent-overlay.test.ts lib/data-store.ts
 git commit -m "$(cat <<'EOF'
 feat(scoring): extend the intent-overlay schema for Phase 2b
 
-Objectives now carry their kind, their grounding provenance and the measured
-minutes they speak about, so the deterministic layer can re-verify the
-interpreter's claims rather than trust them.
+Objectives carry their kind, their grounding provenance and their EVIDENCE SCOPE
+— how much of the ride the evidence speaks about, not how much of it went well.
 
 effectiveWorkoutType records the type the athlete STATED, never one inferred from
-IF. It stays provenance only — per-type learning remains prescribed-only
-(INVARIANT 40) until the two score scales are shown comparable on real data.
-isCoherent rejects it on any non-self-directed overlay, guarded truthily so a
-record predating the field still reads.
+IF, and stays provenance only: per-type learning remains prescribed-only
+(INVARIANT 40). autoFromDate is the persisted rollout floor that keeps Phase 2b
+out of the historical no-block period Phase 4 owns. Both are guarded truthily so a
+record predating them still reads.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -618,395 +647,202 @@ EOF
 
 ---
 
-### Task 2: Note fingerprinting and the derivable parse queue
+### Task 2: Semantic, field-specific grounding
 
-**Files:**
-- Create: `lib/intent-queue.ts`, `lib/intent-queue.test.ts`
+**Files:** create `lib/intent-grounding.ts`, `lib/intent-grounding.test.ts`
 
-**Interfaces:**
-- Consumes: `ActivitySummary`, `RideScoreEntry`, `IntentOverlay` (Task 1).
-- Produces:
-  - `normalizeNote(d: string | null | undefined): string`
-  - `noteFingerprint(d: string | null | undefined): string`
-  - `primaryRideOfDate(activities: ActivitySummary[], date: string): ActivitySummary | null`
-  - `needsParse(activityId: string, fingerprint: string, overlays: IntentOverlay[]): boolean`
-  - `buildIntentQueue(activities, entries, overlays, today): IntentQueueItem[]`
-  - `export interface IntentQueueItem { activityId: string; date: string; note: string; fingerprint: string; durationMin: number }`
-  - `export const INTENT_MAX_PER_RUN = 5`
+**Produces:** `maskZoneTokens(note)`, `groundsDuration(note, min)`, `groundsWatts(note, w, ftp)`,
+`groundsReps(note, n)`, `groundsZone(note, zone)`, `verifyGrounding(objective, note, ftp): boolean`.
 
-Task 5 consumes all of them.
+Implement question 2 exactly. Pure, no I/O.
 
-- [ ] **Step 1: Write the failing tests**
-
-Create `lib/intent-queue.test.ts`. Reuse `lib/score-log.test.ts`'s `activity()` helper shape (read it
-first — `Partial<ActivitySummary> & { date: string }`); define local `entry()`/`overlay()` builders
-mirroring `lib/intent-overlay.test.ts`.
+- [ ] **Step 1: Failing tests** — every row of question 2's table, plus:
 
 ```ts
-describe("noteFingerprint", () => {
-  it("is stable and whitespace-insensitive", () => {
-    expect(noteFingerprint("45 min Z2\n\nthen  climbing")).toBe(noteFingerprint(" 45 min Z2 then climbing "));
-  });
-  it("differs when the note's content changes", () => {
-    expect(noteFingerprint("45 min Z2")).not.toBe(noteFingerprint("60 min Z2"));
-  });
-  it("gives null, empty and whitespace-only notes ONE stable fingerprint", () => {
-    // This is what makes "no note" idempotent: the ride is decided once and never re-queued.
-    const fp = noteFingerprint(null);
-    expect(noteFingerprint("")).toBe(fp);
-    expect(noteFingerprint("   \n  ")).toBe(fp);
-    expect(noteFingerprint(undefined)).toBe(fp);
-  });
+it("a digit inside a zone token grounds NOTHING else — the invented-specificity case", () => {
+  const note = "some Z4 and Z5 efforts";
+  expect(groundsZone(note, "Z4")).toBe(true);
+  expect(groundsZone(note, "Z5")).toBe(true);
+  expect(groundsReps(note, 4)).toBe(false);       // "4" is part of Z4
+  expect(groundsDuration(note, 5)).toBe(false);   // "5" is part of Z5
+  expect(groundsWatts(note, 4, 288)).toBe(false);
 });
 
-describe("primaryRideOfDate — must agree with the ledger's own rule", () => {
-  it("picks the longest ride of the date", () => {
-    const acts = [activity({ date: "2026-01-05", id: "short", movingTimeSec: 1800 }), activity({ date: "2026-01-05", id: "long", movingTimeSec: 5400 })];
-    expect(primaryRideOfDate(acts, "2026-01-05")?.id).toBe("long");
-  });
+it("verifyGrounding may only LOWER the model's claim", () => {
+  const claimed = { grounded: true, kind: "effort", target: { reps: 4 }, sourceText: "some Z4 efforts" };
+  expect(verifyGrounding(claimed, "some Z4 efforts", 288)).toBe(false);
+  const honest = { ...claimed, grounded: false, target: { durationMin: 9, watts: 292 } };
+  expect(verifyGrounding(honest, "9 min around 292 W", 288)).toBe(false); // false stays false
+});
+```
 
-  it("matches the activityId buildRideScores actually stamps, ties included", () => {
-    // Cross-module, deliberately: buildRideScores keeps the FIRST ride on an exact duration tie
-    // (`entry.durationMin > prior.durationMin` is strict). A helper that used `>=` would bind an
-    // overlay to a ride the ledger never scored — invisible from either module's own unit tests.
-    for (const acts of [
-      [activity({ date: "2026-01-05", id: "a", movingTimeSec: 3600 }), activity({ date: "2026-01-05", id: "b", movingTimeSec: 3600 })],
-      [activity({ date: "2026-01-05", id: "a", movingTimeSec: 1800 }), activity({ date: "2026-01-05", id: "b", movingTimeSec: 5400 })],
-    ]) {
-      const stamped = buildRideScores(null, acts, () => 288, "2026-01-10", "2026-01-01")[0];
-      expect(primaryRideOfDate(acts, "2026-01-05")?.id).toBe(stamped.activityId);
-    }
-  });
+- [ ] **Step 2:** run → FAIL (`Failed to resolve import "./intent-grounding"`).
+- [ ] **Step 3:** Implement. Module header states the masking mechanism and why it exists.
+- [ ] **Step 4:** `npx vitest run lib/intent-grounding.test.ts && npm run check`.
+- [ ] **Step 5: Commit** — `feat(scoring): ground intent fields semantically, not by digit`, body
+  naming the `Z4`→`reps: 4` failure the mask prevents.
 
-  it("ignores non-ride activities", () => {
-    const acts = [activity({ date: "2026-01-05", id: "gym", type: "WeightTraining", movingTimeSec: 7200 }), activity({ date: "2026-01-05", id: "ride", movingTimeSec: 3600 })];
-    expect(primaryRideOfDate(acts, "2026-01-05")?.id).toBe("ride");
+---
+
+### Task 3: Fingerprinting and the derivable parse queue
+
+**Files:** create `lib/intent-queue.ts`, `lib/intent-queue.test.ts`
+
+**Produces:** `normalizeNote`, `noteFingerprint`, `primaryRideOfDate`, `needsParse`,
+`buildIntentQueue(activities, entries, overlays, today, autoFromDate, opts?)`,
+`IntentQueueItem { activityId, date, note, fingerprint, durationMin }`, `INTENT_MAX_PER_RUN = 5`.
+
+Implement questions 5, 9 and 0's floor. `buildIntentQueue` does **not** slice to
+`INTENT_MAX_PER_RUN` — the runner does, so `remaining` stays an honest count.
+
+- [ ] **Step 1: Failing tests.** Required, beyond the obvious happy paths:
+
+```ts
+describe("autoFromDate — Phase 4's period is untouchable", () => {
+  it("drops every candidate before the boundary", () => {
+    const q = buildIntentQueue(acts, entries, [], "2026-08-07", "2026-08-07");
+    expect(q.map((i) => i.date)).toEqual(["2026-08-07"]); // 08-05, 08-06 are Phase 4's
   });
+  it("drops them even under force — force bypasses idempotency, never the boundary", () => {
+    const q = buildIntentQueue(acts, entries, [], "2026-08-07", "2026-08-07", { force: ["a-0805"] });
+    expect(q.find((i) => i.activityId === "a-0805")).toBeUndefined();
+  });
+  it("includes a ride exactly ON the boundary", () => { /* >= not > */ });
 });
 
-describe("needsParse — the full record lifecycle, not just applicability", () => {
-  const fp = "fp-1";
-  const rec = (over: Partial<IntentOverlay>) => overlay({ activityId: "a1", noteFingerprint: fp, ...over });
-
-  it("parses when nothing exists", () => {
-    expect(needsParse("a1", fp, [])).toBe(true);
+describe("ledger/primary binding (question 9)", () => {
+  it("skips a date where the ledger scored a different ride than primaryRideOfDate", () => {
+    // The resolver uses the ACTIVITY index for a row that has an id and never falls back to the date
+    // index for it, so an overlay bound to the wrong ride resolves against nothing — silently, from
+    // both sides. Skip and warn; never guess.
+    const entries = [ledger({ date: "2026-01-05", planned: false, activityId: "short" })];
+    const acts = [activity({ date: "2026-01-05", id: "short", movingTimeSec: 1800, description: "x" }),
+                  activity({ date: "2026-01-05", id: "long",  movingTimeSec: 5400, description: "x" })];
+    expect(buildIntentQueue(acts, entries, [], "2026-01-10", "2026-01-01")).toEqual([]);
   });
-  it("does NOT re-parse an active record", () => {
-    expect(needsParse("a1", fp, [rec({ status: "active" })])).toBe(false);
-  });
-  it("does NOT re-parse a DISABLED record — a human turned it off", () => {
-    // isApplicable() would return false here, and using it as the skip test (the natural-looking
-    // choice, and the exact shape of all four Phase 2a bugs) would re-parse, re-bill, and resurrect
-    // a decision a human deliberately made.
-    expect(needsParse("a1", fp, [rec({ status: "disabled" })])).toBe(false);
-  });
-  it("does NOT re-parse a PENDING record — Phase 4 prepared it for review", () => {
-    expect(needsParse("a1", fp, [rec({ status: "pending" })])).toBe(false);
-  });
-  it("DOES re-parse when every record for the fingerprint is superseded", () => {
-    expect(needsParse("a1", fp, [rec({ status: "active", supersededBy: "ov-2" })])).toBe(true);
-  });
-  it("DOES parse a new fingerprint even while the old note's record is live", () => {
-    expect(needsParse("a1", "fp-2", [rec({ status: "active" })])).toBe(true);
-  });
-  it("ignores records for a different activity", () => {
-    expect(needsParse("a1", fp, [rec({ activityId: "other" })])).toBe(true);
+  it("allows a pre-2a row with NO activityId and binds to the primary ride", () => {
+    // Every row in the real ledger today is this case.
+    const entries = [ledger({ date: "2026-01-05", planned: false })]; // activityId absent
+    expect(buildIntentQueue(acts, entries, [], "2026-01-10", "2026-01-01").map((i) => i.activityId)).toEqual(["long"]);
   });
 });
 
 describe("needsParse — lifecycle walk", () => {
-  it("decides correctly at each step of one activity's real history", () => {
-    const fpA = noteFingerprint("45 min Z2");
-    const fpB = noteFingerprint("45 min Z2 then 9 min at 292W");
-    let store: IntentOverlay[] = [];
-
-    expect(needsParse("a1", fpA, store)).toBe(true); // never parsed
-    store = [overlay({ id: "ov-1", activityId: "a1", noteFingerprint: fpA, status: "active" })];
-    expect(needsParse("a1", fpA, store)).toBe(false); // parsed
-
-    // athlete edits the note
-    expect(needsParse("a1", fpB, store)).toBe(true);
-    store = [
-      { ...store[0], supersededBy: "ov-2" },
-      overlay({ id: "ov-2", activityId: "a1", noteFingerprint: fpB, status: "active" }),
-    ];
-    expect(needsParse("a1", fpB, store)).toBe(false);
-    expect(needsParse("a1", fpA, store)).toBe(true); // the OLD note would re-parse if it came back
-
-    // a human disables the correction
-    store = [store[0], { ...store[1], status: "disabled" as const }];
-    expect(needsParse("a1", fpB, store)).toBe(false); // stays off
-  });
+  it("decides correctly across absent → active → edited → superseded → disabled", () => { /* … */ });
+  it("does NOT re-parse a disabled or a pending record", () => { /* … */ });
 });
 
-describe("buildIntentQueue", () => {
-  const ftp = () => 288;
-  const ledger = (over: Partial<RideScoreEntry> & { date: string }): RideScoreEntry => ({ /* … */ } as RideScoreEntry);
-
-  it("enqueues an unplanned primary ride with a note", () => {
-    const acts = [activity({ date: "2026-01-05", id: "a1", description: "45 min Z2" })];
-    const q = buildIntentQueue(acts, [ledger({ date: "2026-01-05", planned: false, activityId: "a1" })], [], "2026-01-10");
-    expect(q.map((i) => i.activityId)).toEqual(["a1"]);
-    expect(q[0].note).toBe("45 min Z2");
-  });
-
-  it("NEVER enqueues a prescribed ride, however good its note (decision #14)", () => {
-    const acts = [activity({ date: "2026-01-05", id: "a1", description: "45 min Z2" })];
-    const q = buildIntentQueue(acts, [ledger({ date: "2026-01-05", planned: true, activityId: "a1" })], [], "2026-01-10");
-    expect(q).toEqual([]);
-  });
-
-  it("enqueues a note-less ride too — it still needs a deterministic no-intent-found decision", () => {
-    const acts = [activity({ date: "2026-01-05", id: "a1", description: null })];
-    const q = buildIntentQueue(acts, [ledger({ date: "2026-01-05", planned: false, activityId: "a1" })], [], "2026-01-10");
-    expect(q).toHaveLength(1);
-    expect(q[0].note).toBe("");
-  });
-
-  it("enqueues only the primary ride of a two-ride date", () => {
-    const acts = [
-      activity({ date: "2026-01-05", id: "short", movingTimeSec: 1800, description: "spin" }),
-      activity({ date: "2026-01-05", id: "long", movingTimeSec: 5400, description: "45 min Z2" }),
-    ];
-    const q = buildIntentQueue(acts, [ledger({ date: "2026-01-05", planned: false, activityId: "long" })], [], "2026-01-10");
-    expect(q.map((i) => i.activityId)).toEqual(["long"]);
-  });
-
-  it("skips an activity with no ledger entry at all", () => {
-    // No frozen row means nothing for an overlay to layer over (a zero-duration ride, or one outside
-    // the ledger's 400-entry cap). Writing an overlay for it would create an orphan.
-    const acts = [activity({ date: "2026-01-05", id: "a1", description: "45 min Z2" })];
-    expect(buildIntentQueue(acts, [], [], "2026-01-10")).toEqual([]);
-  });
-
-  it("skips future-dated activities", () => {
-    const acts = [activity({ date: "2026-01-20", id: "a1", description: "45 min Z2" })];
-    expect(buildIntentQueue(acts, [ledger({ date: "2026-01-20", planned: false, activityId: "a1" })], [], "2026-01-10")).toEqual([]);
-  });
-
-  it("returns newest first, so a bounded run always processes the most relevant rides", () => {
-    const acts = ["2026-01-03", "2026-01-05", "2026-01-04"].map((d, i) => activity({ date: d, id: `a${i}`, description: "45 min Z2" }));
-    const entries = acts.map((a) => ledger({ date: a.date, planned: false, activityId: a.id }));
-    expect(buildIntentQueue(acts, entries, [], "2026-01-10").map((i) => i.date)).toEqual(["2026-01-05", "2026-01-04", "2026-01-03"]);
-  });
-
-  it("is idempotent — a second call after the overlays are written returns nothing", () => {
-    const acts = [activity({ date: "2026-01-05", id: "a1", description: "45 min Z2" })];
-    const entries = [ledger({ date: "2026-01-05", planned: false, activityId: "a1" })];
-    const q1 = buildIntentQueue(acts, entries, [], "2026-01-10");
-    const written = [overlay({ id: "ov-1", activityId: "a1", noteFingerprint: q1[0].fingerprint, status: "active" })];
-    expect(buildIntentQueue(acts, entries, written, "2026-01-10")).toEqual([]);
+describe("primaryRideOfDate", () => {
+  it("matches the activityId buildRideScores stamps, ties included", () => {
+    // Cross-module: buildRideScores keeps the FIRST ride on an exact tie (strict `>`). A helper using
+    // `>=` would bind an overlay to a ride the ledger never scored — invisible to either module alone.
   });
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+Plus: prescribed rides never enqueue; note-less rides *do* enqueue (they need a deterministic
+`no-intent-found`); future dates drop; a date with no ledger entry drops; newest-first ordering;
+idempotent second call.
 
-```bash
-npx vitest run lib/intent-queue.test.ts
-```
-
-Expected: FAIL — `Failed to resolve import "./intent-queue"`.
-
-- [ ] **Step 3: Create `lib/intent-queue.ts`**
-
-Pure, no I/O. `import { createHash } from "crypto"`. Implement exactly the rules in questions 4–6
-above. Required properties, each already pinned by Step 1:
-
-- `normalizeNote` = `(d ?? "").trim().replace(/\s+/g, " ")`; `noteFingerprint` = first 16 hex of
-  `sha256` over it.
-- `primaryRideOfDate` filters `type === "Ride" || type === "VirtualRide"` and `movingTimeSec > 0`,
-  then reduces with a **strict** `>` in array order — the identical comparison and order
-  `buildRideScores` uses. Add the comment explaining why `>=` would be wrong.
-- `needsParse` scans **all** overlays (not `isApplicable`) — carry the table from question 4 as a
-  comment above it.
-- `buildIntentQueue` indexes entries by `date`, requires `entry.planned === false`, requires the
-  activity to be `primaryRideOfDate`, requires `activity.date <= today`, then applies `needsParse`;
-  sorts descending by date. It does **not** slice to `INTENT_MAX_PER_RUN` — that is the runner's call,
-  so the queue length stays an honest `remaining` count.
-
-- [ ] **Step 4: Run the tests, then the full check**
-
-```bash
-npx vitest run lib/intent-queue.test.ts && npm run check
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add lib/intent-queue.ts lib/intent-queue.test.ts
-git commit -m "$(cat <<'EOF'
-feat(scoring): derive the intent-parse queue from stores, not persisted state
-
-An activity needs a parse iff it is an unplanned primary ride with a ledger row
-and no unsuperseded overlay for its current note fingerprint. Derivable means
-idempotent for free: a re-run after a successful write returns nothing.
-
-The skip test reads ALL overlays rather than the applicable ones. Using
-isApplicable — the natural-looking choice, and the exact shape of all four Phase
-2a bugs — would re-parse and re-bill every disabled and pending record on every
-sync, resurrecting decisions a human deliberately made.
-
-primaryRideOfDate uses the ledger's own strict comparison and array order so an
-overlay can never bind to a ride buildRideScores didn't stamp.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+- [ ] **Step 2:** run → FAIL. **Step 3:** implement. **Step 4:** `npx vitest run lib/intent-queue.test.ts && npm run check`.
+- [ ] **Step 5: Commit** — `feat(scoring): derive the intent-parse queue`, body covering the
+  all-statuses skip rule, the `autoFromDate` floor, and the ledger/primary binding requirement.
 
 ---
 
-### Task 3: Deterministic scoreability and objective grading
+### Task 4: Canonicalisation, grading, and the evidence-scope gate
 
-**Files:**
-- Create: `lib/intent-scoring.ts`, `lib/intent-scoring.test.ts`
+**Files:** create `lib/intent-scoring.ts`, `lib/intent-scoring.test.ts`
 
-**Interfaces:**
-- Consumes: `StructuredIntent`, `ScoredObjective`, `ObjectiveKind`, `IntentInterpretation`,
-  `NotScoredReason`, `IntentOverlay`, `WorkoutType`, `ActivitySummary`, `ExecutedInterval`.
-- Produces:
-  - `export const INTENT_SCORING_VERSION = 1`
-  - `export const INTENT_MIN_COVERED_MIN`, `INTENT_COVERAGE_MIN`, `GRADABLE_KINDS_BY_CONFIDENCE`
-  - `verifyGrounding(objective, normalizedNote): boolean`
-  - `gradableObjectives(objectives, confidence, normalizedNote): ScoredObjective[]`
-  - `gradeObjective(objective, evidence: RideEvidence): ScoredObjective` — fills `scored`, `coveredMin`, `evidence`, and an internal `delta`
-  - `assessScoreability(objectives, durationMin): { scoreable: boolean; coveredMin: number; reason: NotScoredReason | null }`
-  - `scoreIntentExecution(interpretation, evidence): { score: number | null; objectives: ScoredObjective[]; reason: NotScoredReason | null }`
-  - `intentWorkoutType(intent: StructuredIntent): WorkoutType | null`
-  - `buildOverlay(args): IntentOverlay`
-  - `export interface RideEvidence { durationMin: number; powerZoneTimes: number[] | null; hrZoneTimes: number[] | null; laps: ExecutedInterval[]; ftp: number }`
+**Produces:** `INTENT_SCORING_VERSION = 1`, `INTENT_MIN_SCOPE_MIN`, `INTENT_SCOPE_MIN_FRACTION`,
+`GRADABLE_KINDS_BY_CONFIDENCE`, `canonicalise(objectives)`, `zoneMinutes(evidence, zone)`,
+`matchLaps(target, laps)`, `gradeObjective`, `evidenceScope`, `assessScoreability`,
+`scoreIntentExecution`, `intentWorkoutType`, `buildOverlay`,
+`RideEvidence { durationMin, isIndoor, powerZoneTimes, hrZoneTimes, laps, ftp }`.
 
-Task 5 consumes `scoreIntentExecution` and `buildOverlay`.
+Implements questions 1, 3, 6, 7 and 8. **Never imports the SDK, never reads `activity.decoupling`,
+never sees the ride's existing execution score** — all three pinned by test.
 
-**This module never imports the Anthropic SDK, never reads `activity.decoupling`, and never sees a
-ride's existing execution score.** All three are pinned by tests (question 8a).
+Score model: baseline 5, one clamped contribution per kind (mean of that kind's canonical members),
+summed, clamped to 1–10. `structure` is **reward-only** (+1 in order, 0 otherwise) — an out-of-order
+reading is at least as likely to be the parser mis-ordering an ambiguous note as the athlete riding
+out of order, and design §6 forbids penalising a self-directed ride for its own structure.
 
-**The score model.** Start from the same baseline the prescribed scorer uses (5), then apply one
-bounded delta per graded objective, then clamp to 1–10 — deliberately the same shape as
-`computeExecutionScore` so the two scales are at least structurally alike, which is the
-precondition question 3 names for ever pooling them:
+- [ ] **Step 1: Failing tests.** Required:
 
-| kind | graded from | delta |
-|---|---|---|
-| `duration` | `durationMin / target.durationMin` | ≥95% → +2 · ≥85% → +1 · ≥70% → 0 · ≥55% → −1 · else −2 |
-| `zone-time` | measured minutes in the zone ÷ target minutes | same band table as `duration` |
-| `zone-emphasis` | measured share of ride in the zone | ≥60% → +2 · ≥45% → +1 · ≥30% → 0 · else −1 |
-| `effort` | best matching lap's avg watts ÷ target watts (lap matched by duration, ±20%, nearest) | the `computeExecutionScore` non-SIT adherence table (95–106 → +2 …) |
-| `structure` | stated phase order vs the laps' chronological zone order | in order → +1 · else 0 (**never negative** — see below) |
-| `qualitative` | — | never graded, never contributes |
-
-**`structure` is reward-only, on purpose.** An out-of-order reading is at least as likely to be the
-interpreter mis-ordering an ambiguous note as the athlete riding out of order — and design §6's "the
-scorer must not penalize … deviation from the optional morning suggestion / absence of a formal
-block" rests on the principle that structural facts about a self-directed ride are not failures. A
-bonus is not circular; a penalty would grade the athlete on the parser's confidence.
-
-**Missing data is never a failure** (design §13). When the evidence a grader needs is absent
-(`powerZoneTimes === null`, no matching lap), the objective is returned `measurable: true,
-scored: false, coveredMin: 0, evidence: "no <x> data"` and contributes **no delta** — it simply
-doesn't count toward coverage either, which is the honest consequence.
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `lib/intent-scoring.test.ts`. Required cases, at minimum:
-
-*Grounding*
-- an objective whose `target.durationMin: 5, reps: 4` is absent from the note `"some Z4 and Z5 efforts"` is not grounded, at every confidence (design §5.2's literal example);
-- an objective whose numbers all appear in the note is grounded;
-- the deterministic check **overrides a model-claimed `grounded: true`** it cannot confirm, and never overrides `false` upward.
-
-*Confidence is one-way — the decisive test*
+*The one-way confidence rule*
 ```ts
-it("confidence can only ever shrink the gradable set, never grow it", () => {
-  // The single rule this phase must not get wrong. Run every fixture at all three confidences and
-  // assert monotonicity; a bug that let `high` license something the deterministic gate rejected
-  // would be invisible in any per-confidence example test.
+it("confidence can only shrink the gradable set, never grow it", () => {
   for (const objectives of FIXTURES) {
-    const hi = gradableObjectives(objectives, "high", NOTE).length;
-    const mid = gradableObjectives(objectives, "medium", NOTE).length;
-    const lo = gradableObjectives(objectives, "low", NOTE).length;
-    expect(mid).toBeLessThanOrEqual(hi);
-    expect(lo).toBe(0);
+    expect(gradableObjectives(objectives, "medium", NOTE).length)
+      .toBeLessThanOrEqual(gradableObjectives(objectives, "high", NOTE).length);
+    expect(gradableObjectives(objectives, "low", NOTE).length).toBe(0);
   }
 });
-
-it("a `low` confidence interpretation is intent-unreliable even with perfect grounded objectives", () => {
-  const r = scoreIntentExecution(interpretation({ confidence: "low", objectives: [perfectDuration] }), evidence());
-  expect(r.score).toBeNull();
-  expect(r.reason).toBe("intent-unreliable");
-});
-
-it("`high` confidence cannot rescue a ride the coverage gate rejects", () => {
-  const r = scoreIntentExecution(
-    interpretation({ confidence: "high", objectives: [nineMinuteEffort] }), // 9 min of a 118 min ride
-    evidence({ durationMin: 118 })
-  );
-  expect(r.score).toBeNull();
-  expect(r.reason).toBe("no-measurable-objectives");
+it("`high` cannot rescue a ride the scope gate rejects", () => {
+  // 9-min effort, 118-min ride → scope 9 < max(20, 39)
+  expect(scoreIntentExecution(interp({ confidence: "high", objectives: [nineMinEffort] }), evidence({ durationMin: 118 })).reason)
+    .toBe("no-measurable-objectives");
 });
 ```
 
-*The coverage gate*
-- exactly at the boundary (`coveredMin === Math.max(20, 0.33 * durationMin)`) → scoreable;
-- one minute under → `no-measurable-objectives`;
-- a `duration` objective alone always covers the full ride and passes;
-- **a claim the ride didn't fulfil reduces coverage**: `"3 hours of Z2"` on a 40-minute ride scores the
-  duration objective badly *and* fails coverage — assert the reason is `no-measurable-objectives`, not
-  a low score. Use durations that avoid `.x5` pre-rounding boundaries (INVARIANT 30).
+*Evidence scope, not fulfilment — the blocker-3 correction*
+```ts
+it("a badly missed but clearly stated target SCORES LOW, it is never Not scored", () => {
+  // "3 hours of Z2" ridden for 40 minutes. The claim is about the ride's total, so the whole ride is
+  // the evidence: the gate passes and the duration axis reports the failure honestly.
+  const r = scoreIntentExecution(interp({ objectives: [obj("duration", { durationMin: 180 })] }), evidence({ durationMin: 40 }));
+  expect(r.reason).toBeNull();
+  expect(r.score).toBeLessThan(5);
+});
+it("a duration objective always clears the scope gate", () => { /* … */ });
+it("an effort-only note on a long ride does not", () => { /* … */ });
+```
 
-*Each grader*, including the missing-data path for each (`powerZoneTimes: null`, `laps: []`).
+*Decomposition invariance* — question 6's test verbatim, plus an `effort` variant (same effort emitted
+twice vs. once) and a `duration` variant (two duration objectives → max, not sum).
 
-*Acceptance examples, as executable fixtures* — these are the plan's real contract:
-- **14.1** (118 min, note describing 45 min Z2 → variable climbing → 9 min ~292 W → descending
-  practice, `high`): the four phases interpret; Z2, climbing and the 9-min effort are graded from
-  their own data; descending is `measurable: false, scored: false`; **no variability penalty appears
-  anywhere** (assert `objectives.every(o => o.kind !== "structure" || o.evidence !== null)` and that no
-  delta derives from VI); the score is a real number, not `2`.
-- **14.2** (119 min scouting note, `medium`): scores; grades the Z2 emphasis; grades no invented
-  interval target (assert every `scored` objective is `grounded`); `structure` is absent from the
-  graded set.
+*Every effort combination* — one test per row of question 7's table, including all four ❌ rows
+asserting `scored: false`, `scopeMin: 0`, and **no change to the score** versus omitting the objective
+entirely.
+
+*Zone semantics* — seconds→minutes conversion; `"Z2"` → index 1; aerobic prefers HR, Z3+ prefers
+power, indoor always power; `null`/short/all-zero array → ungradable with scope 0;
+```ts
+it("zone BOUNDARY definitions move the score but cannot flip scoreability", () => {
+  // Scope is presence-based, so shifting minutes across a boundary changes the grade only. This is the
+  // claim question 8 makes; assert it rather than asserting the earlier draft's false version.
+  const a = evidence({ durationMin: 90, zone: [1200, 3000, 1200, 0, 0, 0, 0] });
+  const b = evidence({ durationMin: 90, zone: [1200, 1800, 2400, 0, 0, 0, 0] });
+  expect(scoreIntentExecution(I, a).reason).toBe(scoreIntentExecution(I, b).reason); // both null
+  expect(scoreIntentExecution(I, a).score).not.toBe(scoreIntentExecution(I, b).score);
+});
+it("absence of zone data CAN flip scoreability, and that is intended", () => { /* … */ });
+```
+
+*Acceptance examples as executable fixtures* — use the **real notes**, read from
+`data/last-sync.json` at plan time and pasted as literals (the test must not read `data/`):
+- **14.1** — the real 455-char 2026-08-06 note, `high`: four phases interpret; Z2, climbing and the
+  9-min effort graded from their own data; descending is `measurable: false, scored: false`; no
+  variability-derived delta anywhere; the score is a real number, not 2.
+- **14.2** — the real 2026-08-05 note, `medium`: scores; grades the Z2 emphasis; every `scored`
+  objective is `grounded`; `structure` absent from the graded set.
 
 *Anti-contamination*
 ```ts
 it("never reads whole-ride decoupling", () => {
-  const src = readFileSync(new URL("./intent-scoring.ts", import.meta.url), "utf8");
-  expect(src).not.toMatch(/decoupling/i);
+  expect(readFileSync(new URL("./intent-scoring.ts", import.meta.url), "utf8")).not.toMatch(/decoupling/i);
 });
 ```
 
-*`intentWorkoutType`*
-- maps stated Z2/endurance → `"Z2"`, stated threshold/tempo → `"Threshold"`, stated VO2/intervals → `"VO2max"`, recovery → `"Recovery"`;
-- returns `null` when the stated purpose maps to nothing;
-- **never consults intensity factor** — assert the function's signature takes only `StructuredIntent`
-  (no activity, no IF), which makes the circularity unexpressible rather than merely avoided.
+*`intentWorkoutType`* — maps stated purposes; returns `null` for unmappable; **its signature takes
+only `StructuredIntent`**, so consulting IF is unexpressible rather than merely avoided.
 
-*`buildOverlay`*
-- every combination of the five outcome rows in the 2a handoff table produces a record that
-  `isApplicable` **accepts** (round-trip through `lib/intent-overlay.ts` — the two modules must agree,
-  and a producer emitting records its own consumer rejects is precisely the 2a defect shape);
-- `effectiveWorkoutType` is `null` on every `unspecified` row;
-- `scoringVersion` is `INTENT_SCORING_VERSION` exactly when a score exists, `null` otherwise.
+*`buildOverlay`* — all five outcome rows round-trip through `isApplicable` and are **accepted** (a
+producer emitting records its own consumer rejects is the 2a defect shape); `effectiveWorkoutType` is
+null on every `unspecified` row; `scoringVersion` is set exactly when a score exists.
 
-- [ ] **Step 2: Run the tests to verify they fail**
-
-```bash
-npx vitest run lib/intent-scoring.test.ts
-```
-
-Expected: FAIL — `Failed to resolve import "./intent-scoring"`.
-
-- [ ] **Step 3: Create `lib/intent-scoring.ts`**
-
-Implement to the tests. Header comment must state: pure, no I/O, no SDK, no decoupling, and that the
-deterministic layer is the sole authority on scoreability (INVARIANT 12 + locked decision #7).
-
-- [ ] **Step 4: Run the tests, then the full check**
-
-```bash
-npx vitest run lib/intent-scoring.test.ts && npm run check
-```
-
+- [ ] **Step 2:** run → FAIL. **Step 3:** implement. **Step 4:** `npx vitest run lib/intent-scoring.test.ts && npm run check`.
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -1014,17 +850,19 @@ git add lib/intent-scoring.ts lib/intent-scoring.test.ts
 git commit -m "$(cat <<'EOF'
 feat(scoring): score self-directed intent deterministically
 
-Grounding, kind-eligibility and a measured-coverage gate decide scoreability
-before confidence is consulted; confidence can then only shrink the gradable set
-or veto it. There is no path by which a high-confidence parse licenses a score the
-deterministic gate rejected — pinned by a monotonicity test rather than per-level
-examples, which would not have caught the inverse.
+Grounding, kind-eligibility and an evidence-scope gate decide scoreability before
+confidence is consulted; confidence can then only shrink the gradable set or veto
+it. Pinned by a monotonicity test rather than per-level examples, which would not
+catch the inverse.
 
-Coverage counts MEASURED minutes, not claimed ones, so an unfulfilled claim costs
-both score and coverage instead of passing the gate on a fiction. Missing data is
-never a failed metric: an ungradable objective contributes no delta and no
-coverage. Structure is reward-only — an out-of-order reading is as likely to be
-the parser's ambiguity as the athlete's.
+Scope measures how much of the ride the evidence SPEAKS ABOUT, never how much of
+it went well: a clearly stated target the athlete missed now scores low instead of
+becoming Not scored. Scope is the MAXIMUM across objectives, not a union — zone
+arrays are whole-ride aggregates and lap indices carry no stated sample interval,
+so a union would be a number we cannot actually compute.
+
+Objectives are canonicalised and aggregated per kind so the model cannot move the
+score by choosing how to split or duplicate one intent.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -1033,627 +871,480 @@ EOF
 
 ---
 
-### Task 4: The LLM seam — schema, prompt, call, pricing
+### Task 5: The LLM seam — schema, prompt, call, pricing
 
-**Files:**
-- Create: `lib/intent-schema.ts`, `lib/intent-schema.test.ts`, `lib/intent-prompt.ts`, `lib/intent-prompt.test.ts`
-- Modify: `lib/anthropic-api.ts`, `lib/ai-usage.test.ts`
+**Files:** create `lib/intent-schema.ts`, `lib/intent-schema.test.ts`, `lib/intent-prompt.ts`,
+`lib/intent-prompt.test.ts`; modify `lib/anthropic-api.ts`, `lib/ai-usage.test.ts`
 
-**Interfaces:**
-- Produces:
-  - `INTENT_TOOL` (Anthropic tool definition), `IntentToolSchema` (zod), `parseIntentToolOutput(input: unknown): IntentInterpretation | null`
-  - `buildIntentPrompt(note: string, durationMin: number): string`, `INTENT_PROMPT_VERSION = 1`
-  - `parseRideIntent(note: string, durationMin: number): Promise<IntentInterpretation | null>` in `anthropic-api.ts`
+**Model:** `GENERATION_MODEL` (`claude-sonnet-4-6`), already priced. Not `QUICK_MODEL`: the value of
+this call is disciplined refusal to invent specificity — a judgement task — and the token count is a
+note plus a schema, so cost is negligible against the correctness risk.
 
-**Model:** `GENERATION_MODEL` (`claude-sonnet-4-6`), already in `PRICING`. Not `QUICK_MODEL`: the whole
-value of this call is disciplined refusal to invent specificity, which is a judgement task, and the
-per-parse token count is tiny (a note plus a tool schema) so the cost difference is negligible against
-the correctness risk.
+**`INTENT_PROMPT_VERSION = 1` is separate from `PROMPT_VERSION`** — a deliberate deviation from the 2a
+handoff note. `PROMPT_VERSION` is stamped on `GeneratedPlan`, `TodayAnalysis` and `BlockHistoryEntry`
+(INVARIANT 16); bumping it for an unrelated new prompt asserts a change to three artifact families
+that didn't change. Recorded in Task 9 as INVARIANT 47.
 
-**`INTENT_PROMPT_VERSION` is separate from `PROMPT_VERSION` — a deliberate deviation from the Phase 2a
-plan's handoff note**, which said 2b's call site "bumps `PROMPT_VERSION`". `PROMPT_VERSION` is stamped
-onto `GeneratedPlan`, `TodayAnalysis` and `BlockHistoryEntry` (INVARIANT 16) and means *those*
-prompts changed. Bumping it for a new, unrelated prompt would assert a change to three artifact
-families that didn't change and would invalidate their provenance comparisons. A sibling constant,
-versioned independently and stamped only on `IntentInterpretation.promptVersion`, is what the
-invariant actually asks for. Task 8 records this in INVARIANTS 16.
+**The tool schema is where "the model never computes a number" is enforced** — `.strict()` objects with
+no field for a score, percentage, compliance figure, drift value or evidence verdict.
 
-**The tool schema is where "the model never computes a number" is enforced.** It has no field for a
-score, a percentage, a compliance figure, a decoupling value or an evidence verdict — those are
-unexpressible, not merely discouraged. What it returns:
+- [ ] **Step 1: Failing tests.**
 
+`intent-schema.test.ts` — valid output parses; output carrying `score`/`executionScore`/`decoupling`
+is rejected by `.strict()`; missing `confidence`, unknown `kind` or non-array `objectives` yields
+`null` rather than throwing; a model-claimed `grounded: true` passes through **unverified** here (the
+schema does not re-verify — `lib/intent-grounding.ts` does; assert the boundary so the responsibility
+isn't duplicated in two places that can drift).
+
+`intent-prompt.test.ts`:
+```ts
+const NOTE_455 = "…"; // the literal 2026-08-06 acceptance note, 455 chars
+const NOTE_823 = "…"; // the literal longest note in the corpus, 823 chars
+
+it("does not truncate the real acceptance note (455 chars)", () => {
+  expect(NOTE_455.length).toBe(455);                       // guard the fixture itself
+  expect(buildIntentPrompt(NOTE_455, 118)).toContain(NOTE_455);
+});
+it("does not truncate the longest note in the real corpus (823 chars)", () => {
+  expect(NOTE_823.length).toBe(823);
+  expect(buildIntentPrompt(NOTE_823, 120)).toContain(NOTE_823);
+});
+it("marks a note it does truncate, so the model knows it sees a fragment", () => {
+  expect(buildIntentPrompt("x".repeat(INTENT_NOTE_MAX_CHARS + 50), 60)).toContain("[note truncated]");
+});
+it("carries no ride metrics at all", () => {
+  const p = buildIntentPrompt(NOTE_455, 118);
+  for (const leak of ["decoupling", "TSS", "IF ", "NP ", "execution score", "15.7"]) expect(p).not.toContain(leak);
+});
+it("states the refusal-of-invented-specificity rule verbatim", () => { /* so a later edit fails a test */ });
+it("is deterministic", () => { expect(buildIntentPrompt(NOTE_455, 118)).toBe(buildIntentPrompt(NOTE_455, 118)); });
 ```
-primaryPurpose: string
-phases: [{ description, kind, durationMin?, targetZone?, targetWatts?, reps? }]
-objectives: [{ description, kind, target?, grounded, sourceText }]
-confidence: "high" | "medium" | "low"
-```
 
-- [ ] **Step 1: Write the failing tests**
-
-`lib/intent-schema.test.ts`:
-- valid tool output parses into an `IntentInterpretation`;
-- output containing an unexpected `score` / `executionScore` / `decoupling` key is **rejected or
-  stripped** (assert the parsed result carries no such field — zod `.strict()` on the objects);
-- a missing `confidence`, an unknown `kind`, or a non-array `objectives` yields `null` rather than
-  throwing (the caller degrades to `interpreter-failed`);
-- an objective claiming `grounded: true` is passed through unchanged — the schema does not verify
-  grounding, `lib/intent-scoring.ts` does (assert the module boundary explicitly so the responsibility
-  isn't duplicated in two places that can drift).
-
-`lib/intent-prompt.test.ts`:
-- the prompt contains the note verbatim (truncated at a stated cap — mirror `buildRideAnalysisPrompt`'s
-  400-char slice) and the ride duration;
-- **the prompt contains no ride metrics at all**: assert it does not contain `decoupling`, `IF `,
-  `TSS`, `NP`, `watts` figures from the activity, or any execution score. Feed a `RideEvidence`-shaped
-  object into the test's scope and assert none of its numbers appear;
-- the prompt instructs refusal of invented specificity (assert the literal rule text is present, so a
-  later edit that drops it fails a test rather than silently weakening the contract);
-- the prompt is deterministic — same inputs, byte-identical output.
-
-`lib/ai-usage.test.ts` (add):
+`ai-usage.test.ts` — every model id a call site uses is priced:
 ```ts
 it("prices every model id any call site actually uses (INVARIANT 18)", () => {
-  // An unknown id silently records $0. This asserts the pair rather than the table, so adding a call
-  // site with a new model fails here instead of quietly under-reporting spend.
   for (const model of [GENERATION_MODEL, QUICK_MODEL]) {
     expect(estimateCostUsd(model, { input_tokens: 1_000_000, output_tokens: 0 })).toBeGreaterThan(0);
   }
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
-
-```bash
-npx vitest run lib/intent-schema.test.ts lib/intent-prompt.test.ts lib/ai-usage.test.ts
-```
-
-- [ ] **Step 3: Create `lib/intent-schema.ts` and `lib/intent-prompt.ts`**
-
-Follow `lib/retrospective-schema.ts` and `lib/narrative-critic.ts` for shape — those are the two
-existing tool-use call sites and this must not invent a third convention.
-
-- [ ] **Step 4: Add `parseRideIntent` to `lib/anthropic-api.ts`**
-
-Thin SDK shell only (the file's stated RV-8 role). Mirror `generateStructuredRetrospective`'s
-graceful-degradation contract exactly: forced `tool_choice`, `void recordUsage(GENERATION_MODEL, response.usage)`,
-return `null` when no `tool_use` block or the schema rejects. `max_tokens: 900`, `temperature: 0.3`.
-Do **not** swallow a thrown SDK error here — the runner needs to distinguish "the model declined to
-produce valid structure" (`null` → `intent-unreliable`) from "the call failed" (throw →
-`interpreter-failed`). Add a comment saying so; conflating them is how a transient network blip
-becomes a permanent `intent-unreliable` verdict on a perfectly good note.
-
-- [ ] **Step 5: Run the tests, then the full check**
-
-```bash
-npx vitest run lib/intent-schema.test.ts lib/intent-prompt.test.ts lib/ai-usage.test.ts && npm run check
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add lib/intent-schema.ts lib/intent-schema.test.ts lib/intent-prompt.ts lib/intent-prompt.test.ts lib/anthropic-api.ts lib/ai-usage.test.ts
-git commit -m "$(cat <<'EOF'
-feat(ai): parse activity-note intent into structured objectives
-
-The tool schema has no field for a score, a percentage or a decoupling value, so
-"the model never computes a number" is unexpressible rather than merely
-instructed. The prompt carries the note and the ride's duration and nothing else
-— a model shown no drift figure cannot report a drift verdict.
-
-INTENT_PROMPT_VERSION is versioned separately from PROMPT_VERSION: the latter is
-stamped on GeneratedPlan, TodayAnalysis and BlockHistoryEntry, and bumping it for
-an unrelated new prompt would assert a change to three artifact families that
-didn't change.
-
-parseRideIntent returns null when the model declines to produce valid structure
-but THROWS when the call fails, so a transient network blip can't become a
-permanent intent-unreliable verdict on a good note.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+- [ ] **Step 2:** run → FAIL.
+- [ ] **Step 3:** Create the schema and prompt modules. Follow `lib/retrospective-schema.ts` and
+  `lib/narrative-critic.ts` — the two existing tool-use call sites; do not invent a third convention.
+- [ ] **Step 4:** Add `parseRideIntent` to `lib/anthropic-api.ts`. Thin SDK shell only. Forced
+  `tool_choice`, `void recordUsage(GENERATION_MODEL, response.usage)`, `max_tokens: 900`,
+  `temperature: 0.3`. **Return `null` when the model produced no usable tool output; let an SDK error
+  THROW.** Comment why: conflating them turns a transient network blip into a permanent verdict
+  (question 5's retry table).
+- [ ] **Step 5:** `npx vitest run lib/intent-schema.test.ts lib/intent-prompt.test.ts lib/ai-usage.test.ts && npm run check`.
+- [ ] **Step 6: Commit** — `feat(ai): parse activity-note intent into structured objectives`, body
+  covering the unexpressible-score schema, the 2000-char cap replacing the inherited 400, and the
+  null-vs-throw contract.
 
 ---
 
-### Task 5: The runner and `POST /api/intent`
+### Task 6: The runner and `POST /api/intent`
 
-**Files:**
-- Create: `lib/intent-runner.ts`, `lib/intent-runner.test.ts`, `app/api/intent/route.ts`
-- Modify: `components/SyncProvider.tsx`
+**Files:** create `lib/intent-runner.ts`, `lib/intent-runner.test.ts`, `app/api/intent/route.ts`;
+modify `components/SyncProvider.tsx`
 
-**Interfaces:**
-- Consumes: everything from Tasks 2–4, plus `readLastSync`, `readScoreLog`, `readIntentOverlays`,
-  `updateIntentOverlays`, `readAthleteProfile`, `fetchIntervals`, `isAnthropicConfigured`.
-- Produces:
-  - `runIntentParsing(today: string, warnings: string[], opts?: { force?: string[]; limit?: number }): Promise<{ processed: number; remaining: number }>`
-  - `POST /api/intent` → `{ processed, remaining, warnings }`
+**Produces:** `runIntentParsing(today, warnings, opts?: { force?: boolean; limit?: number })
+: Promise<{ processed: number; remaining: number; stalled: boolean }>`.
 
-**The runner's decision order** — this is the whole of question 6's structural guarantee:
+**Decision order** — question 5's retry table made executable:
 
 ```
-for each queued item (newest first, up to limit):
-  1. if normalizeNote(item.note) === ""      → write no-intent-found overlay. NO client, NO call.
-  2. if !isAnthropicConfigured()             → write NOTHING; leave queued; warn once.
-  3. gather evidence (zone times from the ActivitySummary; laps via fetchIntervals, best-effort → [])
-  4. interpretation = await parseRideIntent(note, durationMin)
-       - throws  → write interpreter-failed overlay (unspecified, null score)
-       - null    → write intent-unreliable overlay (unspecified, null score)
-  5. verdict = scoreIntentExecution(interpretation, evidence)
-  6. overlay = buildOverlay({...})            → status "active" (2b auto-accepts; Phase 4 writes pending)
-  7. ONE updateIntentOverlays call: supersede every unsuperseded record for this activityId, append.
+0. read stores; if (!store.autoFromDate) initialise it to `today` and persist (one transaction)
+1. queue = buildIntentQueue(activities, entries, overlays, today, store.autoFromDate,
+                            { force: force ? [primaryRideOfDate(activities, today)?.id] : [] })
+2. for each of the first `limit` items:
+   a. normalizeNote(item.note) === ""   → write no-intent-found. NO client, NO call. processed++
+   b. !isAnthropicConfigured()          → write NOTHING; warn once; leave queued
+   c. gather evidence (zone arrays from the ActivitySummary; laps via fetchIntervals, best-effort → [])
+   d. interpretation = await parseRideIntent(note, durationMin)
+        THROWS → write NOTHING; warn; leave queued; NOT counted as processed
+        null   → write interpreter-failed; processed++
+   e. verdict = scoreIntentExecution(interpretation, evidence)
+   f. overlay = buildOverlay(...) with status "active"
+   g. ONE updateIntentOverlays call: supersede every unsuperseded record for this activityId, append
+3. return { processed, remaining: queue.length - processed, stalled: processed === 0 && remaining > 0 }
 ```
 
-Step 1 precedes step 2 deliberately: a note-less ride is decided even with no API key configured,
-because that decision needs no model.
+Step (a) precedes (b) deliberately: a note-less ride is decidable with no API key.
 
-`force: string[]` is a list of activity ids whose skip test is bypassed (the re-analyse action sends
-today's primary ride id). It never bypasses the *prescribed* or *primary-ride* rules — only
-idempotency.
-
-**Evidence gathering caveat, recorded rather than hidden.** For a non-today activity,
-`powerZoneTimes` / `hrZoneTimes` come from Intervals.icu's own zone definitions
-([intervals-api.ts:253](../../../lib/intervals-api.ts)), not the athlete's physiology store — unlike
-today's ride, which `/api/sync` re-buckets from raw streams against the athlete's own zones. The two
-can disagree at zone edges. 2b accepts Intervals' buckets rather than fetching and re-bucketing every
-historical stream (a per-ride stream fetch for a whole backlog is a materially larger change), and
-Task 8 records the limitation in the systems doc. It biases individual zone-time gradings slightly,
-never the scoreable/not-scoreable decision, which rests on relative shares.
-
-- [ ] **Step 1: Write the failing tests**
-
-`lib/intent-runner.test.ts`. Mock the data-store and Anthropic modules with `vi.mock` (follow whatever
-mocking convention the existing route/lib tests use — read one first). Required cases:
+- [ ] **Step 1: Failing tests.** Required:
 
 ```ts
 it("decides a note-less ride with NO parse call at all", async () => {
-  // Structural, not incidental: inject a parse function that throws if called. A "we skip it" that
-  // relied on ordering luck would still bill the athlete for every rest-day ride with an empty note.
-  const parse = vi.fn(() => { throw new Error("must not be called"); });
-  // …
+  // Structural, not incidental: inject a parse fn that throws if called. A skip relying on ordering
+  // luck would still bill the athlete for every rest-day ride with an empty note.
   expect(parse).not.toHaveBeenCalled();
-  expect(written[0].notScoredReason).toBe("no-intent-found");
-  expect(written[0].origin).toBe("unspecified");
-  expect(written[0].interpretation).toBeNull();
-  expect(written[0].scoringVersion).toBeNull();
+  expect(written[0]).toMatchObject({ notScoredReason: "no-intent-found", origin: "unspecified",
+                                     interpretation: null, scoringVersion: null });
 });
 
-it("writes NOTHING when Anthropic is unconfigured, leaving the ride queued", async () => { /* … */ });
-
-it("writes interpreter-failed when the call throws, and intent-unreliable when it returns null", async () => { /* … */ });
-
-it("supersedes and activates in ONE store write", async () => {
-  // The transaction, not the outcome: assert updateIntentOverlays was called exactly once and that
-  // the array it produced has the predecessor superseded AND the successor appended.
+it("a TRANSIENT failure writes nothing and leaves the ride queued", async () => {
+  // The blocker: writing interpreter-failed here would burn the fingerprint. needsParse would then
+  // skip it forever, and `force` only ever targets TODAY's ride — so a 12-day-old ride with a good
+  // note would be unrecoverable except by hand-editing JSON.
+  parse.mockRejectedValueOnce(new Error("ECONNRESET"));
+  const r = await runIntentParsing("2026-08-07", warnings);
+  expect(written).toHaveLength(0);
+  expect(r.processed).toBe(0);
+  expect(r.stalled).toBe(true);
+  expect(buildIntentQueue(acts, entries, store.overlays, "2026-08-07", boundary)).toHaveLength(1);
 });
 
-it("never leaves two unsuperseded records for one activity, across an edit sequence", async () => {
-  // The lifecycle invariant. Walk: parse → edit → re-parse → force re-analyse, asserting after EACH
-  // write that overlays.filter(o => o.activityId === "a1" && !o.supersededBy).length <= 1.
+it("failure then later success: the second run writes the overlay", async () => {
+  parse.mockRejectedValueOnce(new Error("503"));
+  await runIntentParsing("2026-08-07", warnings);
+  parse.mockResolvedValueOnce(goodInterpretation);
+  const r = await runIntentParsing("2026-08-07", warnings);
+  expect(r.processed).toBe(1);
+  expect(written).toHaveLength(1);
+  expect(written[0].notScoredReason).toBeNull();
 });
 
-it("supersedes a pending and a disabled predecessor too — the note they read is gone", async () => { /* … */ });
+it("a COMPLETED call with no usable output writes interpreter-failed", async () => { /* parse → null */ });
+it("a low-confidence parse writes intent-unreliable", async () => { /* … */ });
 
-it("respects the batch limit and reports the true remaining count", async () => { /* … */ });
+it("initialises autoFromDate to today on first run and never re-writes it", async () => { /* … */ });
+it("writes nothing for a ride before autoFromDate, even with force", async () => { /* … */ });
+
+it("supersedes and activates in ONE store write", async () => { /* assert call count === 1 */ });
+it("never leaves two unsuperseded records for one activity across an edit sequence", async () => { /* … */ });
+it("supersedes a pending and a disabled predecessor too", async () => { /* … */ });
 
 it("writes only records its own consumer accepts", async () => {
-  // Producer/consumer round-trip: every overlay this runner writes must satisfy isApplicable (for the
-  // active ones) — a producer emitting records its resolver rejects is the 2a defect shape exactly.
   for (const o of written) expect(isApplicable(o)).toBe(true);
 });
 
-it("never enqueues or writes for a prescribed ride, even with force", async () => { /* … */ });
+it("respects the batch limit and reports a truthful remaining count", async () => { /* … */ });
+it("never writes for a prescribed ride, even with force", async () => { /* … */ });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
-
-```bash
-npx vitest run lib/intent-runner.test.ts
-```
-
-- [ ] **Step 3: Create `lib/intent-runner.ts`**
-
-Mirror `lib/sync-analysis.ts`'s structure and its warning discipline (`warnings.push`, never throw out
-of the loop — one bad ride must not abort the batch).
-
-- [ ] **Step 4: Create `app/api/intent/route.ts`**
-
-Copy `app/api/analyze/route.ts`'s shape exactly: `export const maxDuration = 60`, tolerant body parse,
-`resolveToday(body?.today)` (INVARIANT 10), `force` from the body. Return
-`{ processed, remaining, warnings }`. **Do not** guard the whole route on `isAnthropicConfigured()` the
-way `/api/analyze` does — a note-less ride is still decidable without a key.
-
-- [ ] **Step 5: Wire the deferred step in `components/SyncProvider.tsx`**
-
-Extend the existing `runAnalysis` callback so the same deferred step also calls `/api/intent`, looping
-while `remaining > 0` up to 6 rounds. Reuse `analyzingRef` as the re-entrancy guard (UXA-6's lesson —
-a double-click must not double-bill). Surface warnings through the existing `setSyncWarnings`. **No new
-button and no new UI state**: `analyzing` already covers it.
-
-- [ ] **Step 6: Prove the sync route is still LLM-free**
-
-Add to whichever test file covers the sync route (or create `app/api/sync/route.llm-free.test.ts`):
-
-```ts
-it("POST /api/sync imports nothing that reaches the Anthropic SDK (INVARIANT 23)", () => {
-  // Static, not behavioural: a behavioural test passes as long as the call happens to be guarded.
-  // Walk the route's transitive local imports and assert none is @anthropic-ai/sdk.
-});
-```
-
-- [ ] **Step 7: Run the full check and commit**
-
-```bash
-npm run check
-```
-
-```bash
-git add lib/intent-runner.ts lib/intent-runner.test.ts app/api/intent/route.ts components/SyncProvider.tsx
-git commit -m "$(cat <<'EOF'
-feat(api): run intent parsing outside the LLM-free sync
-
-A sibling of /api/analyze rather than a widening of it: addCoachNote is today-only
-by construction, decision #12 needs any newly-synced or edited activity, and
-fusing the two would take today's coach note down with a failed parse of a
-12-day-old ride.
-
-A note-less ride is decided before the client is constructed, so the skip is
-structural rather than a matter of ordering luck. Supersession and activation
-happen in one updateIntentOverlays call, so the store never holds two
-unsuperseded records for one activity.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+- [ ] **Step 2:** run → FAIL. **Step 3:** implement `lib/intent-runner.ts`, mirroring
+  `lib/sync-analysis.ts`'s warning discipline (`warnings.push`, never throw out of the loop).
+- [ ] **Step 4:** Create `app/api/intent/route.ts` — copy `app/api/analyze/route.ts`'s shape:
+  `export const maxDuration = 60`, tolerant body parse, `resolveToday(body?.today)`,
+  **`force` as a boolean** (question 10). Return `{ processed, remaining, stalled, warnings }`. **Do
+  not** guard the whole route on `isAnthropicConfigured()` — a note-less ride is still decidable.
+- [ ] **Step 5:** Wire `components/SyncProvider.tsx`: extend the existing `runAnalysis` callback to
+  also call `/api/intent`, looping `while (remaining > 0 && !stalled)` up to 6 rounds, passing the
+  same `force` boolean it already has. Reuse `analyzingRef` (UXA-6 — a double-click must not
+  double-bill). Warnings through the existing `setSyncWarnings`. **No new button, no new UI state.**
+- [ ] **Step 6:** Prove sync is still LLM-free — a static test walking `app/api/sync/route.ts`'s
+  transitive local imports and asserting none is `@anthropic-ai/sdk`. Static, not behavioural: a
+  behavioural test passes as long as the call happens to be guarded.
+- [ ] **Step 7:** `npm run check`, then commit — `feat(api): run intent parsing outside the LLM-free sync`,
+  body covering the sibling-route rationale, the structural no-call short-circuit, transient-vs-terminal
+  retry, and one-transaction supersession.
 
 ---
 
-### Task 6: Thread overlays into every `buildAthleteModel` consumer
+### Task 7: Thread overlays into every `buildAthleteModel` consumer
 
-**Files:**
-- Modify: `lib/coach-snapshot.ts`, `lib/season-signals.ts`, `app/api/generate/route.ts`,
-  `app/api/write/route.ts`, `app/api/trends/route.ts`, `app/api/sync/route.ts` (three call sites)
-- Test: `lib/athlete-model.test.ts`, plus each module's own test file where one exists
+**Files:** modify `lib/coach-snapshot.ts`, `lib/season-signals.ts`, `app/api/generate/route.ts`,
+`app/api/write/route.ts`, `app/api/trends/route.ts`, `app/api/sync/route.ts` (×3); test
+`lib/athlete-model.test.ts`
 
-**Interfaces:** no signature changes — 2a already gave `buildAthleteModel` its optional second
-parameter. This task fills it in at all eight production call sites.
-
-**Re-grep first; the 2a plan's line numbers may have drifted:**
+**Re-grep first** — the 2a plan's line numbers may have drifted:
 
 ```bash
 grep -rn "buildAthleteModel(" --include='*.ts' --include='*.tsx' lib/ app/ components/ | grep -v test
 ```
 
-Expected eight, all currently one-argument: `coach-snapshot.ts:335`, `season-signals.ts:67`,
-`generate/route.ts:182`, `write/route.ts:277`, `trends/route.ts:111`, `sync/route.ts:111/720/960`.
-**If the count is not eight, stop and report** — a call site added since 2a would otherwise silently
-keep reading the ledger while its siblings read overlays, which is the 2a defect shape one more time.
+Expected **eight**, all currently one-argument. **If the count is not eight, stop and report** — a call
+site added since 2a would silently keep reading the ledger while its siblings read overlays: the 2a
+defect shape once more.
 
-`lib/coach-snapshot.ts` and `lib/season-signals.ts` are pure-ish builders taking their data in. Thread
-the overlays through their input objects rather than adding an I/O read inside them; the routes that
-call them already read stores. Confirm each builder's existing input shape before editing.
-
-- [ ] **Step 1: Write the failing test**
-
-Add to `lib/athlete-model.test.ts`:
+- [ ] **Step 1: Failing tests** — a completeness guard plus a behavioural one:
 
 ```ts
 it("every production call site passes overlays (no silent ledger-only reader left)", () => {
-  // A grep-style guard rather than eight behavioural tests. The failure this catches — one consumer
-  // still reading the raw ledger while the rest read overlays — produces two different answers to
-  // "was this ride drift" inside one request, which no single-module test can see.
-  const sources = ["lib/coach-snapshot.ts", "lib/season-signals.ts", "app/api/generate/route.ts",
-    "app/api/write/route.ts", "app/api/trends/route.ts", "app/api/sync/route.ts"];
-  for (const f of sources) {
-    const src = readFileSync(f, "utf8");
-    for (const call of src.match(/buildAthleteModel\([^)]*\)/g) ?? []) {
-      expect(call).toMatch(/,/); // two arguments, not one
-    }
-  }
+  // A source-level guard rather than eight behavioural tests. The failure it catches — one consumer
+  // still reading the raw ledger — makes a single request answer "was this ride drift" two ways, which
+  // no single-module test can see.
+  for (const f of SOURCES) for (const call of (readFileSync(f, "utf8").match(/buildAthleteModel\([^)]*\)/g) ?? []))
+    expect(call).toMatch(/,/);
 });
+it("the same entries + overlays give the same offPlanPct and sampleSize through every consumer", () => { /* … */ });
 ```
 
-Plus a behavioural lifecycle test:
-
-```ts
-it("a self-directed ride reads identically through every consumer's resolution", () => {
-  // Resolve once, feed both — asserted end-to-end rather than trusted: the same entries + overlays
-  // must give the same offPlanPct and sampleSize whichever consumer built the model.
-});
-```
-
-- [ ] **Step 2: Run to verify it fails**
-
-```bash
-npx vitest run lib/athlete-model.test.ts -t "every production call site"
-```
-
-- [ ] **Step 3: Thread the store through, one call site at a time**
-
-Each route reads `readIntentOverlays()` alongside its existing `readScoreLog()` (add it to the
-existing `Promise.all` where one exists — do not add a serial await) and passes
-`overlays.overlays`. In `app/api/sync/route.ts`, the store must be read **after** the ledger is
-written, at each of the three sites, so the model sees the same generation of data the response
-reports.
-
-- [ ] **Step 4: Run the full check and commit**
-
-```bash
-npm run check
-```
-
-```bash
-git add lib/coach-snapshot.ts lib/season-signals.ts app/api/generate/route.ts app/api/write/route.ts app/api/trends/route.ts app/api/sync/route.ts lib/athlete-model.test.ts
-git commit -m "$(cat <<'EOF'
-feat(scoring): read intent overlays in every athlete-model consumer
-
-Eight production call sites, all previously ledger-only. One left behind would
-answer "was this ride drift" differently from its siblings inside a single
-request — the Phase 2a defect shape, and invisible to any single-module test, so
-the completeness of the sweep is asserted directly.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+- [ ] **Step 2:** run → FAIL. **Step 3:** thread `readIntentOverlays()` through each site — added to
+  the existing `Promise.all` where one exists, never a serial await. In `app/api/sync/route.ts` read
+  the store **after** the ledger is written at each of the three sites, so the model sees the same
+  generation of data the response reports. `coach-snapshot.ts` and `season-signals.ts` take their data
+  in — thread through their input objects rather than adding I/O inside them.
+- [ ] **Step 4:** `npm run check`, then commit — `feat(scoring): read intent overlays in every athlete-model consumer`.
 
 ---
 
-### Task 7: Close the retrospective decoupling leak
+### Task 8: Close the retrospective decoupling leak
 
-**Files:** `app/api/retrospective/route.ts` + its test file (create if absent)
+**Files:** modify `app/api/retrospective/route.ts` + its test file (create if absent)
 
-`decoupList` at [route.ts:122](../../../app/api/retrospective/route.ts) averages `activity.decoupling`
-across every block activity with no comparability gate, and the average goes verbatim into the
-retrospective LLM prompt. On a block containing mixed climbing days that number is a ride-structure
-artifact presented to a model as durability evidence — the same defect Phase 1 fixed at the two
-debrief producers, surviving one path over. Locked decision #9: "Decoupling is segment-aware or
-absent."
-
-- [ ] **Step 1: Write the failing test** — a block whose activities include one steady endurance ride
-  and two high-VI mixed rides yields `avgDecoupling` equal to the steady ride's value alone; a block
-  with no qualifying ride yields `null` (not `0`).
-
-- [ ] **Step 2: Apply the gate** — `.filter((a) => isSteadyEnduranceRide(a, athleteProfile.performance.ftp))`
-  before the existing `.map`. Confirm `athleteProfile` is already in scope at line 122 (it is used at
-  :141); if it is read later, hoist the read rather than adding a second one. Add a comment naming
-  INVARIANT 34 and why this is `isSteadyEnduranceRide` (whole-ride comparability) and not
-  `qualifyingPwHr` (Z2-segment trustworthiness) — the two answer different questions and INVARIANT 34
-  forbids using one to gate the other's consumers.
-
-- [ ] **Step 3: Run the full check and commit**
-
-```bash
-npm run check
-```
-
-```bash
-git add app/api/retrospective/route.ts app/api/retrospective/route.test.ts
-git commit -m "$(cat <<'EOF'
-fix(retrospective): gate the block decoupling average on ride comparability
-
-The block average went verbatim into the retrospective prompt with no
-comparability gate, so a block containing mixed climbing days handed the model a
-ride-structure artifact as durability evidence. Phase 1 closed this at both
-debrief producers; this was the same gate missing one path over.
-
-isSteadyEnduranceRide, not qualifyingPwHr: this is a whole-ride comparability
-question (INVARIANT 34).
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+- [ ] **Step 1: Failing test** — a block mixing one steady endurance ride with two high-VI mixed rides
+  yields `avgDecoupling` equal to the steady ride's value alone; a block with no qualifying ride yields
+  `null`, not `0`.
+- [ ] **Step 2:** add `.filter((a) => isSteadyEnduranceRide(a, athleteProfile.performance.ftp))` before
+  the existing `.map`. Confirm `athleteProfile` is in scope at line 122 (it is used at :141); if it is
+  read later, hoist the read rather than adding a second. Comment naming INVARIANT 34 and why this is
+  `isSteadyEnduranceRide` (whole-ride comparability), not `qualifyingPwHr` (Z2-segment
+  trustworthiness) — INVARIANT 34 forbids using one to gate the other's consumers.
+- [ ] **Step 3:** `npm run check`, then commit — `fix(retrospective): gate the block decoupling average`.
 
 ---
 
-### Task 8: Real-data verification, live smoke run, docs
+### Task 9: Sandboxed real-data verification, live smoke run, docs
 
-**Files:**
-- Create (temporary, never committed): `lib/_verify-p2b.test.ts`
-- Modify: `docs/INVARIANTS.md`, `docs/systems/02-scoring-and-learning.md`,
-  `docs/systems/07-ai-layer.md`, `docs/FILE_INDEX.md`, `ROADMAP.md`, `FEATURES.md`
+**Files:** create (temporary, never committed) `lib/_verify-p2b.test.ts`; modify `docs/INVARIANTS.md`,
+`docs/systems/02-scoring-and-learning.md`, `docs/systems/07-ai-layer.md`, `docs/FILE_INDEX.md`,
+`ROADMAP.md`, `FEATURES.md`.
 
-**Safety boundary:** read `/Users/otis/Cycling App/data/*.json` with plain `readFileSync`. Never run a
-git command in that directory, never `cd` there, never write there.
+**Safety boundary — read this before running anything.** The worktree has **no `data/` directory**.
+The primary store at `/Users/otis/Cycling App/data/` is the athlete's real data, it has **no
+`intent-overlays.json`**, and this phase's whole point is that Phase 4's period must not be written
+before review. Therefore: **read the primary store, never write to it.** Every write in this task goes
+to a temporary directory via `NODEVELO_DATA_DIR`, which
+[json-store.ts:20](../../../lib/json-store.ts) reads fresh on every call. Never run a git command in
+the primary data directory, never `cd` there.
 
-- [ ] **Step 1: Backward-compatibility and inertness against the real stores**
+- [ ] **Step 1: Build the sandbox**
 
-Write `lib/_verify-p2b.test.ts` asserting, against the athlete's real `score-log.json`,
-`last-sync.json` and `intent-overlays.json`:
+```bash
+export SMOKE_DIR="$(mktemp -d -t nodevelo-p2b)"
+cp -R "/Users/otis/Cycling App/data/." "$SMOKE_DIR/"
+[ -f "$SMOKE_DIR/intent-overlays.json" ] || printf '{"overlays":[],"updatedAt":"1970-01-01T00:00:00.000Z"}\n' > "$SMOKE_DIR/intent-overlays.json"
+ls "$SMOKE_DIR" | head -30 && echo "SMOKE_DIR=$SMOKE_DIR"
+```
 
-1. **Inertness of the read path.** With the *current* (still empty, or already-written) overlay store,
-   `buildAthleteModel(entries, overlays)` reproduces `buildAthleteModel(entries)` exactly when the
-   store is empty. Print `sampleSize`, `overallExecEwma`, `behaviourAllTime.offPlanPct`,
+`cp -R` of the whole directory rather than a named subset: the dev server's GET path reads more stores
+than the runner does, and an omission would surface as a confusing 500 rather than a clean result.
+
+**Seed the boundary so the acceptance rides are in range** — legitimate only because this is a
+throwaway copy, and it also demonstrates that `autoFromDate` is doing its job:
+
+```bash
+node -e '
+const p=process.env.SMOKE_DIR+"/intent-overlays.json";
+const s=JSON.parse(require("fs").readFileSync(p,"utf8"));
+s.autoFromDate="2026-08-05";
+require("fs").writeFileSync(p, JSON.stringify(s,null,2));
+console.log("seeded autoFromDate=2026-08-05 in the SANDBOX only");
+'
+```
+
+- [ ] **Step 2: Real-data verification, against the sandbox**
+
+Write `lib/_verify-p2b.test.ts` reading `process.env.SMOKE_DIR` (fail loudly if unset — never default
+to the primary path). Assert and print:
+
+1. **Inertness.** With an empty overlay store, `buildAthleteModel(entries, [])` equals
+   `buildAthleteModel(entries)`. Print `sampleSize`, `overallExecEwma`, `behaviourAllTime.offPlanPct`,
    `driftAvgQuality`.
-2. **Queue sanity.** Print `buildIntentQueue(...).length`, how many queued items have empty notes, and
-   the date range. **Sanity-check the number by hand before proceeding** — a queue of 150 on a
-   182-day window means the primary-ride or ledger-match rule is wrong, not that the athlete writes
-   many notes.
-3. **Back-compat.** Assert every existing ledger entry still parses, that entries lacking `activityId`
-   (the pre-2a rows — expect ~most of the 400) produce no queue item bound to a wrong activity, and
-   that a literal pre-2b overlay fixture (no `effectiveWorkoutType` key) is accepted by `isApplicable`.
-4. **Primary-ride parity on real data.** For every date with ≥2 rides in the real sync window, assert
-   `primaryRideOfDate(...)?.id === ledgerEntry.activityId`. Print the count of such dates; if it is
-   zero, say so in the report rather than claiming the check passed on nothing.
+2. **Boundary.** `buildIntentQueue(..., autoFromDate = <today>)` returns **zero** items dated before
+   today — the shipped default writes nothing historical. Print the queue length at the shipped
+   boundary and at the seeded `2026-08-05` one.
+3. **Queue sanity.** Print length, empty-note count, date range at the seeded boundary. **Sanity-check
+   by hand:** the corpus has 169 rides and 29 notes; a queue much larger than the unplanned-rides count
+   in range means a rule is wrong, not that the athlete writes many notes.
+4. **Back-compat.** Every ledger entry parses; **all rows lack `activityId`** (assert the count is the
+   full ledger — if any row has one, the ledger has moved since this plan was measured and question 9's
+   mismatch branch is now live); a literal pre-2b overlay fixture with `effectiveWorkoutType` **deleted**
+   is accepted by `isApplicable`.
+5. **Primary-ride parity on real data.** For every date with ≥2 rides in the sandbox sync window,
+   assert `primaryRideOfDate(...)?.id` equals what `buildRideScores` stamps. **Print the count of such
+   dates; if it is zero, say so in the report** rather than claiming the check passed on nothing.
 
 ```bash
-npx vitest run lib/_verify-p2b.test.ts
+SMOKE_DIR="$SMOKE_DIR" npx vitest run lib/_verify-p2b.test.ts
 ```
 
 **If any assertion fails, STOP and report.** Do not adjust the test to match.
 
-- [ ] **Step 2: The live smoke run** (AGENTS.md's fourth recurring bug class; INVARIANT 19)
+- [ ] **Step 3: The live smoke run** (AGENTS.md's fourth recurring bug class; INVARIANT 19)
 
-Unit tests prove the scaffolding, never the real call. With `ANTHROPIC_API_KEY` set and the dev server
-running:
-
+In one terminal:
 ```bash
-npm run dev
-```
-```bash
-curl -sf -X POST http://127.0.0.1:3000/api/intent -H 'content-type: application/json' -d '{"today":"<local YYYY-MM-DD>"}' | head -50
+NODEVELO_DATA_DIR="$SMOKE_DIR" npm run dev
 ```
 
-Then **read the actual output**, not just the status code. Record in the report:
+In another:
+```bash
+curl -sf -X POST http://127.0.0.1:3000/api/intent -H 'content-type: application/json' -d '{"today":"2026-08-07"}' | head -60
+```
+```bash
+cat "$SMOKE_DIR/intent-overlays.json"
+```
 
-- how many rides were processed and how many remain;
-- for at least one real self-directed ride: the raw note, the parsed `primaryPurpose` and objectives,
-  the `confidence`, which objectives were graded and which acknowledged, the `coveredMin`, the final
-  `effectiveExecutionScore` or `notScoredReason`, and the `effectiveWorkoutType`;
-- the resulting `data/intent-overlays.json` record in full;
-- the delta in `data/ai-usage.json` (tokens + cost for the call).
+Then **read and judge the actual output**, not the status code. Record in the report:
 
-**Judge the output, don't just observe it.** Specifically check: did the model invent any number not
-in the note? Did it mark a qualitative objective as measurable? Is the score defensible against the
-note a human would read? If the answer to any of those is bad, that is a finding to report — a
-syntactically valid response is not a correct one. Re-run against the two acceptance-example rides
-(2026-08-05 and 2026-08-06) with `force` if they are still in the sync window; those are the
-screenshots the whole design exists to fix, and "no longer 2/10 Poor" is the concrete acceptance bar.
+- `processed` / `remaining` / `stalled`;
+- for the 2026-08-06 acceptance ride: the raw note, parsed `primaryPurpose` and objectives, the
+  `confidence`, which objectives were graded vs. acknowledged, each one's `scopeMin`, the
+  `evidenceScopeMin`, the final `effectiveExecutionScore` or `notScoredReason`, and
+  `effectiveWorkoutType`;
+- the same for 2026-08-05 (design §14.2 — expect `medium`);
+- the full overlay records;
+- the token/cost delta in `$SMOKE_DIR/ai-usage.json`.
 
-- [ ] **Step 3: Delete the verification script**
+**Judgement questions, each of which is a finding if the answer is bad:** did the model invent a number
+absent from the note? Did grounding catch it if so? Did it mark a qualitative objective measurable? Is
+the score defensible against the note a human would read? A syntactically valid response is not a
+correct one. **Note that the ride card would still show the old ledger score** — that is expected in
+2b (see "What this phase changes"), and the acceptance bar here is a defensible overlay, not a changed
+card.
+
+- [ ] **Step 4: Tear down the sandbox**
+
+```bash
+rm -rf "$SMOKE_DIR" && unset SMOKE_DIR && echo "sandbox removed"
+```
+```bash
+ls "/Users/otis/Cycling App/data/intent-overlays.json" 2>&1
+```
+Expected: **`No such file or directory`** — proof the primary store was never written. If the file
+exists, **stop and report**: something ran without `NODEVELO_DATA_DIR`.
+
+- [ ] **Step 5: Delete the verification script**
 
 ```bash
 rm lib/_verify-p2b.test.ts && git status --short lib/_verify-p2b.test.ts
 ```
-
 Expected: no output.
 
-- [ ] **Step 4: Update `docs/INVARIANTS.md`**
-
-Extend the existing `## Ride origin & intent overlays` section (do not renumber 36–40):
+- [ ] **Step 6: `docs/INVARIANTS.md`** — extend the existing `## Ride origin & intent overlays` section
+  (do not renumber 36–40):
 
 ```markdown
-41. **The deterministic gate decides scoreability; confidence may only downgrade.** `assessScoreability`
-    (`lib/intent-scoring.ts`) requires ≥1 grounded, kind-eligible objective and measured coverage of
-    `max(INTENT_MIN_COVERED_MIN, INTENT_COVERAGE_MIN × ride minutes)`. `low` confidence vetoes
-    unconditionally; `medium` drops the `structure` kind; **no confidence level can make a ride
-    scoreable that the gate rejected.** Coverage counts MEASURED minutes, never claimed ones.
-42. **The intent parser is shown the note and the ride's duration — nothing else.** No decoupling, no
-    scores, no zone data (`lib/intent-prompt.ts`, pinned by test). The tool schema has no field for a
-    score, percentage or drift value, so INVARIANT 12 is unexpressible rather than instructed.
-43. **A note-less ride is decided without an LLM call.** The empty-note branch precedes client
-    construction in `lib/intent-runner.ts`; the empty note's fingerprint is stable so the ride is
-    decided exactly once.
-44. **Overlay idempotency reads ALL records, not applicable ones.** `needsParse` skips on any
-    unsuperseded record for the `(activityId, noteFingerprint)` pair — including `disabled` (a human
-    decision) and `pending` (Phase 4's, awaiting review). Supersession and activation happen in one
-    `updateIntentOverlays` transaction; the store never holds two unsuperseded records for one activity.
-45. **An overlay binds to the date's primary (longest) ride**, selected by `primaryRideOfDate` with the
-    identical strict comparison and array order `buildRideScores` uses to stamp `activityId` — including
-    the first-wins tie-break. A cross-module test asserts the two agree.
-46. **`effectiveWorkoutType` is provenance, not a learning input.** It records the type the athlete
-    STATED (never one inferred from IF) and may only accompany `origin: "self-directed"`. Per-type
-    learning stays prescribed-only (INVARIANT 40) until the prescribed and self-directed 1–10 scales are
-    shown comparable on a real corpus AND compliance gains a meaning for rides that have none.
-47. **`INTENT_PROMPT_VERSION` is versioned independently of `PROMPT_VERSION`.** The latter is stamped on
+41. **Phase 2b writes only on/after `autoFromDate`.** `IntentOverlayStore.autoFromDate` is a persisted
+    floor, initialised on first run to that day's local date (truthy check — a 2a store parses it back
+    `undefined`). Rides before it belong to Phase 4's human-reviewed repair (design §11, decision #10);
+    2b writes nothing there, not even `pending`. `force` bypasses idempotency, never the boundary.
+42. **The deterministic gate decides scoreability; confidence may only downgrade.** ≥1 grounded,
+    kind-eligible objective plus evidence scope ≥ `max(INTENT_MIN_SCOPE_MIN, INTENT_SCOPE_MIN_FRACTION ×
+    ride minutes)`. `low` vetoes; `medium` drops `structure`; **no level can make a ride scoreable that
+    the gate rejected.**
+43. **Evidence scope is what the evidence SPEAKS ABOUT, never what went well.** A clearly stated target
+    the athlete missed scores low; it never becomes `Not scored`. Scope is the **maximum** across
+    objectives, not a union — zone arrays are whole-ride aggregates and lap indices carry no stated
+    sample interval, so a union is not computable from the available evidence.
+44. **Grounding is semantic and field-specific.** Zone tokens are masked out before any numeric scan, so
+    the `4` in `Z4` can never ground `reps: 4` nor the `5` in `Z5` ground `durationMin: 5`. Each field
+    requires its own unit-bearing form. `verifyGrounding` may only lower the model's claim.
+45. **Objective decomposition cannot move the score.** Objectives are canonicalised (duration → max,
+    zone-time → summed per zone, effort/emphasis → deduped) and aggregated one clamped contribution per
+    kind, so duplicated or differently split representations of one intent score identically.
+46. **The intent parser is shown the note and the ride's duration — nothing else.** No decoupling, no
+    scores, no zone data. The tool schema has no field for a score, percentage or drift value, so
+    INVARIANT 12 is unexpressible rather than instructed. Note cap is `INTENT_NOTE_MAX_CHARS` (2000),
+    dedicated — the ride-analysis prompt's 400 would truncate the real corpus.
+47. **A note-less ride is decided without an LLM call**, structurally: the empty-note branch precedes
+    client construction, and the empty note's fingerprint is stable so the ride is decided once.
+48. **Overlay idempotency reads ALL records, not applicable ones**, and a **transient** call failure
+    writes nothing. `needsParse` skips on any unsuperseded record for `(activityId, noteFingerprint)` —
+    including `disabled` and `pending`. Writing a terminal record on a network error would burn the
+    fingerprint and permanently skip a non-today ride, which `force` (today-only) could never recover.
+    Supersession and activation are one `updateIntentOverlays` transaction.
+49. **An overlay binds to the date's primary (longest) ride**, via `primaryRideOfDate` using
+    `buildRideScores`'s strict comparison and array order, first-wins tie included. When the ledger row
+    carries an `activityId` it must equal that id or the date is skipped and reported — the resolver
+    never date-falls-back for a row with an id, so a mismatched binding would resolve against nothing.
+50. **`effectiveWorkoutType` is provenance, not a learning input.** It records the STATED type (never
+    one inferred from IF) and may only accompany `origin: "self-directed"`. Per-type learning stays
+    prescribed-only (INVARIANT 40) until the two 1–10 scales are shown comparable on a real corpus AND
+    compliance gains a meaning for rides that have none.
+51. **`INTENT_PROMPT_VERSION` is versioned independently of `PROMPT_VERSION`.** The latter is stamped on
     GeneratedPlan / TodayAnalysis / BlockHistoryEntry; bumping it for an unrelated prompt would assert a
-    change to three artifact families that didn't change. INVARIANT 16's requirement is that every AI
-    artifact carries *a* model + prompt version, not that one counter serves every prompt.
+    change to three artifact families that didn't change. INVARIANT 16 requires every AI artifact to
+    carry *a* model + prompt version, not that one counter serve every prompt.
 ```
 
-- [ ] **Step 5: Update `docs/systems/02-scoring-and-learning.md`**
+- [ ] **Step 7: `docs/systems/02-scoring-and-learning.md`** — replace the now-false "Phase 2a is
+  infrastructure — nothing is classified `self-directed` yet" rough edge, and record the honest residue:
 
-Replace the "Phase 2a is infrastructure — nothing is classified `self-directed` yet" rough edge (it is
-now false) and extend the section with the honest residue:
+- 2b shipped the producer on `<date>`; the real numbers Step 2 printed.
+- **The ride debrief is still ledger-based** — 2b changes derived state only; 2c renders the overlay.
+  Say this plainly, because "the card still says 2/10" will otherwise read as a bug.
+- **`autoFromDate` gates the rollout**; the historical no-block period (2026-07-24 → the boundary)
+  remains Phase 4's, unprocessed.
+- **Per-type learning is still prescribed-only** — restate question 3's two unlock conditions verbatim,
+  replacing the old "revisit when 2b supplies an authoritative type" note, which 2b has now partly
+  satisfied without satisfying the rest.
+- **Zone evidence for non-today rides uses Intervals' own zone boundaries**, not the athlete's
+  physiology store: boundary definitions move a zone objective's *grade*; zone-array **absence** can
+  flip scoreability, and that is intended.
+- **Segment decoupling is deliberately absent**, with question 12d's three-point unlock gate.
+- **`computeRollingBaselines`'s `avgDecoupling90d` remains ungated** — the one raw consumer left, with
+  the reason.
 
-- Phase 2b shipped the producer on `<date>`; state the real numbers Step 1 printed.
-- **Per-type learning is still prescribed-only** — restate the two unlock conditions from question 3
-  verbatim, replacing the old "revisit when 2b supplies an authoritative type" note, which 2b has now
-  partly satisfied without satisfying the rest.
-- **Non-today zone times come from Intervals' own zone definitions**, not the athlete's physiology
-  store (Task 5's recorded caveat), so an individual zone-time grading can differ from what today's
-  re-bucketed path would produce.
-- **Segment decoupling is deliberately absent**, with the three-point unlock gate from question 8d.
-- **`computeRollingBaselines`'s `avgDecoupling90d` remains ungated** — one raw consumer left, with the
-  reason (needs a parameter widening plus an ftp thread; descriptive average, no LLM reads it).
-
-- [ ] **Step 6: Update `docs/systems/07-ai-layer.md`, `docs/FILE_INDEX.md`, `ROADMAP.md`, `FEATURES.md`**
+- [ ] **Step 8: `docs/systems/07-ai-layer.md`, `docs/FILE_INDEX.md`, `ROADMAP.md`, `FEATURES.md`**
 
 - `07-ai-layer.md` — add `parseRideIntent` to the **every LLM call site** list with its model, prompt
-  version constant, and degradation behaviour. INVARIANT 31: this doc is linked by slug from COMPASS —
-  do not rename the heading.
-- `FILE_INDEX.md` — rows for `lib/intent-queue.ts`, `lib/intent-scoring.ts`, `lib/intent-schema.ts`,
-  `lib/intent-prompt.ts`, `lib/intent-runner.ts`, and the `app/api/intent` route. Match the existing
-  column shape; no line-count column.
-- `ROADMAP.md` — update the Phase 2 row: 2b shipped, 2c (debrief UI) and 3/4 remain. 1–2 lines with a
-  link out (the file's own discipline). Do not renumber IDs (INVARIANT 26).
-- `FEATURES.md` — the user-facing capability: a self-directed ride is now judged against the objective
-  the athlete wrote, or explicitly `Not scored`.
+  version constant, and degradation behaviour. INVARIANT 31: COMPASS links this heading by slug — do
+  not rename it.
+- `FILE_INDEX.md` — rows for `lib/intent-queue.ts`, `lib/intent-grounding.ts`, `lib/intent-scoring.ts`,
+  `lib/intent-schema.ts`, `lib/intent-prompt.ts`, `lib/intent-runner.ts`, `app/api/intent`. Match the
+  existing column shape; no line-count column.
+- `ROADMAP.md` — 2b shipped; 2c (debrief UI) and 3/4 remain. 1–2 lines with a link out. Do not
+  renumber IDs (INVARIANT 26).
+- `FEATURES.md` — the capability, framed honestly: a self-directed ride now teaches the athlete model
+  against the objective the athlete wrote, and no longer counts as plan drift. **Do not claim the ride
+  card shows it** — that is 2c.
 
 **Before committing, verify every pointer this task touched still resolves** (AGENTS.md's fourth
-recurring bug class): grep for links to the "Phase 2a is infrastructure" rough-edge text you removed,
-and for any `// AI:` comment pointing at a heading you renamed.
+recurring bug class): grep for links to the rough-edge text you removed and for `// AI:` comments
+pointing at any heading you renamed.
 
-- [ ] **Step 7: Run the full check and commit**
-
-```bash
-npm run check
-```
-
-Confirm `lib/_verify-p2b.test.ts` is gone first — it would fail on any machine without this athlete's
-`data/`.
-
-```bash
-git add docs/INVARIANTS.md docs/systems/02-scoring-and-learning.md docs/systems/07-ai-layer.md docs/FILE_INDEX.md ROADMAP.md FEATURES.md
-git commit -m "$(cat <<'EOF'
-docs: record the intent-scoring contracts
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-EOF
-)"
-```
+- [ ] **Step 9:** `npm run check` (confirm `lib/_verify-p2b.test.ts` is gone first), then commit —
+  `docs: record the intent-scoring contracts`.
 
 ---
 
 ## Handoff boundary to Phase 2c
 
-**2b ends with data written and read. 2c renders it.** The line is: 2b touches no component under
-`components/dashboard/` and adds no user-visible string beyond what already existed.
+**2b ends with data written and read. 2c renders it.** 2b touches no component under
+`components/dashboard/` and adds no user-visible string beyond what already existed — the only client
+change is the deferred fetch in `SyncProvider`.
 
 What 2c consumes, all present after this phase:
 
-- `IntentOverlay.interpretation.intent` — the "**Intent used:** 45 min steady Z2 → variable climbing →
-  9 min around 292 W → descending practice" line (design §12.2). Phase ordering is already in
-  `phases[]`.
-- `IntentOverlay.interpretation.objectives[]` — each carries `kind`, `scored`, `measurable`,
-  `evidence`, `coveredMin`, `sourceText`. §12.2's "concise evidence for measurable objectives" and
-  "qualitative objectives that were acknowledged but not graded" are a partition of this array on
-  `measurable`.
-- `IntentOverlay.notScoredReason` — the four distinct `Not scored` messages design §13 enumerates.
-  The string wording is 2c's, not 2b's; 2b ships the discriminator only.
-- `IntentOverlay.effectiveWorkoutType`, `scoringVersion`, `interpretation.confidence`,
-  `interpretation.model` / `promptVersion` — the provenance §11.3 requires on display.
-- `resolveEffectiveOutcome(entry, …).overlay` — the single read seam; 2c must not re-implement
+- `interpretation.intent` → the "**Intent used:** 45 min steady Z2 → variable climbing → 9 min around
+  292 W → descending practice" line (§12.2); phase ordering is already in `phases[]`.
+- `interpretation.objectives[]` → each carries `kind`, `target`, `grounded`, `sourceText`, `measurable`,
+  `scored`, `scopeMin`, `evidence`. §12.2's "concise evidence for measurable objectives" and
+  "qualitative objectives acknowledged but not graded" are a partition of this array on `measurable`.
+- `notScoredReason` → the four distinct `Not scored` messages design §13 enumerates. The **wording is
+  2c's**; 2b ships the discriminator only.
+- `effectiveWorkoutType`, `scoringVersion`, `interpretation.confidence`, `.model`, `.promptVersion` →
+  the provenance §11.3 requires on display.
+- `resolveEffectiveOutcome(entry, …).overlay` → the single read seam; 2c must not re-implement
   overlay-then-ledger fallback.
 
 What 2c must decide, which 2b deliberately does not:
 
-1. Where the intent block sits relative to the existing score explanation on Today, and what an
-   `unspecified` ride shows instead (design §12.2 says "before the score explanation").
-2. Whether `TodayAnalysis` gains the resolved overlay or the component resolves it — 2b leaves
-   `TodayAnalysis` untouched, so this is an open choice.
-3. The `Aerobic drift not measurable — no sufficiently steady aerobic segment` string (§7 step 5) and
-   where it renders. The *value* is already correctly `null`; only the wording is missing.
-4. Whether the coach-note prompt should be told the intent verdict. **2b does not change
-   `buildRideAnalysisPrompt`** — doing so would have changed the coach note in the same PR that
-   changed scoring, making a bad note impossible to attribute. It is a clean 2c decision.
+1. **Making the debrief overlay-aware at all** — this is 2c's headline, not a leftover. The ride card
+   currently reads `TodayAnalysis.executionScore`; showing the effective score means resolving the
+   overlay at render or threading it onto `TodayAnalysis`. 2b leaves `TodayAnalysis` untouched so the
+   choice is clean.
+2. Where the intent block sits relative to the score explanation (§12.2 says before it), and what an
+   `unspecified` ride shows instead.
+3. The `Aerobic drift not measurable — no sufficiently steady aerobic segment` string (§7 step 5). The
+   *value* is already correctly `null`; only the wording is missing.
+4. Whether the coach-note prompt is told the intent verdict. **2b does not change
+   `buildRideAnalysisPrompt`** — changing the coach note in the same PR that changed scoring would make
+   a bad note impossible to attribute.
 
-What 2c must NOT assume carries over: **re-derive every validity guarantee at each new read site.**
-2c will add consumers of `origin`, `status` and `notScoredReason` in components — a layer with no
-existing overlay tests. The Phase 2a review's four bugs were all a gate holding where its author was
-looking and absent one path over; a rendering path reading `overlay.effectiveExecutionScore` without
-re-checking `isApplicable` would display a `pending` Phase 4 draft as the athlete's live score.
+What 2c must NOT assume carries over: **re-derive every validity guarantee at each new read site.** 2c
+adds consumers of `origin`, `status` and `notScoredReason` in components — a layer with no existing
+overlay tests. A rendering path reading `overlay.effectiveExecutionScore` without re-checking
+`isApplicable` would display a `pending` Phase 4 draft as the athlete's live score.
 
 ---
 
 ## Appendix — dispatching this plan to Codex
-
-This plan is written to be executed by an agent that has not seen the conversation that produced it.
-Everything an implementer needs is in the task bodies; the prompt below supplies orientation and the
-operating rules that live outside the plan file.
 
 **Before starting**, from the primary checkout:
 
@@ -1664,10 +1355,9 @@ npm run sync
 npm run start:agent-task -- codex adaptive-coach-p2b-intent-scoring
 ```
 
-That creates an isolated worktree on `codex/adaptive-coach-p2b-intent-scoring` off current
-`origin/main`. This plan file and the restored design spec live on the branch
-`claude/adaptive-coach-p2b-intent-scoring-plan`, which may not be merged yet — bring them across
-first:
+This plan and the restored design spec live on `claude/adaptive-coach-p2b-intent-scoring-plan`, which
+may not be merged yet — bring them across first (skip if it has merged; Task 0 is then a no-op
+verification):
 
 ```bash
 cd .worktrees/codex-adaptive-coach-p2b-intent-scoring
@@ -1676,98 +1366,110 @@ git add docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md d
 git commit -m "docs: bring the Phase 2b plan and design spec onto the implementation branch"
 ```
 
-(If the plan branch has already merged, skip this — Task 0 is then already done and its steps are a
-no-op verification.)
-
 ### The prompt
 
-> You are implementing an 8-task plan in an isolated git worktree. Work from
+> You are implementing a 9-task plan in an isolated git worktree. Work from
 > `/Users/otis/Cycling App/.worktrees/codex-adaptive-coach-p2b-intent-scoring` on branch
-> `codex/adaptive-coach-p2b-intent-scoring`. This is not the primary checkout — commit freely here,
-> and never run git commands against `/Users/otis/Cycling App` itself.
+> `codex/adaptive-coach-p2b-intent-scoring`. This is not the primary checkout — commit freely here, and
+> never run git commands against `/Users/otis/Cycling App` itself.
 >
 > **Read first, in this order:** `AGENTS.md` (operating law and four recurring bug classes),
-> `docs/INVARIANTS.md` (hard contracts, especially 1, 2, 3, 10, 12, 16, 18, 19, 23, 34, 35 and 36–40),
-> `docs/systems/02-scoring-and-learning.md` — **its "Known rough edges" section in full**, which
-> records four bugs found across three review passes on this exact feature and is the single best
-> predictor of how this task fails — then your plan:
-> `docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md`, and the design basis it
-> implements: `docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md` (§2's locked
-> decisions are not reopenable, §5, §6, §13 and §14 are the contract).
+> `docs/INVARIANTS.md` (especially 1, 2, 3, 10, 12, 16, 18, 19, 23, 26, 30, 34, 35 and 36–40),
+> `docs/systems/02-scoring-and-learning.md` — **its "Known rough edges" section in full**, which records
+> four bugs found across three review passes on this exact feature and is the best predictor of how this
+> task fails — then your plan:
+> `docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md`, and the design basis:
+> `docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md` (§2's locked decisions are
+> not reopenable; §5, §6, §11, §13 and §14 are the contract).
 >
-> **Read the plan's preamble in full before Task 1** — "What this phase changes for the athlete",
-> "Global constraints", and all eight entries under "The eight questions this plan had to resolve".
-> Those eight are the decisions a reviewer will attack first, and each one has a rejected alternative
-> that looks more natural than the chosen answer.
+> **Read the plan's preamble in full before Task 1** — "What this phase changes, and what it does not",
+> "Global constraints", "Ground truth measured against the real stores", and all thirteen entries under
+> "The questions this plan resolves". Several of those correct an earlier draft of this same plan that
+> was wrong; the rejected version usually looks more natural than the chosen one.
 >
 > **What this builds:** a cycling training app judges every ride against a training block's
-> prescription. When no block is active, the athlete still states an objective in the ride's
-> Intervals.icu note — and the app currently ignores it, infers a workout type from whole-ride
-> intensity, and scores mixed rides 2/10 while also counting them as "drifting off-plan." Earlier
-> phases built the origin taxonomy and the overlay store. This phase supplies the producer: parse the
-> note into structured objectives with an LLM, decide *deterministically* whether that intent is
-> trustworthy and scoreable, score only the measurable objectives the athlete actually stated, and
-> write the result as an overlay every consumer of the athlete model reads.
+> prescription. With no block active, the athlete still states an objective in the ride's Intervals.icu
+> note — and the app ignores it, infers a workout type from whole-ride intensity, scores mixed rides
+> 2/10, and counts them as "drifting off-plan." Earlier phases built the origin taxonomy and the overlay
+> store. This phase supplies the producer: parse the note into structured objectives with an LLM, decide
+> *deterministically* whether that intent is trustworthy and scoreable, score only the measurable
+> objectives the athlete actually stated, and write an overlay every athlete-model consumer reads.
 >
-> **The rule that matters most:** the LLM's confidence may DOWNGRADE the outcome but may never
-> PROMOTE it. The deterministic gate decides scoreability first, on grounded objectives and measured
-> coverage. A high-confidence parse can never make a ride scoreable that the gate rejected. If any
-> code you write could violate that, it is wrong even if every test passes.
+> **Phase 2b changes DERIVED state only.** The ride card keeps showing the old ledger score until Phase
+> 2c renders the overlay. Do not "fix" that — it is the designed boundary.
+>
+> **The rule that matters most:** the LLM's confidence may DOWNGRADE the outcome but may never PROMOTE
+> it. The deterministic gate decides scoreability first. A high-confidence parse can never make a ride
+> scoreable that the gate rejected. Any code that could violate that is wrong even if every test passes.
 >
 > **Execute the tasks in order, one at a time.** Follow TDD as written: write the failing tests, run
 > them and confirm they fail for the stated reason, then implement, then confirm green. Run
-> `npm run check` (`tsc --noEmit && eslint && vitest run`) before every commit. Commit after every
-> task using the exact commit message in that task's final step, staging only the files that task
-> names — never `git add -A`.
+> `npm run check` before every commit. Commit after every task using that task's exact message, staging
+> only the files it names — never `git add -A`.
 >
 > **Where the plan and reality disagree, stop and report rather than improvising.** Line numbers were
-> accurate when written but may have drifted; locate code by content and say so in your report when a
-> cited line moved. If a *pre-existing* test breaks in a way the plan did not predict, do not adjust
-> its expected value — that would mean the change altered behaviour it must not. Report it.
+> accurate when written but may have drifted; locate code by content and say so when a cited line moved.
+> If a *pre-existing* test breaks in a way the plan did not predict, do not adjust its expected value —
+> report it.
 >
-> Specific traps this plan calls out:
-> - `needsParse` reads **all** overlays, not `isApplicable` ones. Using `isApplicable` there would
->   re-parse and re-bill every `disabled` and `pending` record on every sync. Four Phase 2a bugs had
->   exactly this shape — a gate correct where its author was looking, absent one path over.
-> - `primaryRideOfDate` must use `buildRideScores`'s strict `>` and array order, tie-break included.
-> - A note-less ride must be decided **before** the Anthropic client is constructed, not merely
->   skipped by luck of ordering.
+> Specific traps:
+> - **`autoFromDate` is a hard floor.** 2b writes nothing — not even `pending` — for rides before it.
+>   `force` bypasses idempotency, never the boundary. The historical no-block period is Phase 4's.
+> - **Grounding is semantic.** The `4` in `Z4` must not ground `reps: 4`. Mask zone tokens first.
+> - **Evidence scope ≠ successful minutes.** A stated target the athlete missed scores low; it never
+>   becomes `Not scored`. Scope is a MAX across objectives, never a union — you do not have the
+>   timestamps a union would need.
+> - **A transient Anthropic exception writes NOTHING and leaves the ride queued.** Writing a terminal
+>   record burns the fingerprint and permanently skips a non-today ride.
+> - `needsParse` reads **all** overlays, not `isApplicable` ones.
+> - `primaryRideOfDate` uses `buildRideScores`'s strict `>` and array order, tie-break included; and when
+>   the ledger row carries an `activityId` it must equal that id or the date is skipped.
+> - A note-less ride is decided **before** the Anthropic client is constructed.
 > - Supersession and activation are ONE `updateIntentOverlays` call.
-> - Coverage counts **measured** minutes, never claimed ones.
-> - `POST /api/sync` must remain LLM-free (INVARIANT 23) — no new import that transitively reaches the
->   SDK.
-> - `INTENT_PROMPT_VERSION` is a NEW constant. Do **not** bump the shared `PROMPT_VERSION`.
-> - Task 8's temporary verification script must be deleted before the final commit and never staged.
-> - Test fixtures must avoid `.x5` float boundaries (INVARIANT 30) — a prior plan's detector fixture
->   was bitten by this.
+> - `POST /api/sync` must remain LLM-free (INVARIANT 23).
+> - `INTENT_PROMPT_VERSION` is NEW. Do **not** bump the shared `PROMPT_VERSION`.
+> - `INTENT_NOTE_MAX_CHARS` is 2000, not the ride-analysis prompt's 400 — the real acceptance note is 455
+>   characters and the corpus reaches 823.
+> - Objective canonicalisation must make duplicated and split representations score identically.
+> - Test fixtures avoid `.x5` float boundaries (INVARIANT 30).
 >
-> **Task 8's live smoke run is mandatory and is not satisfied by a 200 response.** Read the actual
-> model output and judge it: did it invent a number absent from the note? Did it mark a qualitative
-> objective measurable? Is the score defensible against the note a human would read? Report the raw
-> note, the parsed objectives, the verdict and the token/cost delta.
+> **Task 9's verification and live smoke run are sandboxed, and this is not optional.** The worktree has
+> no `data/` directory; the primary store has no `intent-overlays.json`; and Phase 4's period must not be
+> written before review. Copy the primary `data/` into a `mktemp -d` directory, create the empty overlay
+> store, run everything with `NODEVELO_DATA_DIR` pointed at the copy, then delete it and **verify
+> `/Users/otis/Cycling App/data/intent-overlays.json` still does not exist.** Never point a write at the
+> primary athlete data. The temporary verification test must be deleted before the final commit and never
+> staged.
 >
-> **Do not run `npm run finish:agent-task`.** Stop after Task 8's commit and report. A Claude review
-> gates this branch before it merges (`WORKFLOW.md § Reviewing a codex PR`).
+> **The live smoke run is not satisfied by a 200 response.** Read the model's actual output and judge it:
+> did it invent a number absent from the note, and did grounding catch it? Did it mark a qualitative
+> objective measurable? Is the score defensible against the note a human would read? Report the raw note,
+> the parsed objectives, each one's scope, the verdict, and the token/cost delta.
+>
+> **Do not run `npm run finish:agent-task`.** Stop after Task 9's commit and report. A Claude review
+> gates this branch (`WORKFLOW.md § Reviewing a codex PR`).
 >
 > When done, report: which tasks completed, the commit SHAs, `npm run check` output, the real numbers
-> Task 8 Step 1 printed, the full live-smoke output and your judgement of it, anything where the plan
-> and the code disagreed, and anything you were unsure about.
+> Task 9 Step 2 printed, the full live-smoke output and your judgement of it, proof the primary data
+> directory was never written, anything where the plan and the code disagreed, and anything you were
+> unsure about.
 
 ### After Codex finishes
 
-Ask a Claude session: **"review PR #`<n>`"** — or, if Codex stopped before opening a PR, **"review the
-`codex/adaptive-coach-p2b-intent-scoring` branch against its plan."**
+Ask a Claude session: **"review PR #`<n>`"** — or **"review the `codex/adaptive-coach-p2b-intent-scoring`
+branch against its plan."**
 
-The review must specifically re-verify, by simulating the data lifecycle by hand rather than by
-reading the test names:
+The review must re-verify by simulating the data lifecycle by hand, not by reading test names:
 
-1. every new read of `origin`, `status`, `supersededBy`, `activityId`, `legacy` or
-   `effectiveWorkoutType` — including the ones in `components/SyncProvider.tsx` and the new route;
+1. every new read of `origin`, `status`, `supersededBy`, `activityId`, `legacy`,
+   `effectiveWorkoutType` or `autoFromDate` — including in `SyncProvider.tsx` and the new route;
 2. that no path exists by which LLM confidence promotes scoreability;
-3. that the producer (`buildOverlay`) and the consumer (`isApplicable`) agree on every one of the five
-   outcome rows;
-4. that a `pending` or `disabled` record is neither re-parsed nor applied;
-5. that `POST /api/sync` still reaches no Anthropic call.
+3. that no path writes an overlay for a date before `autoFromDate`;
+4. that a transient parse failure leaves the ride re-parseable on the next run;
+5. that the producer (`buildOverlay`) and the consumer (`isApplicable`) agree on all five outcome rows;
+6. that a `pending` or `disabled` record is neither re-parsed nor applied;
+7. that `POST /api/sync` still reaches no Anthropic call;
+8. that the primary `data/` directory was not written during verification.
 
 A green suite whose fixtures encode the wrong expectation is the failure mode this feature's own
-history has now demonstrated three times.
+history has now demonstrated three times — and this plan's own first draft made it a fourth.
