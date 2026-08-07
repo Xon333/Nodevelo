@@ -179,17 +179,21 @@ describe("buildTodayAnalysis (CR-G)", () => {
     expect(todayAnalysis.advisedRideFuelKcal).toBeNull();
   });
 
-  it("applies the VI pacing read to an off-plan ride (infers a type so steady ≠ surgy)", () => {
+  it("rewards steady pacing on an off-plan ride but never penalises surgy pacing (VI is reward-only when intrinsic)", () => {
     // Off-plan = no planned session; both rides infer the same type (IF 0.80 → Threshold), so only VI
-    // differs. Without inferring a scoring type, off-plan rides got no VI and these would tie.
+    // differs. Without inferring a scoring type, off-plan rides got no VI signal at all and these would tie.
     const offPlan = (avgWatts: number) => ({
       ...base,
       plannedDay: null,
       activity: activity({ avgWatts, normalizedPower: 200, rpe: null }),
     });
-    const steady = buildTodayAnalysis(offPlan(190)).executionScore!; // VI 1.05 → controlled (+1)
-    const surgy = buildTodayAnalysis(offPlan(165)).executionScore!; // VI 1.21 → surgy (−1)
-    expect(steady).toBeGreaterThan(surgy);
+    // VI 1.0526 ≤ 1.08 → Threshold's steady bonus (+1). A bonus is never circular, so it applies to
+    // off-plan rides exactly as it would to a planned one.
+    expect(buildTodayAnalysis(offPlan(190)).executionScore).toBe(6);
+    // VI 1.2121 ≥ 1.15 would penalise a PLANNED Threshold ride (-1), but this ride's type was INFERRED
+    // from its own intensity — penalising it for missing that type's steadiness would be circular, so
+    // the penalty is suppressed for intrinsic rides. Baseline, no VI effect either way.
+    expect(buildTodayAnalysis(offPlan(165)).executionScore).toBe(5);
     // The OUTPUT plannedType stays null (nothing was planned) even though scoring inferred one.
     expect(buildTodayAnalysis(offPlan(190)).todayAnalysis.plannedType).toBeNull();
   });
@@ -308,6 +312,21 @@ describe("buildTodayAnalysis (CR-G)", () => {
     });
     // The mismatch path ignores the (low) effectiveAdherencePct, so it should not score worse than clean.
     expect(mismatch.executionScore! >= clean.executionScore!).toBe(true);
+  });
+
+  it("omits drift entirely for a structurally mixed ride (VI 1.205)", () => {
+    // 118 min, avg 200 / NP 241 -> VI 1.205 > AEROBIC_MAX_VI (1.12): not aerobically comparable, even
+    // though IF (241/288 = 0.837) sits inside the 0.56-0.85 band. This is the 2026-08-06 screenshot ride.
+    const mixed = activity({ movingTimeSec: 118 * 60, avgWatts: 200, normalizedPower: 241, decoupling: 15.7 });
+    const { todayAnalysis } = buildTodayAnalysis({ ...base, activity: mixed, plannedDay: null, ftp: 288 });
+    expect(todayAnalysis.activityDecoupling).toBeNull();
+  });
+
+  it("keeps drift for a genuinely steady ride", () => {
+    // 100 min, avg 200 / NP 206 -> VI 1.03 (comparable), IF 206/288 = 0.715 (in band).
+    const steady = activity({ movingTimeSec: 100 * 60, avgWatts: 200, normalizedPower: 206, decoupling: 3.8 });
+    const { todayAnalysis } = buildTodayAnalysis({ ...base, activity: steady, plannedDay: null, ftp: 288 });
+    expect(todayAnalysis.activityDecoupling).toBe(3.8);
   });
 });
 

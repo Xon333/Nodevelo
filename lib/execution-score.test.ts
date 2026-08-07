@@ -656,3 +656,34 @@ describe("easy-ride execution — HR judges effort, terrain does not", () => {
     expect(scoreB).toBeGreaterThan(scoreA!);
   });
 });
+
+describe("variability index on off-plan (intrinsic) rides", () => {
+  // Both rides in each pair share IDENTICAL intensityFactor/plannedType/aerobicEffPct — only
+  // variabilityIndex differs — so any score difference within a pair is attributable to VI alone,
+  // regardless of what the intensity-vs-type axis happens to do for that IF/type combination.
+  const commonBase = {
+    compliancePct: null,
+    intensityFactor: 0.84, // inside the Threshold sweet spot [0.82, 0.92] — held constant across both
+                            // rides in each pair, so the intensity-vs-type branch's effect cancels out
+                            // of the WITHIN-PAIR difference regardless of what it equals.
+    plannedType: "Threshold" as const,
+    aerobicEffPct: null,
+  };
+
+  it("does not penalise a surgy off-plan ride, but a steady one still earns its pacing bonus", () => {
+    const steady = computeExecutionScore({ ...commonBase, variabilityIndex: 1.02, intrinsic: true })!; // <=1.08 -> +1
+    const surgy = computeExecutionScore({ ...commonBase, variabilityIndex: 1.21, intrinsic: true })!; // >=1.15, penalty suppressed -> +0
+    expect(steady).toBe(6); // 5 baseline + 1 VI bonus (intensity-vs-type skipped entirely: intrinsic)
+    expect(surgy).toBe(5); // 5 baseline, no VI effect either way
+    expect(steady).toBe(surgy + 1); // the ONLY difference between these two rides is the VI bonus
+  });
+
+  it("still penalises a surgy PLANNED threshold ride relative to a steady one", () => {
+    const steady = computeExecutionScore({ ...commonBase, variabilityIndex: 1.02, intrinsic: false })!;
+    const surgy = computeExecutionScore({ ...commonBase, variabilityIndex: 1.21, intrinsic: false })!;
+    expect(steady).toBe(8); // 5 baseline + 2 intensity-band (IF 0.84 in [0.82,0.92]) + 1 VI bonus
+    expect(surgy).toBe(6); // 5 baseline + 2 intensity-band - 1 VI penalty (planned, so NOT suppressed)
+    expect(steady).toBe(surgy + 2); // steady's +1 bonus AND surgy's -1 penalty both apply here — a
+                                     // 2-point gap, vs only a 1-point gap for the intrinsic pair above.
+  });
+});

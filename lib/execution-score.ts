@@ -268,6 +268,17 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
   // VI = NP / avg power. ~1.0 means perfectly steady; higher means surgy.
   // Only meaningful for steady session types — intervals (VO2max/SIT) are meant
   // to be variable, so they are left neutral.
+  //
+  // REWARD-ONLY for intrinsic (off-plan) rides. An off-plan ride's `plannedType` was INFERRED from its
+  // own intensity (lib/ride-classify.inferWorkoutType), so penalising it for missing that type's
+  // steadiness is the same circularity the intensity-vs-type branch above already refuses: a
+  // mixed-terrain ride reads IF 0.84 -> "Threshold" -> surgy -> -1, purely because it contained
+  // climbing. A BONUS is not circular in the same way — VI (pacing) is a different measured quantity
+  // from IF (what the type was inferred from), so rewarding steady pacing doesn't manufacture credit
+  // "true by construction" the way an IF-band match against an IF-inferred type would. Confirmed as
+  // the intended design (not a workaround): decision 11 says "do not apply VI PENALTIES," not "any
+  // effect." Reverses the deliberate "this only enables VI" note that used to sit in
+  // lib/ride-analysis.ts's scoringType comment.
   if (variabilityIndex !== null && plannedType) {
     const vi = variabilityIndex;
     switch (plannedType) {
@@ -279,7 +290,7 @@ export function computeExecutionScore(input: ExecutionScoreInput): number | null
         break;
       case "Threshold":
         if (vi <= 1.08) score += 1; // well-controlled threshold effort
-        else if (vi >= 1.15) score -= 1;
+        else if (vi >= 1.15 && !intrinsic) score -= 1; // circular off-plan — see the note above
         break;
     }
   }

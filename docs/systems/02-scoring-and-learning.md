@@ -43,7 +43,7 @@ flowchart TD
 
 #### Long-term markers & model numbers
 
-- **FTP-independent markers are the long-term backbone** (they survive FTP redefinition): Pw:HR/EF — deliberately like-for-like: **outdoor** rides only (indoor ERG flattens power:HR), steady endurance band, ≥45 min; and the fueling/weight graph aggregates **complete weeks only** (an in-progress week's totals are misleadingly low).
+- **FTP-independent markers are the long-term backbone** (they survive FTP redefinition): Pw:HR/EF — deliberately like-for-like: **outdoor** rides only (indoor ERG flattens power:HR), steady endurance band, ≥45 min, VI within `AEROBIC_MAX_VI` (fail-closed when uncomputable); and the fueling/weight graph aggregates **complete weeks only** (an in-progress week's totals are misleadingly low).
 - **The model's numbers**: EWMA α = 0.35 (adaptive via calibration), trend = split-half mean comparison with an epsilon band, minimum 3 observations before any pattern fires.
 
 ## The ledger (`lib/score-log.ts`, 411 lines)
@@ -67,6 +67,42 @@ Replaces population magic numbers with athlete-derived values *only when honestl
 ## Where each piece runs
 
 Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-data.md)); the model/insights are computed on demand by `/api/trends`, `/api/generate`, `/api/write`; interventions are recorded at write time and validated at sync time.
+
+## Known rough edges
+
+- **Off-plan (and planned-but-surgy) rides score flat until intent lands.** Phase 1 (2026-08-06) removed
+  the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,
+  and the contaminated intrinsic/merged-read Pw:HR efficiency signal (fixed entirely at its producer,
+  `qualifyingPwHr` in `lib/aerobic.ts` — no gate was added in `score-log.ts` or `ride-analysis.ts` for this
+  signal). Both removals are correct, but they leave a mixed ride with almost no quality differentiator:
+  expect scores clustering around baseline (5/10) for most of them. The differentiator returns in Phase 2,
+  when the athlete's activity note becomes the scoring target. Don't "fix" the flatness by re-adding a
+  structure-derived penalty, and don't re-add a consumer-side comparability gate for `aerobicEffPct` — it's
+  already correctly gated where it's computed.
+- **The Pw:HR baseline and decoupling-good cutoff moved when Phase 1 shipped, and will keep moving.** The
+  athlete's true steady-ride drift mean was measured well under `DECOUPLING_GOOD_BOUNDS.min` as of the
+  2026-08-06 sync window, so `deriveDecouplingGood` clamps to its floor — that's the bounds doing their job
+  on a pool that used to include structurally mixed rides, not a calibration failure. Both this value and
+  the exact pool sizes are recalculated fresh on every sync from a rolling 90-day window; don't treat any
+  specific number recorded in this plan's own text as durable.
+- **`qualifyingPwHr` and `isSteadyEnduranceRide` are deliberately different gates.** See INVARIANT 34. A
+  future change that needs "is this ride aerobically trustworthy" almost always means ONE of these two,
+  not both — check which question is actually being asked before reaching for either.
+- **Two other raw-decoupling consumers are still ungated.** `lib/readiness.ts`'s `computeRollingBaselines`
+  (feeds `avgDecoupling90d` on the Recent Baselines card) and `app/api/retrospective/route.ts`'s block
+  `avgDecoupling` (fed verbatim into the retrospective LLM prompt) both average `activity.decoupling`
+  across ALL activities with no `isSteadyEnduranceRide` gate — Phase 1 only touched
+  `TodayAnalysis.activityDecoupling`. A mixed climbing day can still inflate these two reads. Gating
+  them, if wanted, is a small follow-up in the same shape as Task 4 of this plan, not a Phase 1 gap.
+- **`carbsOptimum`'s calibration pool is thin, and this branch narrows it further.** It shares
+  `steadyEndurance90d` with `decouplingGood` (see the bullet above on that pool shrinking), then filters
+  further to rides ≥90 min with logged carbs and `|aerobicEffPct| ≥ 3%` — as of the 2026-08-06 sync
+  window that leaves exactly 1 "good" and 3 "bad" observations. `deriveOptimum` (`lib/correlation.ts:108`)
+  only falls back to the frozen prior when EITHER side hits zero, so it still re-derives today, but at
+  "low" confidence (it already was, pre-Phase-1) and on a margin thin enough that losing the single good
+  observation on a future sync (the rolling 90-day window ages it out with no replacement) would freeze
+  the value in place with a refreshed timestamp — indistinguishable from a live one on the Model panel.
+  Worth a periodic check, not an immediate fix.
 
 ## Common modifications
 

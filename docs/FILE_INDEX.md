@@ -67,7 +67,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `quirks.ts` | NLP quirk mining from ride notes (hints, ≥2 rides) |
 | `pr.ts` | Curve-to-curve power-PR detection |
 | `power-profile.ts` | Rider-type classification + auto "easy win" weak point |
-| `aerobic.ts` | Z2-only Pw:HR signal + shared deadband constant |
+| `aerobic.ts` | Z2 Pw:HR baseline + the whole-ride steady-endurance predicate (`isSteadyEnduranceRide`), both variability-aware but answering different questions |
 | `zones.ts` | Zone bucketing + IF band labels |
 | `physiology.ts` | Effective-dated FTP/zone store + reconcile |
 | `loading.ts` | **Carb**-loading prompts + effectiveness (not training load) |

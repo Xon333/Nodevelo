@@ -62,6 +62,7 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
 | **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
 | **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
 | **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
+| **Adaptive self-directed coach — Phase 2** | Phase 1 landed on `claude/adaptive-coach-p1-aerobic-eligibility` (2026-08-06): a shared variability threshold now gates both `isSteadyEnduranceRide` and `qualifyingPwHr`, so off-plan and planned-but-surgy rides no longer take circular VI/Pw:HR penalties. Phase 2 (intent overlay) is next; Phases 3–4 (weekly envelope, historical repair) not started | [plan](docs/superpowers/plans/2026-08-06-adaptive-coach-p1-aerobic-eligibility.md) |
 
 ## Blocked / dormant
 

@@ -6,6 +6,7 @@
 import { activeBurn, calculateDailyTarget, exerciseBurn, restingKcalPerHourOf, type NutritionModel } from "./nutrition";
 import { computeExecutionScore, resolveCompliance, timeAboveAerobicHrFraction, aerobicDisciplineRead, type ScoringCalibration } from "./execution-score";
 import { inferWorkoutType } from "./ride-classify";
+import { isSteadyEnduranceRide } from "./aerobic";
 import { gradeDurabilityDelivery, EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
 import type {
   ActivitySummary,
@@ -166,9 +167,10 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
   // On interval days, power-target adherence is the primary execution signal; otherwise duration
   // compliance. A structural plan/detection mismatch drops adherence so a correct session isn't
   // mis-scored on an untrustworthy rep-duration comparison.
-  // Off-plan (no planned session) → infer a scoring type so the VI pacing read applies, exactly as the
-  // ledger does. `intrinsic` still guards the circular intensity-vs-type branch, so this only enables VI;
-  // the OUTPUT plannedType field below stays null (nothing was planned).
+  // Off-plan (no planned session) → infer a scoring type, exactly as the ledger does, so the VI pacing
+  // BONUS can still apply. As of 2026-08-06 the VI penalty is suppressed for intrinsic rides (it was
+  // circular — the type comes from the ride's own intensity; see computeExecutionScore's VI block), so
+  // this enables the reward half only. The OUTPUT plannedType field below stays null (nothing was planned).
   const scoringType = plannedDay?.type ?? inferWorkoutType(metrics.intensityFactor, metrics.actualMin);
   // Track B: grade a durability long ride against its template's expected signal — did the prescribed
   // efforts happen, at the right intensity + timing? Only the today path has the ride's intervals. Null
@@ -231,7 +233,13 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
     activityBurnKcal: activeBurn(activity)?.kcal ?? null,
     activityTrainingLoad: activity.trainingLoad,
     activityRpe: activity.rpe,
-    activityDecoupling: activity.decoupling,
+    // Aerobic drift is only meaningful when power demand was uniform. On a mixed ride the whole-ride
+    // figure is a ride-structure artifact (15-46% on this athlete's climbing days), so OMIT it rather
+    // than label it — matching the repo's "better absent than wrong" convention. Segment-scoped drift
+    // is deliberately deferred (Phase 1 scope). This is the ONLY field in buildTodayAnalysis that needs
+    // this gate — aerobicEffPct is already correctly gated at its producer (Task 1's qualifyingPwHr), and
+    // adding a second gate here would be redundant at best (see the plan's header note on Task 3-5).
+    activityDecoupling: isSteadyEnduranceRide(activity, ftp) ? activity.decoupling : null,
     aerobicDiscipline,
     aerobicEffPct: aerobicEffPctForToday,
     activityDistanceMeters: activity.distanceMeters,
