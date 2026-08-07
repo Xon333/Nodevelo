@@ -70,6 +70,13 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 
 ## Known rough edges
 
+- **Phase 2a is infrastructure — nothing is classified `self-directed` yet.** The origin taxonomy,
+  overlay store, and effective-outcome seam landed 2026-08-07, but Phase 2b still must produce intent
+  interpretations. The store ships empty; real-ledger verification confirmed unchanged sample size,
+  drift percentage, and drift quality. Do not loosen the applicability gates to activate it early.
+- **Per-type learning deliberately excludes self-directed rides.** Their current inferred type comes
+  from whole-ride IF, so including it would revive circular type learning. Revisit only when Phase 2b
+  supplies an authoritative intent-derived type; see INVARIANT 40.
 - **Off-plan (and planned-but-surgy) rides score flat until intent lands.** Phase 1 (2026-08-06) removed
   the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,
   and the contaminated intrinsic/merged-read Pw:HR efficiency signal (fixed entirely at its producer,
