@@ -64,6 +64,36 @@ function historyEntry(
   };
 }
 
+describe("buildRideScores — activityId stamping (Phase 2a)", () => {
+  const ftp = () => 288;
+
+  it("stamps the activity id on a planned ride", () => {
+    const b = block([{ date: "2026-01-05", type: "Z2", durationMin: 60 }]);
+    const entry = buildRideScores(b, [activity({ date: "2026-01-05", id: "act-planned" })], ftp, "2026-01-10")[0];
+    expect(entry.activityId).toBe("act-planned");
+  });
+
+  it("stamps the activity id on an off-plan ride", () => {
+    const entry = buildRideScores(null, [activity({ date: "2026-01-05", id: "act-offplan" })], ftp, "2026-01-10", "2026-01-01")[0];
+    expect(entry.activityId).toBe("act-offplan");
+  });
+
+  it("stamps the id of the longest ride on a two-ride date", () => {
+    const acts = [
+      activity({ date: "2026-01-05", id: "short", movingTimeSec: 1800 }),
+      activity({ date: "2026-01-05", id: "long", movingTimeSec: 5400 }),
+    ];
+    const entry = buildRideScores(null, acts, ftp, "2026-01-10", "2026-01-01")[0];
+    expect(entry.durationMin).toBe(90);
+    expect(entry.activityId).toBe("long");
+  });
+
+  it("keeps compliancePct null on an off-plan ride", () => {
+    const entry = buildRideScores(null, [activity({ date: "2026-01-05", id: "a" })], ftp, "2026-01-10", "2026-01-01")[0];
+    expect(entry.compliancePct).toBeNull();
+  });
+});
+
 describe("buildRideScores", () => {
   const ftp200 = () => 200;
 

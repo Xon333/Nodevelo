@@ -263,6 +263,7 @@ export function buildRideScores(
           inferredType: planned.type,
           planned: true,
           legacy: false,
+          activityId: act.id,
           // Capped by execution so a poorly-executed session never reads as fully compliant.
           compliancePct: resolveCompliance(durationCompliancePct, executionScore),
           intensityFactor,
@@ -312,6 +313,7 @@ export function buildRideScores(
           inferredType,
           planned: false,
           legacy: isLegacy,
+          activityId: act.id,
           compliancePct: null,
           intensityFactor,
           ftpUsed: ftp,
