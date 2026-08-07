@@ -22,6 +22,15 @@ describe("semantic intent grounding", () => {
     expect(groundsDuration("45 W", 45)).toBe(false);
   });
 
+  it("uses a deterministic convention for colon durations", () => {
+    expect(groundsDuration("0:45", 45)).toBe(true);
+    expect(groundsDuration("0:45", 0.75)).toBe(false);
+    expect(groundsDuration("4:30", 270)).toBe(true);
+    expect(groundsDuration("4:30", 4.5)).toBe(false);
+    expect(groundsDuration("9:00", 9)).toBe(true);
+    expect(groundsDuration("9:00", 540)).toBe(false);
+  });
+
   it("grounds watts only from watt forms", () => {
     expect(groundsWatts("9 min around 292 W", 292)).toBe(true);
     expect(groundsWatts("290-300 W", 295)).toBe(true);
@@ -51,6 +60,12 @@ describe("semantic intent grounding", () => {
   });
 
   it("keeps watts and percentage targets separate", () => {
+    expect(groundsDuration("9 min around 292 W", 9)).toBe(true);
+    expect(groundsWatts("9 min around 292 W", 292)).toBe(true);
+    expect(groundsPctFtp("9 min around 292 W", 292)).toBe(false);
+    expect(groundsReps("4 x 5 min at 300w", 4)).toBe(true);
+    expect(groundsDuration("4 x 5 min at 300w", 5)).toBe(true);
+    expect(groundsWatts("4 x 5 min at 300w", 300)).toBe(true);
     expect(groundsDuration("9 min at 95% FTP", 9)).toBe(true);
     expect(groundsPctFtp("9 min at 95% FTP", 95)).toBe(true);
     expect(groundsWatts("9 min at 95% FTP", 274)).toBe(false);

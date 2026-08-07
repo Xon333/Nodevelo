@@ -28,10 +28,13 @@ export function groundsDuration(note: string, min: number): boolean {
   const masked = maskZoneTokens(note);
   const minutes = valuesFor(masked, "(?:minutes?|mins?|min)\\b|'", 1);
   const hours = valuesFor(masked, "(?:hours?|hrs?|hr|h)\\b", 60);
-  const clocks = [...masked.matchAll(/\b(\d+):(\d{2})\b/g)].flatMap(([, first, second]) => [
-    Number(first) + Number(second) / 60,
-    Number(first) * 60 + Number(second),
-  ]);
+  // Colon notation is ambiguous. Keep it deterministic: 0–5 is H:MM; 6+ is M:SS.
+  const clocks = [...masked.matchAll(/\b(\d+):(\d{2})\b/g)].flatMap(([, first, second]) => {
+    const major = Number(first);
+    const minor = Number(second);
+    if (minor >= 60) return [];
+    return [major <= 5 ? major * 60 + minor : major + minor / 60];
+  });
   return (
     hasValue([...minutes, ...hours, ...clocks], min, 1) ||
     inRanges(masked, min, "(?:minutes?|mins?|min)\\b|'", 1) ||
