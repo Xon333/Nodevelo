@@ -83,9 +83,13 @@ button, confirmation step or new athlete friction (locked decision #1), and segm
 Every number below was read from `/Users/otis/Cycling App/data/` before this plan was written. They
 are the reason several decisions differ from what a reasonable guess would have produced.
 
-- **No ledger row carries `activityId`.** All ~400 rows predate Phase 2a and parse back `undefined`.
+- **The ledger holds 149 entries, of which 100 are `legacy`.** (400 is `MAX_ENTRIES`, the cap in
+  `score-log.ts` — not the row count. An earlier draft of this plan quoted the cap as if it were the
+  population; every figure below is a measured count.)
+- **No ledger row carries `activityId`** — all 149 predate Phase 2a and parse back `undefined`.
   Consequence: overlays written by 2b will resolve through `indexOverlaysByDate`, **not**
-  `indexOverlaysByActivity`, until fresh rows accumulate. This makes question 9's queue rule load-bearing.
+  `indexOverlaysByActivity`, until fresh rows accumulate. This makes question 9's queue and
+  supersession rules load-bearing rather than defensive.
 - **169 rides in the sync window, 29 carrying a note.** Note lengths: max **823**, then 483, 477,
   **455**, 431, 355, 321, 274. The 2026-08-06 acceptance note is **455 characters** — the inherited
   400-char prompt cap would truncate it (question 7).
@@ -120,9 +124,19 @@ partial restore.
 
 **How it initialises.** On the runner's first execution, if `!store.autoFromDate` (truthy check —
 INVARIANT 3; a store written by 2a parses back `undefined`, not `null`), set it to the runner's
-`today` and persist it in the same transaction. The default is therefore **"the day 2b first ran"**,
-which means no historical ride is ever auto-processed by accident. It is a plain JSON field the
-athlete or a later phase can move deliberately; 2b builds no UI for it.
+`today` and **persist it in its own `updateIntentOverlayStore` transaction, which must complete before
+any queue item is processed.** The default is therefore **"the day 2b first ran"**, which means no
+historical ride is ever auto-processed by accident. It is a plain JSON field the athlete or a later
+phase can move deliberately; 2b builds no UI for it.
+
+**The boundary write does *not* share a transaction with the first overlay write**, and the plan does
+not claim it does — they are separate `updateIntentOverlayStore` calls, necessarily, because the
+overlay write happens after an `await`ed network call that the boundary must already have constrained.
+Ordering is what makes this safe, not atomicity: the boundary is durable on disk before the first
+parse begins, so a crash between the two leaves a store with a boundary and no overlays — the correct
+resting state, from which the next run resumes with the same boundary. The reverse order would allow a
+crash to leave overlays written under a boundary that was never persisted. Pinned by a test asserting
+the boundary is persisted before the parse function is first called.
 
 **How it's enforced.** `buildIntentQueue` takes `autoFromDate` and drops every candidate with
 `date < autoFromDate`. Enforced in the queue rather than the runner so a `force` request cannot cross
@@ -194,26 +208,47 @@ Number-presence grounding was wrong and would have manufactured exactly the inve
 design §5.2 forbids: in `"some Z4 and Z5 efforts"`, a naive scan finds `4` and `5` and would ground
 `reps: 4` and `durationMin: 5`.
 
-**Mechanism.** Before any numeric scan, **mask every zone token out of the note**:
+**Mechanism.** Before any numeric scan, **mask every zone token out of the note** by replacing it with
+a plain textual sentinel:
 
+```ts
+const ZONE_TOKEN = /\b(?:z|zone\s*)([1-7])\b/gi;   // "z4", "Z4", "zone 4", "zone4"
+const ZONE_MASK = " <zone> ";                      // ordinary printable text, digit-free
+const maskedNote = normalizedNote.replace(ZONE_TOKEN, ZONE_MASK);
 ```
-ZONE_TOKEN = /\b(?:z|zone\s*)([1-7])\b/gi        // "z4", "Z4", "zone 4", "zone4"
-maskedNote = normalizedNote.replace(ZONE_TOKEN, "   ")
-```
+
+**`ZONE_MASK` must be ordinary printable text.** An earlier draft of this plan used a literal NUL here,
+which made the plan file itself register as binary — `grep` then returned nothing for every pattern in
+it, silently. A control character buys nothing over `<zone>`: all the mask needs is to carry no digits
+and to keep token boundaries intact, both of which printable text does while staying readable in a
+diff, a debugger and a failing-test message. Do not substitute a NUL, a replacement character, or any
+other non-printing byte.
 
 Zone objectives are grounded against the *unmasked* note; every other field is grounded against the
-*masked* one, so a digit that is part of a zone label can never ground a duration, a wattage or a rep
-count. Then each field requires its own unit-bearing form:
+*masked* one, so a digit that is part of a zone label can never ground a duration, a wattage, an FTP
+percentage or a rep count. Then each field requires its own unit-bearing form:
 
 | field | grounded by (case-insensitive, on the masked note) | never by |
 |---|---|---|
-| `durationMin: N` | `N min`, `N mins`, `N minute(s)`, `Nmin`, `N'`, `N:SS`; or `H h`/`H hr`/`H hour(s)`/`H:MM` converted to minutes and compared with ±1 min tolerance | a bare `N`; `zN`; `N W`; `N x` |
-| `watts: W` | `W w`, `W watt(s)`, `Ww`, `W W`; or `W%` of FTP converted against the ride's `ftpUsed` | a bare `W`; `zW`; `W min` |
+| `durationMin: N` | `N min`, `N mins`, `N minute(s)`, `Nmin`, `N'`, `N:SS`; or `H h`/`H hr`/`H hour(s)`/`H:MM` converted to minutes, ±1 min tolerance | a bare `N`; `zN`; `N W`; `N x`; `N%` |
+| `watts: W` | `W w`, `W watt(s)`, `Ww`, `W W` | a bare `W`; `zW`; `W min`; `W%` |
+| `targetPctFtp: P` | `P%`, `P % FTP`, `P pct`, `P percent` | a bare `P`; `zP`; `P w`; `P min` |
 | `reps: R` | `R x`, `R×`, `Rx`, `R reps`, `R sets`, `R rounds`, or `R` immediately preceding an `×`/`x` token | a bare `R`; `zR` |
 | `zone: "ZN"` | `zN`, `zone N`, or an explicit zone word (`recovery`, `endurance`, `tempo`, `threshold`, `vo2`, `sweet spot`) mapped to its zone | a bare `N` |
 
-Ranges (`"40–50 min"`, `"290-300 W"`) ground a target falling inside the range. Approximation words
-(`~`, `about`, `around`, `roughly`) do not weaken grounding — they weaken nothing measurable.
+Ranges (`"40–50 min"`, `"290-300 W"`, `"88–92%"`) ground a target falling inside the range.
+Approximation words (`~`, `about`, `around`, `roughly`) do not weaken grounding — they weaken nothing
+measurable.
+
+**`targetPctFtp` and `watts` are separate fields, and the model fills at most the one the athlete
+actually wrote.** A note saying `"9 min at 95% FTP"` grounds `targetPctFtp: 95` and **not**
+`watts: 274` — the model must not multiply. Conversion is deterministic, done in
+`lib/intent-scoring.ts` against the ride's own `ftpUsed`. This is the `PrescribedInterval` precedent
+already in the codebase ([types.ts:379](../../../lib/types.ts) — `targetPctFtp` alongside
+`targetWatts`, "resolved via FTP at generation time"): the percentage is the athlete's stated intent,
+the wattage is a derived number. Requiring the LLM to compute watts would be it computing a training
+figure (INVARIANT 12), and it would compute it against an FTP the prompt never gives it. See question
+7 for how the resolved value grades.
 
 **The deterministic check is authoritative and one-way.** The model returns `grounded` and
 `sourceText`; `verifyGrounding` recomputes it and may only lower the flag, never raise it. A model
@@ -224,9 +259,12 @@ believed.
 - `"some Z4 and Z5 efforts"` grounds `zone: Z4` and `zone: Z5` and **nothing else** — explicitly not
   `reps: 4`, not `durationMin: 5`, not `watts: 4`;
 - `"45 min steady Z2"` grounds `durationMin: 45` and `zone: Z2`, not `watts: 45`;
-- `"9 min around 292 W"` grounds `durationMin: 9` and `watts: 292`;
+- `"9 min around 292 W"` grounds `durationMin: 9` and `watts: 292`, and **not** `targetPctFtp: 292`;
 - `"4 x 5 min at 300w"` grounds `reps: 4`, `durationMin: 5`, `watts: 300`;
 - `"1.5 h endurance"` grounds `durationMin: 90` (±1) and `zone: Z2`;
+- `"9 min at 95% FTP"` grounds `durationMin: 9` and `targetPctFtp: 95`, and **grounds no `watts` at
+  all** — the model must not multiply 95% by an FTP it was never given;
+- `"20 min at 88-92%"` grounds `targetPctFtp` for any value in `[88, 92]`;
 - a model-claimed `grounded: true` on an unsupported field is overridden to `false`.
 
 ### 3. `effectiveWorkoutType` — add it, keep per-type learning prescribed-only
@@ -319,23 +357,88 @@ record, `needsParse` returns false forever, and `force` only ever targets *today
 — so a 12-day-old ride with a perfectly good note would be silently lost with no path back except
 hand-editing JSON. Leaving it queued costs one retry on the next sync and nothing else.
 
-**Zero-progress stop.** The route reports `stalled: processed === 0 && remaining > 0`. The client
-stops looping on `stalled`, so a persistent outage produces one failed round per sync, not six.
+**Mixed batches, and why a failed item waits for the next sync.** A batch can partly succeed: three
+items parse, two throw. The failed items stay queued, so `buildIntentQueue` will return them again —
+and if the client simply looped while `remaining > 0`, it would immediately retry the same two failing
+items up to six times inside one sync, which is a retry storm against an endpoint that is already
+failing, and against a rate limit if that is what caused it.
+
+The rule is therefore: **a transient failure is retried on a later sync, never again within the same
+client loop.**
+
+- The runner returns `processed` (items that reached a terminal state this run) and `remaining`, and
+  additionally `failedIds: string[]` — items that threw.
+- `stalled` is `processed === 0 && remaining > 0` — no forward progress at all.
+- The client's loop condition is `remaining > 0 && !stalled && processed > 0`, capped at 6 rounds. A
+  round that made *partial* progress may loop again to pick up the untouched backlog, but…
+- …**the runner skips `failedIds` from earlier rounds of the same invocation chain.** The route accepts
+  an optional `skip: string[]` which the client echoes back from the previous round's `failedIds`, and
+  the runner drops those from the queue for that round. They remain queued in the store — nothing is
+  written for them — so the *next sync* retries them cleanly with a fresh chain.
+
+Net effect: within one sync each failing item is attempted exactly once; across syncs it is retried
+indefinitely until it succeeds or the note changes. Pinned by a test with a two-item batch where one
+throws: assert the failing item is attempted **once**, the healthy item is written, the loop
+terminates, and a fresh invocation attempts the failing item again.
+
+**Zero-progress stop.** With `processed === 0` the client stops immediately, so a total outage produces
+one failed round per sync, not six.
 
 **Atomic supersession.** One `updateIntentOverlays` call does both halves:
 
 ```ts
+// The ledger row this overlay layers over decides how wide supersession must reach.
+const supersedesByDate = !entry.activityId;   // truthy check — a pre-2a row parses back `undefined`
 await updateIntentOverlays((existing) => [
   ...existing.map((o) =>
-    o.activityId === activityId && o.supersededBy === null ? { ...o, supersededBy: next.id } : o
+    o.supersededBy === null && (o.activityId === activityId || (supersedesByDate && o.date === entry.date))
+      ? { ...o, supersededBy: next.id }
+      : o
   ),
   next,
 ]);
 ```
 
-Every unsuperseded record for the activity is superseded regardless of status — the note it
-interpreted is gone. `updateJson` reads inside the lock (INVARIANT 2). Pinned by an invariant
-assertion after every write: `overlays.filter(o => o.activityId === X && !o.supersededBy).length <= 1`.
+Every unsuperseded record in scope is superseded regardless of status — the note it interpreted is
+gone. `updateJson` reads inside the lock (INVARIANT 2).
+
+**Why supersession widens to the whole date for a legacy row.** When the ledger row carries no
+`activityId` — **all 149 rows today** — resolution goes through `indexOverlaysByDate`, which is keyed
+by date and knows nothing about which ride was primary. If `primaryRideOfDate` later returns a
+*different* activity for that date, an activity-id-scoped supersession would leave the old primary's
+overlay unsuperseded, and the date index would then hold two applicable candidates and pick the newer
+by `createdAt` — an implicit, invisible resolution of a conflict that ought to be explicit. Widening
+to the date makes the successor genuinely replace whatever that date previously resolved to.
+
+`primaryRideOfDate` can legitimately change after an overlay was written: a secondary ride can be
+uploaded or corrected late, or a ride's `movingTimeSec` can be revised by Intervals, flipping which is
+longest. This is not hypothetical bookkeeping — it is the ordinary consequence of a queue derived
+fresh from `last-sync.json` on every run.
+
+Scoping stays activity-id-only when the row *has* an `activityId`, because the resolver then uses the
+activity index exclusively and a same-date sibling's overlay is correctly independent.
+
+**Pinned by two invariant assertions after every write:**
+- `overlays.filter(o => o.activityId === X && !o.supersededBy).length <= 1`, and
+- for a legacy row's date: `overlays.filter(o => o.date === D && !o.supersededBy).length <= 1`.
+
+**Plus a lifecycle test in which the primary ride changes:**
+
+```ts
+it("supersedes the old primary's overlay when primaryRideOfDate changes on a legacy date", async () => {
+  // Day 1: one ride, it is primary, an overlay is written against it.
+  // Day 2: a LONGER second ride for the same date arrives in last-sync; primaryRideOfDate now returns
+  //        the new one, and the ledger row still carries no activityId (it is frozen).
+  // The new overlay must supersede the old one even though their activityIds differ — otherwise the
+  // date index holds two applicable records and silently picks the newer by createdAt.
+  await runIntentParsing("2026-08-10", warnings);                 // writes ov-1 for "short"
+  activities.push(activity({ date: "2026-08-09", id: "long", movingTimeSec: 7200, description: "45 min Z2" }));
+  await runIntentParsing("2026-08-10", warnings);                 // primary is now "long"
+  expect(store.overlays.find((o) => o.id === "ov-1")?.supersededBy).not.toBeNull();
+  expect(store.overlays.filter((o) => o.date === "2026-08-09" && !o.supersededBy)).toHaveLength(1);
+  expect(indexOverlaysByDate(store.overlays).get("2026-08-09")?.activityId).toBe("long");
+});
+```
 
 ### 6. Objective canonicalisation — the LLM must not control the score by how it splits
 
@@ -344,44 +447,107 @@ An unbounded per-objective delta sum lets the model's *decomposition choice* mov
 produce three different numbers for one intent. That is the model computing a number by the back door
 (INVARIANT 12).
 
-**Canonicalisation, before any grading:**
+**Canonicalisation runs in four ordered stages.** The order is the whole correctness argument — an
+earlier draft collapsed stages 1 and 2 into a single "merge" rule, which made *exact duplicates* sum
+as if they were distinct split components. `"45 min Z2"` emitted twice would have become a 90-minute
+target.
 
-| kind | canonical key | merge rule |
+**Stage 1 — drop exact semantic duplicates.** Two objectives are semantically identical when their
+`identityKey` matches: `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp, reps)`, with
+`durationMin` rounded to the minute, `watts` to 5 W and `targetPctFtp` to 1%. `description` and
+`sourceText` are **excluded** from the key — free text varies while the claim does not. `zoneBasis` is
+**included**: "20 min in HR zone 2" and "20 min in power zone 2" are two different measurements of two
+different things, not a duplicate. Keep the first occurrence, discard the rest. **Nothing is summed at
+this stage.**
+
+**Stage 2 — merge distinct components, per kind.** Only objectives that survived stage 1 as *distinct*
+entries reach a merge rule:
+
+| kind | merge key | rule for distinct entries |
 |---|---|---|
-| `duration` | `("duration")` | at most one; take the **max** stated target (they are claims about one total) |
-| `zone-time` | `("zone-time", zone)` | **sum** the targets for that zone — a split phase list states parts of one total |
-| `zone-emphasis` | `("zone-emphasis", zone)` | dedupe; **dropped entirely if a `zone-time` exists for the same zone** (subsumed by the stronger claim) |
-| `effort` | `("effort", durationMin, watts, zone)` after rounding duration to the minute and watts to 5 W | dedupe; `reps` fields are **summed** across merged duplicates |
-| `structure` | `("structure")` | at most one |
-| `qualitative` | `("qualitative", description)` | dedupe; never graded |
+| `duration` | `("duration")` | at most one survives: take the **max** stated target (competing claims about one total, not parts of it) |
+| `zone-time` | `("zone-time", zone, zoneBasis)` | **sum** the distinct targets for that zone *and basis* — a split phase list states parts of one total. Never sum across bases: HR-zone minutes and power-zone minutes are not addable |
+| `zone-emphasis` | `("zone-emphasis", zone, zoneBasis)` | no merge; stage 1's dedupe is the whole rule |
+| `effort` | `("effort", durationMin, watts \| targetPctFtp, zone)` | no merge, and **`reps` is never summed** — see below |
+| `structure` | `("structure")` | at most one survives |
+| `qualitative` | `("qualitative", description)` | no merge; never graded |
 
-**Bounded aggregation:** grade each canonical objective once, then sum **one contribution per kind**,
-each clamped to that kind's band, then clamp the total to 1–10. Within a kind that can hold several
-canonical entries (`zone-time` across different zones, `effort` across different targets), the kind's
-contribution is the **mean** of its members' deltas, rounded, then clamped. So adding a third zone
-objective cannot triple a bonus.
+**`reps` is never summed across duplicates.** An earlier draft summed it, which meant the model
+emitting `"4 × 5 min"` twice would have demanded 8 reps of the athlete. A repeated identical effort is
+one claim stated twice, not twice the work — stage 1 already removed it, so stage 2 has nothing to
+sum. Genuinely different rep-counts of the same effort (`3 × 5 min` and `4 × 5 min`) are *contradictory*
+readings of one note rather than additive ones: keep the **max** and record the conflict in `evidence`.
 
-**Required invariance test:**
+**Stage 3 — cross-kind subsumption.** One stated phrase must not contribute twice under two kinds.
+`"45 min Z2"` is simultaneously a duration claim and a zone claim, and an earlier draft let it score on
+both axes — the same evidence counted twice, and a note that happened to phrase its total as a zone
+would outscore an identical one that didn't. Resolution, in this order:
+
+1. **`zone-time` subsumes `zone-emphasis` for the same zone** — the numbered claim is strictly
+   stronger, so the emphasis entry is dropped.
+2. **A `zone-time` whose `sourceText` is the same span as the `duration` objective's, or whose target
+   equals the `duration` target (±1 min), subsumes that `duration` entry** — one phrase, one
+   contribution. The `zone-time` wins because it is the more specific claim (it names a zone as well as
+   a length). If the note *separately* states a total (`"2 h ride, 45 min of it in Z2"`), the spans
+   differ and the targets differ, so both survive — correctly, because those are two real claims.
+3. **An `effort` whose matched lap set is a subset of a `zone-time`'s zone is not subsumed** —
+   a 9-minute threshold effort inside a 2-hour ride is a genuinely separate claim about a different
+   part of the ride, and its evidence (a specific lap) is different evidence.
+
+**Stage 4 — bounded aggregation.** Grade each surviving canonical objective once, then take **one
+contribution per kind**: the **mean** of that kind's members' deltas, rounded, then clamped to that
+kind's band. Sum the per-kind contributions onto the baseline of 5 and clamp to 1–10. So a third zone
+objective cannot triple a bonus, and no kind can exceed its own band however many objectives it holds.
+
+**Grounding runs before stage 1**, on each objective as the model emitted it — a merged target must
+never inherit grounding from a different objective's note span. After stage 2, a **summed** target is
+accepted only when every merged part was individually grounded; a summed target is not re-grounded
+against the note as a whole, because the sum legitimately does not appear there (`"20 min Z2 then 25
+min Z2"` never contains `45`). State this in the module comment: it is the one place merging could
+smuggle an ungrounded number through, and the rule that stops it is per-part, not per-sum.
+
+**Required invariance tests** — five cases, all asserting an identical score:
 
 ```ts
-it("scores identically however the model splits or duplicates one intent", () => {
-  const single    = [obj("zone-time", { zone: "Z2", durationMin: 45 })];
-  const duplicate = [single[0], { ...single[0] }, { ...single[0], description: "steady Z2 block" }];
-  const split     = [obj("zone-time", { zone: "Z2", durationMin: 20 }), obj("zone-time", { zone: "Z2", durationMin: 25 })];
-  const reordered = [...split].reverse();
-  const ev = evidence({ durationMin: 90, z2Min: 44 });
-  const base = scoreIntentExecution(interp({ objectives: single }), ev).score;
-  for (const variant of [duplicate, split, reordered]) {
-    expect(scoreIntentExecution(interp({ objectives: variant }), ev).score).toBe(base);
-  }
+const ev = evidence({ durationMin: 90, z2Min: 44, laps: [lap(540, 291), lap(540, 289)] });
+const scoreOf = (objectives) => scoreIntentExecution(interp({ objectives }), ev).score;
+
+it("exact duplicates score as one claim, not as a sum", () => {
+  const single = [obj("zone-time", { zone: "Z2", durationMin: 45 })];
+  const dup    = [single[0], { ...single[0] }, { ...single[0], description: "steady Z2 block" }];
+  expect(scoreOf(dup)).toBe(scoreOf(single));            // NOT a 90-minute target
+});
+
+it("a split states parts of one total", () => {
+  expect(scoreOf([obj("zone-time", { zone: "Z2", durationMin: 20 }),
+                  obj("zone-time", { zone: "Z2", durationMin: 25 })]))
+    .toBe(scoreOf([obj("zone-time", { zone: "Z2", durationMin: 45 })]));
+});
+
+it("a reordered split is the same split", () => {
+  const split = [obj("zone-time", { zone: "Z2", durationMin: 20 }), obj("zone-time", { zone: "Z2", durationMin: 25 })];
+  expect(scoreOf([...split].reverse())).toBe(scoreOf(split));
+});
+
+it("duplicate efforts do not multiply the work demanded", () => {
+  const one = [obj("effort", { durationMin: 9, watts: 292, reps: 4 })];
+  expect(scoreOf([one[0], { ...one[0] }])).toBe(scoreOf(one)); // still 4 reps, never 8
+});
+
+it("one phrase contributes once, whichever kinds the model split it into", () => {
+  // "45 min Z2" as a single zone-time, vs. the model emitting it as duration AND zone-time.
+  const asZoneTime = [obj("zone-time", { zone: "Z2", durationMin: 45, sourceText: "45 min steady Z2" })];
+  const asBoth = [...asZoneTime, obj("duration", { durationMin: 45, sourceText: "45 min steady Z2" })];
+  expect(scoreOf(asBoth)).toBe(scoreOf(asZoneTime));
+});
+
+it("but two genuinely separate claims both count", () => {
+  // "2 h ride, 45 min of it in Z2" — different spans, different targets, not subsumption.
+  const both = [obj("duration", { durationMin: 120, sourceText: "2 h ride" }),
+                obj("zone-time", { zone: "Z2", durationMin: 45, sourceText: "45 min of it in Z2" })];
+  expect(scoreOf(both)).not.toBe(scoreOf([both[1]]));
 });
 ```
-
-Grounding runs **before** canonicalisation (a merged target must not inherit grounding from a
-different objective's note substring), and the merged target is re-grounded against the note as a
-whole after merging — with the merge accepted only when the summed target is itself grounded or when
-every merged part was individually grounded. State this explicitly in the module comment; it is the
-one place merging could smuggle an ungrounded number through.
 
 ### 7. Effort grading — every combination defined
 
@@ -390,19 +556,33 @@ Laps come from `fetchIntervals(activityId)` → `ExecutedInterval[]` (`durationS
 within **±20%** of the target; efforts are matched **longest target first**, and a lap once matched is
 **consumed** so two efforts cannot both claim it.
 
+**`targetPctFtp` resolves to watts before matching.** `resolveTargetWatts(target, ftpUsed)` returns
+`target.watts ?? (target.targetPctFtp != null ? Math.round(ftpUsed * target.targetPctFtp / 100) : null)`.
+An explicit `watts` always wins over a percentage when the note somehow states both. `ftpUsed` comes
+from the ledger entry, not the current physiology store, so the resolution is anchored to the FTP that
+actually applied on the ride's date — the same anchoring `RideScoreEntry.ftpUsed` exists for. If
+`ftpUsed` is absent or non-positive, a percentage-only target **cannot resolve** and the effort is
+ungraded with `evidence: "no FTP anchor for the stated %"` rather than resolved against a guess.
+
+Below, "**resolved watts**" means the output of that function; every row treats an explicit `watts`
+and a resolved `targetPctFtp` identically once resolution has happened.
+
 | combination | graded? | rule | scope |
 |---|---|---|---|
-| duration + watts | ✅ | best-watt matching lap; `avgWatts / targetWatts` on `computeExecutionScore`'s non-SIT adherence band (95–106 → +2, 90–94/107–112 → +1, 85–89 → 0, 80–84 → −1, else −2) | matched lap duration |
+| duration + watts | ✅ | best-watt matching lap; `avgWatts / resolvedWatts` on `computeExecutionScore`'s non-SIT adherence band (95–106 → +2, 90–94/107–112 → +1, 85–89 → 0, 80–84 → −1, else −2) | matched lap duration |
+| duration + `targetPctFtp` | ✅ | resolve to watts against `ftpUsed`, then exactly the row above | matched lap duration |
+| duration + `targetPctFtp`, no usable `ftpUsed` | ❌ | `scored: false, evidence: "no FTP anchor for the stated %"` | 0 |
 | duration only | ✅ presence | a matching lap exists → **+1**; none → **−1** | matched lap duration (0 if none) |
-| watts only, no duration | ❌ | no window over which to evaluate; `measurable: true, scored: false, evidence: "no duration stated for this effort"` | 0 |
+| watts (or `targetPctFtp`) only, no duration | ❌ | no window over which to evaluate; `scored: false, evidence: "no duration stated for this effort"` | 0 |
 | zone only ("some Z4 efforts") | — | not an `effort`; canonicalised to `zone-emphasis` for that zone | via that kind |
-| reps `N` + duration + watts | ✅ | require ≥ `Math.ceil(0.75 * N)` matching laps; grade the **mean** `avgWatts / targetWatts` across matched laps on the same band; short of the threshold → **−1** and no watt grading | sum of matched lap durations |
+| reps `N` + duration + watts/`targetPctFtp` | ✅ | require ≥ `Math.ceil(0.75 * N)` matching laps; grade the **mean** `avgWatts / resolvedWatts` across matched laps on the same band; short of the threshold → **−1** and no watt grading | sum of matched lap durations |
 | reps `N` + duration only | ✅ presence | matched laps ≥ `ceil(0.75 * N)` → **+1**; else **−1** | sum of matched lap durations |
-| reps `N` + watts only | ❌ | same reason as watts-only | 0 |
-| no lap data at all (`fetchIntervals` failed or returned `[]`) | ❌ | `measurable: true, scored: false, evidence: "no interval data"`, **no delta** | 0 |
+| reps `N` + watts/`targetPctFtp` only | ❌ | same reason as watts-only | 0 |
+| no lap data at all (`fetchIntervals` failed or returned `[]`) | ❌ | `scored: false, evidence: "no interval data"`, **no delta** | 0 |
 
-Missing data is never a failed metric (design §13): every ❌ row contributes no delta and no scope.
-An ungradable effort is still returned in `objectives[]` so 2c can show it was acknowledged.
+Every ❌ row sets `measurable: true, scored: false` — missing data is never a failed metric (design
+§13) — contributes no delta and no scope, and is still returned in `objectives[]` so 2c can show it was
+acknowledged.
 
 ### 8. Zone evidence — units, arrays, and the honest dependency
 
@@ -412,15 +592,37 @@ An ungradable effort is still returned in `objectives[]` so 2c can show it was a
 index 1. An array that is `null`, shorter than the requested index + 1, or sums to 0 yields **no
 evidence** (ungradable, no delta, no scope) rather than a zero reading.
 
-**Which array.** Following `computeExecutionScore`'s established easy-ride precedent (HR is the
-terrain-immune judge; outdoor Z2 *power* is unholdable):
+**Which array — `zoneBasis`, stated by the athlete, never guessed from the zone number.** A zone
+objective carries `zoneBasis: "power" | "heart-rate" | "unspecified"`, extracted by the model from what
+the note actually says and never inferred by it:
 
-- aerobic zones (Z1, Z2, and the `recovery`/`endurance` words): prefer `hrZoneTimes`, fall back to `powerZoneTimes`;
-- Z3 and above: prefer `powerZoneTimes`, fall back to `hrZoneTimes`.
+| the note says | `zoneBasis` | graded from |
+|---|---|---|
+| `"HR zone 2"`, `"Z2 heart rate"`, `"keep HR in 2"`, `"aerobic HR zone"` | `heart-rate` | `hrZoneTimes` |
+| `"power zone 2"`, `"Z2 power"`, `"290 W"`, `"88% FTP"`, `"sweet spot"`, `"threshold power"` | `power` | `powerZoneTimes` |
+| a bare `"Z2"`, `"zone 2"`, `"endurance"`, `"tempo"` — no basis stated | `unspecified` | `powerZoneTimes` (see below) |
 
-Which array was used is recorded in the objective's `evidence` string, so a later reader never has to
-guess. Indoor rides (`VirtualRide`) use power for every zone — ERG holds power flat and HR drifts, the
-inverse of the outdoor argument.
+**An explicit basis is honoured exactly; it never falls back to the other array.** A stated
+`power` target graded from HR data — or the reverse — is a different measurement answering a different
+question, and silently substituting one would report a number the athlete did not ask for while
+labelling it as the one they did. When the named array is missing for an *explicit* basis, the
+objective is **ungraded** (`scored: false`, `evidence: "no <power|HR> zone data"`, scope 0), exactly
+like any other missing-evidence row.
+
+**`unspecified` defaults to power**, with fallback to `hrZoneTimes` permitted only for this basis.
+Cycling zones are power zones by default in this app and in Intervals.icu: `physiology.json` stores
+zones as % of FTP, `bucketZones` buckets the power stream, and an unqualified "Z2" from a cyclist
+means the power zone. The easy-ride HR precedent in `computeExecutionScore` is deliberately **not**
+generalised here — that judge answers "was this prescribed easy ride actually easy," a question about
+physiological cost where HR is the terrain-immune sensor. This one answers "did the athlete do what
+they said," where the stated unit is the athlete's own choice and overriding it would be the app
+substituting its judgement for their intent.
+
+Indoor rides (`VirtualRide`) use power for `unspecified` with **no** HR fallback — ERG flattens power
+and HR drifts, so an HR-derived zone reading indoors is not a substitute for anything.
+
+The basis actually used, and whether it came from the note or the default, is recorded in the
+objective's `evidence` string so a later reader never has to guess.
 
 **`zone-emphasis` grading** uses the measured share of total zone-array time in the named zone:
 ≥60% → +2 · ≥45% → +1 · ≥30% → 0 · else −1.
@@ -593,14 +795,20 @@ Task 7 depends on 1. Tasks 8–9 depend on everything.
 
 **Produces:**
 - `export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative"`
-- `ScoredObjective` gains `kind`, `target`, `grounded`, `sourceText`, `scopeMin`
+- `export type ZoneBasis = "power" | "heart-rate" | "unspecified"`
+- `ScoredObjective` gains `kind`, `target`, `zoneBasis`, `grounded`, `sourceText`, `scopeMin`
+- `IntentTarget { durationMin?: number; watts?: number; targetPctFtp?: number; zone?: string; reps?: number }`
+  — **`watts` and `targetPctFtp` are separate optional fields**, mirroring `PrescribedInterval`
+  ([types.ts:379](../../../lib/types.ts)). The model fills whichever the athlete stated; never both from
+  one phrase, and never a computed `watts` derived from a percentage.
 - `StructuredIntent.phases[]` gains `kind: ObjectiveKind`
 - `IntentOverlay.effectiveWorkoutType?: WorkoutType | null`
 - `IntentOverlayStore.autoFromDate?: string | null`
 - `updateIntentOverlayStore(mutate: (store) => store)` in `data-store.ts` — the store-level transaction
-  the runner needs so `autoFromDate` initialisation and the first overlay write are one atomic write.
-  Keep the existing `updateIntentOverlays(mutate)` array-level helper; implement it in terms of the new
-  one so there is one write path, not two.
+  the runner needs to persist `autoFromDate` before processing. Keep the existing
+  `updateIntentOverlays(mutate)` array-level helper and implement it in terms of the new one, so there
+  is one write path rather than two. (The boundary write and the first overlay write are **separate**
+  transactions — see question 0.)
 
 **Coherence rule added to `isCoherent`:**
 
@@ -651,10 +859,13 @@ EOF
 
 **Files:** create `lib/intent-grounding.ts`, `lib/intent-grounding.test.ts`
 
-**Produces:** `maskZoneTokens(note)`, `groundsDuration(note, min)`, `groundsWatts(note, w, ftp)`,
-`groundsReps(note, n)`, `groundsZone(note, zone)`, `verifyGrounding(objective, note, ftp): boolean`.
+**Produces:** `ZONE_MASK`, `maskZoneTokens(note)`, `groundsDuration(note, min)`,
+`groundsWatts(note, w)`, `groundsPctFtp(note, pct)`, `groundsReps(note, n)`, `groundsZone(note, zone)`,
+`verifyGrounding(objective, note): boolean`.
 
-Implement question 2 exactly. Pure, no I/O.
+Implement question 2 exactly. Pure, no I/O. Note that `verifyGrounding` takes **no ftp** — grounding is
+about what the note says, and FTP resolution is `lib/intent-scoring.ts`'s job at grading time. Keeping
+ftp out of this signature makes "ground a percentage by converting it to watts" unexpressible.
 
 - [ ] **Step 1: Failing tests** — every row of question 2's table, plus:
 
@@ -755,13 +966,19 @@ idempotent second call.
 **Files:** create `lib/intent-scoring.ts`, `lib/intent-scoring.test.ts`
 
 **Produces:** `INTENT_SCORING_VERSION = 1`, `INTENT_MIN_SCOPE_MIN`, `INTENT_SCOPE_MIN_FRACTION`,
-`GRADABLE_KINDS_BY_CONFIDENCE`, `canonicalise(objectives)`, `zoneMinutes(evidence, zone)`,
-`matchLaps(target, laps)`, `gradeObjective`, `evidenceScope`, `assessScoreability`,
-`scoreIntentExecution`, `intentWorkoutType`, `buildOverlay`,
-`RideEvidence { durationMin, isIndoor, powerZoneTimes, hrZoneTimes, laps, ftp }`.
+`GRADABLE_KINDS_BY_CONFIDENCE`, `identityKey(objective)`, `canonicalise(objectives)`,
+`resolveTargetWatts(target, ftpUsed)`, `zoneMinutes(evidence, zone, basis)`, `matchLaps(target, laps)`,
+`gradeObjective`, `evidenceScope`, `assessScoreability`, `scoreIntentExecution`, `intentWorkoutType`,
+`buildOverlay`,
+`RideEvidence { durationMin, isIndoor, powerZoneTimes, hrZoneTimes, laps, ftpUsed }`.
 
 Implements questions 1, 3, 6, 7 and 8. **Never imports the SDK, never reads `activity.decoupling`,
 never sees the ride's existing execution score** — all three pinned by test.
+
+`canonicalise` implements question 6's **four ordered stages** (dedupe → merge → cross-kind subsumption
+→ nothing, aggregation is the caller's) and is exported separately from `scoreIntentExecution` so the
+invariance tests can assert on the canonical set directly as well as on the final score.
+`resolveTargetWatts` is the only place a `targetPctFtp` becomes watts.
 
 Score model: baseline 5, one clamped contribution per kind (mean of that kind's canonical members),
 summed, clamped to 1–10. `structure` is **reward-only** (+1 in order, 0 otherwise) — an out-of-order
@@ -799,15 +1016,55 @@ it("a duration objective always clears the scope gate", () => { /* … */ });
 it("an effort-only note on a long ride does not", () => { /* … */ });
 ```
 
-*Decomposition invariance* — question 6's test verbatim, plus an `effort` variant (same effort emitted
-twice vs. once) and a `duration` variant (two duration objectives → max, not sum).
+*Decomposition invariance* — **all six of question 6's tests verbatim** (exact duplicates, split,
+reordered split, duplicate efforts not summing reps, cross-kind subsumption, and the two-genuine-claims
+counter-case), plus a `duration` variant asserting two duration objectives take the **max**, not the sum.
+Assert on `canonicalise(...)`'s output as well as on the final score, so a failure says *which stage*
+broke rather than only that a number moved.
 
-*Every effort combination* — one test per row of question 7's table, including all four ❌ rows
-asserting `scored: false`, `scopeMin: 0`, and **no change to the score** versus omitting the objective
-entirely.
+*Every effort combination* — one test per row of question 7's table, including every ❌ row asserting
+`scored: false`, `scopeMin: 0`, and **no change to the score** versus omitting the objective entirely.
+Explicitly including the two `targetPctFtp` rows:
+```ts
+it("resolves a stated %FTP against the ride's own ftpUsed, not the current FTP", () => {
+  const target = { durationMin: 9, targetPctFtp: 95 };            // no `watts` — the model never computes it
+  expect(resolveTargetWatts(target, 288)).toBe(274);
+  expect(resolveTargetWatts(target, 300)).toBe(285);              // a different ride-date FTP, a different target
+});
+it("grades a %FTP effort identically to the same effort stated in watts", () => {
+  const ev = evidence({ ftpUsed: 288, laps: [lap(540, 275)] });
+  expect(scoreOf([obj("effort", { durationMin: 9, targetPctFtp: 95 })], ev))
+    .toBe(scoreOf([obj("effort", { durationMin: 9, watts: 274 })], ev));
+});
+it("leaves a %FTP effort ungraded when the ride has no usable FTP anchor", () => {
+  const r = grade(obj("effort", { durationMin: 9, targetPctFtp: 95 }), evidence({ ftpUsed: 0 }));
+  expect(r.scored).toBe(false);
+  expect(r.scopeMin).toBe(0);
+  expect(r.evidence).toMatch(/no FTP anchor/);
+});
+```
 
-*Zone semantics* — seconds→minutes conversion; `"Z2"` → index 1; aerobic prefers HR, Z3+ prefers
-power, indoor always power; `null`/short/all-zero array → ungradable with scope 0;
+*Zone semantics and `zoneBasis`* — seconds→minutes conversion; `"Z2"` → index 1; `null`/short/all-zero
+array → ungradable with scope 0; plus the basis rules:
+```ts
+it("grades an explicit power-zone target from POWER data, never from HR", () => {
+  // The blocker: silently grading a stated power target from HR reports a different measurement under
+  // the label the athlete asked for.
+  const ev = evidence({ powerZoneTimes: [0, 2700, 0, 0, 0, 0, 0], hrZoneTimes: [0, 600, 0, 0, 0, 0, 0] });
+  const r = grade(obj("zone-time", { zone: "Z2", durationMin: 45, zoneBasis: "power" }), ev);
+  expect(r.evidence).toMatch(/power/);
+  expect(r.scored).toBe(true);
+});
+it("grades an explicit HR-zone target from HR data", () => { /* mirror */ });
+it("leaves an explicit-basis target UNGRADED when its own array is missing — no cross-fallback", () => {
+  const ev = evidence({ powerZoneTimes: null, hrZoneTimes: [0, 2700, 0, 0, 0, 0, 0] });
+  const r = grade(obj("zone-time", { zone: "Z2", durationMin: 45, zoneBasis: "power" }), ev);
+  expect(r.scored).toBe(false);
+  expect(r.scopeMin).toBe(0);
+});
+it("defaults `unspecified` to power, falling back to HR only for that basis", () => { /* … */ });
+it("uses power for `unspecified` on an indoor ride, with no HR fallback", () => { /* … */ });
+```
 ```ts
 it("zone BOUNDARY definitions move the score but cannot flip scoreability", () => {
   // Scope is presence-based, so shifting minutes across a boundary changes the grade only. This is the
@@ -886,7 +1143,36 @@ handoff note. `PROMPT_VERSION` is stamped on `GeneratedPlan`, `TodayAnalysis` an
 that didn't change. Recorded in Task 9 as INVARIANT 47.
 
 **The tool schema is where "the model never computes a number" is enforced** — `.strict()` objects with
-no field for a score, percentage, compliance figure, drift value or evidence verdict.
+no field for a score, compliance figure, drift value or evidence verdict. The exact shape:
+
+```ts
+primaryPurpose: string
+phases: [{ description, kind, durationMin?, zone?, zoneBasis?, targetWatts?, targetPctFtp?, reps? }]
+objectives: [{
+  description,
+  kind: ObjectiveKind,
+  zoneBasis: "power" | "heart-rate" | "unspecified",   // what the NOTE said, never inferred from the zone number
+  target: { durationMin?, watts?, targetPctFtp?, zone?, reps? } | null,
+  grounded: boolean,
+  sourceText: string | null,
+}]
+confidence: "high" | "medium" | "low"
+```
+
+Two fields carry a rule the schema description must state in the model's own instructions, because the
+type alone cannot enforce them:
+
+- **`watts` and `targetPctFtp` are mutually exclusive per objective, and neither is ever derived.**
+  Emit `targetPctFtp: 95` for `"95% FTP"` and `watts: 292` for `"292 W"`. **Never convert one into the
+  other** — the FTP is not in this prompt, so a converted number would be invented. `intent-scoring.ts`
+  resolves the percentage deterministically against the ride's `ftpUsed`.
+- **`zoneBasis` reports what the note said, and defaults to `"unspecified"` when it said nothing.**
+  `"HR zone 2"` → `heart-rate`; `"power zone 2"`, `"290 W"`, `"sweet spot"` → `power`; a bare `"Z2"` or
+  `"endurance"` → `unspecified`. Do not guess a basis from the zone number.
+
+`targetPctFtp` is bounded `[30, 200]` and `watts` `[30, 2000]` in the schema, so an obviously
+mis-slotted value (a wattage emitted as a percentage) is rejected rather than silently resolved into a
+nonsensical target.
 
 - [ ] **Step 1: Failing tests.**
 
@@ -949,29 +1235,36 @@ it("prices every model id any call site actually uses (INVARIANT 18)", () => {
 **Files:** create `lib/intent-runner.ts`, `lib/intent-runner.test.ts`, `app/api/intent/route.ts`;
 modify `components/SyncProvider.tsx`
 
-**Produces:** `runIntentParsing(today, warnings, opts?: { force?: boolean; limit?: number })
-: Promise<{ processed: number; remaining: number; stalled: boolean }>`.
+**Produces:** `runIntentParsing(today, warnings, opts?: { force?: boolean; limit?: number; skip?: string[] })
+: Promise<{ processed: number; remaining: number; stalled: boolean; failedIds: string[] }>`.
 
 **Decision order** — question 5's retry table made executable:
 
 ```
-0. read stores; if (!store.autoFromDate) initialise it to `today` and persist (one transaction)
+0. read stores; if (!store.autoFromDate) initialise it to `today` and persist in its OWN
+   updateIntentOverlayStore transaction, awaited to completion BEFORE step 1
 1. queue = buildIntentQueue(activities, entries, overlays, today, store.autoFromDate,
                             { force: force ? [primaryRideOfDate(activities, today)?.id] : [] })
+   then drop any item whose activityId is in opts.skip (question 5: a transient failure from an
+   earlier round of the SAME client chain is not retried within that chain)
 2. for each of the first `limit` items:
    a. normalizeNote(item.note) === ""   → write no-intent-found. NO client, NO call. processed++
    b. !isAnthropicConfigured()          → write NOTHING; warn once; leave queued
-   c. gather evidence (zone arrays from the ActivitySummary; laps via fetchIntervals, best-effort → [])
+   c. gather evidence (zone arrays from the ActivitySummary; laps via fetchIntervals, best-effort → [];
+      ftpUsed from the LEDGER ENTRY, so a stated %FTP resolves against the ride-date FTP)
    d. interpretation = await parseRideIntent(note, durationMin)
-        THROWS → write NOTHING; warn; leave queued; NOT counted as processed
+        THROWS → write NOTHING; warn; leave queued; push activityId to failedIds; NOT processed
         null   → write interpreter-failed; processed++
    e. verdict = scoreIntentExecution(interpretation, evidence)
    f. overlay = buildOverlay(...) with status "active"
-   g. ONE updateIntentOverlays call: supersede every unsuperseded record for this activityId, append
-3. return { processed, remaining: queue.length - processed, stalled: processed === 0 && remaining > 0 }
+   g. ONE updateIntentOverlays call: supersede every unsuperseded record for this activityId — and,
+      when the ledger row has NO activityId, for this DATE as well (question 5) — then append
+3. return { processed, remaining, stalled: processed === 0 && remaining > 0, failedIds }
 ```
 
-Step (a) precedes (b) deliberately: a note-less ride is decidable with no API key.
+Step (a) precedes (b) deliberately: a note-less ride is decidable with no API key. Step 0 completes
+before step 1 so the boundary is durable on disk before any parse begins — it is a **separate**
+transaction from every overlay write, not a shared one.
 
 - [ ] **Step 1: Failing tests.** Required:
 
@@ -1009,12 +1302,48 @@ it("failure then later success: the second run writes the overlay", async () => 
 it("a COMPLETED call with no usable output writes interpreter-failed", async () => { /* parse → null */ });
 it("a low-confidence parse writes intent-unreliable", async () => { /* … */ });
 
+it("a mixed batch attempts each failing item exactly once", async () => {
+  // Two queued items, one throws. The healthy one is written; the failing one is reported in
+  // failedIds and NOT retried inside this invocation. Without this, a client looping on
+  // `remaining > 0` would hammer the same failing item six times against an endpoint — or a rate
+  // limit — that is already failing.
+  parse.mockRejectedValueOnce(new Error("429")).mockResolvedValueOnce(goodInterpretation);
+  const r = await runIntentParsing("2026-08-07", warnings, { limit: 5 });
+  expect(r.processed).toBe(1);
+  expect(r.failedIds).toEqual(["a-failing"]);
+  expect(parse).toHaveBeenCalledTimes(2);
+  // The client echoes failedIds back as `skip`; that round must not touch it again.
+  const r2 = await runIntentParsing("2026-08-07", warnings, { skip: r.failedIds });
+  expect(parse).toHaveBeenCalledTimes(2); // unchanged — the failing item was skipped, not retried
+});
+
+it("a fresh invocation retries a previously failed item", async () => {
+  // `skip` is per client chain, never persisted: the next sync starts clean.
+  parse.mockRejectedValueOnce(new Error("503"));
+  await runIntentParsing("2026-08-07", warnings);
+  parse.mockResolvedValueOnce(goodInterpretation);
+  expect((await runIntentParsing("2026-08-07", warnings)).processed).toBe(1); // no skip passed
+});
+
+it("persists autoFromDate BEFORE the first parse call", async () => {
+  // Ordering, not atomicity: a crash between the two must leave a boundary and no overlays, never
+  // overlays written under a boundary that was never persisted.
+  const order: string[] = [];
+  storeWriteSpy.mockImplementation(() => { order.push("boundary"); });
+  parse.mockImplementation(() => { order.push("parse"); return goodInterpretation; });
+  await runIntentParsing("2026-08-07", warnings);
+  expect(order[0]).toBe("boundary");
+});
 it("initialises autoFromDate to today on first run and never re-writes it", async () => { /* … */ });
 it("writes nothing for a ride before autoFromDate, even with force", async () => { /* … */ });
 
 it("supersedes and activates in ONE store write", async () => { /* assert call count === 1 */ });
 it("never leaves two unsuperseded records for one activity across an edit sequence", async () => { /* … */ });
 it("supersedes a pending and a disabled predecessor too", async () => { /* … */ });
+it("supersedes the old primary's overlay when primaryRideOfDate changes on a legacy date",
+   async () => { /* question 5's lifecycle test, verbatim */ });
+it("never leaves two unsuperseded records for one DATE when the ledger row has no activityId",
+   async () => { /* … */ });
 
 it("writes only records its own consumer accepts", async () => {
   for (const o of written) expect(isApplicable(o)).toBe(true);
@@ -1028,12 +1357,19 @@ it("never writes for a prescribed ride, even with force", async () => { /* … *
   `lib/sync-analysis.ts`'s warning discipline (`warnings.push`, never throw out of the loop).
 - [ ] **Step 4:** Create `app/api/intent/route.ts` — copy `app/api/analyze/route.ts`'s shape:
   `export const maxDuration = 60`, tolerant body parse, `resolveToday(body?.today)`,
-  **`force` as a boolean** (question 10). Return `{ processed, remaining, stalled, warnings }`. **Do
-  not** guard the whole route on `isAnthropicConfigured()` — a note-less ride is still decidable.
+  **`force` as a boolean** (question 10) with the server deriving today's primary ride itself, and an
+  optional `skip: string[]` the client echoes back. Return
+  `{ processed, remaining, stalled, failedIds, warnings }`. **Do not** guard the whole route on
+  `isAnthropicConfigured()` — a note-less ride is still decidable.
 - [ ] **Step 5:** Wire `components/SyncProvider.tsx`: extend the existing `runAnalysis` callback to
-  also call `/api/intent`, looping `while (remaining > 0 && !stalled)` up to 6 rounds, passing the
-  same `force` boolean it already has. Reuse `analyzingRef` (UXA-6 — a double-click must not
-  double-bill). Warnings through the existing `setSyncWarnings`. **No new button, no new UI state.**
+  also call `/api/intent`, accumulating `failedIds` across rounds and passing them back as `skip`, with
+  the loop condition **`remaining > 0 && !stalled && processed > 0`** capped at 6 rounds. Pass the same
+  `force` boolean it already has. Reuse `analyzingRef` (UXA-6 — a double-click must not double-bill).
+  Warnings through the existing `setSyncWarnings`. **No new button, no new UI state.**
+
+  The `processed > 0` term is what stops a partly-failing batch from being retried inside one sync
+  (question 5): a round that made no progress ends the chain, and items that threw are skipped for the
+  remainder of it. They stay queued in the store, so the next sync picks them up cleanly.
 - [ ] **Step 6:** Prove sync is still LLM-free — a static test walking `app/api/sync/route.ts`'s
   transitive local imports and asserting none is `@anthropic-ai/sdk`. Static, not behavioural: a
   behavioural test passes as long as the call happens to be guarded.
@@ -1181,27 +1517,49 @@ cat "$SMOKE_DIR/intent-overlays.json"
 
 Then **read and judge the actual output**, not the status code. Record in the report:
 
-- `processed` / `remaining` / `stalled`;
+- `processed` / `remaining` / `stalled` / `failedIds`;
 - for the 2026-08-06 acceptance ride: the raw note, parsed `primaryPurpose` and objectives, the
-  `confidence`, which objectives were graded vs. acknowledged, each one's `scopeMin`, the
-  `evidenceScopeMin`, the final `effectiveExecutionScore` or `notScoredReason`, and
+  `confidence`, each objective's `kind`, `zoneBasis`, `target` (noting whether the model emitted
+  `watts` or `targetPctFtp`), `grounded`, `sourceText` and `scopeMin`, which were graded vs.
+  acknowledged, the `evidenceScopeMin`, the final `effectiveExecutionScore` or `notScoredReason`, and
   `effectiveWorkoutType`;
 - the same for 2026-08-05 (design §14.2 — expect `medium`);
 - the full overlay records;
 - the token/cost delta in `$SMOKE_DIR/ai-usage.json`.
 
 **Judgement questions, each of which is a finding if the answer is bad:** did the model invent a number
-absent from the note? Did grounding catch it if so? Did it mark a qualitative objective measurable? Is
-the score defensible against the note a human would read? A syntactically valid response is not a
-correct one. **Note that the ride card would still show the old ledger score** — that is expected in
+absent from the note? Did grounding catch it if so? **Did it convert a stated `%FTP` into watts instead
+of emitting `targetPctFtp`?** **Did it guess a `zoneBasis` the note never stated?** Did it mark a
+qualitative objective measurable? Is the score defensible against the note a human would read? A
+syntactically valid response is not a correct one. **Note that the ride card would still show the old ledger score** — that is expected in
 2b (see "What this phase changes"), and the acceptance bar here is a defensible overlay, not a changed
 card.
 
 - [ ] **Step 4: Tear down the sandbox**
 
+**Validate the path before removing it.** `rm -rf "$SMOKE_DIR"` with `SMOKE_DIR` unset or empty
+expands to `rm -rf ""`, and a partially-typed or inherited value could point somewhere real. A
+recursive delete must never run on a path it has not checked, so guard on all four conditions —
+non-empty, absolute, matching the expected `mktemp` prefix, and actually a directory:
+
 ```bash
-rm -rf "$SMOKE_DIR" && unset SMOKE_DIR && echo "sandbox removed"
+case "$SMOKE_DIR" in
+  /*/nodevelo-p2b*)
+    [ -n "$SMOKE_DIR" ] && [ -d "$SMOKE_DIR" ] \
+      && rm -rf "$SMOKE_DIR" && echo "sandbox removed: $SMOKE_DIR" \
+      || echo "REFUSING: not a directory: '$SMOKE_DIR'"
+    ;;
+  *)
+    echo "REFUSING to remove '$SMOKE_DIR' — not an absolute mktemp nodevelo-p2b path. Remove it by hand."
+    ;;
+esac
+unset SMOKE_DIR
 ```
+
+If the guard refuses, **do not work around it with a bare `rm -rf`** — read the value, delete the
+directory by hand, and report that the variable was wrong, because a `SMOKE_DIR` that doesn't match
+the prefix means the sandbox may not have been where the smoke run actually wrote.
+
 ```bash
 ls "/Users/otis/Cycling App/data/intent-overlays.json" 2>&1
 ```
@@ -1231,32 +1589,58 @@ Expected: no output.
     the athlete missed scores low; it never becomes `Not scored`. Scope is the **maximum** across
     objectives, not a union — zone arrays are whole-ride aggregates and lap indices carry no stated
     sample interval, so a union is not computable from the available evidence.
-44. **Grounding is semantic and field-specific.** Zone tokens are masked out before any numeric scan, so
-    the `4` in `Z4` can never ground `reps: 4` nor the `5` in `Z5` ground `durationMin: 5`. Each field
-    requires its own unit-bearing form. `verifyGrounding` may only lower the model's claim.
-45. **Objective decomposition cannot move the score.** Objectives are canonicalised (duration → max,
-    zone-time → summed per zone, effort/emphasis → deduped) and aggregated one clamped contribution per
-    kind, so duplicated or differently split representations of one intent score identically.
-46. **The intent parser is shown the note and the ride's duration — nothing else.** No decoupling, no
-    scores, no zone data. The tool schema has no field for a score, percentage or drift value, so
-    INVARIANT 12 is unexpressible rather than instructed. Note cap is `INTENT_NOTE_MAX_CHARS` (2000),
-    dedicated — the ride-analysis prompt's 400 would truncate the real corpus.
-47. **A note-less ride is decided without an LLM call**, structurally: the empty-note branch precedes
+44. **Grounding is semantic and field-specific.** Zone tokens are masked out — with **printable text**,
+    never a control character — before any numeric scan, so the `4` in `Z4` can never ground `reps: 4`
+    nor the `5` in `Z5` ground `durationMin: 5`. Each field requires its own unit-bearing form.
+    `verifyGrounding` may only lower the model's claim, and takes no FTP: grounding is about what the
+    note says, not what a number converts to.
+45. **Objective decomposition cannot move the score**, via four ordered canonicalisation stages:
+    (1) drop exact semantic duplicates on `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp,
+    reps)`; (2) merge only what remains distinct — `duration` → max, `zone-time` → summed per
+    (zone, basis), **`effort` reps never summed**; (3) cross-kind subsumption, so one phrase contributes
+    once (`zone-time` subsumes `zone-emphasis` for its zone, and subsumes a `duration` sharing its span
+    or target); (4) one clamped contribution per kind. Duplicated, split and reordered representations
+    of one intent score identically. Stage order is load-bearing: merging before deduping would make an
+    exact duplicate sum as if it were a distinct component.
+46. **The athlete's stated `%FTP` is extracted; the watts are derived.** `targetPctFtp` and `watts` are
+    separate target fields (the `PrescribedInterval` precedent). The model emits whichever the note
+    states and **never converts** — it is not given an FTP. `resolveTargetWatts` converts against the
+    ledger row's `ftpUsed`, so a percentage is anchored to the FTP that applied on the ride's date; with
+    no usable anchor the objective is ungraded rather than resolved against a guess.
+47. **A zone target is graded on the basis the athlete stated.** `zoneBasis` is `power`, `heart-rate` or
+    `unspecified`, reported from the note and never inferred from the zone number. An **explicit** basis
+    never cross-falls-back: if its array is missing the objective is ungraded, because grading a stated
+    power target from HR data reports a different measurement under the label the athlete asked for.
+    `unspecified` defaults to power (cycling zones are power zones here — `physiology.json` stores % of
+    FTP), with HR fallback permitted for that basis only, and none at all indoors.
+48. **The intent parser is shown the note and the ride's duration — nothing else.** No decoupling, no
+    scores, no zone data, no FTP. The tool schema has no field for a score, compliance figure or drift
+    value, so INVARIANT 12 is unexpressible rather than instructed. Note cap is `INTENT_NOTE_MAX_CHARS`
+    (2000), dedicated — the ride-analysis prompt's 400 would truncate the real corpus.
+49. **A note-less ride is decided without an LLM call**, structurally: the empty-note branch precedes
     client construction, and the empty note's fingerprint is stable so the ride is decided once.
-48. **Overlay idempotency reads ALL records, not applicable ones**, and a **transient** call failure
+50. **Overlay idempotency reads ALL records, not applicable ones**, and a **transient** call failure
     writes nothing. `needsParse` skips on any unsuperseded record for `(activityId, noteFingerprint)` —
     including `disabled` and `pending`. Writing a terminal record on a network error would burn the
     fingerprint and permanently skip a non-today ride, which `force` (today-only) could never recover.
-    Supersession and activation are one `updateIntentOverlays` transaction.
-49. **An overlay binds to the date's primary (longest) ride**, via `primaryRideOfDate` using
+    A transient failure is retried on a **later sync**, never again within the same client loop: the
+    runner reports `failedIds`, the client echoes them back as `skip`, and the loop also requires
+    `processed > 0` to continue.
+51. **Supersession scope follows the ledger row's key.** Activation and supersession are one
+    `updateIntentOverlays` transaction. When the ledger row carries an `activityId`, supersession is
+    scoped to that id. When it does **not** — all 149 rows today — resolution goes through the
+    date index, so supersession must also cover every unsuperseded overlay **for that date**; otherwise
+    a later change to `primaryRideOfDate` leaves two applicable candidates and the date index resolves
+    the conflict implicitly by `createdAt`.
+52. **An overlay binds to the date's primary (longest) ride**, via `primaryRideOfDate` using
     `buildRideScores`'s strict comparison and array order, first-wins tie included. When the ledger row
     carries an `activityId` it must equal that id or the date is skipped and reported — the resolver
     never date-falls-back for a row with an id, so a mismatched binding would resolve against nothing.
-50. **`effectiveWorkoutType` is provenance, not a learning input.** It records the STATED type (never
+53. **`effectiveWorkoutType` is provenance, not a learning input.** It records the STATED type (never
     one inferred from IF) and may only accompany `origin: "self-directed"`. Per-type learning stays
     prescribed-only (INVARIANT 40) until the two 1–10 scales are shown comparable on a real corpus AND
     compliance gains a meaning for rides that have none.
-51. **`INTENT_PROMPT_VERSION` is versioned independently of `PROMPT_VERSION`.** The latter is stamped on
+54. **`INTENT_PROMPT_VERSION` is versioned independently of `PROMPT_VERSION`.** The latter is stamped on
     GeneratedPlan / TodayAnalysis / BlockHistoryEntry; bumping it for an unrelated prompt would assert a
     change to three artifact families that didn't change. INVARIANT 16 requires every AI artifact to
     carry *a* model + prompt version, not that one counter serve every prompt.
@@ -1414,37 +1798,62 @@ git commit -m "docs: bring the Phase 2b plan and design spec onto the implementa
 >
 > Specific traps:
 > - **`autoFromDate` is a hard floor.** 2b writes nothing — not even `pending` — for rides before it.
->   `force` bypasses idempotency, never the boundary. The historical no-block period is Phase 4's.
-> - **Grounding is semantic.** The `4` in `Z4` must not ground `reps: 4`. Mask zone tokens first.
+>   `force` bypasses idempotency, never the boundary. The historical no-block period is Phase 4's. The
+>   boundary is persisted in its own transaction that completes **before** any parse begins; it does not
+>   share a transaction with the first overlay write.
+> - **Grounding is semantic.** The `4` in `Z4` must not ground `reps: 4`. Mask zone tokens first — with
+>   **printable text** (`" <zone> "`), never a NUL or other control character. A previous draft of this
+>   plan used a literal NUL and made the plan file itself unsearchable by `grep`.
+> - **The model extracts a stated `%FTP`; it never computes watts.** `targetPctFtp` and `watts` are
+>   separate target fields (the `PrescribedInterval` precedent at `lib/types.ts`). The prompt contains no
+>   FTP, so a converted wattage would be invented. `resolveTargetWatts` converts against the ledger row's
+>   `ftpUsed`.
+> - **`zoneBasis` comes from the note, never from the zone number.** An explicit power target is graded
+>   from power data and an explicit HR target from HR data, with **no cross-fallback** — a missing array
+>   means ungraded, not "use the other one." Only `unspecified` defaults (to power) and may fall back.
 > - **Evidence scope ≠ successful minutes.** A stated target the athlete missed scores low; it never
 >   becomes `Not scored`. Scope is a MAX across objectives, never a union — you do not have the
 >   timestamps a union would need.
+> - **Canonicalisation is four ORDERED stages**: dedupe exact semantic duplicates, *then* merge distinct
+>   split components, *then* cross-kind subsumption, *then* one clamped contribution per kind. Merging
+>   before deduping makes an exact duplicate sum as a distinct component. **`effort` reps are never
+>   summed** — `"4 × 5 min"` emitted twice is one claim stated twice, not eight reps. And one phrase must
+>   contribute once: `"45 min Z2"` cannot score as both a total-duration and a zone-time objective.
 > - **A transient Anthropic exception writes NOTHING and leaves the ride queued.** Writing a terminal
->   record burns the fingerprint and permanently skips a non-today ride.
+>   record burns the fingerprint and permanently skips a non-today ride. A failed item is retried on a
+>   **later sync**, never again inside the same client loop — the runner returns `failedIds`, the client
+>   echoes them as `skip`, and the loop also requires `processed > 0`.
 > - `needsParse` reads **all** overlays, not `isApplicable` ones.
 > - `primaryRideOfDate` uses `buildRideScores`'s strict `>` and array order, tie-break included; and when
 >   the ledger row carries an `activityId` it must equal that id or the date is skipped.
+> - **Supersession widens to the whole DATE when the ledger row has no `activityId`** — which is all 149
+>   rows today. Those resolve through the date index, so an id-scoped supersession would leave two
+>   applicable candidates the moment `primaryRideOfDate` changes.
 > - A note-less ride is decided **before** the Anthropic client is constructed.
 > - Supersession and activation are ONE `updateIntentOverlays` call.
 > - `POST /api/sync` must remain LLM-free (INVARIANT 23).
 > - `INTENT_PROMPT_VERSION` is NEW. Do **not** bump the shared `PROMPT_VERSION`.
 > - `INTENT_NOTE_MAX_CHARS` is 2000, not the ride-analysis prompt's 400 — the real acceptance note is 455
 >   characters and the corpus reaches 823.
-> - Objective canonicalisation must make duplicated and split representations score identically.
 > - Test fixtures avoid `.x5` float boundaries (INVARIANT 30).
 >
 > **Task 9's verification and live smoke run are sandboxed, and this is not optional.** The worktree has
 > no `data/` directory; the primary store has no `intent-overlays.json`; and Phase 4's period must not be
 > written before review. Copy the primary `data/` into a `mktemp -d` directory, create the empty overlay
-> store, run everything with `NODEVELO_DATA_DIR` pointed at the copy, then delete it and **verify
-> `/Users/otis/Cycling App/data/intent-overlays.json` still does not exist.** Never point a write at the
-> primary athlete data. The temporary verification test must be deleted before the final commit and never
-> staged.
+> store, run everything with `NODEVELO_DATA_DIR` pointed at the copy, then delete it **through the
+> guarded teardown in the plan** — which checks the path is non-empty, absolute, matches the `mktemp`
+> prefix and is a directory before any recursive removal — and **verify
+> `/Users/otis/Cycling App/data/intent-overlays.json` still does not exist.** If the guard refuses, do
+> not work around it with a bare `rm -rf`: read the value, remove the directory by hand, and report it.
+> Never point a write at the primary athlete data. The temporary verification test must be deleted before
+> the final commit and never staged.
 >
 > **The live smoke run is not satisfied by a 200 response.** Read the model's actual output and judge it:
-> did it invent a number absent from the note, and did grounding catch it? Did it mark a qualitative
-> objective measurable? Is the score defensible against the note a human would read? Report the raw note,
-> the parsed objectives, each one's scope, the verdict, and the token/cost delta.
+> did it invent a number absent from the note, and did grounding catch it? Did it convert a stated
+> `%FTP` into watts instead of emitting `targetPctFtp`? Did it guess a `zoneBasis` the note never stated?
+> Did it mark a qualitative objective measurable? Is the score defensible against the note a human would
+> read? Report the raw note, the parsed objectives with their kind/basis/target/grounding, each one's
+> scope, the verdict, and the token/cost delta.
 >
 > **Do not run `npm run finish:agent-task`.** Stop after Task 9's commit and report. A Claude review
 > gates this branch (`WORKFLOW.md § Reviewing a codex PR`).
@@ -1464,12 +1873,21 @@ The review must re-verify by simulating the data lifecycle by hand, not by readi
 1. every new read of `origin`, `status`, `supersededBy`, `activityId`, `legacy`,
    `effectiveWorkoutType` or `autoFromDate` — including in `SyncProvider.tsx` and the new route;
 2. that no path exists by which LLM confidence promotes scoreability;
-3. that no path writes an overlay for a date before `autoFromDate`;
-4. that a transient parse failure leaves the ride re-parseable on the next run;
+3. that no path writes an overlay for a date before `autoFromDate`, and that the boundary is persisted
+   before the first parse;
+4. that a transient parse failure leaves the ride re-parseable on the next run, **and is not retried
+   inside the same client loop** (walk a two-item batch where one throws);
 5. that the producer (`buildOverlay`) and the consumer (`isApplicable`) agree on all five outcome rows;
 6. that a `pending` or `disabled` record is neither re-parsed nor applied;
-7. that `POST /api/sync` still reaches no Anthropic call;
-8. that the primary `data/` directory was not written during verification.
+7. that supersession reaches the whole **date** for a ledger row with no `activityId` — walk a case
+   where `primaryRideOfDate` changes after an overlay was written;
+8. that no code path converts a stated `%FTP` into watts anywhere except `resolveTargetWatts`, and that
+   an explicit `zoneBasis` never cross-falls-back to the other array;
+9. that canonicalisation's four stages run in order — check the *dedupe-before-merge* case specifically,
+   since merging first is the natural mistake and produces a plausible-looking number;
+10. that `POST /api/sync` still reaches no Anthropic call;
+11. that the primary `data/` directory was not written during verification.
 
 A green suite whose fixtures encode the wrong expectation is the failure mode this feature's own
-history has now demonstrated three times — and this plan's own first draft made it a fourth.
+history has now demonstrated three times — and this plan's own drafts have twice added to the count
+(a coverage rule that contradicted itself, and a canonicalisation rule that summed exact duplicates).
