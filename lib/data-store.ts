@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
@@ -426,6 +426,24 @@ export async function readLoadingLog(): Promise<LoadingLogStore> {
 
 export async function writeLoadingLog(store: LoadingLogStore): Promise<void> {
   await writeJson("loading-log.json", store);
+}
+
+// Phase 2a: the permanent intent-overlay store. Append-oriented and CRITICAL-backed — an approved
+// overlay is a human decision, not a re-derivable computation. Transactional update so a sync, the
+// deferred analyze step and a future review action can't clobber one another (why updateScoreLog exists).
+const DEFAULT_INTENT_OVERLAYS: IntentOverlayStore = { overlays: [], updatedAt: new Date(0).toISOString() };
+
+export async function readIntentOverlays(): Promise<IntentOverlayStore> {
+  return readJson<IntentOverlayStore>("intent-overlays.json", DEFAULT_INTENT_OVERLAYS);
+}
+
+export async function updateIntentOverlays(
+  mutate: (overlays: IntentOverlay[]) => IntentOverlay[] | Promise<IntentOverlay[]>
+): Promise<IntentOverlayStore> {
+  return updateJson<IntentOverlayStore>("intent-overlays.json", DEFAULT_INTENT_OVERLAYS, async (store) => ({
+    overlays: await mutate(store.overlays),
+    updatedAt: new Date().toISOString(),
+  }));
 }
 
 const DEFAULT_SEASON_PLAN: SeasonPlan = {

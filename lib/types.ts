@@ -649,6 +649,116 @@ export interface LoadRampAlert {
 // Accumulates over time so the trends view can chart execution quality across
 // blocks, even after a block is cleared from current-block.json.
 
+// Why a ride was (or wasn't) judged against a target — the semantic distinction the boolean `planned`
+// could not carry. `planned` conflated two facts: "a prescription existed" and "this ride is evidence
+// the athlete is drifting off-plan." A self-directed ride is off-PLAN but not off-TRACK: no block
+// existed, the athlete stated an objective in the ride note, and they executed against it.
+//   • prescribed    — a block/session existed for the date and remains the scoring target. A post-ride
+//                     note can never displace it (decision #14).
+//   • self-directed — no prescription, but a sufficiently clear intent was recovered and scored.
+//                     Asserted ONLY by an active intent overlay, never by a ledger row.
+//   • unspecified   — no prescription and not enough trustworthy intent to score execution.
+// Physical load (TSS/CTL/ATL/TSB, hours, frequency) counts identically for all three.
+export type RideOrigin = "prescribed" | "self-directed" | "unspecified";
+
+// Only an `active` overlay affects derived coaching state. Phase 2b's auto-accepted future rides are
+// created `active`; Phase 4's historical preparation creates `pending`, and human approval flips it
+// (decision #10, design §11.1 — nothing changes effective state before approval). `disabled` is a soft
+// retirement: the record survives so history stays auditable.
+export type OverlayStatus = "pending" | "active" | "disabled";
+
+// Why an outcome carries no execution score. Design §13 distinguishes these, and the debrief (Phase 2c)
+// must say which — a bare null score cannot.
+export type NotScoredReason =
+  | "no-intent-found" // no note at all — decided deterministically, no LLM call
+  | "intent-unreliable" // parsed, but confidence/validation too low to trust
+  | "no-measurable-objectives" // intent understood; nothing the ride data can verify
+  | "interpreter-failed"; // the parse itself errored
+
+// The structured intent recovered from a note. Deliberately loose — Phase 2b's zod schema is the
+// authority on validity; duplicating those constraints here would create two definitions to drift.
+export interface StructuredIntent {
+  primaryPurpose: string;
+  phases: Array<{ description: string; durationMin?: number; targetZone?: string; targetWatts?: number }>;
+}
+
+// One stated objective and what the ride data could say about it. `scored: false` with
+// `measurable: false` is the "acknowledged but not graded" case design §12.2 requires (e.g. technical
+// descending, which sensors cannot validate) — a flat evidence string list could not express it.
+export interface ScoredObjective {
+  description: string;
+  measurable: boolean;
+  scored: boolean;
+  evidence: string | null;
+}
+
+// The AI-derived half of an overlay. NULL when no model ran — a missing note is decided
+// deterministically, and demanding model/promptVersion there would force fabricated provenance.
+// When present it carries both (INVARIANT 16).
+export interface IntentInterpretation {
+  intent: StructuredIntent;
+  confidence: "high" | "medium" | "low";
+  objectives: ScoredObjective[];
+  model: string;
+  promptVersion: number;
+}
+
+// A permanent interpretation of one ride's stated intent plus the effective outcome derived from it
+// (decision #2). Keyed by Intervals activity id, date secondary (decision #9). The ledger remains the
+// raw audit record and is NEVER rewritten by an overlay (INVARIANT 1).
+export interface IntentOverlay {
+  id: string; // stable unique key; `supersededBy` references it. 2b generates via crypto.randomUUID()
+  activityId: string;
+  date: string; // YYYY-MM-DD — secondary key, used only for legacy rows carrying no activityId
+  noteFingerprint: string; // a note edit produces a NEW overlay superseding this one, never a mutation
+  status: OverlayStatus;
+  // MUST be `unspecified` whenever notScoredReason is no-intent-found / interpreter-failed /
+  // intent-unreliable — those mean no trustworthy intent was recovered, which is the definition of
+  // unspecified. Only `no-measurable-objectives` pairs with `self-directed`: the intent WAS clear, the
+  // ride data just couldn't verify it. Can never be `prescribed` — only the ledger's own `planned` flag
+  // may establish that. `isCoherent` (lib/intent-overlay.ts) enforces both and rejects an incoherent overlay.
+  origin: RideOrigin;
+  // null = "Not scored" (decision #3) — recorded, still contributes load, but no execution verdict.
+  // Distinct from "no overlay exists," which falls back to the ledger's own score.
+  effectiveExecutionScore: number | null;
+  notScoredReason: NotScoredReason | null; // non-null exactly when effectiveExecutionScore is null
+  interpretation: IntentInterpretation | null;
+  // The DETERMINISTIC scorer version behind effectiveExecutionScore — distinct from the
+  // interpretation's promptVersion (which versions the LLM parse). Design §11.3 requires both, and
+  // §11.2 requires retro scoring to use "the same deterministic scorer" as future rides, which is
+  // unverifiable without recording which one ran. null exactly when no score was produced.
+  scoringVersion: number | null;
+  schemaVersion: number; // this envelope's version, bumped on structural change
+  createdAt: string;
+  approvedAt: string | null; // set when a human approves a `pending` overlay; provenance, not a gate
+  // The `id` of the overlay that replaced this one. A superseded overlay never applies, even while its
+  // status still reads "active" — activation of a successor and superseding of its predecessor happen
+  // in one `updateIntentOverlays` transaction (Phase 2b/4), but resolution must not depend on that
+  // write having been atomic.
+  supersededBy: string | null;
+}
+
+export interface IntentOverlayStore {
+  overlays: IntentOverlay[];
+  updatedAt: string;
+}
+
+// What derived coaching state reads: the active overlay's verdict when one applies, else the ledger's.
+export interface EffectiveOutcome {
+  effectiveExecutionScore: number | null;
+  origin: RideOrigin;
+  source: "overlay" | "ledger";
+  overlay: IntentOverlay | null;
+}
+
+// A ledger entry paired with its resolved outcome. Execution modelling AND drift accounting both read
+// this same pair — resolving twice, or resolving for one and not the other, is the defect class this
+// type exists to prevent.
+export interface ResolvedRide {
+  entry: RideScoreEntry;
+  outcome: EffectiveOutcome;
+}
+
 export interface RideScoreEntry {
   date: string;
   executionScore: number;
@@ -658,8 +768,16 @@ export interface RideScoreEntry {
   // intensity/duration. Always present so every ride can join the model.
   inferredType: WorkoutType;
   planned: boolean; // false = ridden off-plan (scored on intrinsic quality, not adherence)
+  // Stable Intervals.icu activity key for intent-overlay resolution. Optional because frozen rows
+  // written before Phase 2a do not carry it; those use the legacy date fallback.
+  activityId?: string;
   // Pre-structure ride (before the first block): stored as history but excluded from the
-  // execution-quality metric and the drift signal — there was no plan for it to be "off."
+  // execution-quality metric and the drift signal — there was no plan for it to be "off." Enforced in
+  // two places that must both keep the check: `buildAthleteModel`'s `overallScored` filter
+  // (lib/athlete-model.ts) and `countsAsDrift` (lib/ride-origin.ts). A legacy row is off-plan, so it is
+  // eligible for overlay resolution like any other unplanned row — without the `overallScored` guard, a
+  // future overlay marking it self-directed with a real score would let it join execution modelling,
+  // which it could never do before intent overlays existed.
   legacy: boolean;
   // Athlete-attributed: the session was compromised by something outside their control
   // (equipment, sickness…). Kept as history but excluded from the execution metric + model —
@@ -777,8 +895,8 @@ export interface BehaviourSummary {
   totalRides: number;
   plannedRides: number;
   unplannedRides: number;
-  offPlanPct: number; // unplanned / total, 0-100
-  unplannedAvgQuality: number | null; // mean intrinsic execution score of off-plan rides
+  offPlanPct: number; // drift / total, 0-100
+  driftAvgQuality: number | null; // mean effective execution score of drift rides
   weeklyHours: number | null; // mean weekly ride hours across the logged window
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { backfillExecutionOntoDays, buildRideScores, easyStampFor, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, npStampFor, summariseBehaviour, truncateBlockDays } from "./score-log";
-import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, RideScoreEntry, WorkoutType } from "./types";
+import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalComparison, ResolvedRide, RideOrigin, RideScoreEntry, WorkoutType } from "./types";
 
 function activity(over: Partial<ActivitySummary> & { date: string }): ActivitySummary {
   return {
@@ -63,6 +63,36 @@ function historyEntry(
     days: days.map((d) => ({ date: d.date, name: `${d.type} day`, type: d.type, durationMin: d.durationMin })),
   };
 }
+
+describe("buildRideScores — activityId stamping (Phase 2a)", () => {
+  const ftp = () => 288;
+
+  it("stamps the activity id on a planned ride", () => {
+    const b = block([{ date: "2026-01-05", type: "Z2", durationMin: 60 }]);
+    const entry = buildRideScores(b, [activity({ date: "2026-01-05", id: "act-planned" })], ftp, "2026-01-10")[0];
+    expect(entry.activityId).toBe("act-planned");
+  });
+
+  it("stamps the activity id on an off-plan ride", () => {
+    const entry = buildRideScores(null, [activity({ date: "2026-01-05", id: "act-offplan" })], ftp, "2026-01-10", "2026-01-01")[0];
+    expect(entry.activityId).toBe("act-offplan");
+  });
+
+  it("stamps the id of the longest ride on a two-ride date", () => {
+    const acts = [
+      activity({ date: "2026-01-05", id: "short", movingTimeSec: 1800 }),
+      activity({ date: "2026-01-05", id: "long", movingTimeSec: 5400 }),
+    ];
+    const entry = buildRideScores(null, acts, ftp, "2026-01-10", "2026-01-01")[0];
+    expect(entry.durationMin).toBe(90);
+    expect(entry.activityId).toBe("long");
+  });
+
+  it("keeps compliancePct null on an off-plan ride", () => {
+    const entry = buildRideScores(null, [activity({ date: "2026-01-05", id: "a" })], ftp, "2026-01-10", "2026-01-01")[0];
+    expect(entry.compliancePct).toBeNull();
+  });
+});
 
 describe("buildRideScores", () => {
   const ftp200 = () => 200;
@@ -835,15 +865,69 @@ describe("summariseBehaviour", () => {
   });
 
   it("computes off-plan frequency and unplanned quality", () => {
-    const b = summariseBehaviour([
+    const entries = [
       entry({ date: "2026-01-01" }),
       entry({ date: "2026-01-03", planned: false, plannedType: null, executionScore: 6 }),
-    ]);
+    ];
+    const b = summariseBehaviour(entries.map((entry) => ({
+      entry,
+      outcome: {
+        effectiveExecutionScore: entry.executionScore,
+        origin: entry.planned ? "prescribed" : "unspecified",
+        source: "ledger",
+        overlay: null,
+      },
+    })));
     expect(b.totalRides).toBe(2);
     expect(b.plannedRides).toBe(1);
     expect(b.unplannedRides).toBe(1);
     expect(b.offPlanPct).toBe(50);
-    expect(b.unplannedAvgQuality).toBe(6);
+    expect(b.driftAvgQuality).toBe(6);
+  });
+});
+
+describe("summariseBehaviour — effective origin", () => {
+  const ride = (date: string, over: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
+    date, executionScore: 7, plannedType: "Z2", inferredType: "Z2", planned: true, legacy: false,
+    compliancePct: 100, intensityFactor: 0.68, ftpUsed: 288, durationMin: 60, tss: 60, ...over,
+  });
+  const resolved = (entry: RideScoreEntry, origin: RideOrigin, score: number | null = entry.executionScore): ResolvedRide => ({
+    entry,
+    outcome: { effectiveExecutionScore: score, origin, source: origin === "self-directed" ? "overlay" : "ledger", overlay: null },
+  });
+
+  it("excludes self-directed rides from drift", () => {
+    const summary = summariseBehaviour([
+      resolved(ride("2026-01-01"), "prescribed"),
+      resolved(ride("2026-01-02", { planned: false, compliancePct: null }), "self-directed"),
+    ]);
+    expect(summary.offPlanPct).toBe(0);
+    expect(summary.unplannedRides).toBe(1);
+  });
+
+  it("counts unspecified rides as drift", () => {
+    const summary = summariseBehaviour([
+      resolved(ride("2026-01-01"), "prescribed"),
+      resolved(ride("2026-01-02", { planned: false, compliancePct: null }), "unspecified"),
+    ]);
+    expect(summary.offPlanPct).toBe(50);
+  });
+
+  it("averages quality over drift rides only", () => {
+    const summary = summariseBehaviour([
+      resolved(ride("2026-01-01"), "prescribed"),
+      resolved(ride("2026-01-02", { planned: false, compliancePct: null, executionScore: 4 }), "unspecified"),
+      resolved(ride("2026-01-03", { planned: false, compliancePct: null, executionScore: 10 }), "self-directed"),
+    ]);
+    expect(summary.offPlanPct).toBe(33);
+    expect(summary.driftAvgQuality).toBe(4);
+  });
+
+  it("handles windows with no drift", () => {
+    expect(summariseBehaviour([resolved(ride("2026-01-01"), "prescribed")]).driftAvgQuality).toBeNull();
+    expect(summariseBehaviour([
+      resolved(ride("2026-01-02", { planned: false, compliancePct: null }), "self-directed"),
+    ]).offPlanPct).toBe(0);
   });
 });
 

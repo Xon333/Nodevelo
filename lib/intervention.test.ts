@@ -7,8 +7,8 @@ const model = (vo2Exec: number, overall = 6): AthleteModel => ({
   overallExecEwma: overall,
   overallTrend: "flat",
   sampleSize: 5,
-  behaviour: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, unplannedAvgQuality: null, weeklyHours: 8 },
-  behaviourAllTime: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, unplannedAvgQuality: null, weeklyHours: 8 },
+  behaviour: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, driftAvgQuality: null, weeklyHours: 8 },
+  behaviourAllTime: { totalRides: 5, plannedRides: 5, unplannedRides: 0, offPlanPct: 0, driftAvgQuality: null, weeklyHours: 8 },
 });
 
 const sync = (watts5min: number): SyncData => ({

@@ -80,3 +80,26 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     different quantity than the one that inferred the type) and stays live for intrinsic rides; only
     penalties are suppressed. A new penalty axis must add the same `!intrinsic` guard; a new bonus axis
     does not need one.
+
+## Ride origin & intent overlays
+
+36. **Ride origin is derived or asserted by an overlay — never stored on the ledger.** A frozen row is
+    `prescribed` or `unspecified` (`originOf`, `lib/ride-origin.ts`); only an active intent overlay may
+    assert `self-directed`. The ledger is written during LLM-free sync, before intent parsing.
+37. **Drift uses effective origin, never a raw ledger row.** `summariseBehaviour` accepts
+    `ResolvedRide[]`, and `buildAthleteModel` resolves once for both execution and behaviour. A
+    self-directed ride must never increase `offPlanPct`.
+38. **Only coherent, active, unsuperseded overlays apply.** `isApplicable` requires `status === "active"`
+    and `supersededBy === null`, plus `isCoherent` (`lib/intent-overlay.ts`): `effectiveExecutionScore`
+    and `notScoredReason` must be null/non-null together, `effectiveExecutionScore` and `scoringVersion`
+    must be null/non-null together, an overlay whose `notScoredReason` is `no-intent-found`,
+    `interpreter-failed`, or `intent-unreliable` must carry `origin: "unspecified"`, and `origin` may
+    never be `"prescribed"` — only the ledger's own `planned` flag may establish that. Applicability is
+    filtered before newest-wins selection; incoherent, pending, disabled, and superseded records fall
+    back to the ledger.
+39. **A prescribed ride always resolves to the ledger.** `resolveEffectiveOutcome` returns before overlay
+    lookup for `entry.planned`; a post-ride note cannot redefine a formal session or replace its score.
+40. **Self-directed outcomes join overall execution only.** Per-type statistics and compliance remain
+    prescribed-only because inferred type comes from whole-ride IF and self-directed rides have no
+    compliance concept. Overall and per-type EWMAs use separate sample-derived alphas so self-directed
+    volume cannot indirectly alter prescribed-only smoothing.

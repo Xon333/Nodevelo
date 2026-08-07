@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { athleteStateInputsFrom, computeAthleteState, type AthleteStateInputs } from "./athlete-state";
+import { buildAthleteModel } from "./athlete-model";
 import { DEFAULT_ATHLETE_STATE_WEIGHTS, resolveAthleteStateWeights } from "./calibration";
 import type { ActivitySummary, AthleteModel, SyncData } from "./types";
 
@@ -211,6 +212,25 @@ describe("athleteStateInputsFrom — Z2 Pw:HR aerobic signal", () => {
       const inputs = athleteStateInputsFrom(sync(activities), model, null);
       expect(inputs.aerobicEffLatest).toBeNull(); // sits out entirely rather than reporting a lone ride
     });
+  });
+
+  it("does not fire the behaviour driver on self-directed volume", () => {
+    const entries = Array.from({ length: 10 }, (_, i) => ({
+      date: `2026-01-${String(i + 1).padStart(2, "0")}`,
+      executionScore: 7, plannedType: null, inferredType: "Z2" as const, planned: false, legacy: false,
+      compliancePct: null, intensityFactor: 0.7, ftpUsed: 288, durationMin: 90, tss: 80,
+      activityId: `a${i}`,
+    }));
+    const overlays = entries.map((entry) => ({
+      id: `ov-${entry.activityId}`, activityId: entry.activityId, date: entry.date, noteFingerprint: "fp",
+      status: "active" as const, origin: "self-directed" as const, effectiveExecutionScore: 7,
+      notScoredReason: null, interpretation: null, schemaVersion: 1, scoringVersion: 1,
+      createdAt: `${entry.date}T10:00:00.000Z`, approvedAt: null, supersededBy: null,
+    }));
+    const model = buildAthleteModel(entries, overlays);
+    expect(model.behaviour.offPlanPct).toBe(0);
+    const state = computeAthleteState(athleteStateInputsFrom(sync([]), model, null, iso(0)));
+    expect(state?.drivers.some((driver) => driver.key === "behaviour")).toBe(false);
   });
 
   it("excludes a high-VI ride from the aerobic-efficiency baseline (2026-08-06 tightening)", () => {
