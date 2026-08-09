@@ -199,6 +199,19 @@ function zoneIndex(zone: string | undefined | null): number | null {
   return match ? Number(match[1]) - 1 : null;
 }
 
+// The canonical STRING form of a zone, for identity and merge keys. Spelling is the model's choice and
+// must never move a score: `sameZone` and `zoneMinutes` already read "Z2" / "z2" / "zone 2" / "2" as one
+// zone, so the keys that decide dedupe and merge have to agree with them. A raw `.toUpperCase()` did
+// not, which let one claim split across two spellings ("Z2" 20 min + "zone 2" 25 min) escape the
+// stage-2 sum and score as two separate over-achieved targets.
+//
+// Unparseable zones fall back to their uppercased text so an unrecognised label still groups with
+// itself. That branch cannot collide with the canonical form: any string uppercasing to "Z<1-7>" parses.
+function zoneKey(zone: string | undefined | null): string {
+  const index = zoneIndex(zone);
+  return index === null ? (zone ?? "-").toUpperCase() : `Z${index + 1}`;
+}
+
 function readZoneArray(
   array: number[] | null,
   index: number,
@@ -297,7 +310,7 @@ export function identityKey(objective: ScoredObjective): string {
   const target = objective.target ?? {};
   const parts = [
     objective.kind,
-    (target.zone ?? "-").toUpperCase(),
+    zoneKey(target.zone),
     objective.zoneBasis,
     roundOr(target.durationMin, 1),
     roundOr(target.watts, 5),
@@ -357,14 +370,14 @@ function mergeKey(objective: ScoredObjective): string {
       return "structure";
     case "zone-time":
     case "zone-emphasis":
-      return `${objective.kind}|${(target.zone ?? "-").toUpperCase()}|${objective.zoneBasis}`;
+      return `${objective.kind}|${zoneKey(target.zone)}|${objective.zoneBasis}`;
     case "effort":
       // `reps` is deliberately absent: two readings of one effort that disagree only on rep count are
       // CONTRADICTORY, not additive.
       return `effort|${roundOr(target.durationMin, 1)}|${roundOr(target.watts, 5)}|${roundOr(
         target.targetPctFtp,
         1
-      )}|${(target.zone ?? "-").toUpperCase()}`;
+      )}|${zoneKey(target.zone)}`;
     case "qualitative":
       return `qualitative|${objective.description}`;
   }

@@ -310,6 +310,34 @@ describe("canonicalisation: the model cannot move the score by how it splits an 
     expect(scoreOf([...split].reverse(), ev)).toBe(scoreOf(split, ev));
   });
 
+  it("a split spelled two ways is still one claim — zone spelling cannot move the score", () => {
+    // `zoneMinutes` and `sameZone` already read "Z2" / "z2" / "zone 2" / "2" as one zone, so the
+    // dedupe/merge keys must too. Graded on a ride with 30 min of Z2: merged, the 45-min target is
+    // 67% of stated (-1, score 4); unmerged, 20 and 25 min both read as over-achieved (+2 each,
+    // score 7). A 3-point swing bought purely by the model's choice of spelling.
+    const ev30 = evidence({ durationMin: 90, z2Min: 30 });
+    const mixed = [
+      obj("zone-time", { zone: "Z2", durationMin: 20 }),
+      obj("zone-time", { zone: "zone 2", durationMin: 25 }),
+    ];
+    const consistent = [obj("zone-time", { zone: "Z2", durationMin: 45 })];
+    // Stage 2 assertion — says WHICH stage broke, not merely that a number moved.
+    expect(canonicalise(mixed)).toHaveLength(1);
+    expect(canonicalise(mixed)[0].target?.durationMin).toBe(45); // NOT two 20/25-min targets
+    expect(scoreOf(mixed, ev30)).toBe(scoreOf(consistent, ev30));
+    expect(scoreOf(mixed, ev30)).toBe(4); // the under-delivered score, never the 7 the split bought
+  });
+
+  it("treats every spelling of one zone as one identity", () => {
+    const spellings = ["Z2", "z2", "zone 2", "Zone 2", "2", " z 2 "];
+    const keys = new Set(
+      spellings.map((zone) => identityKey(obj("zone-time", { zone, durationMin: 45 })))
+    );
+    expect(keys.size).toBe(1);
+    // ...but a genuinely different zone still gets its own identity.
+    expect(identityKey(obj("zone-time", { zone: "Z3", durationMin: 45 }))).not.toBe([...keys][0]);
+  });
+
   it("duplicate efforts do not multiply the work demanded", () => {
     const one = [obj("effort", { durationMin: 9, watts: 292, reps: 4 })];
     const dup = [one[0], { ...one[0] }];
