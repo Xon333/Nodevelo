@@ -1,0 +1,1000 @@
+// Deterministic scoring of a SELF-DIRECTED ride against the athlete's own stated objectives.
+//
+// The LLM translates a free-text note into structured objectives (lib/intent-schema.ts); everything
+// that turns those objectives into a 1-10 verdict lives here, in pure TypeScript with no I/O, no SDK
+// and no network (INVARIANT 12 — the model never computes a number).
+//
+// Three things this module is deliberately the ONLY place for:
+//   • `resolveTargetWatts` — the single seam where a stated `%FTP` becomes watts, anchored to the
+//     ride-date `ftpUsed` the ledger froze rather than to today's FTP.
+//   • `canonicalise` — the four ordered stages that make the model's DECOMPOSITION CHOICE unable to
+//     move the score.
+//   • the scoreability gate — grounding, then kind-eligibility-by-confidence, then evidence scope.
+//
+// Three things this module deliberately CANNOT see, each pinned by a test that reads this source file:
+// whole-ride aerobic drift, the ride's existing execution score, and any ride-variability figure. A
+// judge shown no drift number cannot report a drift verdict, and this scorer must not either. There is
+// no variability axis here at all — not suppressed, absent — so design §14.1's "do not penalise
+// variability that belongs to the climbing purpose" holds by construction.
+//
+// THE ONE-WAY CONFIDENCE RULE. The deterministic gate decides scoreability FIRST. Confidence may then
+// only SHRINK the gradable kind set (`medium` drops `structure`) or veto outright (`low`). No
+// confidence level can make a ride scoreable that the gate rejected. Pinned by a monotonicity test
+// across all three levels for every fixture, because per-level examples cannot see the inverse bug.
+//
+// EVIDENCE SCOPE IS NOT FULFILMENT. `scopeMin` answers "how much of the ride does this evidence SPEAK
+// ABOUT", never "how much of it went well". A clearly stated target the athlete badly missed therefore
+// scores LOW; it never becomes `Not scored`. Scope is the MAXIMUM across objectives, never a union:
+// zone arrays are whole-ride aggregates with no timestamps and lap indices carry no stated sample
+// interval, so a union is not a number this codebase can honestly compute.
+//
+// MERGED TARGETS ARE NEVER RE-GROUNDED. Grounding runs on each objective as the model emitted it,
+// BEFORE stage 1. A summed `zone-time` target is accepted only when every merged part was individually
+// grounded — it is never re-checked against the note as a whole, because the sum legitimately does not
+// appear there ("20 min Z2 then 25 min Z2" contains no `45`). This is the one place merging could
+// smuggle an ungrounded number through, and the rule that stops it is per-part, not per-sum.
+
+import { verifyGrounding } from "./intent-grounding";
+import { round1 } from "./stats";
+import type {
+  ExecutedInterval,
+  IntentInterpretation,
+  IntentOverlay,
+  IntentTarget,
+  NotScoredReason,
+  ObjectiveKind,
+  OverlayStatus,
+  ScoredObjective,
+  StructuredIntent,
+  WorkoutType,
+  ZoneBasis,
+} from "./types";
+
+// ---------------------------------------------------------------------------
+// Contract constants
+// ---------------------------------------------------------------------------
+
+// The DETERMINISTIC scorer version, distinct from the interpretation's `promptVersion` (which versions
+// the LLM parse). Design §11.2 requires retro scoring to use "the same deterministic scorer" as future
+// rides, which is unverifiable without recording which one ran.
+export const INTENT_SCORING_VERSION = 1;
+
+// The evidence-scope gate. A whole-ride 1-10 verdict must not rest only on LOCAL evidence: a 9-minute
+// lap says nothing about the other 109 minutes.
+export const INTENT_MIN_SCOPE_MIN = 20; // absolute floor, minutes
+export const INTENT_SCOPE_MIN_FRACTION = 0.33;
+
+export type IntentConfidence = IntentInterpretation["confidence"];
+
+// `qualitative` is in no list — it is acknowledged (`measurable: false, scored: false`) and never
+// graded: speed, braking and GPS cannot establish that cornering was good (design §6/§12.2).
+export const GRADABLE_KINDS_BY_CONFIDENCE: Record<IntentConfidence, readonly ObjectiveKind[]> = {
+  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure"],
+  medium: ["duration", "zone-time", "zone-emphasis", "effort"], // structure dropped
+  low: [],
+};
+
+// A lap counts as a candidate for a stated effort when its length is within this fraction of the
+// target's.
+const LAP_DURATION_TOLERANCE = 0.2;
+
+const OVERLAY_SCHEMA_VERSION = 1;
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+
+// Everything the scorer is allowed to see about the ride. Note what is NOT here: aerobic drift, the
+// ledger's own verdict, and any whole-ride variability or normalised-power figure. The absence is the
+// contract — a field that does not exist cannot leak into a delta.
+export interface RideEvidence {
+  durationMin: number;
+  isIndoor: boolean; // VirtualRide — power only for an unstated zone basis, no HR substitute
+  powerZoneTimes: number[] | null; // SECONDS per zone, index 0 = zone 1
+  hrZoneTimes: number[] | null; // SECONDS per zone, index 0 = zone 1
+  laps: ExecutedInterval[]; // athlete-curated intervals; `[]` means none were available
+  ftpUsed: number; // the FTP that applied on the RIDE's date, from the ledger row
+}
+
+// One zone reading, plus which array it came from and whether that array was the athlete's stated
+// choice or this module's default. Recorded in the objective's `evidence` so a later reader never has
+// to guess which sensor answered.
+export interface ZoneReading {
+  minutes: number;
+  totalMinutes: number;
+  sharePct: number;
+  basis: "power" | "heart-rate";
+  assumed: boolean; // true when the note stated no basis and power was defaulted to
+}
+
+export interface GradeContext {
+  // The laps still unclaimed by an earlier effort. Efforts are matched longest-target-first and a lap
+  // is CONSUMED once matched, so two efforts can never both claim it.
+  laps?: ExecutedInterval[];
+  // Matched-lap start indices in the order the note STATED the efforts — the only ordered evidence
+  // this module has, and therefore the only thing `structure` can be graded from.
+  effortStartIndices?: (number | null)[];
+  // A note produced by canonicalisation (a merge, a subsumption, a rep-count conflict) that must
+  // survive into the graded objective's evidence trail.
+  carriedEvidence?: string | null;
+}
+
+export interface GradeResult {
+  objective: ScoredObjective;
+  delta: number | null; // null = ungraded; contributes nothing, not a zero
+  matchedLaps: ExecutedInterval[];
+}
+
+export interface IntentVerdict {
+  score: number | null;
+  reason: NotScoredReason | null;
+  objectives: ScoredObjective[]; // graded canonical set first, then acknowledged non-gradable ones
+  scopeMin: number;
+  scopeRequiredMin: number;
+}
+
+// ---------------------------------------------------------------------------
+// Bands
+// ---------------------------------------------------------------------------
+
+// Reused verbatim from the non-SIT interval-adherence band in lib/execution-score.ts. Symmetric,
+// because sustained overshoot on a threshold effort is a real pacing failure, not a bonus.
+function adherenceDelta(pct: number): number {
+  if (pct >= 95 && pct <= 106) return 2;
+  if ((pct >= 90 && pct < 95) || (pct > 106 && pct <= 112)) return 1;
+  if (pct >= 85 && pct < 90) return 0;
+  if (pct >= 80 && pct < 85) return -1;
+  return -2;
+}
+
+// Reused from the duration-compliance band in lib/execution-score.ts, and one-sided by design: riding
+// LONGER than you said is not a failure of your own session (design §6 forbids penalising a
+// self-directed ride for its own structure). Question 1 pins the low end — "3 hours of Z2" ridden for
+// 40 minutes is 22%, which must land on -2.
+function complianceDelta(pct: number): number {
+  if (pct >= 95) return 2;
+  if (pct >= 85) return 1;
+  if (pct >= 70) return 0;
+  if (pct >= 55) return -1;
+  return -2;
+}
+
+// Question 8's zone-emphasis band: the measured share of total zone-array time in the named zone.
+function emphasisDelta(sharePct: number): number {
+  if (sharePct >= 60) return 2;
+  if (sharePct >= 45) return 1;
+  if (sharePct >= 30) return 0;
+  return -1;
+}
+
+// One clamped contribution per kind, so a third zone objective cannot triple a bonus. `structure` is
+// REWARD-ONLY: an out-of-order reading is at least as likely to be the parser mis-ordering an
+// ambiguous note as the athlete riding out of order.
+const KIND_BAND: Record<ObjectiveKind, { min: number; max: number }> = {
+  duration: { min: -2, max: 2 },
+  "zone-time": { min: -2, max: 2 },
+  "zone-emphasis": { min: -1, max: 2 },
+  effort: { min: -2, max: 2 },
+  structure: { min: 0, max: 1 },
+  qualitative: { min: 0, max: 0 },
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+// Round half AWAY FROM ZERO, so a -0.5 mean is not quietly rounded up to 0 while +0.5 rounds to 1, and
+// so a negative mean can never surface as `-0`.
+function roundSymmetric(value: number): number {
+  const rounded = (value < 0 ? -1 : 1) * Math.round(Math.abs(value));
+  return rounded + 0; // normalises -0
+}
+
+// ---------------------------------------------------------------------------
+// Zone helpers
+// ---------------------------------------------------------------------------
+
+// "Z2" / "z2" / "zone 2" / "2" → index 1. Anything else → null.
+function zoneIndex(zone: string | undefined | null): number | null {
+  if (!zone) return null;
+  const match = /^\s*(?:z|zone)?\s*([1-7])\s*$/i.exec(zone);
+  return match ? Number(match[1]) - 1 : null;
+}
+
+function readZoneArray(
+  array: number[] | null,
+  index: number,
+  basis: "power" | "heart-rate",
+  assumed: boolean
+): ZoneReading | null {
+  // Null, too short for the requested zone, or summing to zero — all mean NO evidence, never a zero
+  // reading. A ride with no zone data has not been observed to spend zero minutes in Z2.
+  if (!array || array.length < index + 1) return null;
+  const total = array.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+  if (!(total > 0)) return null;
+  const seconds = Number.isFinite(array[index]) ? array[index] : 0;
+  // round1(seconds / 60) — never round the seconds to whole minutes first.
+  return {
+    minutes: round1(seconds / 60),
+    totalMinutes: round1(total / 60),
+    sharePct: (seconds / total) * 100,
+    basis,
+    assumed,
+  };
+}
+
+// Which array — stated by the athlete, never guessed from the zone number.
+//
+// An EXPLICIT basis is honoured exactly and never cross-falls-back: grading a stated power target from
+// HR data reports a different measurement under the label the athlete asked for. `unspecified` defaults
+// to power (cycling zones are power zones in this app — physiology.json stores % of FTP), with an HR
+// fallback permitted for that basis alone, and none at all indoors (ERG flattens power and HR drifts,
+// so an indoor HR-derived zone reading substitutes for nothing).
+export function zoneMinutes(
+  evidence: RideEvidence,
+  zone: string | undefined,
+  basis: ZoneBasis
+): ZoneReading | null {
+  const index = zoneIndex(zone);
+  if (index === null) return null;
+  if (basis === "power") return readZoneArray(evidence.powerZoneTimes, index, "power", false);
+  if (basis === "heart-rate") return readZoneArray(evidence.hrZoneTimes, index, "heart-rate", false);
+  const power = readZoneArray(evidence.powerZoneTimes, index, "power", true);
+  if (power) return power;
+  if (evidence.isIndoor) return null;
+  return readZoneArray(evidence.hrZoneTimes, index, "heart-rate", true);
+}
+
+function basisLabel(reading: ZoneReading): string {
+  const name = reading.basis === "power" ? "power" : "HR";
+  return reading.assumed ? `${name} zones assumed — the note stated no basis` : `${name} zones as stated`;
+}
+
+function missingZoneDataText(basis: ZoneBasis, isIndoor: boolean): string {
+  if (basis === "power") return "no power zone data";
+  if (basis === "heart-rate") return "no HR zone data";
+  return isIndoor ? "no power zone data (indoor ride — HR is not a substitute)" : "no power or HR zone data";
+}
+
+// ---------------------------------------------------------------------------
+// Target resolution — the ONLY place a stated percentage becomes watts
+// ---------------------------------------------------------------------------
+
+// An explicit `watts` always wins over a percentage when the note somehow states both. `ftpUsed` comes
+// from the ledger entry, not the current physiology store, so resolution is anchored to the FTP that
+// actually applied on the ride's date. With no usable anchor the target CANNOT resolve — the effort is
+// then ungraded rather than resolved against a guess.
+export function resolveTargetWatts(target: IntentTarget, ftpUsed: number): number | null {
+  if (target.watts != null && Number.isFinite(target.watts)) return target.watts;
+  if (target.targetPctFtp == null || !Number.isFinite(target.targetPctFtp)) return null;
+  if (!Number.isFinite(ftpUsed) || ftpUsed <= 0) return null;
+  return Math.round((ftpUsed * target.targetPctFtp) / 100);
+}
+
+// ---------------------------------------------------------------------------
+// Canonicalisation — question 6's four ordered stages
+// ---------------------------------------------------------------------------
+//
+// The ORDER is the whole correctness argument. An earlier draft of this design collapsed stages 1 and
+// 2 into a single "merge" rule, which made EXACT DUPLICATES sum as if they were distinct split
+// components: "45 min Z2" emitted twice became a 90-minute target. Dedupe strictly precedes merge.
+//
+//   stage 0  kind normalisation   (a claim stating only a zone is an emphasis, not an effort)
+//   stage 1  drop exact semantic duplicates   — nothing is summed here
+//   stage 2  merge what remains DISTINCT, per kind
+//   stage 3  cross-kind subsumption           — one phrase contributes once
+//   stage 4  bounded aggregation              — the caller's, in `scoreIntentExecution`
+
+const roundOr = (value: number | undefined, step: number): string =>
+  value == null || !Number.isFinite(value) ? "-" : String(Math.round(value / step) * step);
+
+// `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp, reps)`, with `durationMin` rounded to the
+// minute, `watts` to 5 W and `targetPctFtp` to 1%. `description` and `sourceText` are EXCLUDED — free
+// text varies while the claim does not.
+//
+// The one exception is `qualitative`, whose stage-2 merge key is `("qualitative", description)`: a
+// stage-1 key COARSER than stage 2's own would drop entries stage 2 was told to keep, collapsing
+// "practice cornering" and "keep speed on descents" into one acknowledged line.
+export function identityKey(objective: ScoredObjective): string {
+  const target = objective.target ?? {};
+  const parts = [
+    objective.kind,
+    (target.zone ?? "-").toUpperCase(),
+    objective.zoneBasis,
+    roundOr(target.durationMin, 1),
+    roundOr(target.watts, 5),
+    roundOr(target.targetPctFtp, 1),
+    roundOr(target.reps, 1),
+  ];
+  if (objective.kind === "qualitative") parts.push(objective.description);
+  return parts.join("|");
+}
+
+function withTarget(objective: ScoredObjective, target: IntentTarget, note?: string | null): ScoredObjective {
+  return { ...objective, target, evidence: note ?? null };
+}
+
+const numeric = (value: number | undefined): number | null =>
+  value != null && Number.isFinite(value) ? value : null;
+
+// Stage 0. A claim whose only stated content is a zone is an EMPHASIS claim, whatever kind the model
+// filed it under: "some Z4 efforts" names no duration to evaluate over (question 7's zone-only row),
+// and a `zone-time` with no minutes states no total. Kind normalisation must precede stage 1 because
+// identity depends on kind.
+function normaliseKinds(objectives: ScoredObjective[]): ScoredObjective[] {
+  return objectives.map((objective) => {
+    const target = objective.target;
+    if (!target || !target.zone) return objective;
+    if (objective.kind !== "effort" && objective.kind !== "zone-time") return objective;
+    const statesSomethingElse =
+      numeric(target.durationMin) !== null ||
+      numeric(target.watts) !== null ||
+      numeric(target.targetPctFtp) !== null ||
+      (objective.kind === "effort" && numeric(target.reps) !== null);
+    if (statesSomethingElse) return objective;
+    return { ...objective, kind: "zone-emphasis" as ObjectiveKind, target: { zone: target.zone } };
+  });
+}
+
+// Stage 1. Keep the first occurrence of each identity, discard the rest. NOTHING is summed here.
+function dropExactDuplicates(objectives: ScoredObjective[]): ScoredObjective[] {
+  const seen = new Set<string>();
+  const kept: ScoredObjective[] = [];
+  for (const objective of objectives) {
+    const key = identityKey(objective);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ ...objective, evidence: null }); // the model does not own the evidence trail
+  }
+  return kept;
+}
+
+// Stage 2. Only entries that survived stage 1 as DISTINCT reach a merge rule.
+function mergeKey(objective: ScoredObjective): string {
+  const target = objective.target ?? {};
+  switch (objective.kind) {
+    case "duration":
+      return "duration";
+    case "structure":
+      return "structure";
+    case "zone-time":
+    case "zone-emphasis":
+      return `${objective.kind}|${(target.zone ?? "-").toUpperCase()}|${objective.zoneBasis}`;
+    case "effort":
+      // `reps` is deliberately absent: two readings of one effort that disagree only on rep count are
+      // CONTRADICTORY, not additive.
+      return `effort|${roundOr(target.durationMin, 1)}|${roundOr(target.watts, 5)}|${roundOr(
+        target.targetPctFtp,
+        1
+      )}|${(target.zone ?? "-").toUpperCase()}`;
+    case "qualitative":
+      return `qualitative|${objective.description}`;
+  }
+}
+
+function mergeGroup(group: ScoredObjective[]): ScoredObjective {
+  const first = group[0];
+  if (group.length === 1) return first;
+  const grounded = group.every((objective) => objective.grounded);
+
+  switch (first.kind) {
+    case "duration": {
+      // Competing claims about ONE total, not parts of it — take the max.
+      const max = Math.max(...group.map((o) => numeric(o.target?.durationMin) ?? 0));
+      return withTarget(
+        first,
+        { ...first.target, durationMin: max },
+        `${group.length} stated totals; took the longest (${max} min)`
+      );
+    }
+    case "zone-time": {
+      // A split phase list states PARTS of one total — sum them, per (zone, basis). Never across
+      // bases: HR-zone minutes and power-zone minutes are not addable.
+      const sum = group.reduce((total, o) => total + (numeric(o.target?.durationMin) ?? 0), 0);
+      return {
+        ...withTarget(first, { ...first.target, durationMin: sum }, `summed from ${group.length} stated parts`),
+        // A summed target is accepted only when EVERY merged part was individually grounded; it is
+        // never re-grounded against the note, because the sum does not appear there.
+        grounded,
+      };
+    }
+    case "effort": {
+      // `reps` is NEVER summed. Genuinely different rep counts of the same effort are contradictory
+      // readings of one note: keep the max and record the conflict.
+      const reps = group.map((o) => numeric(o.target?.reps)).filter((value): value is number => value !== null);
+      if (reps.length === 0) return first;
+      const max = Math.max(...reps);
+      const conflicting = new Set(reps).size > 1;
+      return withTarget(
+        first,
+        { ...first.target, reps: max },
+        conflicting ? `conflicting rep counts stated (${[...new Set(reps)].join(", ")}); took ${max}` : null
+      );
+    }
+    default:
+      // `zone-emphasis` (stage 1's dedupe is the whole rule), `structure` (at most one survives) and
+      // `qualitative` (no merge) all keep the first entry.
+      return first;
+  }
+}
+
+function mergeDistinct(objectives: ScoredObjective[]): ScoredObjective[] {
+  const groups = new Map<string, ScoredObjective[]>();
+  const order: string[] = [];
+  for (const objective of objectives) {
+    const key = mergeKey(objective);
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      order.push(key);
+    }
+    groups.get(key)!.push(objective);
+  }
+  return order.map((key) => mergeGroup(groups.get(key)!));
+}
+
+const sameZone = (a: ScoredObjective, b: ScoredObjective): boolean => {
+  const left = zoneIndex(a.target?.zone);
+  const right = zoneIndex(b.target?.zone);
+  return left !== null && left === right;
+};
+
+// Two bases are compatible when they name the same measurement, or when one side never named one.
+const compatibleBasis = (a: ZoneBasis, b: ZoneBasis): boolean =>
+  a === b || a === "unspecified" || b === "unspecified";
+
+// Stage 3. One stated phrase must not contribute twice under two kinds. "45 min Z2" is simultaneously
+// a duration claim and a zone claim, and letting it score on both axes counts the same evidence twice
+// — a note that happened to phrase its total as a zone would outscore an identical one that did not.
+function applySubsumption(objectives: ScoredObjective[]): ScoredObjective[] {
+  const zoneTimes = objectives.filter((o) => o.kind === "zone-time");
+  const dropped = new Set<ScoredObjective>();
+
+  // 3a. `zone-time` subsumes `zone-emphasis` for the same zone — the numbered claim is strictly
+  // stronger.
+  for (const objective of objectives) {
+    if (objective.kind !== "zone-emphasis") continue;
+    if (zoneTimes.some((zt) => sameZone(zt, objective) && compatibleBasis(zt.zoneBasis, objective.zoneBasis))) {
+      dropped.add(objective);
+    }
+  }
+
+  // 3b. A `zone-time` sharing the `duration` objective's source span, or stating the same target
+  // (+-1 min), subsumes that duration entry: one phrase, one contribution. The zone-time wins because
+  // it is the more specific claim. If the note SEPARATELY states a total ("2 h ride, 45 min of it in
+  // Z2"), the spans and targets differ and both survive — correctly, they are two real claims.
+  for (const objective of objectives) {
+    if (objective.kind !== "duration") continue;
+    const stated = numeric(objective.target?.durationMin);
+    const overlaps = zoneTimes.some((zt) => {
+      if (dropped.has(zt)) return false;
+      const sameSpan =
+        zt.sourceText !== null && objective.sourceText !== null && zt.sourceText === objective.sourceText;
+      const ztMin = numeric(zt.target?.durationMin);
+      const sameTarget = stated !== null && ztMin !== null && Math.abs(ztMin - stated) <= 1;
+      return sameSpan || sameTarget;
+    });
+    if (overlaps) dropped.add(objective);
+  }
+
+  // 3c. An `effort` whose matched lap set falls inside a `zone-time`'s zone is NOT subsumed — a
+  // 9-minute threshold effort inside a 2-hour ride is a separate claim about a different part of the
+  // ride, resting on different evidence (a specific lap). No rule drops it; stated here because its
+  // ABSENCE is the decision.
+
+  return objectives.filter((objective) => !dropped.has(objective));
+}
+
+// Stages 0-3. Exported separately from `scoreIntentExecution` so a failing invariance test can say
+// WHICH stage broke rather than only that a number moved. Stage 4 (bounded aggregation) is the
+// caller's.
+export function canonicalise(objectives: ScoredObjective[]): ScoredObjective[] {
+  return applySubsumption(mergeDistinct(dropExactDuplicates(normaliseKinds(objectives))));
+}
+
+// ---------------------------------------------------------------------------
+// Lap matching
+// ---------------------------------------------------------------------------
+
+// Candidate laps are those within +-20% of the stated duration; the best `reps` of them are returned,
+// ranked by closeness to the resolved watt target when there is one and by closeness in duration
+// otherwise. Ties keep the ride's own lap order (Array.prototype.sort is stable).
+export function matchLaps(
+  target: IntentTarget,
+  laps: ExecutedInterval[],
+  resolvedWatts: number | null = null
+): ExecutedInterval[] {
+  const durationMin = numeric(target.durationMin);
+  if (durationMin === null || durationMin <= 0) return [];
+  const targetSec = durationMin * 60;
+  const low = targetSec * (1 - LAP_DURATION_TOLERANCE);
+  const high = targetSec * (1 + LAP_DURATION_TOLERANCE);
+  const candidates = laps.filter((lap) => lap.durationSec >= low && lap.durationSec <= high);
+  const wanted = Math.max(1, Math.round(numeric(target.reps) ?? 1));
+  const distance = (lap: ExecutedInterval): number => {
+    if (resolvedWatts === null) return Math.abs(lap.durationSec - targetSec);
+    if (lap.avgWatts == null) return Number.MAX_SAFE_INTEGER;
+    return Math.abs(lap.avgWatts - resolvedWatts);
+  };
+  return [...candidates].sort((a, b) => distance(a) - distance(b)).slice(0, wanted);
+}
+
+const lapMinutes = (laps: ExecutedInterval[]): number =>
+  round1(laps.reduce((total, lap) => total + lap.durationSec, 0) / 60);
+
+// ---------------------------------------------------------------------------
+// Grading
+// ---------------------------------------------------------------------------
+
+interface Verdict {
+  delta: number | null;
+  scored: boolean;
+  measurable: boolean;
+  scopeMin: number;
+  evidence: string;
+  matchedLaps?: ExecutedInterval[];
+}
+
+// Missing data is NEVER a failed metric (design §13): an ungraded row stays `measurable: true`,
+// contributes no delta and no scope, and is still returned so the debrief can show it was acknowledged.
+const ungraded = (evidence: string): Verdict => ({
+  delta: null,
+  scored: false,
+  measurable: true,
+  scopeMin: 0,
+  evidence,
+});
+
+function gradeDuration(objective: ScoredObjective, evidence: RideEvidence): Verdict {
+  const stated = numeric(objective.target?.durationMin);
+  if (stated === null || stated <= 0) return ungraded("no duration stated");
+  const pct = (evidence.durationMin / stated) * 100;
+  return {
+    delta: complianceDelta(pct),
+    scored: true,
+    measurable: true,
+    // A claim about the ride's TOTAL: observing the total observes the ride.
+    scopeMin: evidence.durationMin,
+    evidence: `${evidence.durationMin} min ridden vs ${stated} min stated (${Math.round(pct)}% of target)`,
+  };
+}
+
+function gradeZoneTime(objective: ScoredObjective, evidence: RideEvidence): Verdict {
+  const stated = numeric(objective.target?.durationMin);
+  if (stated === null || stated <= 0) return ungraded("no duration stated for this zone target");
+  const reading = zoneMinutes(evidence, objective.target?.zone, objective.zoneBasis);
+  if (!reading) return ungraded(missingZoneDataText(objective.zoneBasis, evidence.isIndoor));
+  const pct = (reading.minutes / stated) * 100;
+  const zone = (objective.target?.zone ?? "").toUpperCase();
+  return {
+    delta: complianceDelta(pct),
+    scored: true,
+    measurable: true,
+    // Zone arrays are whole-ride aggregates — reading one reads the entire distribution.
+    scopeMin: evidence.durationMin,
+    evidence: `${reading.minutes.toFixed(1)} min in ${zone} vs ${stated} min stated (${Math.round(
+      pct
+    )}% of target; ${basisLabel(reading)})`,
+  };
+}
+
+function gradeZoneEmphasis(objective: ScoredObjective, evidence: RideEvidence): Verdict {
+  const reading = zoneMinutes(evidence, objective.target?.zone, objective.zoneBasis);
+  if (!reading) return ungraded(missingZoneDataText(objective.zoneBasis, evidence.isIndoor));
+  const zone = (objective.target?.zone ?? "").toUpperCase();
+  return {
+    delta: emphasisDelta(reading.sharePct),
+    scored: true,
+    measurable: true,
+    scopeMin: evidence.durationMin,
+    evidence: `${zone} was ${Math.round(reading.sharePct)}% of zone time (${reading.minutes.toFixed(
+      1
+    )} of ${reading.totalMinutes.toFixed(1)} min; ${basisLabel(reading)})`,
+  };
+}
+
+function gradeEffort(objective: ScoredObjective, evidence: RideEvidence, pool: ExecutedInterval[]): Verdict {
+  const target = objective.target ?? {};
+  const stated = numeric(target.durationMin);
+  // Checked first: with no window there is nothing to evaluate over, whatever else is present.
+  if (stated === null || stated <= 0) return ungraded("no duration stated for this effort");
+
+  // Checked before the lap data, because an unresolvable percentage is a defect in the CLAIM rather
+  // than in the evidence: the target cannot even be expressed.
+  const resolvedWatts = resolveTargetWatts(target, evidence.ftpUsed);
+  if (resolvedWatts === null && numeric(target.targetPctFtp) !== null) {
+    return ungraded("no FTP anchor for the stated %");
+  }
+  if (pool.length === 0) return ungraded("no interval data");
+
+  const reps = Math.max(1, Math.round(numeric(target.reps) ?? 1));
+  const required = Math.ceil(0.75 * reps);
+  const matched = matchLaps(target, pool, resolvedWatts);
+  const scopeMin = lapMinutes(matched);
+
+  if (matched.length < required) {
+    return {
+      // A curated lap set with no effort of the stated length is a real finding, not missing data.
+      delta: -1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence:
+        reps > 1
+          ? `only ${matched.length} of ${reps} laps matched the stated ${stated} min effort`
+          : `no lap within +-20% of the stated ${stated} min effort`,
+      matchedLaps: matched,
+    };
+  }
+
+  const withPower = matched.filter((lap) => lap.avgWatts != null && lap.avgWatts > 0);
+  if (resolvedWatts !== null && withPower.length > 0) {
+    const meanWatts = withPower.reduce((sum, lap) => sum + (lap.avgWatts ?? 0), 0) / withPower.length;
+    const pct = (meanWatts / resolvedWatts) * 100;
+    const shown = Math.round(meanWatts);
+    return {
+      delta: adherenceDelta(pct),
+      scored: true,
+      measurable: true,
+      // Genuinely local evidence: a 9-min lap says nothing about the other 109 minutes.
+      scopeMin,
+      evidence:
+        reps > 1
+          ? `${matched.length} laps averaging ${shown} W vs ${resolvedWatts} W target (${Math.round(
+              pct
+            )}% adherence)`
+          : `${scopeMin.toFixed(1)} min lap at ${shown} W vs ${resolvedWatts} W target (${Math.round(
+              pct
+            )}% adherence)`,
+      matchedLaps: matched,
+    };
+  }
+
+  const noPower = resolvedWatts !== null;
+  return {
+    delta: 1,
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} totalling ${scopeMin.toFixed(
+      1
+    )} min${noPower ? " (no power recorded on them, graded on presence)" : ""}`,
+    matchedLaps: matched,
+  };
+}
+
+// REWARD-ONLY, and graded from the only ordered evidence this module has: the start indices of the
+// laps its efforts matched. Zone arrays carry no timestamps, so they can say nothing about order. With
+// fewer than two ordered efforts there is no evidence either way, which is `scored: false` rather than
+// a zero — and either way `structure` carries a scope of 0, because it re-describes objectives that
+// are already counted and must never be able to carry the gate on its own.
+function gradeStructure(effortStartIndices: (number | null)[] | undefined): Verdict {
+  const ordered = (effortStartIndices ?? []).filter((index): index is number => index !== null);
+  if (!effortStartIndices || ordered.length < 2 || ordered.length !== effortStartIndices.length) {
+    return { ...ungraded("no ordered evidence (fewer than two matched efforts)"), scopeMin: 0 };
+  }
+  const inOrder = ordered.every((index, position) => position === 0 || index > ordered[position - 1]);
+  return {
+    delta: inOrder ? 1 : 0,
+    scored: true,
+    measurable: true,
+    scopeMin: 0,
+    evidence: inOrder
+      ? "the matched efforts occurred in the stated order"
+      : "the matched efforts did not occur in the stated order (no penalty — the parse may have mis-ordered the note)",
+  };
+}
+
+export function gradeObjective(
+  objective: ScoredObjective,
+  evidence: RideEvidence,
+  context: GradeContext = {}
+): GradeResult {
+  const pool = context.laps ?? evidence.laps;
+  let verdict: Verdict;
+  switch (objective.kind) {
+    case "duration":
+      verdict = gradeDuration(objective, evidence);
+      break;
+    case "zone-time":
+      verdict = gradeZoneTime(objective, evidence);
+      break;
+    case "zone-emphasis":
+      verdict = gradeZoneEmphasis(objective, evidence);
+      break;
+    case "effort":
+      verdict = gradeEffort(objective, evidence, pool);
+      break;
+    case "structure":
+      verdict = gradeStructure(context.effortStartIndices);
+      break;
+    case "qualitative":
+      verdict = {
+        delta: null,
+        scored: false,
+        // The one kind that is NOT measurable: sensors cannot establish that cornering was good
+        // (design §6). A flat evidence-string list could not express "acknowledged but not graded".
+        measurable: false,
+        scopeMin: 0,
+        evidence: "acknowledged; no sensor can establish skill quality",
+      };
+      break;
+  }
+
+  const text = [context.carriedEvidence, verdict.evidence].filter(Boolean).join("; ");
+  return {
+    objective: {
+      ...objective,
+      measurable: verdict.measurable,
+      scored: verdict.scored,
+      scopeMin: verdict.scopeMin,
+      evidence: text,
+    },
+    delta: verdict.delta,
+    matchedLaps: verdict.matchedLaps ?? [],
+  };
+}
+
+// The MAXIMUM across objectives, never a union — see the module header.
+export function evidenceScope(objectives: ScoredObjective[]): number {
+  return objectives.reduce((max, objective) => Math.max(max, objective.scopeMin ?? 0), 0);
+}
+
+// ---------------------------------------------------------------------------
+// The scoreability gate
+// ---------------------------------------------------------------------------
+
+// Predicate (a), semantic grounding, plus predicate (b), kind eligibility by confidence.
+//
+// When `note` is supplied, grounding is RE-VERIFIED against it. `verifyGrounding` can only ever lower
+// the model's own claim (it returns false whenever `grounded` is false), so supplying a note is always
+// a narrowing — which is what makes the monotonicity property hold in both call shapes. An objective
+// with no numeric target has nothing for the field matchers to verify: `structure`'s claim is ordinal
+// and has no unit-bearing token, and every other target-less kind is ungradable regardless.
+export function gradableObjectives(
+  objectives: ScoredObjective[],
+  confidence: IntentConfidence,
+  note?: string
+): ScoredObjective[] {
+  const kinds = GRADABLE_KINDS_BY_CONFIDENCE[confidence];
+  return objectives.filter((objective) => {
+    if (!kinds.includes(objective.kind)) return false;
+    if (!objective.grounded) return false;
+    if (note === undefined || objective.target === null) return true;
+    return verifyGrounding(objective, note);
+  });
+}
+
+// Predicate (c): at least one gradable objective, and evidence that speaks about enough of the ride.
+// Confidence is consulted FIRST only to veto — it can never promote.
+export function assessScoreability(input: {
+  confidence: IntentConfidence;
+  gradableCount: number;
+  scopeMin: number;
+  rideMin: number;
+}): { scoreable: boolean; reason: NotScoredReason | null; requiredScopeMin: number } {
+  const requiredScopeMin = Math.max(INTENT_MIN_SCOPE_MIN, INTENT_SCOPE_MIN_FRACTION * input.rideMin);
+  if (input.confidence === "low") return { scoreable: false, reason: "intent-unreliable", requiredScopeMin };
+  if (input.gradableCount < 1) {
+    return { scoreable: false, reason: "no-measurable-objectives", requiredScopeMin };
+  }
+  if (input.scopeMin < requiredScopeMin) {
+    return { scoreable: false, reason: "no-measurable-objectives", requiredScopeMin };
+  }
+  return { scoreable: true, reason: null, requiredScopeMin };
+}
+
+// ---------------------------------------------------------------------------
+// The scorer
+// ---------------------------------------------------------------------------
+
+function acknowledge(objective: ScoredObjective, why: string): ScoredObjective {
+  return {
+    ...objective,
+    measurable: objective.kind !== "qualitative",
+    scored: false,
+    scopeMin: 0,
+    evidence: why,
+  };
+}
+
+// Baseline 5, one clamped contribution per kind (the MEAN of that kind's canonical members' deltas,
+// rounded, then clamped to that kind's band), summed and clamped to 1-10. Ungraded members are absent
+// from the mean entirely — never a zero in the denominator — so an objective the data could not speak
+// to changes the score by exactly nothing, as if it had not been stated.
+//
+// `note`, when supplied, re-verifies grounding against the athlete's own text. The runner passes it;
+// omitting it trusts `objective.grounded` as the caller already lowered it.
+export function scoreIntentExecution(
+  interpretation: IntentInterpretation,
+  evidence: RideEvidence,
+  note?: string
+): IntentVerdict {
+  const all = interpretation.objectives;
+  const gradable = gradableObjectives(all, interpretation.confidence, note);
+  const canonical = canonicalise(gradable);
+  const carried = new Map(canonical.map((objective) => [objective, objective.evidence]));
+
+  // Efforts are matched LONGEST TARGET FIRST, and a lap is consumed once matched, so two efforts can
+  // never both claim it. The stated order is preserved separately for `structure`.
+  const efforts = canonical.filter((objective) => objective.kind === "effort");
+  const byLongest = [...efforts].sort(
+    (a, b) => (numeric(b.target?.durationMin) ?? 0) - (numeric(a.target?.durationMin) ?? 0)
+  );
+  const pool = [...evidence.laps];
+  const graded = new Map<ScoredObjective, GradeResult>();
+  for (const objective of byLongest) {
+    const result = gradeObjective(objective, evidence, {
+      laps: pool,
+      carriedEvidence: carried.get(objective),
+    });
+    graded.set(objective, result);
+    for (const lap of result.matchedLaps) {
+      const index = pool.indexOf(lap);
+      if (index >= 0) pool.splice(index, 1);
+    }
+  }
+  const effortStartIndices = efforts.map((objective) => {
+    const matched = graded.get(objective)?.matchedLaps ?? [];
+    return matched.length === 0 ? null : Math.min(...matched.map((lap) => lap.startIndex ?? Number.NaN));
+  });
+  const orderedEvidence = effortStartIndices.map((index) =>
+    index === null || Number.isNaN(index) ? null : index
+  );
+
+  const results: GradeResult[] = [];
+  for (const objective of canonical) {
+    const already = graded.get(objective);
+    results.push(
+      already ??
+        gradeObjective(objective, evidence, {
+          laps: pool,
+          effortStartIndices: orderedEvidence,
+          carriedEvidence: carried.get(objective),
+        })
+    );
+  }
+
+  const objectives = results.map((result) => result.objective);
+  const scopeMin = evidenceScope(objectives);
+  const { scoreable, reason, requiredScopeMin } = assessScoreability({
+    confidence: interpretation.confidence,
+    gradableCount: gradable.length,
+    scopeMin,
+    rideMin: evidence.durationMin,
+  });
+
+  // Stage 4 — bounded aggregation.
+  let total = 5;
+  for (const kind of Object.keys(KIND_BAND) as ObjectiveKind[]) {
+    const deltas = results
+      .filter((result) => result.objective.kind === kind && result.delta !== null)
+      .map((result) => result.delta as number);
+    if (deltas.length === 0) continue;
+    const mean = deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length;
+    const band = KIND_BAND[kind];
+    total += clamp(roundSymmetric(mean), band.min, band.max);
+  }
+
+  // Every objective that never reached grading is still returned, so 2c can show it was acknowledged.
+  const canonicalSet = new Set(gradable);
+  const acknowledged = all
+    .filter((objective) => !canonicalSet.has(objective))
+    .map((objective) =>
+      acknowledge(
+        objective,
+        objective.kind === "qualitative"
+          ? "acknowledged; no sensor can establish skill quality"
+          : !objective.grounded || (note !== undefined && objective.target !== null && !verifyGrounding(objective, note))
+            ? "not grounded in the note"
+            : `not graded at ${interpretation.confidence} confidence`
+      )
+    );
+
+  return {
+    score: scoreable ? clamp(total, 1, 10) : null,
+    reason,
+    objectives: [...objectives, ...acknowledged],
+    scopeMin,
+    scopeRequiredMin: requiredScopeMin,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The stated workout type
+// ---------------------------------------------------------------------------
+
+const PURPOSE_PATTERNS: Array<{ pattern: RegExp; type: WorkoutType }> = [
+  { pattern: /\b(?:gym|strength|weights|lifting)\b/i, type: "Strength" },
+  { pattern: /\b(?:sprint|anaerobic|neuromuscular|sit)\b/i, type: "SIT" },
+  { pattern: /\bvo2\s*max\b|\bvo2\b/i, type: "VO2max" },
+  { pattern: /\b(?:threshold|sweet\s*spot|sweetspot|ftp)\b/i, type: "Threshold" },
+  { pattern: /\b(?:race|simulation|group\s*ride|kom)\b/i, type: "RaceSim" },
+  { pattern: /\b(?:recovery|easy\s*spin|shake\s*out)\b/i, type: "Recovery" },
+  { pattern: /\b(?:endurance|aerobic|base|zone\s*2|z2|long\s*ride)\b/i, type: "Z2" },
+  { pattern: /\brest\b/i, type: "Rest" },
+];
+
+const ZONE_TYPES: Record<number, WorkoutType> = { 1: "Recovery", 2: "Z2", 3: "Z2", 4: "Threshold", 5: "VO2max", 6: "SIT", 7: "SIT" };
+
+// Derived from the STATED purpose and zones — never from ride intensity, the circularity INVARIANTS
+// 35/40 exist to prevent. The signature takes only a `StructuredIntent`, so consulting a ride metric
+// here is UNEXPRESSIBLE rather than merely avoided.
+//
+// Provenance only in Phase 2b: per-type learning stays prescribed-only (INVARIANT 40) until the two
+// 1-10 score populations are shown comparable on a real corpus AND compliance gains a meaning for
+// rides that have none.
+export function intentWorkoutType(intent: StructuredIntent): WorkoutType | null {
+  const purpose = intent.primaryPurpose ?? "";
+  for (const { pattern, type } of PURPOSE_PATTERNS) {
+    if (pattern.test(purpose)) return type;
+  }
+  const zones = (intent.phases ?? [])
+    .map((phase) => zoneIndex(phase.targetZone))
+    .filter((index): index is number => index !== null)
+    .map((index) => index + 1);
+  if (zones.length === 0) return null;
+  return ZONE_TYPES[Math.max(...zones)] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// The overlay producer
+// ---------------------------------------------------------------------------
+
+interface BuildOverlayBase {
+  id: string;
+  activityId: string;
+  date: string; // YYYY-MM-DD
+  noteFingerprint: string;
+  createdAt: string; // ISO
+  status?: OverlayStatus; // defaults to "active"
+}
+
+// A discriminated union, so the five outcome rows are enforced by the type rather than by a runtime
+// check a caller could skip: either a verdict came out of the scorer, or a deterministic reason was
+// decided without one. `intent-unreliable` arrives through the VERDICT arm (the scorer returns it for
+// `low` confidence), which is what keeps the interpretation attempt on the record (design §5.3).
+export type BuildOverlayInput = BuildOverlayBase &
+  (
+    | { interpretation: IntentInterpretation; verdict: IntentVerdict; reason?: never }
+    | {
+        interpretation?: null;
+        verdict?: never;
+        reason: Extract<NotScoredReason, "no-intent-found" | "interpreter-failed">;
+      }
+  );
+
+// The producer half of the contract `isApplicable` (lib/intent-overlay.ts) consumes. Every row this
+// emits must round-trip through that consumer and be ACCEPTED — a producer emitting records its own
+// consumer rejects is the Phase 2a defect shape, so the test asserts it directly rather than describing
+// it.
+export function buildOverlay(input: BuildOverlayInput): IntentOverlay {
+  const score = input.verdict ? input.verdict.score : null;
+  const reason = input.verdict ? input.verdict.reason : input.reason;
+
+  // Only `no-measurable-objectives` pairs with `self-directed`: there the intent WAS clear and the
+  // ride data simply could not verify it. The other three reasons all mean no trustworthy intent was
+  // recovered, which IS the definition of `unspecified`.
+  const selfDirected = score !== null || reason === "no-measurable-objectives";
+
+  const interpretation = input.interpretation
+    ? { ...input.interpretation, objectives: input.verdict.objectives }
+    : null;
+
+  return {
+    id: input.id,
+    activityId: input.activityId,
+    date: input.date,
+    noteFingerprint: input.noteFingerprint,
+    status: input.status ?? "active",
+    origin: selfDirected ? "self-directed" : "unspecified",
+    effectiveExecutionScore: score,
+    notScoredReason: reason ?? null,
+    interpretation,
+    scoringVersion: score === null ? null : INTENT_SCORING_VERSION,
+    // Provenance only, and only where an intent was actually recovered — a type asserted alongside
+    // `unspecified` would have been derived from nothing.
+    effectiveWorkoutType: selfDirected && interpretation ? intentWorkoutType(interpretation.intent) : null,
+    schemaVersion: OVERLAY_SCHEMA_VERSION,
+    createdAt: input.createdAt,
+    approvedAt: null,
+    supersededBy: null,
+  };
+}
