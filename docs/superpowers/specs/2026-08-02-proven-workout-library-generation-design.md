@@ -2,7 +2,10 @@
 
 **Date:** 2026-08-02  
 **Status:** Design approved 2026-08-02; re-scoped 2026-08-05 (athlete decision) to defer automatic
-evidence-based promotion and the historical bootstrap — see §5a and §12.  
+evidence-based promotion and the historical bootstrap — see §5a and §12. Corrected 2026-08-11 against a
+hostile review that verified 7 real gaps against the live codebase (event slots, Z2 template coverage,
+durability-template provenance, backup/critical-file protection, AI provenance, export idempotency,
+RaceSim reservation) — see §3, §5, §6, §7, §8, §10, §11.  
 **Supersedes:** `2026-07-18-workout-library-sync-design.md` (retired 2026-08-05) — its manual-push-to-Intervals.icu
 mechanism is folded into §8 below; do not implement it separately.
 
@@ -48,11 +51,33 @@ The existing deterministic engines remain authoritative for:
 - slot workout type and duration envelope;
 - nutrition targets and validation.
 
-After `computeBlockSkeleton`, a new selector attempts to fill each quality slot from the local library.
-Learned entries are limited to `Threshold`, `VO2max`, `SIT`, and `RaceSim`. Z2 uses deterministic
-90-minute, 2-hour, 3-hour, and 4-hour templates. Recovery remains deterministic. Rest and Strength stay
-outside the library; configured Strength days use one static, existing-KB-backed prescription so they
-do not require workout authoring.
+After `computeBlockSkeleton`, a new selector attempts to fill each **quality slot** from the local
+library — defined for this document as any `DaySlot` with `kind: "quality"` *or* `kind: "event"`. A
+calendar event forces `kind: "event"` on its day with `allowedTypes: ["RaceSim"]`
+(`block-skeleton.ts`'s event-override render step) — a real, live mechanism (event-aware race planning),
+not a dormant one, so an event day needs exactly the same library-or-AI treatment as any other RaceSim
+quality slot. Every "quality slot" reference in this document (§6, §7) includes event-kind slots unless
+stated otherwise. Learned entries are limited to `Threshold`, `VO2max`, `SIT`, and `RaceSim`.
+
+Z2 uses one **parameterized** template (warmup → steady → cooldown, its steady segment scaled to fill
+whatever duration the slot's envelope asks for) covering the athlete's full configurable long-ride range
+(`longRideDurationMinutes`, validated 60–480 min in `app/api/settings/route.ts`) — not a fixed set of
+duration points, which would leave most of that legal range with no matching template. The template
+applies only when the week's long ride is supposed to be unbroken Z2: the block's rotating durability
+template (`lib/durability.ts`, A–E, selected once per block and stamped onto every long-ride day
+regardless of how that day's content was actually produced) governs this. Template A ("pure
+accumulation") and any recovery week are unbroken Z2 by definition — the deterministic template applies.
+Templates B–E prescribe embedded harder efforts placed late in the ride, described as fuzzy prose ranges
+meant for an LLM to phrase into a concrete schedule (e.g. "~2–3h steady, then 2–3 × 8–15min threshold"),
+not a fixed structure a deterministic template could mechanically implement without inventing a new
+range-picking scheduler. Those long-ride days are therefore never template-filled — they route through
+the same missing-slot AI-authoring path as quality slots, carrying `formatDurabilityForPrompt`'s existing
+instruction, exactly as today's pre-plan generator already does. This keeps the `durabilityTemplate`
+stamp (`app/api/write/route.ts`) honest: it's written unconditionally onto every long-ride day, so a
+generic Z2 template silently standing in for a B–E prescription would otherwise be false provenance —
+the record would claim embedded work the athlete never received. Recovery remains deterministic. Rest and
+Strength stay outside the library; configured Strength days use one static, existing-KB-backed
+prescription so they do not require workout authoring.
 
 Library prescriptions are immutable. Selection controls where an entry is used but cannot resize,
 rewrite, or otherwise adapt its steps. If no active entry satisfies a slot, Claude authors only that
@@ -106,12 +131,19 @@ the score thresholds described in §5a, but not structural safety checks. Manual
 `status: "active"` and `promotedBy: "manual"` directly — there is no `"candidate"` state to pass through
 in v1, since nothing else creates entries.
 
+"Completed" is not prose shorthand for "has a score" — the app already models this precisely as
+`SessionDisposition` (`data/dispositions.json`, read via `readDispositions()`): `"completed" | "partial" |
+"missed" | "compromised"`. A partial (cut-short) ride can still receive a real `executionScore` for what
+was ridden, so promotion must check the stored disposition is exactly `"completed"`, not merely that a
+score exists — otherwise a cut-short ride could be promoted as if it were the full prescribed session.
+
 A promotion (manual, in v1) requires:
 
 - a supported quality workout type;
 - non-empty structured workout steps;
 - no severe protocol violation under current validation rules; and
-- a completed, non-compromised ride to promote.
+- a ride whose disposition (`data/dispositions.json`) is exactly `"completed"` — not `"partial"`,
+  `"missed"`, or `"compromised"`.
 
 Retirement prevents future selection but preserves the prescription, evidence, usage, and export
 history. New evidence never restores a retired entry automatically. Restore is an explicit athlete
@@ -142,7 +174,7 @@ prescriptions are common enough for the two-distinct-≥6 path to ever fire in p
 
 ## 6. Matching and selection
 
-For each quality slot, selection filters active entries by:
+For each quality slot (`kind: "quality"` or `kind: "event"`, §3), selection filters active entries by:
 
 - exact required workout type;
 - duration inside the skeleton's existing slot envelope;
@@ -163,6 +195,20 @@ eligibility but does not invent a high score. An entry may appear only once in a
 eligible entry of the same type exists. Reuse within a block is allowed only when no alternative can
 fill the required type and slot.
 
+**Fill order protects block-wide type requirements before greedy ranking.** Only the block's first
+loading-week quality slot is locked to the season focus type; every other quality slot is flexible across
+all four learned types (`block-skeleton.ts`'s `flexibleSlot` case) — which is exactly where
+`deriveSessionRequirements`'s block-wide floors (e.g. `requireRaceSim`: "the block must carry ≥1 RaceSim
+session somewhere") get satisfied today. A single greedy pass that fills every flexible slot by
+type-agnostic best-match ranking can exhaust all of them with, say, Threshold entries before any
+requirement check runs — leaving no slot free for AI to place the missing RaceSim either, since only
+*uncovered* slots reach AI authoring (§7). So selection runs two passes: first, for each unmet block-wide
+requirement, reserve and fill (from the library if a matching active entry exists, else leave uncovered
+for AI) one flexible slot of the required type; only then does the ordinary best-match ranking fill the
+remaining flexible slots. This doesn't newly guarantee the floor — `validateSessionRequirements` has
+always been a warn-only check, unchanged here — it just keeps the library from making that warning fire
+*more* often than it already does today.
+
 An AI-authored fallback is a candidate, not an active entry. It must later satisfy the same execution
 or manual-promotion rules.
 
@@ -175,15 +221,30 @@ commits. Library promotion and export occur from an explicit manual action (§5)
 Each generated day records one source:
 
 - `library:<entry-id>`;
-- `template:z2-90`, `template:z2-120`, `template:z2-180`, or `template:z2-240`; or
+- `template:z2-<duration-min>` (the parameterized template, §3 — e.g. `template:z2-150`, not one of a
+  fixed set of names); or
 - `ai:<model>/<prompt-version>`.
 
 AI usage records distinguish missing-slot authoring from overview writing. This permits later reporting
 of coverage and avoided authoring calls without adding a dashboard in this release.
 
+**AI-authored slots include event-kind quality sessions and any durability-template-driven long-ride day
+(§3)** — not only `kind: "quality"` dates. The missing-slot request context carries
+`formatDurabilityForPrompt`'s instruction for any requested long-ride date so the athlete still gets the
+block's actual durability prescription (B–E) rather than a plain Z2 fallback.
+
 If every quality slot is covered, NodeVelo makes no workout-authoring call. It still makes the cheap
 overview call. If only some slots are covered, one bounded authoring request produces the missing
 quality sessions only; it must not rewrite library- or template-backed days.
+
+**`GeneratedPlan`'s single `model`/`promptVersion`/`raw` fields don't fit a plan that can now involve zero,
+one, or two distinct AI calls with different models** (the missing-slot call, and a separate
+`QUICK_MODEL` overview call — implementation plan Task 6). `sources` already gives per-day attribution for the
+slot-authoring call (the `ai:<model>/<prompt-version>` form above); the actual gap is narrower than "no
+provenance at all." Fix: make `model`/`promptVersion`/`raw` optional (a full-coverage block makes no
+slot-authoring call, so there's nothing to put there — they currently aren't optional in the type even
+though this design's own §3 requires that case to exist), and add a small `overview?: { model: string;
+raw: string }` for the second call rather than conflating two AI responses into one field.
 
 ## 8. Intervals.icu export
 
@@ -196,6 +257,16 @@ promotion route — no bulk "sweep pending entries" pass is needed until §5a's 
 Export failure marks the entry `failed` with a displayable error. The local active entry remains usable
 and block generation continues normally. Retry is explicit and idempotent: an entry with a stored remote
 workout ID is never created again.
+
+**"Never created again" needs more than reading local state before the POST.** Doing the remote create
+outside the JSON lock (deliberate — a slow network call shouldn't hold the file lock, §10) and persisting
+the result after means two genuinely concurrent triggers for the same entry (a double-clicked retry, two
+open tabs) can each read "not yet synced" and both create a remote workout before either persists; a
+crash between a successful POST and the local persist leaves an orphaned remote duplicate no local state
+even remembers to check for. A per-entry in-process single-flight closes the concurrent-request case but
+can't survive the crash case — that needs a remote lookup by the entry's deterministic identity
+(workout name already encodes the entry's `id`-prefix, §3) before creating, so a retry after a crash finds
+its own prior orphan instead of making a second one.
 
 This replaces the earlier sync design's manual-only export trigger for this feature. Its confirmed
 reuse of `workoutText` as Intervals.icu's structured `description`, folder convention, and dedicated
@@ -228,6 +299,13 @@ structural or protocol reason. Editing, ratings, folder management, and duplicat
 - **Current validator rejects a stored entry:** exclude it from selection without silently retiring it;
   show the validation issue in the library view.
 - **Concurrent promotion/retry:** use `updateJsonFile` locking and re-check state inside the lock.
+- **Double corruption (live file and `.bak` both unreadable):** `workout-library.json` must join
+  `json-store.ts`'s `CRITICAL` set (same as `score-log.json`, `current-block.json`, and 6 other
+  irreplaceable stores) — otherwise a promoted, evidence-backed library is exactly the kind of data this
+  set exists to protect, but reads would silently fall back to `{entries: []}` and a subsequent write
+  could persist that empty state as truth. Matches the codebase's existing convention: reads stay lenient
+  everywhere (never throw), only the write path refuses to entrench a corrupt fallback — no new "throw on
+  read" behavior is needed, just the `CRITICAL` membership.
 
 ## 11. Verification
 
@@ -238,13 +316,21 @@ Automated checks cover:
   aggregation-across-two-dates path already have unit coverage on the pure `applyEvidence` primitive from
   Task 1; no live caller exists to test end-to-end until §5a);
 - retirement, restoration, and validation-based selection exclusion;
-- deterministic filtering, ranking, tie-breaking, and within-block repetition policy;
-- fixed Z2 template selection;
+- deterministic filtering, ranking, tie-breaking, and within-block repetition policy, including that a
+  block-wide requirement (e.g. `requireRaceSim`) reserves a flexible slot before greedy ranking consumes
+  it (§6);
+- the parameterized Z2 template across the full 60–480 min settings range, and that it is *not* selected
+  when the block's active durability template is B–E outside a recovery week (§3);
+- event-kind (`kind: "event"`) slots filled identically to quality slots, by both the library pass and
+  the AI-authoring fallback (§3, §7);
 - mixed library/AI assembly and complete-library assembly;
 - proof that a fully covered block makes no workout-authoring call;
 - full-plan repair and validation after mixed-source assembly;
 - source provenance and usage counting only on accepted blocks;
-- export idempotency, failure state, and retry behavior; and
+- export idempotency under concurrent triggers and a simulated crash-after-POST, not just sequential
+  retry (§8);
+- `workout-library.json`'s `CRITICAL`-set membership: a simulated double corruption must refuse to
+  persist the empty fallback as truth (§10); and
 - API/UI behavior for manual promotion and library management.
 
 Before completion, run one live partial-coverage generation, one live full-coverage generation, and one
@@ -270,6 +356,11 @@ manually-curated library shows real usage.
   a new fingerprint for what an athlete would call "the same workout." Low-stakes in v1 (fingerprints
   only need to match a slot's requirements, not each other, since there's no automatic aggregation
   path yet) but relevant again once §5a ships and cross-date matching starts to matter.
+- **Durability templates B–E keep a permanent AI-cost floor.** Even a fully mature library can't
+  eliminate authoring cost for every long-ride day — B–E's embedded-effort structures are fuzzy prose
+  ranges an LLM interprets, not a fixed schedule, so those days always route through AI authoring (§3).
+  Only template A and recovery weeks are template-fillable. This is a real, permanent characteristic of
+  the durability-rotation design, not a gap this feature is expected to close.
 - **Real evidence volume, for scoping §5a later:** the current 147-entry score ledger has only ~12 rides
   across the three learned types besides RaceSim scoring ≥8 (the single-execution path); the
   two-distinct-≥6 path additionally needs an exact normalized-fingerprint repeat, which freehand AI
