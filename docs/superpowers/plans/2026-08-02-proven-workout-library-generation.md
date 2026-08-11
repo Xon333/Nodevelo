@@ -19,14 +19,32 @@ justify their persistence/locking/bootstrap surface before the manually-curated 
 later task to pick up. Tasks 2–4 below are narrowed accordingly; Tasks 5–10 are largely unaffected since
 they don't care where a library entry came from.
 
+**2026-08-11 correction (hostile review against the live codebase, 7 findings closed):** Task 2 needs
+`workout-library.json` added to `json-store.ts`'s `CRITICAL` set and a precise "completed" check.
+Task 3's export needs a single-flight + remote-identity-lookup guard, not just "read before POST." Task 5
+is rewritten from four fixed-duration Z2 templates to one parameterized template, gated by the block's
+active durability template (`lib/durability.ts` A–E) so embedded-effort prescriptions never get silently
+replaced by a generic ride while `durabilityTemplate` is still stamped as if they weren't. Task 6's AI
+contract now also covers event-kind (`kind: "event"`) dates and durability-driven long-ride dates, not
+only `kind: "quality"` ones. Task 7 gets a RaceSim-reservation fill order and `GeneratedPlan` provenance
+fixes. Full rationale in design doc §3, §5, §6, §7, §8, §10.
+
 ## Global Constraints
 
 - NodeVelo's local JSON library is authoritative; Intervals.icu is export-only.
 - Learned types are exactly Threshold, VO2max, SIT, and RaceSim; prescriptions are immutable.
-- v1 activation is manual only: requires a completed ride and cannot override structural/protocol
-  safety. (Automatic activation — one uncompromised score ≥8 or two distinct uncompromised scores ≥6 —
-  is designed in §5a but deferred; do not wire it up in this pass.)
-- Z2 templates are exactly 90, 120, 180, and 240 minutes; Recovery, Rest, and Strength are deterministic.
+- v1 activation is manual only: requires a ride whose disposition (`data/dispositions.json`) is exactly
+  `"completed"`, and cannot override structural/protocol safety. (Automatic activation — one uncompromised
+  score ≥8 or two distinct uncompromised scores ≥6 — is designed in §5a but deferred; do not wire it up in
+  this pass.)
+- Z2 is one parameterized template scaled to any duration in the athlete's configured 60–480 min
+  long-ride range — not four fixed points. It's selected only when the week's long ride is supposed to be
+  unbroken Z2 (durability template A, or any recovery week); Recovery, Rest, and Strength are
+  deterministic as before.
+- A "quality slot" for selection and AI-authoring purposes includes `kind: "event"` skeleton days
+  (`allowedTypes: ["RaceSim"]`), not only `kind: "quality"` ones.
+- `workout-library.json` must be in `json-store.ts`'s `CRITICAL` set (Task 2) — it's exactly the kind of
+  irreplaceable data that set exists to protect.
 - Existing skeleton, nutrition, validators, two-phase commit, CAS, and append-only-ledger contracts remain intact.
 - Add no dependency. Persist only through `json-store.ts`; guard migration markers with truthy checks.
 - Changed AI paths require live partial-coverage and full-coverage smoke runs.
@@ -73,11 +91,15 @@ cut from this plan entirely; re-add them as their own task when §5a is picked b
 
 - [ ] Write failing scratch-store tests covering: promotion looks up the day's prescription in the live
   block first, then archived `BlockHistoryEntry.days` (SUB-1's "could be live or archived" lookup shape);
-  a new fingerprint creates an entry, a repeat fingerprint updates the existing one; missing/incomplete/
-  compromised/unsupported-type/protocol-invalid rides are rejected with the concrete reason;
-  already-active entries are a no-op, not a duplicate; retirement and restore persistence; and
-  accepted-use counting.
+  a new fingerprint creates an entry, a repeat fingerprint updates the existing one; a ride whose
+  `data/dispositions.json` entry is `"partial"` or `"missed"` is rejected even if it carries a real score;
+  compromised/unsupported-type/protocol-invalid rides are rejected with the concrete reason; already-active
+  entries are a no-op, not a duplicate; retirement and restore persistence; accepted-use counting; and a
+  simulated double corruption (live file + `.bak` both unreadable) refuses to persist the empty fallback.
 - [ ] Run `npx vitest run lib/workout-library-service.test.ts`; expect missing-export failures.
+- [ ] Add `"workout-library.json"` to the `CRITICAL` set in `lib/json-store.ts` (alongside `score-log.json`,
+  `current-block.json`, etc.) — this gets `.bak` rotation and `updateJsonFile`'s existing refusal to
+  persist a corrupt-fallback as truth for free; no other code change needed for this protection.
 - [ ] Add the store through the existing aliases:
 
 ```ts
@@ -88,13 +110,15 @@ export const updateWorkoutLibrary = (mutate: (s: WorkoutLibraryStore) => Workout
 ```
 
 - [ ] Implement `promoteWorkoutManually(date)`: find the day's record (live block, else block history),
-  compute its fingerprint, fetch the matching score-log entry, run `canManuallyPromote` (Task 1), and on
-  success either create a new entry (`status: "active"`, `promotedBy: "manual"`, one evidence item) or
-  fold the evidence into an existing entry at that fingerprint. Never write `score-log.json`.
+  compute its fingerprint, fetch the matching score-log entry AND its `data/dispositions.json` entry —
+  require `disposition === "completed"` exactly (not `"partial"`, which can still carry a real score, and
+  not `"missed"`) — run `canManuallyPromote` (Task 1), and on success either create a new entry
+  (`status: "active"`, `promotedBy: "manual"`, one evidence item) or fold the evidence into an existing
+  entry at that fingerprint. Never write `score-log.json`.
 - [ ] Perform every state re-check and mutation inside `updateWorkoutLibrary`. Set export `pending` only
   on first activation. Cap `recentUses` at 10 accepted dates.
 - [ ] Run Tasks 1-2 tests; expect PASS.
-- [ ] Commit with `git add lib/data-store.ts lib/workout-library-service.ts lib/workout-library-service.test.ts && git commit -m "feat: persist workout library evidence"`.
+- [ ] Commit with `git add lib/data-store.ts lib/json-store.ts lib/workout-library-service.ts lib/workout-library-service.test.ts && git commit -m "feat: persist workout library evidence"`.
 
 ### Task 3: Intervals.icu export
 
@@ -105,12 +129,12 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 
 **Files:** Modify `lib/intervals-api.ts`; create `lib/workout-library-export.ts`, `lib/workout-library-export.test.ts`.
 
-**Interfaces:** Produce `findOrCreateWorkoutFolder`, `createLibraryWorkout`, and `exportWorkoutLibraryEntry`.
+**Interfaces:** Produce `findOrCreateWorkoutFolder`, `createLibraryWorkout`, `findRemoteLibraryWorkout`, and `exportWorkoutLibraryEntry`.
 
-- [ ] Write failing mocked tests for folder reuse/create, verbatim `workoutText` as `description`, `type: "Ride"`, remote ID persistence, failed state, and retry (no second POST after a stored remote ID).
+- [ ] Write failing mocked tests for folder reuse/create, verbatim `workoutText` as `description`, `type: "Ride"`, remote ID persistence, failed state, retry (no second POST after a stored remote ID), **two concurrent `exportWorkoutLibraryEntry` calls for the same entry producing exactly one remote workout** (single-flight), and **a simulated crash-after-POST** (a retry after the process "died" between the successful create and the local persist must find the prior remote workout via `findRemoteLibraryWorkout` — matched on the deterministic `<type> — <duration> min — <id-prefix>` name — rather than creating a duplicate).
 - [ ] Run `npx vitest run lib/workout-library-export.test.ts`; expect failures.
-- [ ] Add thin Intervals primitives using existing athlete URL, `icuFetch`, and `IntervalsApiError`. Folder is `NodeVelo — <type>`; workout name is `<type> — <duration> min — <id-prefix>`.
-- [ ] Implement export by reading state, returning if synced, doing remote I/O outside the JSON lock, then atomically persisting `synced` or `failed`. Never deactivate on export failure.
+- [ ] Add thin Intervals primitives using existing athlete URL, `icuFetch`, and `IntervalsApiError`. Folder is `NodeVelo — <type>`; workout name is `<type> — <duration> min — <id-prefix>` — deterministic and unique enough to look up by.
+- [ ] Implement export by reading state, returning if synced, then — inside a per-entry-ID in-process single-flight (a `Map<string, Promise<...>>` keyed by entry ID, mirroring `json-store.ts`'s own per-file lock pattern) — first calling `findRemoteLibraryWorkout` in the target folder by the deterministic name, using it if found instead of creating; otherwise doing the remote create outside the JSON lock, then atomically persisting `synced` or `failed`. Never deactivate on export failure. The single-flight closes the concurrent-request case; the remote lookup-before-create closes the crash-after-POST case that no local lock can catch.
 - [ ] Run `npx vitest run lib/workout-library-export.test.ts`; expect PASS.
 - [ ] Commit with `git add lib/intervals-api.ts lib/workout-library-export.ts lib/workout-library-export.test.ts && git commit -m "feat: mirror promoted workouts to Intervals"`.
 
@@ -129,13 +153,25 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 
 ### Task 5: Deterministic routine templates
 
+**Scope note (2026-08-11 correction):** the original four fixed-duration Z2 templates (90/120/180/240
+min) leave most of the athlete's configurable 60–480 min long-ride range with no matching template
+(`app/api/settings/route.ts` validates `longRideDurationMinutes` across that whole span; `DURATION_SLACK_MIN`
+is only ±15 min). Replaced with one parameterized template. Also: the pre-plan generator builds the long
+Z2 ride according to the block's rotating durability template (`lib/durability.ts`, A–E) and
+`app/api/write/route.ts` stamps whichever template was selected onto every long-ride day regardless of
+what actually produced its content — so a generic Z2 template can only stand in for template A (no
+embedded efforts) or a recovery week (same exception); templates B–E's embedded harder efforts are fuzzy
+prose ranges meant for an LLM, not something this task can build a deterministic schedule for. `buildTemplateDay`
+must therefore signal ineligibility so Task 7 routes those days to AI authoring instead of silently
+losing the durability stimulus. Design §3 has the full rationale.
+
 **Files:** Create `lib/workout-templates.ts`, `lib/workout-templates.test.ts`.
 
-**Interfaces:** Produce `buildTemplateDay(slot, nutrition): PlannedDay & { source: WorkoutSource }` for Z2, Recovery, Rest, and Strength.
+**Interfaces:** Produce `buildTemplateDay(slot, durabilityTemplateId, isRecoveryWeek, nutrition): (PlannedDay & { source: WorkoutSource }) | null` for Z2, Recovery, Rest, and Strength — `null` return means "not template-eligible, Task 7 must send this date to AI."
 
-- [ ] Write failing tests asserting exact `totalPrescribedMinutes` for Z2 90/120/180/240 and Recovery; Rest has empty text; Strength has the configured duration; cycling templates pass protocol validation.
+- [ ] Write failing tests asserting: the parameterized Z2 template produces the exact requested duration (via `totalPrescribedMinutes`) at both the 60 min and 480 min extremes and at an arbitrary non-round point (e.g. 150 min) inside the slot envelope, not just the four old fixed points; Z2 returns `null` when `durabilityTemplateId` is `"B"`–`"E"` and `isRecoveryWeek` is `false`; Z2 returns the deterministic template (not `null`) when `durabilityTemplateId` is `"A"` OR `isRecoveryWeek` is `true` regardless of `durabilityTemplateId`; Recovery template's exact `totalPrescribedMinutes`; Rest has empty text; Strength has the configured duration; all cycling templates pass protocol validation.
 - [ ] Run `npx vitest run lib/workout-templates.test.ts`; expect missing export.
-- [ ] Implement the four Z2 templates with warmup/steady/cooldown Intervals syntax. Choose the nearest fixed duration inside the slot envelope; throw `TemplateCoverageError` if none fits.
+- [ ] Implement one parameterized Z2 template: fixed-length warmup and cooldown, steady segment sized to exactly fill the remainder of the slot's requested duration — covering the full legal range with no coverage gap, so `TemplateCoverageError` (kept as a defensive invariant check, not the primary duration-mismatch path it was before) should no longer be reachable via duration alone.
 - [ ] Add one static KB-backed Strength prescription and deterministic Recovery/Rest copy. Copy caller-supplied nutrition numbers; do not calculate them here.
 - [ ] Run tests; expect PASS.
 - [ ] Commit with `git add lib/workout-templates.ts lib/workout-templates.test.ts && git commit -m "feat: add deterministic routine workout templates"`.
@@ -146,11 +182,19 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 
 **Interfaces:** Produce `MissingWorkoutSlot`, `GeneratedWorkoutSlot`, `buildMissingSlotPrompt`, `generateWorkoutSlots`, and `generateBlockOverview`.
 
-- [ ] Write failing schema tests that accept exactly requested dates and reject extra, duplicate, missing, and non-quality dates.
+**Scope note (2026-08-11 correction):** `MissingWorkoutSlot` must accept `kind: "event"` dates
+(`allowedTypes: ["RaceSim"]`) identically to `kind: "quality"` ones — event slots are a live mechanism
+(event-aware race planning) that Task 5/7's earlier "quality-only" framing would otherwise leave
+permanently unfillable, throwing generation. It must also accept a long-ride date whenever Task 5's
+`buildTemplateDay` returned `null` (durability template B–E, non-recovery week) — carrying
+`formatDurabilityForPrompt`'s instruction for that date so the AI-authored long ride still matches the
+block's actual durability prescription instead of defaulting to plain Z2.
+
+- [ ] Write failing schema tests that accept exactly requested dates — including `kind: "event"` dates and a durability-driven long-ride date — and reject extra, duplicate, missing, and dates the skeleton doesn't actually require authored content for (a locked Rest/Strength/template-eligible-Z2 day).
 - [ ] Run `npx vitest run lib/slot-generation-schema.test.ts`; expect failures.
 - [ ] Define one forced tool whose input is `{ days: GeneratedWorkoutSlot[] }`; each day has `date`, `name`, `type`, `durationMin`, `workoutText`, and `description`. Validate the output date set against the request.
-- [ ] Implement `generateWorkoutSlots` with the current generation model/cache split/usage recorder, sizing output tokens from missing-slot count. Record purpose `workout-slots`.
-- [ ] Implement `generateBlockOverview` with `QUICK_MODEL`; return `null` on failure. Bump `PROMPT_VERSION`. Keep protocol rules unchanged unless bands change, in which case update all three copies.
+- [ ] Implement `generateWorkoutSlots` with the current generation model/cache split/usage recorder, sizing output tokens from missing-slot count. Record purpose `workout-slots`. For any requested date whose skeleton day is the long ride, inject `formatDurabilityForPrompt`'s instruction into that date's context.
+- [ ] Implement `generateBlockOverview` with `QUICK_MODEL`; return `null` on failure. Populate the new `overview?: { model, raw }` field on `GeneratedPlan` (Task 7) rather than overwriting the plan's top-level `model`/`raw`. Bump `PROMPT_VERSION`. Keep protocol rules unchanged unless bands change, in which case update all three copies.
 - [ ] Run `npx vitest run lib/slot-generation-schema.test.ts lib/system-prompt.test.ts lib/ai-usage.test.ts`; expect PASS.
 - [ ] Commit with `git add lib/slot-generation-schema.ts lib/slot-generation-schema.test.ts lib/anthropic-api.ts lib/anthropic-prompts.ts lib/ai-usage.ts && git commit -m "feat: generate uncovered workout slots only"`.
 
@@ -158,16 +202,24 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 
 **Files:** Create `lib/block-assembly.ts`, `lib/block-assembly.test.ts`; modify `lib/types.ts`, `app/api/generate/route.ts`.
 
-**Interfaces:** Produce `assembleBlock({ skeleton, library, context, nutrition, ftp }) -> { days, overview, raw, sources }`.
+**Interfaces:** Produce `assembleBlock({ skeleton, library, context, nutrition, ftp, durabilityTemplateId }) -> { days, overview, overviewProvenance, raw, model, promptVersion, sources }`.
 
-- [ ] Write failing tests for full coverage without `generateWorkoutSlots`, partial coverage requesting only missing dates, byte-identical library text, deterministic sources, template days, duplicate avoidance, bad AI date sets, overview fallback, and chronological output.
+**Scope note (2026-08-11 correction):** this task absorbs the review's four remaining findings — event
+slots, RaceSim reservation order, the durability↔template hookup from Task 5, and `GeneratedPlan`
+provenance. `lib/workout-library.ts`'s already-shipped `selectLibraryWorkout` currently hardcodes
+`slot.kind === "quality"`, which would silently exclude every event day forever; that one-line fix lands
+in this task (see its own bullet below) rather than waiting to be rediscovered later, since nothing calls
+the function yet and the design doc (§3) already documents the corrected behavior.
+
+- [ ] Write failing tests for full coverage without `generateWorkoutSlots`, partial coverage requesting only missing dates, byte-identical library text, deterministic sources (including `template:z2-<duration>` reflecting the actual duration used, not a fixed name), template days, duplicate avoidance, bad AI date sets, overview fallback, chronological output, **an event-kind (`kind: "event"`) day filled from the library exactly like a quality day, and one filled by AI when no matching entry exists**, **a block whose `requireRaceSim` floor is satisfied by the reservation pass even when every flexible slot's best library match by raw ranking would otherwise be non-RaceSim**, and **a durability-template-B block whose long-ride day is never template-filled and is included in the AI request with the durability instruction attached**.
 - [ ] Run `npx vitest run lib/block-assembly.test.ts`; expect failures.
-- [ ] Read the local library (no bootstrap to run — §5a is deferred, so the library only holds whatever the athlete has manually promoted). Then implement three passes: select library quality days; build routine templates; send all uncovered quality slots in one bounded call and merge by date. Throw if any skeleton date remains unfilled.
-- [ ] `selectLibraryWorkout` is single-slot and stateless — it has no memory of entries already picked earlier in the same block. Track selected entry IDs across the quality-slot pass and exclude them from the candidate list on each subsequent call, falling back to reuse only when no alternative of the required type remains (design §6, "An entry may appear only once in a block while another eligible entry of the same type exists").
-- [ ] Add optional `sources?: Record<string, WorkoutSource>` to `GeneratedPlan`. Keep per-block data out of the cached system prompt.
+- [ ] Widen `lib/workout-library.ts`'s `selectLibraryWorkout` filter from `slot.kind === "quality"` to `(slot.kind === "quality" || slot.kind === "event")`; add a focused test to `lib/workout-library.test.ts` proving an event-kind RaceSim slot now matches. This is the one already-shipped-code correction this plan makes.
+- [ ] Read the local library (no bootstrap to run — §5a is deferred, so the library only holds whatever the athlete has manually promoted). Then implement four passes in order: (1) for each unmet block-wide requirement from `deriveSessionRequirements` (currently just `requireRaceSim`), reserve one flexible slot and fill it from the library if a matching active entry exists, else leave it uncovered for AI — before any type-agnostic ranking runs, so a greedy fill can't consume every flexible slot with the wrong type first; (2) select remaining library quality-or-event days by ordinary best-match ranking; (3) build routine templates for Z2/Recovery/Rest/Strength slots, passing the block's `durabilityTemplateId` and each week's recovery flag to `buildTemplateDay` — a `null` return (durability B–E, non-recovery) makes that long-ride date part of the uncovered set; (4) send all uncovered quality-or-event-or-long-ride slots in one bounded call and merge by date. Throw if any skeleton date remains unfilled.
+- [ ] `selectLibraryWorkout` is single-slot and stateless — it has no memory of entries already picked earlier in the same block. Track selected entry IDs across passes (1) and (2) and exclude them from the candidate list on each subsequent call, falling back to reuse only when no alternative of the required type remains (design §6, "An entry may appear only once in a block while another eligible entry of the same type exists").
+- [ ] Add optional `sources?: Record<string, WorkoutSource>` to `GeneratedPlan`. Make `model`/`promptVersion`/`raw` properly optional (a full-coverage block makes no slot-authoring call, so there's nothing to stamp there) and add `overview?: { model: string; raw: string }` for `generateBlockOverview`'s separate `QUICK_MODEL` call, so two different AI calls with two different models no longer share one set of fields. Keep per-block data out of the cached system prompt.
 - [ ] Replace only the authoring segment of `app/api/generate/route.ts`. Preserve feasibility, skeleton, nutrition, duration reconciliation, nutrition repair, every validator, season persistence, and response semantics.
-- [ ] Run `npx vitest run lib/block-assembly.test.ts app/api/generate/route.test.ts`; expect PASS.
-- [ ] Commit with `git add lib/types.ts lib/block-assembly.ts lib/block-assembly.test.ts app/api/generate/route.ts && git commit -m "feat: assemble blocks from proven workouts"`.
+- [ ] Run `npx vitest run lib/block-assembly.test.ts app/api/generate/route.test.ts lib/workout-library.test.ts`; expect PASS.
+- [ ] Commit with `git add lib/types.ts lib/workout-library.ts lib/workout-library.test.ts lib/block-assembly.ts lib/block-assembly.test.ts app/api/generate/route.ts && git commit -m "feat: assemble blocks from proven workouts"`.
 
 ### Task 8: Count accepted reuse
 
@@ -199,6 +251,8 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 - [ ] Run `npm test` and `npm run check`; expect a green suite, lint, typecheck, and build. Do not edit unrelated dirty files to fix concurrent-session failures.
 - [ ] Live-run a partial-coverage block and confirm only uncovered quality dates reach `workout-slots`, selected library text is unchanged, and all validators run.
 - [ ] Live-run a full-coverage block and confirm no workout-authoring call occurs, the cheap overview call occurs, sources are present, and validation passes.
+- [ ] Live-run one block whose date range includes a real calendar event, and confirm the event day is filled (library or AI) rather than throwing.
+- [ ] Live-run one block with `longRideDurationMinutes` set to a non-round value (e.g. 150) and confirm the Z2 template covers it without `TemplateCoverageError`.
 - [ ] Promote one real completed quality workout and confirm local activation plus structured rendering in the correct Intervals.icu folder.
 - [ ] Document manual promotion in system 02 (note automatic evidence-based promotion + the historical bootstrap are designed but deferred — design §5a — not silently missing), mixed assembly in system 06, both AI call sites/models in system 07, new routes/files in FILE_INDEX, capability in FEATURES, and move the shipped roadmap item to ARCHIVE with the deferred §5a scope left behind as a new "Later" entry rather than dropped. Check every changed anchor with `rg`.
 - [ ] Commit docs with `git add docs/systems/02-scoring-and-learning.md docs/systems/06-generation.md docs/systems/07-ai-layer.md docs/FILE_INDEX.md FEATURES.md ROADMAP.md ARCHIVE.md && git commit -m "docs: record proven workout library shipped"`.

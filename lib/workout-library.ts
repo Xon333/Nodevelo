@@ -63,7 +63,7 @@ export function selectLibraryWorkout(entries: WorkoutLibraryEntry[], slot: DaySl
   return entries
     .filter((entry) =>
       entry.status === "active" &&
-      slot.kind === "quality" &&
+      (slot.kind === "quality" || slot.kind === "event") &&
       slot.allowedTypes.includes(entry.workoutType) &&
       entry.durationMin >= slot.duration.minMin &&
       entry.durationMin <= slot.duration.maxMin &&

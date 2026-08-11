@@ -96,6 +96,16 @@ describe("selectLibraryWorkout", () => {
     expect(selected?.id).toBe("eligible");
   });
 
+  it("also matches an event-kind slot (a calendar event forces kind: \"event\", not \"quality\")", () => {
+    const eligible = entry({ id: "eligible", status: "active" });
+    expect(selectLibraryWorkout([eligible], slot({ kind: "event" }), FTP)?.id).toBe("eligible");
+  });
+
+  it("does not match a non-quality, non-event slot kind", () => {
+    const active = entry({ id: "active", status: "active" });
+    expect(selectLibraryWorkout([active], slot({ kind: "easy" }), FTP)).toBeNull();
+  });
+
   it("ranks eligible entries by evidence, duration distance, recent use, then ID", () => {
     const strong = entry({ id: "strong", status: "active", evidence: [{ date: "2026-08-01", executionScore: 9 }] });
     const close = entry({ id: "close", status: "active", durationMin: 70, evidence: [{ date: "2026-08-01", executionScore: 8 }] });
