@@ -777,7 +777,7 @@ describe("zone evidence: units, indices and the basis rule", () => {
     expect(scoreOf(emphasis, heavy)).toBe(7);
     expect(scoreOf(emphasis, mid)).toBe(6);
     expect(scoreOf(emphasis, flat)).toBe(5);
-    expect(scoreOf(emphasis, thin)).toBe(4);
+    expect(scoreOf(emphasis, thin)).toBe(5);
   });
 
   it("zone BOUNDARY definitions move the score but cannot flip scoreability", () => {
@@ -935,7 +935,7 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
 
   it("produces an evidence-based score, not the generic 2/10 pathway", () => {
     expect(result.reason).toBeNull();
-    expect(result.score).toBe(7);
+    expect(result.score).toBe(8);
     expect(result.score).not.toBe(2);
   });
 
@@ -989,7 +989,7 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
   it("scores the real note end-to-end with re-grounded objectives", () => {
     const grounded = scoreIntentExecution(interp({ confidence: "high", objectives, intent }), ev, NOTE_2026_08_06);
     expect(grounded.reason).toBeNull();
-    expect(grounded.score).toBe(7);
+    expect(grounded.score).toBe(8);
     expect(grounded.objectives.find((o) => o.kind === "zone-time")?.grounded).toBe(true);
     expect(grounded.objectives.find((o) => o.kind === "effort")?.grounded).toBe(true);
   });
@@ -1028,9 +1028,7 @@ describe("acceptance example 14.2 — the real 2026-08-05 scouting ride", () => 
 
   it("scores rather than falling through to Not scored", () => {
     expect(result.reason).toBeNull();
-    expect(result.score).not.toBeNull();
-    expect(result.score as number).toBeGreaterThanOrEqual(1);
-    expect(result.score as number).toBeLessThanOrEqual(10);
+    expect(result.score).toBe(5);
   });
 
   it("grades the Z2 emphasis from the whole-ride zone distribution", () => {

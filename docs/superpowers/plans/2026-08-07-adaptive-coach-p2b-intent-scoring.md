@@ -625,7 +625,10 @@ The basis actually used, and whether it came from the note or the default, is re
 objective's `evidence` string so a later reader never has to guess.
 
 **`zone-emphasis` grading** uses the measured share of total zone-array time in the named zone:
-≥60% → +2 · ≥45% → +1 · ≥30% → 0 · else −1.
+≥60% → +2 · ≥45% → +1 · ≥30% → 0 · else 0.
+
+Like `structure`, zone emphasis is reward-only: accurately mentioning a hard zone must not penalize a
+self-directed ride merely because hard-zone work is naturally a small share of the ride.
 
 **No union of covered minutes — question 4 corrected.** Zone arrays are whole-ride aggregates with no
 timestamps, and `ExecutedInterval.startIndex`/`endIndex` are stream *indices* whose sample interval is

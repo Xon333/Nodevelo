@@ -159,21 +159,21 @@ function complianceDelta(pct: number): number {
   return -2;
 }
 
-// Question 8's zone-emphasis band: the measured share of total zone-array time in the named zone.
+// Question 8's reward-only zone-emphasis band: mentioning a hard zone must not create a penalty merely
+// because hard-zone work is naturally a small share of a real ride.
 function emphasisDelta(sharePct: number): number {
   if (sharePct >= 60) return 2;
   if (sharePct >= 45) return 1;
-  if (sharePct >= 30) return 0;
-  return -1;
+  return 0;
 }
 
-// One clamped contribution per kind, so a third zone objective cannot triple a bonus. `structure` is
-// REWARD-ONLY: an out-of-order reading is at least as likely to be the parser mis-ordering an
-// ambiguous note as the athlete riding out of order.
+// One clamped contribution per kind, so a third zone objective cannot triple a bonus. `structure` and
+// `zone-emphasis` are REWARD-ONLY: neither ambiguous ordering nor an accurately mentioned hard zone
+// should penalise a self-directed ride for its own structure.
 const KIND_BAND: Record<ObjectiveKind, { min: number; max: number }> = {
   duration: { min: -2, max: 2 },
   "zone-time": { min: -2, max: 2 },
-  "zone-emphasis": { min: -1, max: 2 },
+  "zone-emphasis": { min: 0, max: 2 },
   effort: { min: -2, max: 2 },
   structure: { min: 0, max: 1 },
   qualitative: { min: 0, max: 0 },
