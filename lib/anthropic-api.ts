@@ -3,10 +3,12 @@
 // shell over the SDK that sends those prompts and parses the responses (RV-8 split). The prompt builders
 // and their input types are re-exported below so callers can keep importing them from "@/lib/anthropic-api".
 import Anthropic from "@anthropic-ai/sdk";
-import type { StructuredReflection } from "./types";
+import type { IntentInterpretation, StructuredReflection } from "./types";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
 import { buildNarrativeCriticPrompt, NARRATIVE_CRITIC_TOOL, parseNarrativeCriticOutput, type NarrativeCriticOutput, type WeekFacts } from "./narrative-critic";
+import { INTENT_TOOL, parseIntentToolOutput } from "./intent-schema";
+import { buildIntentPrompt, INTENT_PROMPT_VERSION } from "./intent-prompt";
 import { recordUsage } from "./ai-usage";
 import {
   buildAskCoachPrompt,
@@ -88,6 +90,50 @@ export interface GenerationResult {
   raw: string; // any text content — the regex-parser fallback path
   truncated: boolean;
   stopReason: Anthropic.Message["stop_reason"]; // the provider's raw stop reason, so the route can tell a token-limit cutoff apart from other malformed output
+}
+
+// ---------- Activity-note intent ----------
+
+export async function parseRideIntent(note: string, rideDurationMin: number): Promise<IntentInterpretation | null> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+  const client = getClient();
+  const response = await client.messages.create({
+    model: GENERATION_MODEL,
+    max_tokens: 900,
+    temperature: TEMPERATURE,
+    tools: [INTENT_TOOL],
+    tool_choice: { type: "tool", name: INTENT_TOOL.name },
+    messages: [{ role: "user", content: buildIntentPrompt(note, rideDurationMin) }],
+  });
+  void recordUsage(GENERATION_MODEL, response.usage);
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+  );
+  const parsed = toolUse ? parseIntentToolOutput(toolUse.input) : null;
+  // A completed response with no usable tool output is a terminal interpreter result. SDK errors are
+  // deliberately allowed to throw so a transient network failure does not burn the note fingerprint.
+  if (!parsed) return null;
+
+  return {
+    intent: {
+      primaryPurpose: parsed.primaryPurpose,
+      phases: parsed.phases.map((phase) => ({
+        ...phase,
+        ...(phase.zone === undefined ? {} : { targetZone: phase.zone }),
+      })),
+    },
+    confidence: parsed.confidence,
+    objectives: parsed.objectives.map((objective) => ({
+      ...objective,
+      measurable: false,
+      scored: false,
+      scopeMin: null,
+      evidence: null,
+    })),
+    model: GENERATION_MODEL,
+    promptVersion: INTENT_PROMPT_VERSION,
+  };
 }
 
 // ---------- Today's ride analysis ----------
