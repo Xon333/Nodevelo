@@ -118,9 +118,17 @@ export async function parseRideIntent(note: string, rideDurationMin: number): Pr
   return {
     intent: {
       primaryPurpose: parsed.primaryPurpose,
+      // Field-by-field, never `...phase`: the tool schema's phase carries `zone`, `zoneBasis`,
+      // `targetPctFtp` and `reps`, none of which `StructuredIntent.phases[]` declares. A spread is
+      // exempt from excess-property checking, so TypeScript would wave those through into
+      // `IntentOverlay.interpretation` — a permanent stored record. Fields with no slot here are
+      // dropped, not smuggled in under their raw names.
       phases: parsed.phases.map((phase) => ({
-        ...phase,
+        description: phase.description,
+        kind: phase.kind,
+        ...(phase.durationMin === undefined ? {} : { durationMin: phase.durationMin }),
         ...(phase.zone === undefined ? {} : { targetZone: phase.zone }),
+        ...(phase.targetWatts === undefined ? {} : { targetWatts: phase.targetWatts }),
       })),
     },
     confidence: parsed.confidence,
