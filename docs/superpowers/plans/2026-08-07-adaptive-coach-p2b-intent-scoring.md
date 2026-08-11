@@ -230,7 +230,7 @@ percentage or a rep count. Then each field requires its own unit-bearing form:
 
 | field | grounded by (case-insensitive, on the masked note) | never by |
 |---|---|---|
-| `durationMin: N` | `N min`, `N mins`, `N minute(s)`, `Nmin`, `N'`, `N:SS`; or `H h`/`H hr`/`H hour(s)`/`H:MM` converted to minutes, ±1 min tolerance | a bare `N`; `zN`; `N W`; `N x`; `N%` |
+| `durationMin: N` | `N min`, `N mins`, `N minute(s)`, `Nmin`, `Nm`, `N'`, `N:SS`; or `H h`/`H hr`/`H hour(s)`/`H:MM` converted to minutes, ±1 min tolerance | a bare `N`; `zN`; `N W`; `N x`; `N%` |
 | `watts: W` | `W w`, `W watt(s)`, `Ww`, `W W` | a bare `W`; `zW`; `W min`; `W%` |
 | `targetPctFtp: P` | `P%`, `P % FTP`, `P pct`, `P percent` | a bare `P`; `zP`; `P w`; `P min` |
 | `reps: R` | `R x`, `R×`, `Rx`, `R reps`, `R sets`, `R rounds`, or `R` immediately preceding an `×`/`x` token | a bare `R`; `zR` |
