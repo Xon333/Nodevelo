@@ -26,7 +26,10 @@ function valuesFor(note: string, unit: string, scale = 1): number[] {
 
 export function groundsDuration(note: string, min: number): boolean {
   const masked = maskZoneTokens(note);
-  const minuteUnit = "(?:minutes?|mins?|min|m(?!\\s*/))\\b|'";
+  // The `'` alternative must live INSIDE the unit group: `${unit}` is interpolated after `(N)\s*`, so a
+  // top-level `|'` would make the whole pattern "[number+unit] OR [bare apostrophe]" and the apostrophe
+  // branch would match with group 1 undefined. No `\b` after `'` — it is already a non-word character.
+  const minuteUnit = "(?:(?:minutes?|mins?|min|m(?!\\s*/))\\b|')";
   const minutes = valuesFor(masked, minuteUnit, 1);
   const hours = valuesFor(masked, "(?:hours?|hrs?|hr|h)\\b", 60);
   // ponytail: bare colon notation is ambiguous; add contextual grammar only when note syntax disambiguates it.

@@ -24,6 +24,13 @@ describe("semantic intent grounding", () => {
     expect(groundsDuration("45 W", 45)).toBe(false);
   });
 
+  it("grounds the apostrophe minute shorthand interval notation uses", () => {
+    expect(groundsDuration("45'", 45)).toBe(true);
+    expect(groundsDuration("3x5' at threshold", 5)).toBe(true);
+    expect(groundsDuration("40-50' steady", 45)).toBe(true); // the `inRanges` call site, same unit const
+    expect(groundsDuration("3x5' at threshold", 3)).toBe(false);
+  });
+
   it("does not read speed or distance-rate units as bare-minute durations", () => {
     expect(groundsDuration("45mph", 45)).toBe(false);
     expect(groundsDuration("45m/s", 45)).toBe(false);
