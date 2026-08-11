@@ -17,9 +17,16 @@ describe("semantic intent grounding", () => {
 
   it("grounds duration only from duration forms", () => {
     expect(groundsDuration("45 min steady Z2", 45)).toBe(true);
+    expect(groundsDuration("45m steady Z2", 45)).toBe(true);
+    expect(groundsDuration("9m effort", 9)).toBe(true);
     expect(groundsDuration("1.5 h endurance", 90)).toBe(true);
     expect(groundsDuration("40–50 min", 45)).toBe(true);
     expect(groundsDuration("45 W", 45)).toBe(false);
+  });
+
+  it("does not read speed or distance-rate units as bare-minute durations", () => {
+    expect(groundsDuration("45mph", 45)).toBe(false);
+    expect(groundsDuration("45m/s", 45)).toBe(false);
   });
 
   it("does not ground ambiguous colon durations", () => {

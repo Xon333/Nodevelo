@@ -26,12 +26,13 @@ function valuesFor(note: string, unit: string, scale = 1): number[] {
 
 export function groundsDuration(note: string, min: number): boolean {
   const masked = maskZoneTokens(note);
-  const minutes = valuesFor(masked, "(?:minutes?|mins?|min)\\b|'", 1);
+  const minuteUnit = "(?:minutes?|mins?|min|m(?!\\s*/))\\b|'";
+  const minutes = valuesFor(masked, minuteUnit, 1);
   const hours = valuesFor(masked, "(?:hours?|hrs?|hr|h)\\b", 60);
   // ponytail: bare colon notation is ambiguous; add contextual grammar only when note syntax disambiguates it.
   return (
     hasValue([...minutes, ...hours], min, 1) ||
-    inRanges(masked, min, "(?:minutes?|mins?|min)\\b|'", 1) ||
+    inRanges(masked, min, minuteUnit, 1) ||
     inRanges(masked, min, "(?:hours?|hrs?|hr|h)\\b", 60)
   );
 }

@@ -20,6 +20,7 @@ import {
   type RideEvidence,
 } from "./intent-scoring";
 import { isApplicable } from "./intent-overlay";
+import { groundsWatts } from "./intent-grounding";
 import type {
   ExecutedInterval,
   IntentInterpretation,
@@ -903,7 +904,8 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
     obj("zone-emphasis", { zone: "Z4", sourceText: "there were z4 efforts", description: "Z4 climbing efforts" }),
     obj("zone-emphasis", { zone: "Z5", sourceText: "z5", description: "Z5 climbing efforts" }),
     obj("zone-emphasis", { zone: "Z6", sourceText: "z6 on 10%+ gradients", description: "Z6 climbing efforts" }),
-    obj("effort", { durationMin: 9, watts: 292, sourceText: "finished the session with a 9m at 292 effort" }),
+    // Bare `292` is not unit-bearing power, so the trustworthy extracted target is duration-only.
+    obj("effort", { durationMin: 9, sourceText: "finished the session with a 9m at 292 effort" }),
     obj("structure", { description: "Z2 start, then climbing, then the finisher, then the descent" }),
     obj("qualitative", {
       description: "practice fast cornering and keeping speed on the technical descent",
@@ -933,7 +935,7 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
 
   it("produces an evidence-based score, not the generic 2/10 pathway", () => {
     expect(result.reason).toBeNull();
-    expect(result.score).toBe(8);
+    expect(result.score).toBe(7);
     expect(result.score).not.toBe(2);
   });
 
@@ -954,7 +956,7 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
     const effort = result.objectives.find((o) => o.kind === "effort");
     expect(effort?.scored).toBe(true);
     expect(effort?.scopeMin).toBe(9);
-    expect(effort?.evidence).toContain("291");
+    expect(effort?.evidence).toContain("matching lap");
   });
 
   it("acknowledges the descending objective without grading it", () => {
@@ -976,16 +978,20 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
     }
   });
 
-  it("records, as a live cross-module fact, that the real note does not ground its own numbers", () => {
-    // Task 2's grounder requires a unit-bearing token: "45m"/"9m" carry no `min`, and "292 effort"
-    // carries no `W`. So when the runner re-grounds this note, the Z2 duration and the 9-min effort
-    // are dropped and only the zone-only objectives survive. Recorded here rather than hidden, because
-    // it means design §14.1's "grade the Z2 and the 9-minute objectives" is NOT reachable end-to-end
-    // with the grounder as committed. See the report accompanying this task.
+  it("grounds the real note's Z2 and 9-minute objectives without guessing bare watts", () => {
     const survived = gradableObjectives(objectives, "high", NOTE_2026_08_06).map((o) => o.kind);
-    expect(survived).not.toContain("zone-time");
-    expect(survived).not.toContain("effort");
+    expect(survived).toContain("zone-time");
+    expect(survived).toContain("effort");
     expect(survived).toContain("zone-emphasis");
+    expect(groundsWatts(NOTE_2026_08_06, 292)).toBe(false);
+  });
+
+  it("scores the real note end-to-end with re-grounded objectives", () => {
+    const grounded = scoreIntentExecution(interp({ confidence: "high", objectives, intent }), ev, NOTE_2026_08_06);
+    expect(grounded.reason).toBeNull();
+    expect(grounded.score).toBe(7);
+    expect(grounded.objectives.find((o) => o.kind === "zone-time")?.grounded).toBe(true);
+    expect(grounded.objectives.find((o) => o.kind === "effort")?.grounded).toBe(true);
   });
 });
 
