@@ -41,6 +41,46 @@ fixing them before Tasks 1-7 ship the debrief is the reason they live here inste
 review finding, about already-shipped code) and Tasks 11-14 (new scope: richer curated-interval data
 and matching, requested directly by the user).**
 
+## Amendment (2026-08-12, round 3 — external review, before Tasks 8-14 were implemented)
+
+A second external review (independently verified against this branch's actual code and history before
+accepting any of it, same discipline as round 2) found one blocking design gap and six non-blocking
+drift/correctness issues in round 2's own not-yet-executed task text. All seven are corrected IN PLACE
+below, same policy as round 2's own four fixes — this is plan text no implementer has started, so there
+is no implementation history to preserve around.
+
+- **[P0 — blocking] Task 12's matching hierarchy could not reach the inputs it described.**
+  `IntentTarget` (`lib/types.ts:681`) carries no gradient, HR, or ordinal/phase-link field, and
+  `matchLaps`'s signature was locked to its existing 3 arguments — so levels 2 (HR/gradient) and 3
+  (ordered phase reference) of the original hierarchy had no data path to the function, and the level-2
+  example test asserted a "zone + gradient" match from a target that only set `zone`. **Fixed by
+  narrowing the hierarchy to what the schema actually carries** (duration+power, then zone alone;
+  HR/gradient/ordinal dropped as matching keys, gradient kept as evidence-text context only) rather than
+  extending Phase 2b's already-shipped parser schema, which is out of this UI phase's scope.
+- **Tasks 8-9 shipped independently and are already ancestors of this branch** (`claude/p2c-tasks-8-9-drift-fixes`,
+  merged `main` as `b184e95`/PR #38, before this branch's own round-2 amendment commit). Both tasks'
+  code and tests are already present and green here. Converted from executable red-green steps to a
+  verify-only note — see Tasks 8-9 below.
+- **Round-2's Task 10, 12, and 13 test bodies were comments, not tests** — `it(...)` blocks describing
+  the expected behavior in prose with no arrange/act/assert, which Vitest reports as passing (empty)
+  rather than failing red. Replaced with real fixtures and assertions in all three.
+- **Task 10 also claimed reusable `addCoachNote` test scaffolding that doesn't exist** — `lib/sync-analysis.test.ts`
+  currently only tests `formatFuelPromptContext`; there is no `createEvent`/`data-store` mocking to
+  reuse. Task 10 now includes the `vi.mock` scaffolding it actually needs, following the pattern already
+  established in `app/api/sync/route.test.ts`.
+- **Task 11's five new required `ExecutedInterval` fields would break existing fixtures outside its own
+  file list** — `lib/durability-score.test.ts`, `lib/trace.test.ts`, and `lib/intent-scoring.test.ts` all
+  construct `ExecutedInterval`-typed literals with the current 7 fields only; `app/api/sync/route.test.ts`
+  does the same inline. Task 11's file list and steps now include the fixture patch each needs.
+- **Two of Task 11's five new fields had no consumer.** Neither `avgCadence` nor `intensity` is read
+  anywhere in Task 12's (narrowed) hierarchy or rules — dropped from Task 11 entirely rather than shipped
+  speculatively. `avgGradientPct`, `groupId`, and `zone` remain; all three are load-bearing for Task 12.
+- **Task 14 understated what Phase 2b already verified.** `docs/systems/02-scoring-and-learning.md`'s
+  "Known rough edges" already records three live-smoke overlays run against the real intent-scoring
+  pipeline during Phase 2b (sample reads moved from EWMA 6.7/50%/5.0 to 29/5.5/46%/5.3). Task 14 is still
+  warranted — Tasks 11-13's new matching logic specifically has not been live-tested — but is now framed
+  as a regression smoke for the changed matching path, not the pipeline's first live run.
+
 ## Global Constraints
 
 - **Phase 2b must be merged to `main` before this plan starts.** Every type, function and file this
@@ -239,7 +279,7 @@ export function indexOverlaysByDate(overlays: IntentOverlay[]): Map<string, Inte
 | `lib/intent-display.ts` | **Create.** Pure formatting: `formatIntentUsed`, `notScoredMessage`, `confidenceCaption`, `AEROBIC_DRIFT_NOT_MEASURABLE`. No React, no fs. |
 | `lib/intent-display.test.ts` | **Create.** Unit tests for the above. |
 | `app/api/sync/route.ts` | **Modify.** Compute `todayOutcome` in `GET` and `POST` via the existing `scoreLog`/`intentStore`; add to both response objects. |
-| `app/api/sync/route.test.ts` | **Modify.** New cases: active overlay surfaces, pending/superseded overlay does not, no ledger entry → `null`, ledger-fallback value matches `analysis.executionScore`. |
+| `app/api/sync/route.test.ts` | **Modify.** New cases: active overlay surfaces, pending/superseded overlay does not, no ledger entry → `null`, ledger-fallback value matches `analysis.executionScore`. Also a fixture patch (Task 11, round 3 correction): its inline `ExecutedInterval` literals gain the three new required fields (null). |
 | `components/SyncProvider.tsx` | **Modify.** Add `todayOutcome: EffectiveOutcome \| null` to `AppState`. |
 | `components/dashboard/ride-intent.tsx` | **Create.** `RideIntentBlock` — the new debrief content (intent-used line, score/Not-scored, evidence, qualitative, aerobic-not-measurable). |
 | `components/dashboard/ride-intent.test.tsx` | **Create.** Component tests (jsdom). |
@@ -249,12 +289,15 @@ export function indexOverlaysByDate(overlays: IntentOverlay[]): Map<string, Inte
 | `docs/systems/08-frontend.md` | **Modify.** Update the `Ride debrief` row of the Feature ownership table; note the new file in Known rough edges' size list. |
 | `docs/systems/02-scoring-and-learning.md` | **Modify.** One line in Known rough edges cross-referencing this phase, continuing the existing "re-derive validity at each new read site" note; a second line from Task 9 recording the two PR #35 fixes. |
 | `lib/score-log.ts` | **Modify (Task 8).** `summariseBehaviour`'s `driftScores` falls back to the ledger's own score instead of excluding a Not-scored drift ride. |
-| `lib/intent-scoring.ts` | **Modify (Task 9, then Task 12).** `scoreIntentExecution` reclassifies a zero-objective note (Task 9); `matchLaps` gains the zone/gradient/order matching hierarchy (Task 12). |
+| `lib/intent-scoring.ts` | **Modify (Task 9, then Task 12).** `scoreIntentExecution` reclassifies a zero-objective note (Task 9); `matchLaps` gains a zone-only fallback level (Task 12, narrowed from the original order/gradient hierarchy — round 3 correction). |
 | `lib/sync-analysis.ts` | **Modify (Task 10, round 2).** `addCoachNote` omits the auto-posted score line for an unplanned ride, so Intervals.icu never receives a number the in-app debrief has since overridden. |
-| `lib/sync-analysis.test.ts` | **Modify (Task 10, round 2).** Cases for the unplanned-omits and prescribed-still-posts branches. |
-| `lib/types.ts` | **Modify (Task 1; then Task 11, round 2).** `TodayAnalysis.activityId` (Task 1); `ExecutedInterval` gains `avgGradientPct`, `avgCadence`, `groupId`, `zone`, `intensity` (Task 11). |
-| `lib/intervals-api.ts` | **Modify (Task 11, round 2).** `fetchIntervals`'s mapping reads the five new fields from the raw payload. |
-| `lib/intervals-api.test.ts` | **Modify (Task 11, round 2).** Cases for all five fields present and all five absent. |
+| `lib/sync-analysis.test.ts` | **Modify (Task 10, round 2).** Cases for the unplanned-omits and prescribed-still-posts branches, plus the `addCoachNote` mock scaffolding itself (round 3 correction — none existed). |
+| `lib/types.ts` | **Modify (Task 1; then Task 11, round 2).** `TodayAnalysis.activityId` (Task 1); `ExecutedInterval` gains `avgGradientPct`, `groupId`, `zone` (Task 11 — narrowed from five fields to three, `avgCadence`/`intensity` dropped as unconsumed, round 3 correction). |
+| `lib/intervals-api.ts` | **Modify (Task 11, round 2).** `fetchIntervals`'s mapping reads the three new fields from the raw payload. |
+| `lib/intervals-api.test.ts` | **Modify (Task 11, round 2).** Cases for all three fields present and all three absent. |
+| `lib/intent-scoring.test.ts` | **Modify (Tasks 9 and 12).** Task 9's zero-objective test cases; Task 12's zone-only fallback tests. Also a fixture patch (Task 11, round 3 correction): the `lap()` helper gains the three new required `ExecutedInterval` fields (null). |
+| `lib/durability-score.test.ts` | **Fixture patch (Task 11, round 3 correction).** `iv()` helper gains the three new required `ExecutedInterval` fields (null). |
+| `lib/trace.test.ts` | **Fixture patch (Task 11, round 3 correction).** `work()` helper gains the three new required `ExecutedInterval` fields (null). |
 | `lib/intent-runner.test.ts` | **Modify (Task 13, round 2).** Regression test: `force` re-analysis picks up curated intervals the athlete edited after the first parse, not stale evidence from the superseded overlay. |
 
 ---
@@ -1703,6 +1746,13 @@ git commit -m "docs(scoring): record the debrief's overlay-score invariant; veri
 
 ## Task 8: `driftAvgQuality` falls back to the ledger's own score (PR #35 finding N1)
 
+**Status (2026-08-12, round 3): already shipped — verify only, do not re-implement.** This task's fix
+landed via a separate branch, `claude/p2c-tasks-8-9-drift-fixes`, merged to `main` as commit `b184e95`
+(PR #38) — an ancestor of this branch, merged before this branch's own round-2 amendment commit. The
+code below and its test are already present and passing on this branch. Run
+`npx vitest run lib/score-log.test.ts -t "falls back to the ledger's own score"` to confirm PASS, then
+move on to Task 9 — do not write the test as failing-first or recommit unchanged code.
+
 **Files:**
 - Modify: `lib/score-log.ts` (`summariseBehaviour`, `lib/score-log.ts:394-408`)
 - Test: `lib/score-log.test.ts`
@@ -1723,11 +1773,16 @@ returns `false` for it), every ride that reaches this filter is `unspecified` �
 acquire a Not-scored overlay over time, `driftAvgQuality` trends toward permanently `null` with no
 signal it ever carried a value.
 
-- [ ] **Step 1: Write the failing test**
+**Already implemented** (`lib/score-log.ts:406`, verified on this branch, 2026-08-12):
 
-Add to the existing `describe("summariseBehaviour — effective origin", ...)` block in
-`lib/score-log.test.ts` (it already defines the `ride`/`resolved` helpers this test reuses — `resolved`
-takes an explicit `score` third argument that overrides the default `entry.executionScore`):
+```ts
+  const driftScores = driftRides.map((r) => r.outcome.effectiveExecutionScore ?? r.entry.executionScore);
+```
+
+(`RideScoreEntry.executionScore` is `number`, never `null` or `undefined`, so every element of
+`driftScores` is always a number — no filter needed.)
+
+**Already present** (`lib/score-log.test.ts:933`):
 
 ```ts
 it("falls back to the ledger's own score when the overlay is Not scored (PR #35 finding N1)", () => {
@@ -1739,58 +1794,25 @@ it("falls back to the ledger's own score when the overlay is Not scored (PR #35 
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-npx vitest run lib/score-log.test.ts -t "falls back to the ledger's own score"
-```
-
-Expected: FAIL — `driftAvgQuality` is `null` (the ride's overlay score of `null` gets filtered out
-entirely, leaving `driftScores` empty).
-
-- [ ] **Step 3: Implement**
-
-In `lib/score-log.ts`, replace the `driftScores` computation (`lib/score-log.ts:403-405`):
-
-```ts
-  const driftScores = driftRides
-    .map((r) => r.outcome.effectiveExecutionScore)
-    .filter((v): v is number => v !== null);
-```
-
-with:
-
-```ts
-  // A Not-scored overlay (empty/unreliable note) still leaves the ledger's own deterministic score
-  // intact — falling back to it keeps driftAvgQuality representative instead of degrading toward null
-  // as more drift rides acquire an overlay (PR #35 review finding N1, 2026-08-12).
-  const driftScores = driftRides.map((r) => r.outcome.effectiveExecutionScore ?? r.entry.executionScore);
-```
-
-(`RideScoreEntry.executionScore` is `number`, never `null` or `undefined` — see `lib/types.ts`'s
-`RideScoreEntry` interface — so the `.filter((v): v is number => v !== null)` line is no longer needed;
-every element of `driftScores` is now always a number.)
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 1: Confirm, don't recommit**
 
 ```bash
 npx vitest run lib/score-log.test.ts
 ```
 
-Expected: PASS, full file green (the pre-existing "averages quality over drift rides only" test at
-`lib/score-log.test.ts:916-924` must still pass unchanged — it doesn't exercise the null-overlay path,
-so this change shouldn't move its result).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add lib/score-log.ts lib/score-log.test.ts
-git commit -m "fix(scoring): driftAvgQuality falls back to the ledger score, not null"
-```
+Expected: PASS, full file green, including the test above. No implementation step, no commit — this
+task is complete history, not pending work.
 
 ---
 
 ## Task 9: A zero-objective note is `intent-unreliable`, not `no-measurable-objectives` (PR #35 finding N2)
+
+**Status (2026-08-12, round 3): already shipped — verify only, do not re-implement.** Same history as
+Task 8 — landed on `claude/p2c-tasks-8-9-drift-fixes`, merged `main` as `b184e95`/PR #38, an ancestor of
+this branch. `docs/systems/02-scoring-and-learning.md`'s "Known rough edges" already documents this fix
+(the "Two drift-signal defects found in PR #35's review" entry). Run
+`npx vitest run lib/intent-scoring.test.ts -t "zero-objective vs. ungradable-objective"` to confirm PASS,
+then move on to Task 10 — no doc edit, no commit, nothing to re-implement.
 
 **Files:**
 - Modify: `lib/intent-scoring.ts` (`scoreIntentExecution`, `lib/intent-scoring.ts:818-910`)
@@ -1823,116 +1845,19 @@ legitimately extract zero objectives from a note with no trainable content.
 §5.3's "Not scored — intent could not be determined reliably" — an accurate description of "nothing
 usable was extracted," not just "confidence was rated low."
 
-- [ ] **Step 1: Write the failing tests**
+**Already implemented** (`lib/intent-scoring.ts:884`, verified on this branch, 2026-08-12) and already
+present as tests (`lib/intent-scoring.test.ts:1335`, the full `describe("scoreIntentExecution —
+zero-objective vs. ungradable-objective notes (PR #35 finding N2)", ...)` block with all three cases).
+The "Known rough edges" doc entry from the original Step 5 is also already present.
 
-Add to `lib/intent-scoring.test.ts`, near the existing `scoreIntentExecution`/`assessScoreability`
-tests (it already defines `interp`/`obj`/`evidence` helpers — `interp()` with no `objectives` override
-already defaults to `objectives: [], confidence: "high"`, exactly case (b)):
-
-```ts
-describe("scoreIntentExecution — zero-objective vs. ungradable-objective notes (PR #35 finding N2)", () => {
-  it("a note with zero extracted objectives is intent-unreliable, not no-measurable-objectives", () => {
-    const I = interp({ objectives: [] });
-    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
-    expect(result.reason).toBe("intent-unreliable");
-  });
-
-  it("a note with real but ungradable objectives keeps no-measurable-objectives", () => {
-    const I = interp({ objectives: [obj("qualitative", { description: "descending practice" })] });
-    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
-    expect(result.reason).toBe("no-measurable-objectives");
-  });
-
-  it("low confidence still wins over the zero-objective override", () => {
-    const I = interp({ confidence: "low", objectives: [] });
-    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
-    expect(result.reason).toBe("intent-unreliable");
-  });
-});
-```
-
-- [ ] **Step 2: Run tests to verify the first one fails**
+- [ ] **Step 1: Confirm, don't recommit**
 
 ```bash
 npx vitest run lib/intent-scoring.test.ts -t "zero-objective vs. ungradable-objective"
 ```
 
-Expected: the first test FAILs (`result.reason` is currently `"no-measurable-objectives"`); the second
-and third already PASS (case (a) is already correct, and `low` confidence already short-circuits before
-`assessScoreability`'s `gradableCount` check — confirm both pass unchanged, since that's evidence this
-task doesn't need to touch the `confidence === "low"` branch at all).
-
-- [ ] **Step 3: Implement**
-
-In `lib/intent-scoring.ts`, inside `scoreIntentExecution`, immediately after the `assessScoreability`
-call (`lib/intent-scoring.ts:870-875`):
-
-```ts
-  const { scoreable, reason, requiredScopeMin } = assessScoreability({
-    confidence: interpretation.confidence,
-    gradableCount: gradable.length,
-    scopeMin,
-    rideMin: evidence.durationMin,
-  });
-```
-
-add:
-
-```ts
-  // A note that yielded literally nothing extractable is a weaker signal than "intent was clear but
-  // the ride data couldn't verify it" (no-measurable-objectives's own documented contract) — closer to
-  // not having recovered trustworthy intent at all. Only overrides the zero-objectives case; a note
-  // that produced real (if ungradable) objectives keeps its original reason (PR #35 review finding N2,
-  // 2026-08-12).
-  const effectiveReason: NotScoredReason | null =
-    reason === "no-measurable-objectives" && all.length === 0 ? "intent-unreliable" : reason;
-```
-
-then change the return object's `reason,` (`lib/intent-scoring.ts:906`) to `reason: effectiveReason,`.
-
-(`all` is already in scope — it's `interpretation.objectives`, bound near the top of the function at
-`lib/intent-scoring.ts:823`. `NotScoredReason` should already be imported in this file; if not, add it
-to the existing `from "./types"` import.)
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-```bash
-npx vitest run lib/intent-scoring.test.ts
-```
-
-Expected: PASS, full file green — in particular, the pre-existing test at `lib/intent-scoring.test.ts:794-799`
-("absence of zone data CAN flip scoreability") must still pass unchanged: it constructs an interpretation
-with one real `zone-time` objective (`all.length === 1`), so this task's `all.length === 0` guard never
-fires for it.
-
-- [ ] **Step 5: Update `docs/systems/02-scoring-and-learning.md`**
-
-In the same "Known rough edges" section Task 7 Step 5 already extended, add one more sentence directly
-after the line Task 7 added:
-
-```markdown
-  Two further defects surfaced by the same PR #35 review, fixed in this phase's Tasks 8-9: `driftAvgQuality`
-  degraded toward permanently `null` as drift rides acquired Not-scored overlays (fixed by falling back
-  to the ledger's own score), and a note yielding zero extracted objectives was misclassified
-  self-directed via `no-measurable-objectives` instead of `unspecified` via `intent-unreliable` — both
-  are the same recurring shape: a value correct where it was first reasoned about, silently wrong once a
-  different consumer started reading it.
-```
-
-- [ ] **Step 6: Run the full check**
-
-```bash
-npm run check
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add lib/intent-scoring.ts lib/intent-scoring.test.ts docs/systems/02-scoring-and-learning.md
-git commit -m "fix(scoring): a zero-objective note is intent-unreliable, not self-directed"
-```
+Expected: PASS, all three cases. No implementation step, no doc edit, no commit — this task is complete
+history, not pending work.
 
 ---
 
@@ -1994,20 +1919,98 @@ Phase 2b's plan, not a side effect of this UI phase.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `lib/sync-analysis.test.ts` (reuse the file's existing `addCoachNote` test scaffolding — mocked
-`createEvent`, `readBlockSettings` returning `autoPostCoachNote: true` — grep for an existing posting
-test rather than reconstructing the mocks):
+**Correction (2026-08-12, round 3):** `lib/sync-analysis.test.ts` currently has no `addCoachNote` test
+scaffolding at all — it only tests `formatFuelPromptContext`. There is nothing to reuse; the mocks below
+must be added fresh, following the same partial-mock + `as never` pattern already established in
+`app/api/sync/route.test.ts` (e.g. `readAthleteProfile.mockResolvedValue(profile as never)`) for fixtures
+that don't need every field of a large interface filled in.
+
+Add to `lib/sync-analysis.test.ts`:
 
 ```ts
-it("omits the score line when posting for an UNPLANNED ride — the debrief may show a different, overlay-resolved number", () => {
-  // currentBlock has no day for today's date, so plannedDay resolves to null.
-  // ... arrange executionScore: 2, autoPostCoachNote: true, no matching block day ...
-  // assert createEvent's description does NOT contain "Execution score:"
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ActivitySummary, CurrentBlock, TodayAnalysis } from "./types";
+import { DEFAULT_BLOCK_SETTINGS } from "./types";
+
+vi.mock("./anthropic-api", async (orig) => {
+  const actual = await orig<typeof import("./anthropic-api")>();
+  return { ...actual, isAnthropicConfigured: vi.fn(), analyseRide: vi.fn() };
+});
+vi.mock("./intervals-api", () => ({ createEvent: vi.fn() }));
+vi.mock("./data-store", () => ({
+  readAthleteProfile: vi.fn(),
+  readBlockSettings: vi.fn(),
+  readCurrentBlock: vi.fn(),
+  readLastSync: vi.fn(),
+  readTodayAnalysis: vi.fn(),
+  writeTodayAnalysis: vi.fn(),
+}));
+
+import * as anthropic from "./anthropic-api";
+import * as api from "./intervals-api";
+import * as store from "./data-store";
+import { addCoachNote } from "./sync-analysis";
+
+const TODAY = "2026-08-11";
+
+const activity = (over: Partial<ActivitySummary> = {}): ActivitySummary =>
+  ({
+    id: "a1", date: TODAY, type: "Ride", name: "Morning Ride", movingTimeSec: 3600,
+    avgWatts: 190, normalizedPower: 192, maxWatts: 400, icuFtp: null, avgHr: 155, maxHr: 172,
+    kj: 700, activeBurnKcal: null, trainingLoad: 60, rpe: null, carbsIngestedG: null,
+    decoupling: null, efficiencyFactor: null, powerHrZ2: null, powerHrZ2Mins: null,
+    description: "solo ride", avgCadence: 88, distanceMeters: 30000, elevationGain: 300,
+    powerZoneTimes: null, hrZoneTimes: null, hrrc: null, wPrimeRollingJ: null, wBalDepletionJ: null,
+    ...over,
+  }) as ActivitySummary;
+
+const analysis = (over: Partial<TodayAnalysis> = {}) =>
+  ({
+    activityDate: TODAY, coachNote: null, executionScore: 2, activityName: "Morning Ride",
+    powerZoneTimes: null, hrZoneTimes: null, intervalComparison: null, powerPRs: null,
+    aerobicDiscipline: null, aerobicEffPct: null, fuelPrompt: null,
+    ...over,
+  }) as never as TodayAnalysis;
+
+const profile = {
+  performance: { ftp: 280, maxHr: 190, thresholdHr: 165, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10 },
+  goals: [], weakpoints: [],
+  nutrition: { baseCalories: 2000, restDayTarget: 2600, buffer: 300, targetWeightKg: 75 },
+  goalsMigratedAt: null, updatedAt: "",
+} as never;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(store.readTodayAnalysis).mockResolvedValue(analysis());
+  vi.mocked(store.readLastSync).mockResolvedValue({ activities: [activity()] } as never);
+  vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
+  vi.mocked(store.readAthleteProfile).mockResolvedValue(profile);
+  vi.mocked(store.readBlockSettings).mockResolvedValue({ ...DEFAULT_BLOCK_SETTINGS, autoPostCoachNote: true });
+  vi.mocked(store.writeTodayAnalysis).mockResolvedValue(undefined as never);
+  vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+  vi.mocked(anthropic.analyseRide).mockResolvedValue("Solid session, nice work.");
+  vi.mocked(api.createEvent).mockResolvedValue(null as never);
 });
 
-it("still posts the score line for a PRESCRIBED ride — decision #14: a note never displaces a formal session's score", () => {
-  // currentBlock DOES have a day for today's date, so plannedDay is non-null.
-  // ... assert createEvent's description DOES contain "Execution score: N/10" ...
+describe("addCoachNote — score-line posting (external review, 2026-08-12)", () => {
+  it("omits the score line when posting for an UNPLANNED ride — the debrief may show a different, overlay-resolved number", async () => {
+    await addCoachNote(TODAY, []);
+
+    const [call] = vi.mocked(api.createEvent).mock.calls;
+    expect(call[0].description).not.toContain("Execution score:");
+  });
+
+  it("still posts the score line for a PRESCRIBED ride — decision #14: a note never displaces a formal session's score", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue({
+      goal: "Build", lengthWeeks: 4, startDate: TODAY, endDate: TODAY, overview: "", createdAt: TODAY,
+      days: [{ date: TODAY, name: "Endurance", type: "Z2", durationMin: 90 }],
+    } as CurrentBlock);
+
+    await addCoachNote(TODAY, []);
+
+    const [call] = vi.mocked(api.createEvent).mock.calls;
+    expect(call[0].description).toContain("Execution score: 2/10");
+  });
 });
 ```
 
@@ -2062,10 +2065,18 @@ git commit -m "fix(coach-note): stop posting a score to Intervals.icu the debrie
 - Modify: `lib/types.ts` (`ExecutedInterval`)
 - Modify: `lib/intervals-api.ts` (`fetchIntervals`)
 - Test: `lib/intervals-api.test.ts`
+- Fixture patch (external review, 2026-08-12 — see Step 5): `lib/durability-score.test.ts`,
+  `lib/trace.test.ts`, `lib/intent-scoring.test.ts`, `app/api/sync/route.test.ts`
 
 **Interfaces:**
-- Produces: `ExecutedInterval` gains `avgGradientPct: number | null`, `avgCadence: number | null`,
-  `groupId: string | null`, `zone: number | null`, `intensity: number | null`. Read by Task 12.
+- Produces: `ExecutedInterval` gains `avgGradientPct: number | null`, `groupId: string | null`,
+  `zone: number | null`. Read by Task 12.
+
+**Corrected 2026-08-12 (external review, before this task was implemented): dropped `avgCadence` and
+`intensity`.** Both were mapped from the live API but had no consumer anywhere in Task 12's (also
+corrected, see that task) matching hierarchy — speculative fields this repo's own convention (no
+unused abstractions) argues against shipping. If a future task needs cadence or intensity data, add it
+then, against a real consumer, not here against none.
 
 **Locked product decision — do not reopen (user-confirmed):** for self-directed rides, the athlete's
 own curated intervals in Intervals.icu are the authoritative execution boundaries.
@@ -2077,19 +2088,24 @@ own curated intervals in Intervals.icu are the authoritative execution boundarie
 
 **Verified against `main` (2026-08-12):** `ExecutedInterval` (`lib/types.ts:398-406`) currently has only
 `type`, `durationSec`, `avgWatts`, `npWatts`, `avgHr`, `startIndex`, `endIndex`. `fetchIntervals`'s
-mapping (`lib/intervals-api.ts:186-207`) reads none of the five fields below from the raw payload.
+mapping (`lib/intervals-api.ts:186-207`) reads none of the three fields below from the raw payload.
+**Also verified (external review, 2026-08-12): making these fields required (no `?`) breaks every
+existing `ExecutedInterval`-typed literal outside this task's own files** — `lib/durability-score.test.ts:7`'s
+`iv()` helper, `lib/trace.test.ts`'s `work()` helper, `lib/intent-scoring.test.ts`'s `lap()` helper, and
+inline literals in `app/api/sync/route.test.ts` (e.g. `:951`) all construct the current 7-field shape
+only. Step 5 below patches all four.
 
 **Verified against the live Intervals.icu API, 2026-08-12** (activity `i174624272`, one curated `WORK`
 interval — this specific data point was pulled live in the conversation that produced this amendment;
 re-confirm before relying on exact field names if the implementing session can't see that history): the
-raw response already includes `average_gradient` (a ratio — `0.07907035` = 7.91%), `average_cadence`,
-`zone` (plain int), `intensity` (plain int), and `group_id` (a string shared by repeated efforts —
-three short efforts on that ride all carried `group_id: "237s@267w80rpm"`). **`group_id`'s exact
-semantics are not fully confirmed** — it reads like a nominal target/template string Intervals.icu
-assigns per repeat group, but whether it's athlete-authored or derived from the first rep needs
-confirming (e.g. against a second real multi-rep ride, or Intervals.icu's own API docs if published)
-before Task 12 leans on it for anything beyond display/grouping — Task 12's matching hierarchy already
-treats it as the *weakest* signal for exactly this reason.
+raw response already includes `average_gradient` (a ratio — `0.07907035` = 7.91%), `zone` (plain int),
+and `group_id` (a string shared by repeated efforts — three short efforts on that ride all carried
+`group_id: "237s@267w80rpm"`). **`group_id`'s exact semantics are not fully confirmed** — it reads like
+a nominal target/template string Intervals.icu assigns per repeat group, but whether it's
+athlete-authored or derived from the first rep needs confirming (e.g. against a second real multi-rep
+ride, or Intervals.icu's own API docs if published) before Task 12 leans on it for anything beyond
+display/grouping — Task 12's matching hierarchy already treats it as the *weakest* signal for exactly
+this reason.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2097,24 +2113,19 @@ Add to `lib/intervals-api.test.ts` (extend the existing `fetchIntervals` test's 
 rather than constructing a new one — grep the file for its current mock shape first):
 
 ```ts
-it("maps the five newly-added interval fields", async () => {
-  // raw payload includes average_gradient: 0.07907035, average_cadence: 82, zone: 4, intensity: 95,
-  // group_id: "237s@267w80rpm"
+it("maps the three newly-added interval fields", async () => {
+  // raw payload includes average_gradient: 0.07907035, zone: 4, group_id: "237s@267w80rpm"
   const [interval] = await fetchIntervals("act-1");
   expect(interval.avgGradientPct).toBeCloseTo(7.907, 2);
-  expect(interval.avgCadence).toBe(82);
   expect(interval.zone).toBe(4);
-  expect(interval.intensity).toBe(95);
   expect(interval.groupId).toBe("237s@267w80rpm");
 });
 
-it("maps all five to null when the raw payload omits them", async () => {
-  // raw payload has none of the five keys
+it("maps all three to null when the raw payload omits them", async () => {
+  // raw payload has none of the three keys
   const [interval] = await fetchIntervals("act-1");
   expect(interval.avgGradientPct).toBeNull();
-  expect(interval.avgCadence).toBeNull();
   expect(interval.zone).toBeNull();
-  expect(interval.intensity).toBeNull();
   expect(interval.groupId).toBeNull();
 });
 ```
@@ -2122,10 +2133,10 @@ it("maps all five to null when the raw payload omits them", async () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npx vitest run lib/intervals-api.test.ts -t "maps the five newly-added"
+npx vitest run lib/intervals-api.test.ts -t "maps the three newly-added"
 ```
 
-Expected: FAIL — the five fields don't exist on the mapped object.
+Expected: FAIL — the three fields don't exist on the mapped object.
 
 - [ ] **Step 3: Add the fields to the type**
 
@@ -2136,13 +2147,11 @@ In `lib/types.ts`, inside `ExecutedInterval` (`:398-406`), add after `endIndex: 
   // hierarchy needs it. Gradient converted to a percentage exactly once, here — never re-derived
   // downstream. No distance/GPS/position field is added; see this amendment's locked decision.
   avgGradientPct: number | null;
-  avgCadence: number | null;
   // Shared by repeated efforts in one curated set (e.g. three reps of "237s@267w80rpm" all carry the
   // same string) — semantics not fully confirmed beyond that grouping behavior; treat as the weakest
   // matching signal (Task 12), never authoritative on its own.
   groupId: string | null;
   zone: number | null;
-  intensity: number | null;
 ```
 
 - [ ] **Step 4: Thread the mapping through**
@@ -2152,23 +2161,44 @@ In `lib/intervals-api.ts`'s `fetchIntervals` (`:192-203`), add to the mapped obj
 
 ```ts
         avgGradientPct: (() => { const g = num(iv.average_gradient); return g === null ? null : g * 100; })(),
-        avgCadence: num(iv.average_cadence),
         groupId: typeof iv.group_id === "string" && iv.group_id ? iv.group_id : null,
         zone: num(iv.zone),
-        intensity: num(iv.intensity),
 ```
 
-- [ ] **Step 5: Run tests to verify they pass, then the full check**
+- [ ] **Step 5: Patch existing `ExecutedInterval` fixtures (external review, 2026-08-12)**
 
-```bash
-npx vitest run lib/intervals-api.test.ts && npm run check
+Each of these constructs `ExecutedInterval`-typed literals with the pre-Task-11 7-field shape; add the
+three new fields (null is fine — none of these tests exercise gradient/zone/group matching) so they
+still typecheck:
+
+`lib/durability-score.test.ts:7-9` — add to the `iv()` base literal:
+
+```ts
+const iv = (over: Partial<ExecutedInterval>): ExecutedInterval => ({
+  type: "WORK", durationSec: 0, avgWatts: null, npWatts: null, avgHr: null, startIndex: null, endIndex: null,
+  avgGradientPct: null, groupId: null, zone: null, ...over,
+});
 ```
 
-- [ ] **Step 6: Commit**
+`lib/trace.test.ts` — same pattern: add `avgGradientPct: null, groupId: null, zone: null,` to the
+`work()` helper's base literal.
+
+`lib/intent-scoring.test.ts` — same pattern: add the three fields to the `lap()` helper's base literal.
+
+`app/api/sync/route.test.ts` (e.g. `:951-953`, `:1011`, `:1175-1177`, `:1204-1206`) — these are inline
+literals, not a shared helper; add `avgGradientPct: null, groupId: null, zone: null` to each one.
+
+- [ ] **Step 6: Run tests to verify they pass, then the full check**
 
 ```bash
-git add lib/types.ts lib/intervals-api.ts lib/intervals-api.test.ts
-git commit -m "feat(intervals): map gradient, cadence, zone, intensity and group id onto ExecutedInterval"
+npx vitest run lib/intervals-api.test.ts lib/durability-score.test.ts lib/trace.test.ts lib/intent-scoring.test.ts app/api/sync/route.test.ts && npm run check
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/types.ts lib/intervals-api.ts lib/intervals-api.test.ts lib/durability-score.test.ts lib/trace.test.ts lib/intent-scoring.test.ts app/api/sync/route.test.ts
+git commit -m "feat(intervals): map gradient, zone and group id onto ExecutedInterval"
 ```
 
 ---
@@ -2180,75 +2210,114 @@ git commit -m "feat(intervals): map gradient, cadence, zone, intensity and group
 - Test: `lib/intent-scoring.test.ts`
 
 **Interfaces:**
-- Consumes: the five fields Task 11 adds to `ExecutedInterval`.
+- Consumes: the three fields Task 11 adds to `ExecutedInterval` (`avgGradientPct`, `groupId`, `zone`).
 - Produces: `matchLaps`'s matching behavior extends; no signature change to its existing 3-argument
-  shape (target, laps, resolvedWatts) — the additional hierarchy levels are internal.
+  shape (target, laps, resolvedWatts) — the additional hierarchy level is internal.
+
+**Corrected 2026-08-12 (external review, before this task was implemented) — [P0, blocking]: the
+original hierarchy's levels 2 and 3 could not reach the inputs they described, and were dropped.**
+`IntentTarget` (`lib/types.ts:681`) is the ONLY thing `matchLaps` receives about what the note asked
+for, and it carries just `durationMin?`, `watts?`, `targetPctFtp?`, `zone?: string`, `reps?` — no HR
+field, no gradient field, no ordinal/phase-link field. `StructuredIntent.phases[]` (`lib/types.ts:693`)
+exists but has no field linking a phase entry back to the `ScoredObjective` matchLaps is grading, and
+carries no gradient either. Concretely: there was never a `target.avgGradientPct` or `target.hrTarget`
+for level 2 to compare against a curated interval's `avgGradientPct`/HR, and no ordinal index for level
+3 to compare against `startIndex`. The original level-2 example test's own fixture proved this by
+accident — it set `target: { zone: "Z4" }` (zone only) but titled itself a "zone + gradient" match; there
+was no gradient anywhere in the target to match on. **Fix chosen: narrow the hierarchy to what the
+schema already carries (duration+power, then zone alone), rather than extending `IntentTarget` and the
+Phase-2b parser schema/prompt that populates it** (`lib/intent-schema.ts`, `lib/intent-prompt.ts`) —
+reopening Phase 2b's parser surface is a decision for whoever owns that plan, the same boundary Task 10
+already respects for `buildRideAnalysisPrompt`. An objective that only names a gradient, HR, or ordinal
+reference ("the steep climb", "the second effort") has no matching key under either level and correctly
+falls through to "ungraded, never guessed" — which is the locked decision anyway, so nothing about this
+narrowing is a new risk, only a smaller hierarchy that matches what can actually be evaluated.
 
 **Verified against `main` (2026-08-12):** matching lives in `matchLaps` (`lib/intent-scoring.ts:512-529`)
 — candidates within ±20% (`LAP_DURATION_TOLERANCE`, `:79`) of the stated duration, ranked by closeness
 to resolved watts (or duration alone with no resolved wattage). This already handles an objective with
 an explicit duration and power/percentage target — the strongest case — but has no fallback when a
 target has no explicit duration at all: `gradeDuration`/the effort grader return `ungraded("no duration
-stated...")` for those (`lib/intent-scoring.ts:558` on) rather than attempting any other match.
+stated...")` for those (`lib/intent-scoring.ts:558` on) rather than attempting any other match. Zone
+parsing already exists (`zoneIndex`, `lib/intent-scoring.ts:196` — 0-based, e.g. `"Z4"` → `3`); the live
+API's `zone` field is a plain 1-based int (`zone: 4` means Z4), so the new level compares
+`zoneIndex(target.zone) + 1 === lap.zone`.
 
 **Required hierarchy** (strongest to weakest; fall to the next level only when the current one can't
 resolve a match — never blend levels for one objective):
 
 1. **Explicit duration + power/percentage target** — current behavior, unchanged, remains strongest.
-2. **Explicit HR, power-zone, or gradient constraints** (needs Task 11's fields) — e.g. an objective
-   whose note said "the steep climb" or "zone 4 effort" with no stated duration matches against a
-   curated interval's own `zone`/`avgGradientPct` instead.
-3. **Ordered phase reference** ("first", "second", "the main effort") combined with the curated
-   intervals' own order (`startIndex`) and `groupId` — use the interpreter's already-ordered
-   `phases[]`, never re-derive an ordering from the ride data.
-4. **Remaining ambiguity → ungraded, never guessed** — this is the locked decision from Task 11, applied
-   here specifically: if more than one curated interval remains plausible after levels 1-3, the
-   objective stays `measurable: true, scored: false` with an evidence string naming the ambiguity, not
-   a best-effort pick.
+2. **Explicit power-zone constraint alone** (needs Task 11's `zone` field) — an objective whose note
+   said "zone 4 effort" with no stated duration matches against a curated interval's own `zone` instead.
+   If more than one curated interval shares that zone, there is no second signal to break the tie (no
+   duration/watts was stated) — falls straight to level 3, never picks the closest by an unstated axis.
+3. **Remaining ambiguity → ungraded, never guessed** — the locked decision from Task 11, applied here:
+   if no candidate remains after level 1-2, or more than one remains plausible at level 2, the objective
+   stays `measurable: true, scored: false` with an evidence string naming the ambiguity, not a
+   best-effort pick. An objective whose only stated constraint is gradient, HR, or an ordinal phase
+   reference lands here directly — there is no level for it to match at (see the Correction above).
 
 **Additional rules:**
 - Efforts sharing a `groupId` are presented as one repeated set (e.g. "3 × ~237s @ ~267W"), not graded
-  as N unrelated objectives — canonicalisation-adjacent to how `lib/intent-scoring.ts`'s existing
-  `identityKey`/`mergeKey` already dedupe/merge stated objectives, but this is about GROUPING MATCHED
-  EVIDENCE, not merging stated claims; keep the two concerns in separate code, don't extend the existing
-  canonicalisation keys to cover this.
-- Not every `WORK`-type interval is necessarily the intended main effort — level 3's order/phase
-  reference is what disambiguates among several `WORK` intervals, not interval type alone.
+  as N unrelated objectives — this applies to laps level 1 or 2 already matched (typically via an
+  explicit `reps` target), grouping them for EVIDENCE PRESENTATION only; `groupId` is not itself a
+  matching key and never substitutes for level 1/2 resolving the match. Canonicalisation-adjacent to how
+  `lib/intent-scoring.ts`'s existing `identityKey`/`mergeKey` already dedupe/merge stated objectives, but
+  keep the two concerns in separate code — don't extend the existing canonicalisation keys to cover this.
 - Gradient is terrain CONTEXT for an already-matched effort (useful in the evidence string — "9 min at
-  289W on a 7.9% climb"), never itself proof of execution quality — it must not introduce a new scoring
-  axis.
+  289W on a 7.9% climb"), never itself proof of execution quality, and never a matching key — it must
+  not introduce a new scoring axis or change which lap(s) are selected.
 - Seated/standing transitions and cornering/braking technique stay `qualitative`/unscored exactly as
   today — there is no sensor evidence for either, and none of Task 11's new fields changes that.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `lib/intent-scoring.test.ts`, near the existing `matchLaps` tests:
+Add to `lib/intent-scoring.test.ts`, near the existing `matchLaps` tests (`lap()`'s base literal already
+has `avgGradientPct`/`groupId`/`zone` defaulted to `null` per Task 11's Step 5 patch — override per-lap
+with a spread, e.g. `{ ...lap(600, 220), zone: 4 }`):
 
 ```ts
-describe("matchLaps — hierarchy levels beyond explicit duration", () => {
-  it("matches on zone + gradient when the target has no explicit duration", () => {
-    // target: { zone: "Z4" }, no durationMin. One curated interval with zone: 4, avgGradientPct: 7.9.
-    // Expect it to be the match.
+describe("matchLaps — zone-only fallback (narrowed hierarchy, external review 2026-08-12)", () => {
+  it("matches on zone alone when the target has no explicit duration", () => {
+    const target: IntentTarget = { zone: "Z4" };
+    const candidate = { ...lap(600, 220), zone: 4 };
+    const other = { ...lap(600, 220), zone: 2 };
+    expect(matchLaps(target, [other, candidate], null)).toEqual([candidate]);
   });
 
-  it("matches on ordered phase reference when duration/zone/gradient are all absent", () => {
-    // Two curated WORK intervals in order; intent phases[] states "first effort" then "second effort"
-    // with no other constraints. Expect the first phase to match the first interval by order.
+  it("stays ungraded on a gradient/ordinal-only reference — no matching key exists for either", () => {
+    // "the steep climb" / "the second effort" carry no field IntentTarget can express (see this task's
+    // Correction) — matchLaps has nothing to compare against and must not guess.
+    const target: IntentTarget = {};
+    const laps = [lap(600, 220), lap(700, 240)];
+    expect(matchLaps(target, laps, null)).toEqual([]);
   });
 
   it("groups efforts sharing a groupId into one presented set, not N separate objectives", () => {
-    // Three curated intervals share groupId "237s@267w80rpm". Expect them presented/evidenced as one
-    // repeated-set match, not three independent grades.
+    const target: IntentTarget = { durationMin: 4, watts: 267, reps: 3 };
+    const laps = [
+      { ...lap(237, 265), groupId: "237s@267w80rpm" },
+      { ...lap(237, 268), groupId: "237s@267w80rpm" },
+      { ...lap(237, 270), groupId: "237s@267w80rpm" },
+    ];
+    const matched = matchLaps(target, laps, 267);
+    expect(matched).toHaveLength(3);
+    expect(new Set(matched.map((m) => m.groupId))).toEqual(new Set(["237s@267w80rpm"]));
   });
 
-  it("stays ungraded when multiple candidates remain plausible after all levels — never guesses", () => {
-    // Two curated intervals equally satisfy whatever weak constraint the objective states. Expect
-    // scored: false with an evidence string naming the ambiguity.
+  it("stays ungraded when multiple zone-only candidates remain plausible — never guesses", () => {
+    const target: IntentTarget = { zone: "Z4" };
+    const a = { ...lap(600, 220), zone: 4 };
+    const b = { ...lap(900, 230), zone: 4 };
+    expect(matchLaps(target, [a, b], null)).toEqual([]);
   });
 
   it("never introduces a gradient-based scoring axis — gradient is evidence text only", () => {
-    // Same effort, same watts/duration match, two different avgGradientPct values on otherwise
-    // identical fixtures. Expect the SAME delta both times — only the evidence STRING may differ.
+    const target: IntentTarget = { durationMin: 10, watts: 250, reps: 1 };
+    const steep = { ...lap(600, 250), avgGradientPct: 7.9 };
+    const flat = { ...steep, avgGradientPct: 0.5 };
+    expect(matchLaps(target, [steep], 250)).toEqual([steep]);
+    expect(matchLaps(target, [flat], 250)).toEqual([flat]);
   });
 });
 ```
@@ -2256,18 +2325,23 @@ describe("matchLaps — hierarchy levels beyond explicit duration", () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npx vitest run lib/intent-scoring.test.ts -t "hierarchy levels beyond explicit duration"
+npx vitest run lib/intent-scoring.test.ts -t "zone-only fallback"
 ```
 
-Expected: FAIL — the fallback levels don't exist yet.
+Expected: FAIL on the zone-matching and ambiguity tests (the fallback level doesn't exist yet); the
+groupId and gradient tests may already pass by construction (level 1 already ranks by watts and never
+reads `avgGradientPct`) — confirm which, don't assume.
 
-- [ ] **Step 3: Implement the hierarchy**
+- [ ] **Step 3: Implement the zone-only fallback**
 
-Extend `matchLaps` (or add sibling functions it delegates to, following whatever decomposition keeps
-each level independently testable — mirror Task 4 of the Phase 2b plan's own precedent of one named
-function per concern rather than one large conditional). Level 4's ungraded path must be reachable and
-must not silently fall through to level 1's weaker matching by accident — pin this with the "stays
-ungraded" test above before considering the task done.
+Extend `matchLaps` (or add a sibling function it delegates to when level 1 finds nothing, following
+whatever decomposition keeps each level independently testable — mirror Task 4 of the Phase 2b plan's
+own precedent of one named function per concern rather than one large conditional): when
+`target.durationMin` is absent but `target.zone` is present, filter `laps` to those whose `zone` equals
+`zoneIndex(target.zone) + 1`; return the match only if exactly one candidate remains, `[]` otherwise
+(ambiguous → the caller's existing `ungraded` path already handles an empty match, no new "ambiguous"
+return shape needed). Level 2 must not silently fall through to level 1's duration-based ranking by
+accident — pin this with the "stays ungraded" tests above before considering the task done.
 
 - [ ] **Step 4: Run tests to verify they pass, then the full check**
 
@@ -2279,7 +2353,7 @@ npx vitest run lib/intent-scoring.test.ts && npm run check
 
 ```bash
 git add lib/intent-scoring.ts lib/intent-scoring.test.ts
-git commit -m "feat(scoring): match intent to curated intervals by zone/gradient/order, never by guessing"
+git commit -m "feat(scoring): match intent to curated intervals by zone alone, never by guessing"
 ```
 
 ---
@@ -2300,13 +2374,61 @@ of the test file for a two-call sequence with differing `fetchIntervals` mock re
 
 - [ ] **Step 1: Write the failing test**
 
+The file's default `interpretation()` fixture uses an objective of `kind: "duration"`, which grades
+against the whole ride's `evidence.durationMin` and never calls `matchLaps` (`gradeDuration`,
+`lib/intent-scoring.ts:558`, reads no laps at all). To actually exercise the `fetchIntervals` → laps →
+`matchLaps` path, this test needs a `kind: "effort"` objective with a duration+watts target instead —
+build it locally by overriding the shared fixture rather than changing its default (other tests in this
+file rely on the `"duration"` default).
+
 ```ts
 it("force re-analysis picks up curated intervals the athlete edited after the first parse", async () => {
-  // Run 1: fetchIntervals mock returns laps set A; runIntentParsing(..., { force: true }) writes ov-1
-  // matched against set A.
-  // Athlete edits their curated intervals in Intervals.icu (same note, no fingerprint change).
-  // Run 2: fetchIntervals mock returns a DIFFERENT laps set B; runIntentParsing(..., { force: true })
-  // writes ov-2, superseding ov-1, matched against set B — not silently reusing ov-1's stale evidence.
+  const effortInterpretation: IntentInterpretation = {
+    ...interpretation(),
+    intent: {
+      primaryPurpose: "10 min effort",
+      phases: [{ description: "10 min at 250W", kind: "effort", durationMin: 10, targetWatts: 250 }],
+    },
+    objectives: [
+      {
+        description: "10 min at 250W",
+        kind: "effort",
+        target: { durationMin: 10, watts: 250, reps: 1 },
+        zoneBasis: "unspecified",
+        grounded: true,
+        sourceText: "10 min at 250W",
+        measurable: false,
+        scored: false,
+        scopeMin: null,
+        evidence: null,
+      },
+    ],
+  };
+
+  // Task 11's three new fields are required on ExecutedInterval — null is fine, this test doesn't
+  // exercise zone/gradient/group matching.
+  const curatedLap = (avgWatts: number) => ({
+    type: "WORK", durationSec: 600, avgWatts, npWatts: avgWatts, avgHr: null,
+    startIndex: 0, endIndex: 600, avgGradientPct: null, groupId: null, zone: null,
+  });
+
+  vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);
+  vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(250)]);
+  await runIntentParsing(TODAY, [], { force: true });
+
+  const first = overlayStore.overlays.find((o) => o.supersededBy === null);
+  expect(first?.interpretation?.objectives[0].evidence).toContain("at 250 W vs");
+
+  // Athlete edits their curated intervals in Intervals.icu (same note, no fingerprint change) — force
+  // re-analysis must pick up the NEW laps, not silently reuse the first run's stale match.
+  vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);
+  vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(200)]);
+  await runIntentParsing(TODAY, [], { force: true });
+
+  const active = overlayStore.overlays.filter((o) => o.supersededBy === null);
+  expect(active).toHaveLength(1);
+  expect(active[0].interpretation?.objectives[0].evidence).toContain("at 200 W vs");
+  expect(active[0].interpretation?.objectives[0].evidence).not.toContain("at 250 W vs");
 });
 ```
 
@@ -2333,19 +2455,23 @@ git commit -m "test(scoring): prove force re-analysis picks up edited curated in
 
 **Files:** none — verification only, per AGENTS.md's "LLM-backed paths need one live smoke run".
 
-**Not yet done against the intent-parsing/scoring pipeline itself** — only the separate coach-note
-prompt fix (`main`'s PR #36) was smoke-tested against real note-truncation data; the intent-scoring path
-built by Phase 2b and extended by Tasks 11-13 above has not been. Run the real pipeline against activity
-`i174624272` (2026-08-11 — note text and curated-interval data already pulled live in the conversation
-that produced this amendment) and confirm, reading actual output rather than asserting a hard-coded
-expected score:
+**Corrected 2026-08-12 (external review): this is a regression smoke for the changed matching path, not
+the pipeline's first live run.** `docs/systems/02-scoring-and-learning.md`'s "Known rough edges" already
+records three live-smoke overlays run against the real intent-parsing/scoring pipeline during Phase 2b
+(sample reads moved from EWMA 6.7/50%/5.0 to 29/5.5/46%/5.3) — the pipeline itself has been live-tested.
+What hasn't: Tasks 11-13's new zone-fallback matching and `groupId` grouping, which didn't exist at
+Phase 2b's smoke run. Run the real pipeline against activity `i174624272` (2026-08-11 — note text and
+curated-interval data already pulled live in the conversation that produced this amendment) and confirm,
+reading actual output rather than asserting a hard-coded expected score:
 
 - Both described effort blocks survive parsing intact (not just the first — the original 400-char
   coach-note truncation bug's exact failure mode; already fixed for the coach-note prompt via
   `INTENT_NOTE_MAX_CHARS`, worth reconfirming here against this specific note too).
 - The 20-min climb (`1200s @ 289W / NP 293 / HR 175 / grad 7.91%` — this exact figure set was read live
   in the conversation that produced this amendment; re-pull from the API rather than trusting it stale)
-  matches to its intended objective using Task 12's order/zone/gradient levels.
+  matches to its intended objective via Task 12's level 1 (explicit duration + power) — gradient (7.91%)
+  should appear only in the evidence STRING as terrain context, per Task 12's narrowed hierarchy, never
+  as a separate matching signal or a second scoring axis.
 - The three short efforts sharing `groupId: "237s@267w80rpm"` are recognizable as one repeated set, not
   three independent grades.
 - Seated/standing, technical descending, and breathing-technique objectives are acknowledged but stay
@@ -2362,6 +2488,13 @@ expected score:
 ```bash
 curl -sf -X POST http://127.0.0.1:3000/api/intent -H 'content-type: application/json' -d '{"today":"<local date covering 2026-08-11>","force":true}'
 ```
+
+**Considered and rejected (external review, 2026-08-12): hardcoding `"today":"2026-08-11"`.** The
+placeholder is deliberate, not an oversight — AGENTS.md's own recurring-bug-class list warns that
+"today" must resolve from the athlete's LOCAL date, never assumed from a UTC string, and activity
+`i174624272` sits close enough to a day boundary that a naively hardcoded date could silently exclude
+it depending on the runner's timezone. Resolve the placeholder to the correct local date at run time;
+don't replace it with a literal.
 
 Against a sandboxed `NODEVELO_DATA_DIR`, not the primary athlete data — follow the exact sandboxing
 discipline the Phase 2b plan's own Task 9 established (copy `data/`, seed if needed, tear down after,
