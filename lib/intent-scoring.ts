@@ -515,7 +515,12 @@ export function matchLaps(
   resolvedWatts: number | null = null
 ): ExecutedInterval[] {
   const durationMin = numeric(target.durationMin);
-  if (durationMin === null || durationMin <= 0) return [];
+  if (durationMin === null || durationMin <= 0) {
+    const zone = zoneIndex(target.zone);
+    if (zone === null) return [];
+    const candidates = laps.filter((lap) => lap.zone === zone + 1);
+    return candidates.length === 1 ? candidates : [];
+  }
   const targetSec = durationMin * 60;
   const low = targetSec * (1 - LAP_DURATION_TOLERANCE);
   const high = targetSec * (1 + LAP_DURATION_TOLERANCE);
