@@ -30,6 +30,14 @@ no defensible industry-standard one to copy; see §8).
 - **One target field drives ranking per objective.** The note states one primary claim per phase; this
   is deliberately not a weighted blend across power+HR+cadence+terrain. See §8 — no established
   multi-signal compliance formula exists to justify weighting one.
+  **Resolved 2026-08-12 (R2/R5 scoping session):** enforced narrowly, not universally. Real athlete notes
+  legitimately combine `durationMin`/`zone`/`reps` with exactly one of {power, HR, cadence, terrain} in
+  one phase (e.g. "1h z2 HR cap at 152" — duration + zone + HR-ceiling together). `TargetSchema` gains a
+  `.refine()` requiring at most one of {power (watts/targetPctFtp), targetHrBpm, targetCadenceRpm,
+  terrain} per objective; `zone`/`durationMin`/`reps` are exempt, since they are never used as
+  `matchLaps` ranking signals once a duration is stated. This also closes a same-target collision an
+  earlier review found: without it, an `effort`-kind objective's target could carry a stray `terrain`
+  value that `matchLaps`'s distance function checks first, silently hijacking that objective's ranking.
 - **Terrain claims are existence+duration claims, never quality/technique claims.** "Did a climb of
   about this length happen" is gradeable; "was the descent well-executed" is explicitly out of scope
   (design doc §15: "Objective scoring of technical descending/cornering from speed alone"). `gradeTerrain`
@@ -38,6 +46,14 @@ no defensible industry-standard one to copy; see §8).
   note style (today's real note: "If HR goes over 154bpm dial back to stay in z2" — a ceiling, not a
   range). Intervals.icu's own workout syntax supports ranges (`"200-220W"`, `"90-100rpm"`); ranges are a
   natural v2 if the athlete's notes start using them, not built speculatively now.
+  **Resolved 2026-08-12 (R2 scoping session):** that same real note states no interval duration at all —
+  it's a whole-ride claim, and real note history shows this is a recurring pattern, not a one-off (a
+  second note: "I also made an effort to keep cadence stable and higher throughout the whole ride").
+  `gradeEffort` grades an HR/cadence target with no stated `durationMin` against the whole ride's own
+  `maxHr`/`avgCadence` — both already synced on `ActivitySummary` (`lib/intervals-api.ts:238-239,254`),
+  zero new sync cost — instead of returning ungraded. A duration-stated claim still prefers the more
+  precise per-lap match (§7); whole-ride grading is the fallback for the undurated case, not a
+  replacement.
 - **`distance` stays out of sync scope.** VAM only needs `elevationGainM` + `durationSec` (both in
   scope); Phase 2c's "no distance/GPS/position-locator system" decision is not reopened by this phase
   since nothing here needs it.
@@ -60,6 +76,12 @@ No new persistence, no new API route, no new store file. `ExecutedInterval[]` co
 fresh per analysis via `fetchIntervals` (`lib/intervals-api.ts`) and consumed transiently by
 `intent-scoring.ts` — never written to disk raw. Only derived `ScoredObjective`/evidence text persists,
 inside the `IntentOverlay`, exactly as Phase 2b already does.
+
+**Added 2026-08-12 (R2 scoping session):** `RideEvidence` gains `wholeRideMaxHr: number | null` and
+`wholeRideAvgCadence: number | null`, sourced from `activity.maxHr`/`activity.avgCadence` — both already
+synced at the whole-activity level, no new fetch. `intent-runner.ts` threads them onto `RideEvidence`
+alongside the existing `powerZoneTimes`/`hrZoneTimes` fields when it builds evidence for
+`scoreIntentExecution`.
 
 ## 4. `ExecutedInterval` additions
 
@@ -101,6 +123,9 @@ matching update:
 
 - `TargetSchema` gains `targetHrBpm: z.number().positive().optional()`,
   `targetCadenceRpm: z.number().positive().optional()`, `terrain: z.enum(["climb", "descent"]).optional()`.
+- `TargetSchema` also gains a `.refine()` enforcing §2's scoped mutual exclusion (R5): at most one of
+  {power (watts/targetPctFtp), targetHrBpm, targetCadenceRpm, terrain} may be set per objective;
+  `zone`/`durationMin`/`reps` are exempt and may co-occur with any of them.
 - `buildIntentPrompt` needs a new rule distinguishing an HR/cadence/terrain *target* (gradeable) from a
   qualitative skill/experience claim (still ungraded) — e.g. "did a climb" → `terrain: "climb"`
   (gradeable existence claim) vs. "the descent felt great" → stays `qualitative` (still a skill/feel
@@ -144,6 +169,12 @@ A genuinely ambiguous match (no field set that the pool can rank on, or a terrai
 clears the 3% floor and no label exists) stays ungraded — same "never guess" discipline Task 12's locked
 decision already established for power/duration matching.
 
+**Exception — whole-ride HR/cadence claims skip `matchLaps` entirely (R2, §2).** When `targetHrBpm` or
+`targetCadenceRpm` is set with no stated `durationMin`, there is no per-lap window to match against; §8's
+whole-ride grading path reads `RideEvidence.wholeRideMaxHr`/`wholeRideAvgCadence` directly instead. This
+is the one HR/cadence/terrain grading path that does not go through `matchLaps` — a duration-stated claim
+always prefers the matched-lap path above.
+
 ## 8. Grading
 
 - **`gradeTerrain`** — new function, same shape as `gradeDuration`: did a climb/descent of roughly the
@@ -155,6 +186,29 @@ decision already established for power/duration matching.
   `avgCadenceRpm`.
 - **VI (`npWatts / avgWatts`, both already-synced, zero new sync cost) rides along as evidence text
   only** on any matched lap — "steady, VI 1.04" / "surged, VI 1.19" — never a scored dimension by itself.
+- **Whole-ride HR-ceiling/cadence grading (R2, added 2026-08-12).** When no interval duration is stated,
+  `gradeEffort` grades `targetHrBpm`/`targetCadenceRpm` against `RideEvidence.wholeRideMaxHr`/
+  `wholeRideAvgCadence` using the same `hrCeilingDelta`/`adherenceDelta` curves as the matched-lap path,
+  with `scopeMin` set to the full ride duration. This directly covers the phase's own motivating example
+  ("if HR goes over 154bpm dial back to stay in z2" — no stated duration), which the matched-lap-only
+  design left ungradable.
+  **Missing data here is `ungraded()`, NOT "graded on presence" (R9 fix, 2026-08-12 review)** — unlike the
+  matched-lap path, where a matched lap is itself real evidence even if one field on it is missing, there
+  is no fallback signal at all for a whole-ride claim with no whole-ride HR/cadence data; treating it as
+  scored would let zero real evidence both earn a neutral-positive delta and inflate `evidenceScope`
+  enough to pass the minimum-evidence gate.
+  **A stated `durationMin` does not always mean "match a curated lap" (R10 fix, 2026-08-12 review).** A
+  real note pattern ("1h z2 HR cap at 152") combines `durationMin` with `zone` — that duration describes
+  a whole-ride-scale or phase-scale portion of the ride, not a discrete curated interval, and Intervals.icu
+  doesn't curate "steady zone-time" phases as laps. `gradeEffort` therefore routes to whole-ride grading
+  whenever `zone` is set alongside `targetHrBpm`/`targetCadenceRpm`, regardless of whether `durationMin`
+  is also stated — `zone` is the signal, matching this codebase's existing convention that zone-based
+  claims are always graded from whole-ride aggregate data (`gradeZoneTime`/`gradeZoneEmphasis`), never
+  from lap-matching. A duration-only HR/cadence claim with no `zone` (e.g. a genuinely short structured
+  effort, "20 min at HR 165") still takes the matched-lap path as before. **Residual gap, not solved by
+  this phase:** a large duration-only claim with no `zone` that's actually describing ride-scale riding
+  (not a curated interval) can still misroute to lap-matching and fail to match — no real note in this
+  phase's sample exhibited that shape, so it's flagged rather than speculatively solved.
 
 **Why no weighted multi-signal formula**: researched TrainingPeaks' and Intervals.icu's own
 planned-vs-actual compliance features directly. TrainingPeaks' compliance is a coarse duration/distance/
