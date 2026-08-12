@@ -40,7 +40,6 @@ import {
   readTodayAnalysis,
 } from "@/lib/data-store";
 import { extractQuirks } from "@/lib/quirks";
-import { isAnthropicConfigured } from "@/lib/anthropic-api";
 import { buildAthleteModel } from "@/lib/athlete-model";
 import { athleteStateInputsFrom, computeAthleteState } from "@/lib/athlete-state";
 import { overallCoachAccuracy, validateInterventions } from "@/lib/intervention";
@@ -730,7 +729,7 @@ export async function POST(req: Request) {
       warnings.push(`Intervention validation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    if (isAnthropicConfigured()) {
+    if (process.env.ANTHROPIC_API_KEY) {
       const todayActivity = lastSync.activities.find(
         (a) => a.date === today && (a.type === "Ride" || a.type === "VirtualRide")
       );
