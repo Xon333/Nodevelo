@@ -6,16 +6,28 @@
 an "Intent used" line before the score, the effective (overlay-resolved) score or its `Not scored`
 reason in place of the old intrinsic-scorer number, concise evidence for measurable objectives,
 qualitative objectives acknowledged but not graded, and `Aerobic drift not measurable` wording when no
-steady segment qualified.
+steady segment qualified. Also fixes two drift-signal defects found in Phase 2b's PR #35 review
+(Tasks 8-9) before this phase renders numbers derived from them.
 
 **Architecture:** Resolve today's effective outcome server-side in `GET`/`POST /api/sync` (reusing
 `resolveEffectiveOutcome` — the one seam that already enforces overlay validity — never re-implementing
 it), ship the result to the client as a new `todayOutcome` field, and render it through one new
 extracted component (`RideIntentBlock`) consumed by `TodayRideCard`. No new persistence, no new API
-route, no change to how Phase 2b scores or stores anything.
+route, no change to how Phase 2b scores or stores anything. Tasks 8-9 are self-contained deterministic
+fixes in `lib/score-log.ts`/`lib/intent-scoring.ts` with no dependency on Tasks 1-7's UI work.
 
 **Tech Stack:** Next.js 16 (App Router), React 19, TypeScript 5, Vitest + `@testing-library/react`
 (jsdom, per-file `/** @vitest-environment jsdom */` docblock).
+
+## Amendment (2026-08-12, post-merge)
+
+Tasks 0-7 below are this plan's original, approved scope, written before Phase 2b merged and left
+unchanged. **Tasks 8-9 were added after Phase 2b merged as PR #35**, folding in two non-blocking
+findings from that PR's review (both independently verified against the merged code, not taken from
+the review report on faith) at the user's explicit direction, rather than opening a separate phase for
+two small, well-scoped fixes. Both change numbers this phase's own UI will render (drift % and average
+drift quality), so fixing them before Tasks 1-7 ship the debrief is the reason they live here instead
+of standing alone.
 
 ## Global Constraints
 
@@ -113,8 +125,8 @@ reviewed or merged as of this writing):
   ride-origin-adjacent pure functions. This plan adds one more of the same shape there rather than a
   new file.
 - `docs/INVARIANTS.md` currently ends at item 40 (`main`, as of `c1a7547`) and is unchanged on the 2b
-  branch — 2b's own review has not yet run and may append further items before this plan's Task 6 does.
-  Task 6 greps the live file for the next number rather than hard-coding one, following the lesson
+  branch — 2b's own review has not yet run and may append further items before this plan's Task 7 does.
+  Task 7 greps the live file for the next number rather than hard-coding one, following the lesson
   already recorded in
   [`docs/superpowers/plans/2026-08-07-adaptive-coach-p2a-origin-and-overlay.md`](2026-08-07-adaptive-coach-p2a-origin-and-overlay.md)'s
   own sibling-collision fix.
@@ -223,7 +235,9 @@ export function indexOverlaysByDate(overlays: IntentOverlay[]): Map<string, Inte
 | `components/dashboard/TodayView.tsx` | **Modify.** Pass `state.todayOutcome` to both `TodayRideCard` call sites. |
 | `docs/INVARIANTS.md` | **Modify.** One new item (exact number resolved at write time) recording that the debrief must read the overlay-resolved score, never the raw ledger/analysis score, once an overlay applies. |
 | `docs/systems/08-frontend.md` | **Modify.** Update the `Ride debrief` row of the Feature ownership table; note the new file in Known rough edges' size list. |
-| `docs/systems/02-scoring-and-learning.md` | **Modify.** One line in Known rough edges cross-referencing this phase, continuing the existing "re-derive validity at each new read site" note. |
+| `docs/systems/02-scoring-and-learning.md` | **Modify.** One line in Known rough edges cross-referencing this phase, continuing the existing "re-derive validity at each new read site" note; a second line from Task 9 recording the two PR #35 fixes. |
+| `lib/score-log.ts` | **Modify (Task 8).** `summariseBehaviour`'s `driftScores` falls back to the ledger's own score instead of excluding a Not-scored drift ride. |
+| `lib/intent-scoring.ts` | **Modify (Task 9).** `scoreIntentExecution` reclassifies a zero-objective note from `no-measurable-objectives`/self-directed to `intent-unreliable`/unspecified. |
 
 ---
 
@@ -1398,6 +1412,241 @@ git commit -m "docs(scoring): record the debrief's overlay-score invariant; veri
 
 ---
 
+## Task 8: `driftAvgQuality` falls back to the ledger's own score (PR #35 finding N1)
+
+**Files:**
+- Modify: `lib/score-log.ts` (`summariseBehaviour`, `lib/score-log.ts:394-408`)
+- Test: `lib/score-log.test.ts`
+
+**Interfaces:** none new — `summariseBehaviour(resolved: ResolvedRide[]): BehaviourSummary`'s
+signature and `BehaviourSummary`'s shape are unchanged; only `driftAvgQuality`'s computed value changes.
+
+**The bug, verified directly against the merged code (2026-08-12):** `resolveEffectiveOutcome`
+(`lib/intent-overlay.ts:103-122`) returns the overlay's `effectiveExecutionScore` in place of the
+ledger's own whenever an applicable overlay exists. For a drift ride whose overlay carries a
+`notScoredReason` (an empty, unreliable, or failed-to-parse note — origin `unspecified`), that overlay
+score is `null` — even though the ledger's own `entry.executionScore` (the deterministic intrinsic
+scorer's output, computed at sync time regardless of intent parsing) is still a normal number.
+`driftRides.map((r) => r.outcome.effectiveExecutionScore).filter((v): v is number => v !== null)`
+excludes that ride from `driftAvgQuality`'s average entirely, rather than falling back to the ledger's
+value. Since a self-directed-origin ride is already excluded from `driftRides` upstream (`countsAsDrift`
+returns `false` for it), every ride that reaches this filter is `unspecified` — and as more of them
+acquire a Not-scored overlay over time, `driftAvgQuality` trends toward permanently `null` with no
+signal it ever carried a value.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to the existing `describe("summariseBehaviour — effective origin", ...)` block in
+`lib/score-log.test.ts` (it already defines the `ride`/`resolved` helpers this test reuses — `resolved`
+takes an explicit `score` third argument that overrides the default `entry.executionScore`):
+
+```ts
+it("falls back to the ledger's own score when the overlay is Not scored (PR #35 finding N1)", () => {
+  const summary = summariseBehaviour([
+    resolved(ride("2026-01-01"), "prescribed"),
+    resolved(ride("2026-01-02", { planned: false, compliancePct: null, executionScore: 6 }), "unspecified", null),
+  ]);
+  expect(summary.driftAvgQuality).toBe(6);
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+npx vitest run lib/score-log.test.ts -t "falls back to the ledger's own score"
+```
+
+Expected: FAIL — `driftAvgQuality` is `null` (the ride's overlay score of `null` gets filtered out
+entirely, leaving `driftScores` empty).
+
+- [ ] **Step 3: Implement**
+
+In `lib/score-log.ts`, replace the `driftScores` computation (`lib/score-log.ts:403-405`):
+
+```ts
+  const driftScores = driftRides
+    .map((r) => r.outcome.effectiveExecutionScore)
+    .filter((v): v is number => v !== null);
+```
+
+with:
+
+```ts
+  // A Not-scored overlay (empty/unreliable note) still leaves the ledger's own deterministic score
+  // intact — falling back to it keeps driftAvgQuality representative instead of degrading toward null
+  // as more drift rides acquire an overlay (PR #35 review finding N1, 2026-08-12).
+  const driftScores = driftRides.map((r) => r.outcome.effectiveExecutionScore ?? r.entry.executionScore);
+```
+
+(`RideScoreEntry.executionScore` is `number`, never `null` or `undefined` — see `lib/types.ts`'s
+`RideScoreEntry` interface — so the `.filter((v): v is number => v !== null)` line is no longer needed;
+every element of `driftScores` is now always a number.)
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+npx vitest run lib/score-log.test.ts
+```
+
+Expected: PASS, full file green (the pre-existing "averages quality over drift rides only" test at
+`lib/score-log.test.ts:916-924` must still pass unchanged — it doesn't exercise the null-overlay path,
+so this change shouldn't move its result).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/score-log.ts lib/score-log.test.ts
+git commit -m "fix(scoring): driftAvgQuality falls back to the ledger score, not null"
+```
+
+---
+
+## Task 9: A zero-objective note is `intent-unreliable`, not `no-measurable-objectives` (PR #35 finding N2)
+
+**Files:**
+- Modify: `lib/intent-scoring.ts` (`scoreIntentExecution`, `lib/intent-scoring.ts:818-910`)
+- Test: `lib/intent-scoring.test.ts`
+- Modify: `docs/systems/02-scoring-and-learning.md` (Known rough edges — folds in this task's docs step)
+
+**Interfaces:** none new — `scoreIntentExecution`'s signature and `IntentVerdict`'s shape are
+unchanged; only `.reason`'s value changes for one previously-conflated input shape.
+`assessScoreability`'s own signature and its existing tests are untouched — this task overrides its
+result at the one call site, not the shared predicate function three other things might come to rely on.
+
+**The bug, verified directly against the merged code (2026-08-12):** `assessScoreability`
+(`lib/intent-scoring.ts:780-793`) returns `reason: "no-measurable-objectives"` whenever
+`gradableCount < 1` — which conflates two different situations under one reason: (a) the note produced
+real objectives that simply aren't verifiable from the ride's data (the reason's own documented
+contract, `lib/types.ts`: "intent understood; nothing the ride data can verify"), and (b) the note
+produced *zero* objectives at all — nothing was extracted in the first place. `buildOverlay`
+(`lib/intent-scoring.ts:981-1013`) maps `no-measurable-objectives` to `origin: "self-directed"`
+unconditionally, so case (b) — a note like *"felt good today, saw a hawk"* — gets classified
+self-directed and stops counting toward `offPlanPct`, even though nothing about training intent was
+actually recovered. This is reachable at real confidence tiers (not only `low`, which is already
+diverted to `intent-unreliable` first): a `medium`- or `high`-confidence interpretation can still
+legitimately extract zero objectives from a note with no trainable content.
+
+**The fix:** at `scoreIntentExecution`'s one call site, override `no-measurable-objectives` to
+`intent-unreliable` specifically when zero objectives were extracted (`interpretation.objectives.length
+=== 0`) — leaving case (a), where real objectives exist but none are gradable or in-scope, as
+`no-measurable-objectives`/self-directed exactly as before. `intent-unreliable` maps to `unspecified`
+(`buildOverlay`'s `selfDirected` check only fires for `no-measurable-objectives`), matching design
+§5.3's "Not scored — intent could not be determined reliably" — an accurate description of "nothing
+usable was extracted," not just "confidence was rated low."
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `lib/intent-scoring.test.ts`, near the existing `scoreIntentExecution`/`assessScoreability`
+tests (it already defines `interp`/`obj`/`evidence` helpers — `interp()` with no `objectives` override
+already defaults to `objectives: [], confidence: "high"`, exactly case (b)):
+
+```ts
+describe("scoreIntentExecution — zero-objective vs. ungradable-objective notes (PR #35 finding N2)", () => {
+  it("a note with zero extracted objectives is intent-unreliable, not no-measurable-objectives", () => {
+    const I = interp({ objectives: [] });
+    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
+    expect(result.reason).toBe("intent-unreliable");
+  });
+
+  it("a note with real but ungradable objectives keeps no-measurable-objectives", () => {
+    const I = interp({ objectives: [obj("qualitative", { description: "descending practice" })] });
+    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
+    expect(result.reason).toBe("no-measurable-objectives");
+  });
+
+  it("low confidence still wins over the zero-objective override", () => {
+    const I = interp({ confidence: "low", objectives: [] });
+    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
+    expect(result.reason).toBe("intent-unreliable");
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify the first one fails**
+
+```bash
+npx vitest run lib/intent-scoring.test.ts -t "zero-objective vs. ungradable-objective"
+```
+
+Expected: the first test FAILs (`result.reason` is currently `"no-measurable-objectives"`); the second
+and third already PASS (case (a) is already correct, and `low` confidence already short-circuits before
+`assessScoreability`'s `gradableCount` check — confirm both pass unchanged, since that's evidence this
+task doesn't need to touch the `confidence === "low"` branch at all).
+
+- [ ] **Step 3: Implement**
+
+In `lib/intent-scoring.ts`, inside `scoreIntentExecution`, immediately after the `assessScoreability`
+call (`lib/intent-scoring.ts:870-875`):
+
+```ts
+  const { scoreable, reason, requiredScopeMin } = assessScoreability({
+    confidence: interpretation.confidence,
+    gradableCount: gradable.length,
+    scopeMin,
+    rideMin: evidence.durationMin,
+  });
+```
+
+add:
+
+```ts
+  // A note that yielded literally nothing extractable is a weaker signal than "intent was clear but
+  // the ride data couldn't verify it" (no-measurable-objectives's own documented contract) — closer to
+  // not having recovered trustworthy intent at all. Only overrides the zero-objectives case; a note
+  // that produced real (if ungradable) objectives keeps its original reason (PR #35 review finding N2,
+  // 2026-08-12).
+  const effectiveReason: NotScoredReason | null =
+    reason === "no-measurable-objectives" && all.length === 0 ? "intent-unreliable" : reason;
+```
+
+then change the return object's `reason,` (`lib/intent-scoring.ts:906`) to `reason: effectiveReason,`.
+
+(`all` is already in scope — it's `interpretation.objectives`, bound near the top of the function at
+`lib/intent-scoring.ts:823`. `NotScoredReason` should already be imported in this file; if not, add it
+to the existing `from "./types"` import.)
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npx vitest run lib/intent-scoring.test.ts
+```
+
+Expected: PASS, full file green — in particular, the pre-existing test at `lib/intent-scoring.test.ts:794-799`
+("absence of zone data CAN flip scoreability") must still pass unchanged: it constructs an interpretation
+with one real `zone-time` objective (`all.length === 1`), so this task's `all.length === 0` guard never
+fires for it.
+
+- [ ] **Step 5: Update `docs/systems/02-scoring-and-learning.md`**
+
+In the same "Known rough edges" section Task 7 Step 5 already extended, add one more sentence directly
+after the line Task 7 added:
+
+```markdown
+  Two further defects surfaced by the same PR #35 review, fixed in this phase's Tasks 8-9: `driftAvgQuality`
+  degraded toward permanently `null` as drift rides acquired Not-scored overlays (fixed by falling back
+  to the ledger's own score), and a note yielding zero extracted objectives was misclassified
+  self-directed via `no-measurable-objectives` instead of `unspecified` via `intent-unreliable` — both
+  are the same recurring shape: a value correct where it was first reasoned about, silently wrong once a
+  different consumer started reading it.
+```
+
+- [ ] **Step 6: Run the full check**
+
+```bash
+npm run check
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/intent-scoring.ts lib/intent-scoring.test.ts docs/systems/02-scoring-and-learning.md
+git commit -m "fix(scoring): a zero-objective note is intent-unreliable, not self-directed"
+```
+
+---
+
 ## Self-review
 
 **Spec coverage** (design §12.2 + Phase 2b plan's Handoff boundary, the two sources this plan was
@@ -1425,6 +1674,11 @@ scoped from):
 - Handoff's "what 2c must NOT assume" warning (re-derive validity at the new render read site) → Task 3
   Step 1's pending-overlay test is exactly this regression test, exercised at the new call site rather
   than assumed from Phase 2a's own tests.
+- PR #35 review finding N1 (`driftAvgQuality` degrading toward `null`) → Task 8, with a regression test
+  proving the pre-fix behavior would have failed it.
+- PR #35 review finding N2 (zero-objective notes misclassified self-directed) → Task 9, scoped narrowly
+  to `all.length === 0` so case (a) — real but ungradable objectives — is provably unchanged (Step 4's
+  explicit call-out of the pre-existing test that must still pass).
 
 **Placeholder scan:** no TBD/TODO, no "similar to Task N" without repeated code, every step shows the
 actual diff or full new file.
@@ -1433,7 +1687,9 @@ actual diff or full new file.
 identically (field names and nullability) in Tasks 3, 5 and 6 — all copied from the Ground-truth read
 of `lib/types.ts`, not re-derived per task. `findLedgerEntry`'s signature (Task 2) matches its one call
 site (Task 3's `resolveTodayOutcome`) exactly. `RideIntentBlock`'s prop names (`outcome`,
-`activityDecoupling`) match `TodayRideCard`'s usage in Task 6 exactly.
+`activityDecoupling`) match `TodayRideCard`'s usage in Task 6 exactly. Tasks 8-9 introduce no new types
+or exported signatures — verified against the real merged `lib/score-log.ts`/`lib/intent-scoring.ts` on
+2026-08-12, not against the plan-doc excerpts quoted in PR #35's review.
 
 ---
 
@@ -1449,6 +1705,10 @@ already writes and this phase now correctly reads:
   off of (design decision #1, §9's "ignored suggestion: record no adherence or execution penalty").
 - `TodayAnalysis.activityId` (Task 1) — now a general-purpose join key, not `todayOutcome`-specific;
   any future single-ride feature can reuse `findLedgerEntry` rather than re-deriving its own lookup.
+- `summariseBehaviour`'s `driftAvgQuality` and `scoreIntentExecution`'s zero-objective classification
+  (Tasks 8-9) — Phase 3's weekly envelope (§8.1 lists "recent execution" among its inputs) reads
+  behaviour derived from the same `driftRides`/`origin` machinery these tasks correct; it inherits the
+  fix rather than needing its own.
 
 **What Phase 3 must decide, which 2c deliberately does not:** where the no-block weekly-range/suggestion
 UI (design §12.1) lives relative to the debrief this phase just built — §12.1 and §12.2 are presented
