@@ -7,7 +7,10 @@ an "Intent used" line before the score, the effective (overlay-resolved) score o
 reason in place of the old intrinsic-scorer number, concise evidence for measurable objectives,
 qualitative objectives acknowledged but not graded, and `Aerobic drift not measurable` wording when no
 steady segment qualified. Also fixes two drift-signal defects found in Phase 2b's PR #35 review
-(Tasks 8-9) before this phase renders numbers derived from them.
+(Tasks 8-9) before this phase renders numbers derived from them, four correctness defects an external
+review found in this plan's own original Tasks 1-7 before any of them were implemented (corrected in
+place, see the "Round 2" Amendment below), and adds curated-interval-aware intent matching (Tasks 11-13)
+plus a fifth Phase-2b-adjacent fix (Task 10).
 
 **Architecture:** Resolve today's effective outcome server-side in `GET`/`POST /api/sync` (reusing
 `resolveEffectiveOutcome` — the one seam that already enforces overlay validity — never re-implementing
@@ -21,13 +24,22 @@ fixes in `lib/score-log.ts`/`lib/intent-scoring.ts` with no dependency on Tasks 
 
 ## Amendment (2026-08-12, post-merge)
 
-Tasks 0-7 below are this plan's original, approved scope, written before Phase 2b merged and left
-unchanged. **Tasks 8-9 were added after Phase 2b merged as PR #35**, folding in two non-blocking
-findings from that PR's review (both independently verified against the merged code, not taken from
-the review report on faith) at the user's explicit direction, rather than opening a separate phase for
-two small, well-scoped fixes. Both change numbers this phase's own UI will render (drift % and average
-drift quality), so fixing them before Tasks 1-7 ship the debrief is the reason they live here instead
-of standing alone.
+Tasks 0-7 below are this plan's original, approved scope, written before Phase 2b merged.
+**Corrected 2026-08-12 (external review, before any of Tasks 1-7 were implemented): four correctness
+defects were found and fixed IN PLACE within Tasks 2, 3, 5 and 6** — a refresh race (Task 3 gained a
+Step 7-8), an unsafe activity-id-mismatch fallback (Task 2), a score-fallback bug that would have leaked
+the ledger score onto rides with no overlay (Task 6), and a disappearing Post-to-Intervals.icu button
+(Task 6). Unlike Tasks 8-9 below, these are edits to this plan's OWN not-yet-executed task text, not
+findings about already-shipped code elsewhere — there is no implementation history to preserve, so they
+are corrected at the source rather than patched around, each marked inline with what changed and why.
+**Tasks 8-9 were added after Phase 2b merged as PR #35**, folding in two non-blocking findings from that
+PR's review (both independently verified against the merged code, not taken from the review report on
+faith) at the user's explicit direction, rather than opening a separate phase for two small, well-scoped
+fixes. Both change numbers this phase's own UI will render (drift % and average drift quality), so
+fixing them before Tasks 1-7 ship the debrief is the reason they live here instead of standing alone.
+**A second, later amendment — "Amendment (2026-08-12, round 2)", after Task 9 — adds Task 10 (a fifth
+review finding, about already-shipped code) and Tasks 11-14 (new scope: richer curated-interval data
+and matching, requested directly by the user).**
 
 ## Global Constraints
 
@@ -237,7 +249,13 @@ export function indexOverlaysByDate(overlays: IntentOverlay[]): Map<string, Inte
 | `docs/systems/08-frontend.md` | **Modify.** Update the `Ride debrief` row of the Feature ownership table; note the new file in Known rough edges' size list. |
 | `docs/systems/02-scoring-and-learning.md` | **Modify.** One line in Known rough edges cross-referencing this phase, continuing the existing "re-derive validity at each new read site" note; a second line from Task 9 recording the two PR #35 fixes. |
 | `lib/score-log.ts` | **Modify (Task 8).** `summariseBehaviour`'s `driftScores` falls back to the ledger's own score instead of excluding a Not-scored drift ride. |
-| `lib/intent-scoring.ts` | **Modify (Task 9).** `scoreIntentExecution` reclassifies a zero-objective note from `no-measurable-objectives`/self-directed to `intent-unreliable`/unspecified. |
+| `lib/intent-scoring.ts` | **Modify (Task 9, then Task 12).** `scoreIntentExecution` reclassifies a zero-objective note (Task 9); `matchLaps` gains the zone/gradient/order matching hierarchy (Task 12). |
+| `lib/sync-analysis.ts` | **Modify (Task 10, round 2).** `addCoachNote` omits the auto-posted score line for an unplanned ride, so Intervals.icu never receives a number the in-app debrief has since overridden. |
+| `lib/sync-analysis.test.ts` | **Modify (Task 10, round 2).** Cases for the unplanned-omits and prescribed-still-posts branches. |
+| `lib/types.ts` | **Modify (Task 1; then Task 11, round 2).** `TodayAnalysis.activityId` (Task 1); `ExecutedInterval` gains `avgGradientPct`, `avgCadence`, `groupId`, `zone`, `intensity` (Task 11). |
+| `lib/intervals-api.ts` | **Modify (Task 11, round 2).** `fetchIntervals`'s mapping reads the five new fields from the raw payload. |
+| `lib/intervals-api.test.ts` | **Modify (Task 11, round 2).** Cases for all five fields present and all five absent. |
+| `lib/intent-runner.test.ts` | **Modify (Task 13, round 2).** Regression test: `force` re-analysis picks up curated intervals the athlete edited after the first parse, not stale evidence from the superseded overlay. |
 
 ---
 
@@ -353,6 +371,20 @@ git commit -m "feat(today): stamp the activity id onto TodayAnalysis"
   about either), `activityId: string | undefined`, `date: string`.
 - Produces: `findLedgerEntry(entries, activityId, date): RideScoreEntry | null` — read by Task 3.
 
+**Corrected 2026-08-12 (external review, independently verified against `lib/intent-overlay.ts:114-116`
+before accepting): a present-but-unmatched `activityId` must return `null`, never fall back to date.**
+`resolveEffectiveOutcome`'s own contract is `entry.activityId ? byActivity.get(entry.activityId) :
+byDate.get(entry.date)` — a row carrying an id NEVER consults the date index, precisely because a
+same-day secondary ride's overlay could otherwise bind to the wrong entry. `TodayAnalysis.activityId`
+(Task 1) and the ledger's own primary-ride id are independently reachable: `TodayAnalysis`'s activity
+is picked by `.find()` (first `Ride`/`VirtualRide` in sync order — `lib/sync-analysis.ts:51`,
+`app/api/sync/route.ts:734`), while the ledger's is picked by `buildRideScores`'s "longest ride wins"
+rule. On a genuine multi-ride date these two selections can diverge, and the original date-fallback
+would then silently substitute a *different ride's* ledger row (and any overlay bound to it) for the
+one `TodayAnalysis` was actually built from. The one legitimate fallback case — a legacy `TodayAnalysis`
+record written before Task 1 shipped, carrying no `activityId` at all — is unaffected: `activityId ===
+undefined` is falsy and still takes the date path below.
+
 - [ ] **Step 1: Write the failing test**
 
 Add to `lib/ride-origin.test.ts`:
@@ -382,16 +414,18 @@ describe("findLedgerEntry", () => {
     expect(findLedgerEntry([a, b], "a2", "2026-06-15")).toBe(b);
   });
 
-  it("falls back to date when activityId is undefined", () => {
+  it("falls back to date when activityId is undefined (legacy TodayAnalysis record)", () => {
     const a = entry({ activityId: undefined, date: "2026-06-15" });
     expect(findLedgerEntry([a], undefined, "2026-06-15")).toBe(a);
   });
 
-  it("falls back to date when activityId is present but matches no entry", () => {
-    // A record analysed before Task 1 shipped could carry a stale/absent id while the ledger
-    // itself already has activityId — the date fallback must still find it.
-    const a = entry({ activityId: "a1", date: "2026-06-15" });
-    expect(findLedgerEntry([a], "missing", "2026-06-15")).toBe(a);
+  it("returns null — NEVER falls back to date — when activityId is present but matches no entry", () => {
+    // A same-day SECONDARY ride's ledger row must not be silently substituted for the primary ride
+    // TodayAnalysis actually analysed. Mirrors resolveEffectiveOutcome's own id-present-never-date-
+    // falls-back rule (lib/intent-overlay.ts) — this function must not diverge from that contract.
+    const primary = entry({ activityId: "primary-ride", date: "2026-06-15" });
+    const secondary = entry({ activityId: "secondary-ride", date: "2026-06-15", durationMin: 20 });
+    expect(findLedgerEntry([primary, secondary], "missing-id", "2026-06-15")).toBeNull();
   });
 
   it("returns null when nothing matches either key", () => {
@@ -415,16 +449,17 @@ Add to `lib/ride-origin.ts`:
 
 ```ts
 // Locates the ledger row a TodayAnalysis (or any single-ride read site) should resolve its overlay
-// against. activityId first — the stable join key — falling back to date only when it's absent or
-// stale, mirroring the same legacy-row fallback resolveEffectiveOutcome's own callers use elsewhere.
+// against. Mirrors resolveEffectiveOutcome's own contract (lib/intent-overlay.ts) exactly: a present
+// activityId is authoritative and NEVER falls back to date, even on a miss — a same-day secondary
+// ride's row must not be silently substituted for the one actually analysed. Date is consulted only
+// when activityId is absent (a legacy TodayAnalysis record predating Task 1).
 export function findLedgerEntry(
   entries: RideScoreEntry[],
   activityId: string | undefined,
   date: string
 ): RideScoreEntry | null {
   if (activityId) {
-    const byId = entries.find((e) => e.activityId === activityId);
-    if (byId) return byId;
+    return entries.find((e) => e.activityId === activityId) ?? null;
   }
   return entries.find((e) => e.date === date) ?? null;
 }
@@ -451,7 +486,7 @@ git commit -m "feat(scoring): add findLedgerEntry to locate a single ride's ledg
 
 **Files:**
 - Modify: `app/api/sync/route.ts`
-- Modify: `components/SyncProvider.tsx` (`AppState`)
+- Modify: `components/SyncProvider.tsx` (`AppState`, and Step 8 below — `runAnalysis`)
 - Test: `app/api/sync/route.test.ts`
 
 **Interfaces:**
@@ -460,6 +495,16 @@ git commit -m "feat(scoring): add findLedgerEntry to locate a single ride's ledg
   `scoreLog`/`intentStore` local variables in both handlers.
 - Produces: `todayOutcome: EffectiveOutcome | null` on both `GET` and `POST /api/sync` JSON responses,
   and on `AppState`. Read by Task 5.
+
+**Corrected 2026-08-12 (external review): resolving `todayOutcome` server-side is necessary but not
+sufficient — nothing currently causes the client to RE-FETCH it after Phase 2b's intent parser actually
+writes an overlay.** Verified against the real, already-merged `components/SyncProvider.tsx:135-170`:
+`runAnalysis` calls `/api/analyze`, then loops `/api/intent` up to 6 rounds, but never touches
+`SYNC_QUERY_KEY` — the query `useQuery({ queryKey: SYNC_QUERY_KEY, ... })` binds to. A sync can complete
+(and populate `todayOutcome` from whatever overlay state existed *before* parsing started) while the
+overlay Phase 2b's parser writes moments later never reaches the UI until the athlete triggers another
+full sync. Step 8 below closes this — it must land in the same commit as the rest of this task, since
+`todayOutcome` is not actually usable without it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -613,11 +658,103 @@ describe("GET /api/sync — todayOutcome", () => {
     const body = await res.json();
     expect(body.todayOutcome).toBeNull();
   });
+
+  // Corrected 2026-08-12 (external review): the three cases above leave three real gaps — the file
+  // table's own promise ("active overlay surfaces, pending/superseded overlay does not, no ledger
+  // entry → null, ledger-fallback value matches analysis.executionScore") was only half delivered.
+  // "pending/superseded" tested only pending; "no ledger entry" tested only "no analysis record",
+  // which is a different case from "analysis exists but nothing in the ledger matches it".
+
+  it("is null when today-analysis exists but no ledger row matches it — NOT the same as no analysis record", async () => {
+    scoreEntries = []; // the ledger has nothing for this date/activity at all
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({
+      activityDate: "2026-08-11",
+      activityId: "act-1",
+      executionScore: 3,
+    } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
+    const res = await GET(new Request("http://localhost/api/sync"));
+    const body = await res.json();
+    expect(body.todayOutcome).toBeNull();
+  });
+
+  it("does not surface a SUPERSEDED overlay, even while its status still reads active — distinct from pending", async () => {
+    // A genuinely different isApplicable branch (supersededBy !== null) than the "pending" case above
+    // (status !== "active"). The two are independent gates and one passing tells you nothing about
+    // the other — this is exactly the Phase 2a review lesson: a gate correct where its author was
+    // looking, silently untested one path over.
+    scoreEntries = [
+      {
+        date: "2026-08-11", executionScore: 3, plannedType: null, inferredType: "Z2", planned: false,
+        legacy: false, activityId: "act-1", compliancePct: null, intensityFactor: 0.7, ftpUsed: 280,
+        durationMin: 90, tss: 70,
+      },
+    ];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({
+      activityDate: "2026-08-11", activityId: "act-1", executionScore: 3,
+    } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [
+        {
+          id: "ov-1", activityId: "act-1", date: "2026-08-11", noteFingerprint: "fp-1",
+          status: "active", origin: "self-directed", effectiveExecutionScore: 9, notScoredReason: null,
+          interpretation: null, scoringVersion: 1, schemaVersion: 1,
+          createdAt: "2026-08-11T13:00:00.000Z", approvedAt: null,
+          supersededBy: "ov-2", // superseded — must not apply, regardless of status
+        },
+      ],
+      updatedAt: "2026-08-11T13:00:00.000Z",
+    });
+    const res = await GET(new Request("http://localhost/api/sync"));
+    const body = await res.json();
+    expect(body.todayOutcome.source).toBe("ledger");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(3);
+  });
+});
+
+describe("POST /api/sync — todayOutcome", () => {
+  // Mirrors the GET describe block above at the one case most likely to diverge: GET and POST build
+  // their response object literals independently (app/api/sync/route.ts's two separate handlers), so
+  // a fix applied to one has no structural guarantee of reaching the other. The plan's own file-table
+  // promise names "both GET and POST" explicitly — this is that promise, not a restatement of GET's
+  // coverage under a different name.
+  it("surfaces an active overlay for today's activity", async () => {
+    scoreEntries = [
+      {
+        date: "2026-08-11", executionScore: 3, plannedType: null, inferredType: "Z2", planned: false,
+        legacy: false, activityId: "act-1", compliancePct: null, intensityFactor: 0.7, ftpUsed: 280,
+        durationMin: 90, tss: 70,
+      },
+    ];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({
+      activityDate: "2026-08-11", activityId: "act-1", executionScore: 3,
+    } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [
+        {
+          id: "ov-1", activityId: "act-1", date: "2026-08-11", noteFingerprint: "fp-1",
+          status: "active", origin: "self-directed", effectiveExecutionScore: 8, notScoredReason: null,
+          interpretation: null, scoringVersion: 1, schemaVersion: 1,
+          createdAt: "2026-08-11T13:00:00.000Z", approvedAt: null, supersededBy: null,
+        },
+      ],
+      updatedAt: "2026-08-11T13:00:00.000Z",
+    });
+    // Reuse whatever minimal POST body/mocks the file's existing POST tests already establish (sync
+    // settings, Intervals client, etc. — grep the file's other `await POST(` calls for the pattern
+    // rather than reconstructing it here) so this test isolates the todayOutcome assertion only.
+    const res = await POST(new Request("http://localhost/api/sync", { method: "POST", body: "{}" }));
+    const body = await res.json();
+    expect(body.todayOutcome.source).toBe("overlay");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(8);
+  });
 });
 ```
 
 (`scoreEntries` — reuse the file's existing shared mutable fixture the `readScoreLog` mock closes over;
-grep the file's top-of-describe setup for its declaration rather than introducing a new one.)
+grep the file's top-of-describe setup for its declaration rather than introducing a new one. The `POST`
+describe block will need whatever additional store mocks the file's other POST tests already set up —
+read one of those first rather than guessing at POST's full dependency list.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -700,11 +837,80 @@ Expected: PASS. (`SyncProvider`'s own component test may assert the full shape o
 built from a `GET`/`POST` response — if it does an exact-shape match, add `todayOutcome: null` to that
 fixture's expected response.)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Refetch `/api/sync` after the intent loop — closes the refresh race**
+
+Without this, `todayOutcome` can go stale the moment Phase 2b's parser writes an overlay after this
+sync's response was already rendered — see the note under Task 3's header. In
+`components/SyncProvider.tsx`, `runAnalysis` (`:135`) already has `queryClient` in scope (it's a
+dependency of `doSync` a few lines below) — add it to `runAnalysis`'s own closure and invalidate after
+the intent loop, inside the same `finally` block that already resets `analyzingRef`:
+
+```ts
+  const runAnalysis = useCallback(async (force: boolean) => {
+```
+
+becomes (add `queryClient` to the existing deps array at the bottom of the callback):
+
+```ts
+  const runAnalysis = useCallback(async (force: boolean) => {
+```
+
+Inside the function, replace the existing `finally` block:
+
+```ts
+    } finally {
+      setAnalyzing(false);
+      analyzingRef.current = false;
+    }
+  }, [setState]);
+```
+
+with:
+
+```ts
+    } finally {
+      // Phase 2c: an overlay this loop just wrote is invisible to the UI until /api/sync is
+      // re-fetched — todayOutcome was resolved from whatever the store held BEFORE this loop ran.
+      // Invalidating (not just marking stale) forces the refetch even if the athlete isn't looking at
+      // a component that would otherwise trigger one on its own.
+      await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
+      setAnalyzing(false);
+      analyzingRef.current = false;
+    }
+  }, [setState, queryClient]);
+```
+
+Applies identically whether `runAnalysis` was triggered by the automatic post-sync run (`force=false`,
+from `doSync`) or the manual re-analyse action (`force=true`, from `reAnalyse`) — both paths share this
+one callback, so no separate wiring is needed for either.
+
+- [ ] **Step 8: Test the refetch**
+
+Add to whichever test file already covers `SyncProvider`'s `runAnalysis`/`reAnalyse` behavior (grep for
+an existing `describe` block exercising `/api/analyze` or `/api/intent` mocks — reuse its render/act
+setup rather than inventing new scaffolding):
+
+```tsx
+it("invalidates the sync query after the intent loop, so a newly-written overlay becomes visible without another manual sync", async () => {
+  // Arrange /api/intent to report one round with no more work, and spy on invalidateQueries.
+  // Act: trigger runAnalysis (via the post-sync auto-run or reAnalyse). Assert invalidateQueries was
+  // called with { queryKey: SYNC_QUERY_KEY } after the intent loop settles.
+});
+```
+
+Run it:
 
 ```bash
-git add app/api/sync/route.ts app/api/sync/route.test.ts components/SyncProvider.tsx
-git commit -m "feat(today): resolve today's overlay outcome server-side in /api/sync"
+npx vitest run components/SyncProvider.test.tsx -t "invalidates the sync query"
+```
+
+Expected: PASS once Step 7 lands; FAIL beforehand (the exact bug this step exists to close).
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add app/api/sync/route.ts app/api/sync/route.test.ts components/SyncProvider.tsx components/SyncProvider.test.tsx
+git commit -m "feat(today): resolve today's overlay outcome server-side in /api/sync, and refetch it after intent parsing completes"
 ```
 
 ---
@@ -940,6 +1146,16 @@ describe("RideIntentBlock", () => {
     expect(screen.getByText("descending practice")).toBeInTheDocument();
   });
 
+  it("labels a qualitative objective explicitly, not just via italic styling", () => {
+    // Corrected 2026-08-12 (external review): italic styling alone doesn't communicate the locked
+    // "acknowledged but not graded" requirement — a screen reader gets no signal from font-style, and
+    // a sighted athlete could easily read the item as simply un-evidenced rather than deliberately
+    // ungraded. The label text itself must be present and queryable, not inferred from CSS.
+    render(<RideIntentBlock outcome={outcome()} activityDecoupling={null} />);
+    expect(screen.getByText(/Acknowledged, not graded:/)).toBeInTheDocument();
+    expect(screen.getByText(/Acknowledged, not graded:.*descending practice/)).toBeInTheDocument();
+  });
+
   it("shows the Not-scored message and suppresses any score when effectiveExecutionScore is null", () => {
     const notScored = outcome({
       effectiveExecutionScore: null,
@@ -1043,7 +1259,11 @@ export function RideIntentBlock({
       {qualitative.length > 0 && (
         <ul className="space-y-0.5 text-xs italic text-zinc-500 dark:text-zinc-400">
           {qualitative.map((o, i) => (
-            <li key={i}>{o.description}</li>
+            // Corrected 2026-08-12: italic alone doesn't communicate "acknowledged but not graded" —
+            // the label text carries the meaning, italic is styling on top of it, not instead of it.
+            <li key={i}>
+              <span className="font-medium not-italic">Acknowledged, not graded:</span> {o.description}
+            </li>
           ))}
         </ul>
       )}
@@ -1135,6 +1355,51 @@ it("renders exactly as before when outcome is null (backward compatible)", () =>
   render(<TodayRideCard analysis={{ ...baseAnalysis, executionScore: 5 }} outcome={null} />);
   expect(screen.getByText("5")).toBeInTheDocument();
 });
+
+it("keeps the analysis's own score when a ledger outcome resolved but NO overlay applies — the actual bug this guards", () => {
+  // Corrected 2026-08-12 (external review). This is the one case none of the three tests above can
+  // catch: `outcome` is non-null (a ledger row WAS found — resolveEffectiveOutcome returns a real
+  // EffectiveOutcome for every matched row, prescribed rides included) but `outcome.overlay` is null,
+  // meaning no overlay applies and `source: "ledger"`. The three tests above all happen to pass
+  // whether displayScore gates on `outcome != null` OR `outcome?.overlay != null`, because either the
+  // overlay exists (both gates agree) or outcome itself is null (both gates agree). This is the only
+  // fixture that can tell the two conditions apart: deliberately mismatched scores, no overlay.
+  render(
+    <TodayRideCard
+      analysis={{ ...baseAnalysis, executionScore: 7 }}
+      outcome={{ effectiveExecutionScore: 3, origin: "prescribed", source: "ledger", overlay: null }}
+    />
+  );
+  expect(screen.getByText("7")).toBeInTheDocument();
+  expect(screen.queryByText("3")).not.toBeInTheDocument();
+});
+
+it("keeps the Post-to-Intervals.icu button visible for a Not-scored ride", () => {
+  // Corrected 2026-08-12 (external review). The button lives inside the score's guard block in the
+  // pre-2c code; naively reusing that same guard for displayScore would hide "Post to Intervals.icu"
+  // whenever the ride is Not scored — which is now a materially more common state than before Phase
+  // 2b (any self-directed ride with an empty/unreliable/unmeasurable note), not an edge case.
+  render(
+    <TodayRideCard
+      analysis={{ ...baseAnalysis, executionScore: 2, coachNote: "Good effort out there." }}
+      outcome={{
+        effectiveExecutionScore: null,
+        origin: "unspecified",
+        source: "overlay",
+        overlay: {
+          id: "ov-1", activityId: "a1", date: baseAnalysis.activityDate, noteFingerprint: "fp",
+          status: "active", origin: "unspecified", effectiveExecutionScore: null,
+          notScoredReason: "intent-unreliable",
+          interpretation: { intent: { primaryPurpose: "endurance", phases: [] }, confidence: "low", objectives: [], model: "m", promptVersion: 1 },
+          scoringVersion: null, schemaVersion: 1, createdAt: "2026-08-11T00:00:00.000Z", approvedAt: null, supersededBy: null,
+        },
+      }}
+      onPostNote={() => {}}
+    />
+  );
+  expect(screen.queryByText("2")).not.toBeInTheDocument();
+  expect(screen.getByTitle("Post coach note to Intervals.icu")).toBeInTheDocument();
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1184,35 +1449,59 @@ Immediately before computing `metrics` (`components/dashboard/today.tsx:186`, ri
 `grossBurnKcal` comment block), add the resolved-score derivation:
 
 ```ts
-  // Once an overlay applies, its effective score (or Not-scored reason) is authoritative — the old
+  // Once an overlay APPLIES, its effective score (or Not-scored reason) is authoritative — the old
   // intrinsic scorer's analysis.executionScore must not leak through (design §14.1's "generic 2/10"
-  // pathway this phase replaces). outcome is null only when /api/sync found no matching ledger row
-  // (e.g. before the first sync writes one) — that's the one case the old fallback still applies.
-  const hasOverlay = outcome?.overlay != null;
-  const displayScore = outcome ? outcome.effectiveExecutionScore : analysis.executionScore;
+  // pathway this phase replaces). Gating on `outcome != null` instead of `outcome?.overlay != null`
+  // was a real bug caught by external review (2026-08-12): resolveEffectiveOutcome returns a non-null
+  // EffectiveOutcome for EVERY matched ledger row, prescribed rides included — `outcome` being present
+  // means only "a ledger row was found," not "an overlay applies." The unfixed version would have
+  // swapped in outcome.effectiveExecutionScore for a prescribed ride or an unplanned ride with no
+  // overlay at all, the exact "wrong fallback" this phase's Global Constraints forbid.
+  //
+  // The condition is written inline (not through a separately-assigned boolean) so TypeScript narrows
+  // `outcome` to non-null in the true branch — `outcome?.overlay != null` implies `outcome` itself is
+  // non-null, and modern TS's optional-chain narrowing carries that through automatically here.
+  const displayScore = outcome?.overlay != null ? outcome.effectiveExecutionScore : analysis.executionScore;
 ```
 
-Replace the score block's guard and value (`components/dashboard/today.tsx:226-234`):
+**Corrected 2026-08-12 (external review): the Post-to-Intervals.icu button must not disappear when
+`displayScore` is null.** The pre-2c code nests the button inside the score's guard block — harmless
+before this phase, since `analysis.executionScore` was rarely null for a ride with a coach note. It
+stops being harmless once self-directed rides route through `displayScore`: a `Not scored` ride (now a
+materially common state — any self-directed ride with an empty, unreliable, or unmeasurable note) would
+silently lose its only way to post the coach note to Intervals.icu. Restructure so the outer block
+renders whenever EITHER a score OR the button has something to show, and the score span is the part
+gated internally:
+
+Replace the score block (`components/dashboard/today.tsx:226-252`, from the `{analysis.executionScore
+!= null && (` guard through that `<div>`'s closing `)}`) with:
 
 ```tsx
-      {displayScore != null && (
+      {(displayScore != null || (onPostNote && analysis.coachNote)) && (
         <div className="flex items-center gap-3">
-          <span className="font-mono text-3xl font-bold leading-none text-zinc-800 dark:text-[#ff49c8]">
-            {displayScore}
-            <span className="font-sans text-sm font-normal text-zinc-500 dark:text-zinc-400">/10</span>
-          </span>
-          <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-            {executionScoreLabel(displayScore)}
-          </span>
+          {displayScore != null && (
+            <>
+              <span className="font-mono text-3xl font-bold leading-none text-zinc-800 dark:text-[#ff49c8]">
+                {displayScore}
+                <span className="font-sans text-sm font-normal text-zinc-500 dark:text-zinc-400">/10</span>
+              </span>
+              <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                {executionScoreLabel(displayScore)}
+              </span>
+            </>
+          )}
           {onPostNote && analysis.coachNote && (
 ```
 
-(Leave the rest of that block — the "Post to Intervals.icu" button and its closing tags — unchanged;
-only the score-source lines change.)
+(Leave the button itself — `<button onClick={onPostNote} ...>` through its closing `</button>` and the
+`)}` that closes the `onPostNote && analysis.coachNote &&` block — completely unchanged; only the
+wrapping guard and the score's own conditional changed. The button keeps its existing `ml-auto`, which
+still pushes it right whether or not the score span rendered beside it.)
 
 Add `<RideIntentBlock outcome={outcome ?? null} activityDecoupling={analysis.activityDecoupling} />`
-immediately before that same `{displayScore != null && (` block, so the intent line renders before the
-score per design §12.2 ("Before the score explanation, show the interpreted target").
+immediately before that same `{(displayScore != null || (onPostNote && analysis.coachNote)) && (` block,
+so the intent line renders before the score per design §12.2 ("Before the score explanation, show the
+interpreted target").
 
 In `components/dashboard/TodayView.tsx`, pass the new prop at both call sites. Line 168:
 
@@ -1647,6 +1936,446 @@ git commit -m "fix(scoring): a zero-objective note is intent-unreliable, not sel
 
 ---
 
+## Amendment (2026-08-12, round 2)
+
+Tasks 0-9 above (including their own "Amendment, post-merge" section) are unchanged by this second
+amendment — same discipline as before: append dated tasks, never silently rewrite. This round folds in
+two things found after Tasks 0-9 were written: **Task 10** is a fifth external-review finding (the
+first four — the P1s corrected in place above — were bugs in Tasks 1-7's own not-yet-implemented text,
+so those were fixed directly at the source; this one is a bug in already-shipped Phase 2b code this
+plan's UI will make visibly worse, structurally identical to Tasks 8-9's own "found in review, fixed as
+a new task" shape). **Tasks 11-14** are new scope — richer curated-interval data and smarter
+intent-to-interval matching — requested directly by the user, verified against `main` and (where
+marked) the live Intervals.icu API on 2026-08-12.
+
+**Everything in Tasks 11-14 that cites the live API was verified in the conversation that produced this
+amendment, not independently re-verified while writing it up — where a claim couldn't be checked
+against static code, it's marked so a future implementer re-confirms rather than trusting it silently.**
+
+## Task 10: Stop posting a score to Intervals.icu that the debrief no longer shows (external review, 2026-08-12)
+
+**Files:**
+- Modify: `lib/sync-analysis.ts` (`addCoachNote`)
+- Test: `lib/sync-analysis.test.ts`
+
+**Interfaces:** none new — `addCoachNote`'s signature is unchanged; only the auto-posted description
+string's content changes for one case.
+
+**The bug, verified directly against the merged code (2026-08-12):** `addCoachNote`
+(`lib/sync-analysis.ts:95-101`) posts `updated.executionScore` — `TodayAnalysis`'s raw intrinsic
+score — to Intervals.icu whenever `autoPostCoachNote` is on, unconditionally:
+
+```ts
+if (settings.autoPostCoachNote) {
+  const scoreLine = updated.executionScore !== null ? `\nExecution score: ${updated.executionScore}/10` : "";
+```
+
+`/api/analyze` (which calls `addCoachNote`) runs BEFORE `/api/intent` in the same deferred
+`runAnalysis` step (`components/SyncProvider.tsx:135-170`) — so at the moment this posts, Phase 2b's
+intent parser has not run yet for a fresh sync, and even once it has, `addCoachNote` has no path back
+to re-post. This plan's own Task 6 makes the in-app debrief show `todayOutcome.effectiveExecutionScore`
+instead of the raw score whenever an overlay applies — so a self-directed ride can now show one number
+in NodeVelo and a *different* number on Intervals.icu, permanently, for exactly the rides this whole
+programme exists to score honestly. `plannedDay` (`lib/sync-analysis.ts:55`, already in scope at the
+posting call site) tells the function whether the ride was prescribed — this is enough to fix the
+inconsistency without threading the overlay-resolution seam into a route that Phase 2b's own Global
+Constraints require to stay decoupled from `/api/intent`'s timing.
+
+**The fix — minimal, not the "ideally" option:** for a ride with no `plannedDay` (unplanned — every
+self-directed candidate, and the only population this bug affects, since a prescribed ride's ledger
+score is never displaced by an overlay per decision #14), omit the score line entirely rather than post
+a number that may be wrong. This is the repo's own established "better absent than wrong" convention
+(the same one Phase 1 used for whole-ride decoupling on mixed rides). Reordering `/api/analyze` after
+`/api/intent` so the posted note could use the resolved outcome — the "ideally" option raised in
+review — is explicitly OUT of scope here: it touches two phases' sequencing and a coach-note prompt
+Phase 2b's own Handoff boundary deliberately left untouched ("no task modifies `buildRideAnalysisPrompt`
+or anything under `lib/anthropic-prompts.ts`"); reopening that boundary is a decision for whoever owns
+Phase 2b's plan, not a side effect of this UI phase.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `lib/sync-analysis.test.ts` (reuse the file's existing `addCoachNote` test scaffolding — mocked
+`createEvent`, `readBlockSettings` returning `autoPostCoachNote: true` — grep for an existing posting
+test rather than reconstructing the mocks):
+
+```ts
+it("omits the score line when posting for an UNPLANNED ride — the debrief may show a different, overlay-resolved number", () => {
+  // currentBlock has no day for today's date, so plannedDay resolves to null.
+  // ... arrange executionScore: 2, autoPostCoachNote: true, no matching block day ...
+  // assert createEvent's description does NOT contain "Execution score:"
+});
+
+it("still posts the score line for a PRESCRIBED ride — decision #14: a note never displaces a formal session's score", () => {
+  // currentBlock DOES have a day for today's date, so plannedDay is non-null.
+  // ... assert createEvent's description DOES contain "Execution score: N/10" ...
+});
+```
+
+- [ ] **Step 2: Run tests to verify the first one fails**
+
+```bash
+npx vitest run lib/sync-analysis.test.ts -t "omits the score line"
+```
+
+Expected: FAIL — the current code posts the score line unconditionally.
+
+- [ ] **Step 3: Implement**
+
+In `lib/sync-analysis.ts`, replace the `scoreLine` computation (`:96`):
+
+```ts
+        const scoreLine = updated.executionScore !== null ? `\nExecution score: ${updated.executionScore}/10` : "";
+```
+
+with:
+
+```ts
+        // A prescribed ride's ledger score is never displaced by an overlay (decision #14) — safe to
+        // post as-is. An UNPLANNED ride may acquire a Phase 2b overlay-resolved score that differs
+        // from this raw intrinsic one, and /api/analyze runs before /api/intent parses it — post
+        // nothing rather than a number the in-app debrief may soon disagree with (Phase 1's own
+        // "better absent than wrong" convention; external review, 2026-08-12).
+        const scoreLine =
+          plannedDay && updated.executionScore !== null ? `\nExecution score: ${updated.executionScore}/10` : "";
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+npx vitest run lib/sync-analysis.test.ts
+```
+
+Expected: PASS, full file green.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/sync-analysis.ts lib/sync-analysis.test.ts
+git commit -m "fix(coach-note): stop posting a score to Intervals.icu the debrief may no longer show"
+```
+
+---
+
+## Task 11: Enrich `ExecutedInterval` with fields Intervals.icu already returns
+
+**Files:**
+- Modify: `lib/types.ts` (`ExecutedInterval`)
+- Modify: `lib/intervals-api.ts` (`fetchIntervals`)
+- Test: `lib/intervals-api.test.ts`
+
+**Interfaces:**
+- Produces: `ExecutedInterval` gains `avgGradientPct: number | null`, `avgCadence: number | null`,
+  `groupId: string | null`, `zone: number | null`, `intensity: number | null`. Read by Task 12.
+
+**Locked product decision — do not reopen (user-confirmed):** for self-directed rides, the athlete's
+own curated intervals in Intervals.icu are the authoritative execution boundaries.
+- No distance/kilometre/GPS/position-locator system.
+- No attempt to infer seated-vs-standing position.
+- Preserve Intervals.icu's own interval order and curated grouping.
+- Use only metrics already attached to each curated interval — nothing derived from raw stream data.
+- A genuinely ambiguous intent-to-interval match stays ungraded — never guessed.
+
+**Verified against `main` (2026-08-12):** `ExecutedInterval` (`lib/types.ts:398-406`) currently has only
+`type`, `durationSec`, `avgWatts`, `npWatts`, `avgHr`, `startIndex`, `endIndex`. `fetchIntervals`'s
+mapping (`lib/intervals-api.ts:186-207`) reads none of the five fields below from the raw payload.
+
+**Verified against the live Intervals.icu API, 2026-08-12** (activity `i174624272`, one curated `WORK`
+interval — this specific data point was pulled live in the conversation that produced this amendment;
+re-confirm before relying on exact field names if the implementing session can't see that history): the
+raw response already includes `average_gradient` (a ratio — `0.07907035` = 7.91%), `average_cadence`,
+`zone` (plain int), `intensity` (plain int), and `group_id` (a string shared by repeated efforts —
+three short efforts on that ride all carried `group_id: "237s@267w80rpm"`). **`group_id`'s exact
+semantics are not fully confirmed** — it reads like a nominal target/template string Intervals.icu
+assigns per repeat group, but whether it's athlete-authored or derived from the first rep needs
+confirming (e.g. against a second real multi-rep ride, or Intervals.icu's own API docs if published)
+before Task 12 leans on it for anything beyond display/grouping — Task 12's matching hierarchy already
+treats it as the *weakest* signal for exactly this reason.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `lib/intervals-api.test.ts` (extend the existing `fetchIntervals` test's mocked raw payload
+rather than constructing a new one — grep the file for its current mock shape first):
+
+```ts
+it("maps the five newly-added interval fields", async () => {
+  // raw payload includes average_gradient: 0.07907035, average_cadence: 82, zone: 4, intensity: 95,
+  // group_id: "237s@267w80rpm"
+  const [interval] = await fetchIntervals("act-1");
+  expect(interval.avgGradientPct).toBeCloseTo(7.907, 2);
+  expect(interval.avgCadence).toBe(82);
+  expect(interval.zone).toBe(4);
+  expect(interval.intensity).toBe(95);
+  expect(interval.groupId).toBe("237s@267w80rpm");
+});
+
+it("maps all five to null when the raw payload omits them", async () => {
+  // raw payload has none of the five keys
+  const [interval] = await fetchIntervals("act-1");
+  expect(interval.avgGradientPct).toBeNull();
+  expect(interval.avgCadence).toBeNull();
+  expect(interval.zone).toBeNull();
+  expect(interval.intensity).toBeNull();
+  expect(interval.groupId).toBeNull();
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+```bash
+npx vitest run lib/intervals-api.test.ts -t "maps the five newly-added"
+```
+
+Expected: FAIL — the five fields don't exist on the mapped object.
+
+- [ ] **Step 3: Add the fields to the type**
+
+In `lib/types.ts`, inside `ExecutedInterval` (`:398-406`), add after `endIndex: number | null;`:
+
+```ts
+  // Curated-interval context Intervals.icu already returns per rep, unused until Task 12's matching
+  // hierarchy needs it. Gradient converted to a percentage exactly once, here — never re-derived
+  // downstream. No distance/GPS/position field is added; see this amendment's locked decision.
+  avgGradientPct: number | null;
+  avgCadence: number | null;
+  // Shared by repeated efforts in one curated set (e.g. three reps of "237s@267w80rpm" all carry the
+  // same string) — semantics not fully confirmed beyond that grouping behavior; treat as the weakest
+  // matching signal (Task 12), never authoritative on its own.
+  groupId: string | null;
+  zone: number | null;
+  intensity: number | null;
+```
+
+- [ ] **Step 4: Thread the mapping through**
+
+In `lib/intervals-api.ts`'s `fetchIntervals` (`:192-203`), add to the mapped object literal, after
+`endIndex: num(iv.end_index),`:
+
+```ts
+        avgGradientPct: (() => { const g = num(iv.average_gradient); return g === null ? null : g * 100; })(),
+        avgCadence: num(iv.average_cadence),
+        groupId: typeof iv.group_id === "string" && iv.group_id ? iv.group_id : null,
+        zone: num(iv.zone),
+        intensity: num(iv.intensity),
+```
+
+- [ ] **Step 5: Run tests to verify they pass, then the full check**
+
+```bash
+npx vitest run lib/intervals-api.test.ts && npm run check
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add lib/types.ts lib/intervals-api.ts lib/intervals-api.test.ts
+git commit -m "feat(intervals): map gradient, cadence, zone, intensity and group id onto ExecutedInterval"
+```
+
+---
+
+## Task 12: Smarter intent-to-curated-interval matching
+
+**Files:**
+- Modify: `lib/intent-scoring.ts` (`matchLaps` and its callers)
+- Test: `lib/intent-scoring.test.ts`
+
+**Interfaces:**
+- Consumes: the five fields Task 11 adds to `ExecutedInterval`.
+- Produces: `matchLaps`'s matching behavior extends; no signature change to its existing 3-argument
+  shape (target, laps, resolvedWatts) — the additional hierarchy levels are internal.
+
+**Verified against `main` (2026-08-12):** matching lives in `matchLaps` (`lib/intent-scoring.ts:512-529`)
+— candidates within ±20% (`LAP_DURATION_TOLERANCE`, `:79`) of the stated duration, ranked by closeness
+to resolved watts (or duration alone with no resolved wattage). This already handles an objective with
+an explicit duration and power/percentage target — the strongest case — but has no fallback when a
+target has no explicit duration at all: `gradeDuration`/the effort grader return `ungraded("no duration
+stated...")` for those (`lib/intent-scoring.ts:558` on) rather than attempting any other match.
+
+**Required hierarchy** (strongest to weakest; fall to the next level only when the current one can't
+resolve a match — never blend levels for one objective):
+
+1. **Explicit duration + power/percentage target** — current behavior, unchanged, remains strongest.
+2. **Explicit HR, power-zone, or gradient constraints** (needs Task 11's fields) — e.g. an objective
+   whose note said "the steep climb" or "zone 4 effort" with no stated duration matches against a
+   curated interval's own `zone`/`avgGradientPct` instead.
+3. **Ordered phase reference** ("first", "second", "the main effort") combined with the curated
+   intervals' own order (`startIndex`) and `groupId` — use the interpreter's already-ordered
+   `phases[]`, never re-derive an ordering from the ride data.
+4. **Remaining ambiguity → ungraded, never guessed** — this is the locked decision from Task 11, applied
+   here specifically: if more than one curated interval remains plausible after levels 1-3, the
+   objective stays `measurable: true, scored: false` with an evidence string naming the ambiguity, not
+   a best-effort pick.
+
+**Additional rules:**
+- Efforts sharing a `groupId` are presented as one repeated set (e.g. "3 × ~237s @ ~267W"), not graded
+  as N unrelated objectives — canonicalisation-adjacent to how `lib/intent-scoring.ts`'s existing
+  `identityKey`/`mergeKey` already dedupe/merge stated objectives, but this is about GROUPING MATCHED
+  EVIDENCE, not merging stated claims; keep the two concerns in separate code, don't extend the existing
+  canonicalisation keys to cover this.
+- Not every `WORK`-type interval is necessarily the intended main effort — level 3's order/phase
+  reference is what disambiguates among several `WORK` intervals, not interval type alone.
+- Gradient is terrain CONTEXT for an already-matched effort (useful in the evidence string — "9 min at
+  289W on a 7.9% climb"), never itself proof of execution quality — it must not introduce a new scoring
+  axis.
+- Seated/standing transitions and cornering/braking technique stay `qualitative`/unscored exactly as
+  today — there is no sensor evidence for either, and none of Task 11's new fields changes that.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add to `lib/intent-scoring.test.ts`, near the existing `matchLaps` tests:
+
+```ts
+describe("matchLaps — hierarchy levels beyond explicit duration", () => {
+  it("matches on zone + gradient when the target has no explicit duration", () => {
+    // target: { zone: "Z4" }, no durationMin. One curated interval with zone: 4, avgGradientPct: 7.9.
+    // Expect it to be the match.
+  });
+
+  it("matches on ordered phase reference when duration/zone/gradient are all absent", () => {
+    // Two curated WORK intervals in order; intent phases[] states "first effort" then "second effort"
+    // with no other constraints. Expect the first phase to match the first interval by order.
+  });
+
+  it("groups efforts sharing a groupId into one presented set, not N separate objectives", () => {
+    // Three curated intervals share groupId "237s@267w80rpm". Expect them presented/evidenced as one
+    // repeated-set match, not three independent grades.
+  });
+
+  it("stays ungraded when multiple candidates remain plausible after all levels — never guesses", () => {
+    // Two curated intervals equally satisfy whatever weak constraint the objective states. Expect
+    // scored: false with an evidence string naming the ambiguity.
+  });
+
+  it("never introduces a gradient-based scoring axis — gradient is evidence text only", () => {
+    // Same effort, same watts/duration match, two different avgGradientPct values on otherwise
+    // identical fixtures. Expect the SAME delta both times — only the evidence STRING may differ.
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+```bash
+npx vitest run lib/intent-scoring.test.ts -t "hierarchy levels beyond explicit duration"
+```
+
+Expected: FAIL — the fallback levels don't exist yet.
+
+- [ ] **Step 3: Implement the hierarchy**
+
+Extend `matchLaps` (or add sibling functions it delegates to, following whatever decomposition keeps
+each level independently testable — mirror Task 4 of the Phase 2b plan's own precedent of one named
+function per concern rather than one large conditional). Level 4's ungraded path must be reachable and
+must not silently fall through to level 1's weaker matching by accident — pin this with the "stays
+ungraded" test above before considering the task done.
+
+- [ ] **Step 4: Run tests to verify they pass, then the full check**
+
+```bash
+npx vitest run lib/intent-scoring.test.ts && npm run check
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/intent-scoring.ts lib/intent-scoring.test.ts
+git commit -m "feat(scoring): match intent to curated intervals by zone/gradient/order, never by guessing"
+```
+
+---
+
+## Task 13: Force re-analysis regression test — changed curated intervals
+
+**Files:**
+- Test only: `lib/intent-runner.test.ts`
+
+**Interfaces:** none new — this task adds coverage, no production code changes.
+
+**Verified against `main` (2026-08-12):** `force` is already tested at the boundary/gating level —
+`autoFromDate` still refuses to write anything even with `force: true`, and a prescribed ride is never
+written even with `force: true` (`lib/intent-runner.test.ts:232-280`). `fetchIntervals` is called fresh
+on every run with no caching (`lib/intent-runner.ts:91`, `.catch(() => [])`), so a `force`-triggered
+re-run should already pick up new laps mechanically — but nothing proves this end-to-end, and a search
+of the test file for a two-call sequence with differing `fetchIntervals` mock returns found none.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+it("force re-analysis picks up curated intervals the athlete edited after the first parse", async () => {
+  // Run 1: fetchIntervals mock returns laps set A; runIntentParsing(..., { force: true }) writes ov-1
+  // matched against set A.
+  // Athlete edits their curated intervals in Intervals.icu (same note, no fingerprint change).
+  // Run 2: fetchIntervals mock returns a DIFFERENT laps set B; runIntentParsing(..., { force: true })
+  // writes ov-2, superseding ov-1, matched against set B — not silently reusing ov-1's stale evidence.
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+npx vitest run lib/intent-runner.test.ts -t "force re-analysis picks up curated intervals"
+```
+
+Expected: PASS or FAIL depending on whether the mechanism already works as designed — per the Ground
+truth above, no code change is anticipated; if it fails, that is a real gap in the runner to fix before
+continuing, not a test to loosen.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add lib/intent-runner.test.ts
+git commit -m "test(scoring): prove force re-analysis picks up edited curated intervals"
+```
+
+---
+
+## Task 14: Live smoke test — the real mixed-effort ride
+
+**Files:** none — verification only, per AGENTS.md's "LLM-backed paths need one live smoke run".
+
+**Not yet done against the intent-parsing/scoring pipeline itself** — only the separate coach-note
+prompt fix (`main`'s PR #36) was smoke-tested against real note-truncation data; the intent-scoring path
+built by Phase 2b and extended by Tasks 11-13 above has not been. Run the real pipeline against activity
+`i174624272` (2026-08-11 — note text and curated-interval data already pulled live in the conversation
+that produced this amendment) and confirm, reading actual output rather than asserting a hard-coded
+expected score:
+
+- Both described effort blocks survive parsing intact (not just the first — the original 400-char
+  coach-note truncation bug's exact failure mode; already fixed for the coach-note prompt via
+  `INTENT_NOTE_MAX_CHARS`, worth reconfirming here against this specific note too).
+- The 20-min climb (`1200s @ 289W / NP 293 / HR 175 / grad 7.91%` — this exact figure set was read live
+  in the conversation that produced this amendment; re-pull from the API rather than trusting it stale)
+  matches to its intended objective using Task 12's order/zone/gradient levels.
+- The three short efforts sharing `groupId: "237s@267w80rpm"` are recognizable as one repeated set, not
+  three independent grades.
+- Seated/standing, technical descending, and breathing-technique objectives are acknowledged but stay
+  unscored — not silently dropped, not falsely graded.
+- No aerobic-decoupling claim is made for this ride: its whole-ride VI is 1.23 (verified live,
+  2026-08-12), above `AEROBIC_MAX_VI` (`lib/aerobic.ts:20`, value `1.12`) — `qualifyingPwHr`
+  (`lib/aerobic.ts:59`) should return `null` for it; confirm rather than assume.
+- Judge the output for defensibility against a human reading the note. Do not hard-code an expected
+  score anywhere in this step — a specific number pinned here would be exactly the "example test that
+  happens to pass" this repo's own review history has warned against repeatedly.
+
+- [ ] **Step 1: Run it**
+
+```bash
+curl -sf -X POST http://127.0.0.1:3000/api/intent -H 'content-type: application/json' -d '{"today":"<local date covering 2026-08-11>","force":true}'
+```
+
+Against a sandboxed `NODEVELO_DATA_DIR`, not the primary athlete data — follow the exact sandboxing
+discipline the Phase 2b plan's own Task 9 established (copy `data/`, seed if needed, tear down after,
+verify the primary store was never written) rather than re-deriving a lighter-weight version of it here.
+
+- [ ] **Step 2: Record the result**
+
+No commit — this is a verification step. Record the actual parsed objectives, their matches, and the
+final score/reason in whatever session or handoff notes are tracking this round's completion, and flag
+anything that reads as wrong (an invented number, a falsely-graded qualitative claim, a guessed match
+where the hierarchy should have stayed ungraded) as a new finding rather than silently accepting it.
+
+---
+
 ## Self-review
 
 **Spec coverage** (design §12.2 + Phase 2b plan's Handoff boundary, the two sources this plan was
@@ -1679,6 +2408,30 @@ scoped from):
 - PR #35 review finding N2 (zero-objective notes misclassified self-directed) → Task 9, scoped narrowly
   to `all.length === 0` so case (a) — real but ungradable objectives — is provably unchanged (Step 4's
   explicit call-out of the pre-existing test that must still pass).
+- External review P1 #1 (refresh race) → Task 3 Steps 7-8, with a `SyncProvider` test proving the
+  invalidation actually fires.
+- External review P1 #2 (wrong score fallback) → Task 6, corrected in place; the new regression test is
+  the one fixture (mismatched scores, no overlay) that can actually distinguish the bug from the fix —
+  the plan's original three tests all passed under either version.
+- External review P1 #3 (unsafe date fallback on ID mismatch) → Task 2, corrected in place to mirror
+  `resolveEffectiveOutcome`'s own id-present-never-falls-back contract exactly.
+- External review P1 #4 (aerobic-drift message claiming a segment search that never ran) — **already
+  correct as originally written**: the Global Constraints' locked string ("no sufficiently steady
+  aerobic segment") is design §7 step 5 verbatim, and Phase 2b's own Handoff boundary already scoped
+  segment search out with "the value is already correctly null; only the wording is missing" — the
+  wording IS design's own, not an invented claim. Re-verified against `lib/ride-analysis.ts:242` during
+  this amendment: no change made.
+- External review's "Post button disappears for Not-scored rides" → Task 6, corrected in place.
+- External review's "qualitative objectives need an explicit label" → Task 5, corrected in place.
+- External review's "route tests incomplete" (GET-only, pending-only, no-analysis-only) → Task 3's test
+  block gained the three missing cases (present-but-unmatched ledger, genuinely superseded vs. merely
+  pending, and a `POST` describe block) directly, rather than being left for Task 7 to patch around.
+- External review's "external coach-note/Intervals-post inconsistency" → Task 10 (round 2). Does NOT
+  touch `buildRideAnalysisPrompt` or `lib/anthropic-prompts.ts` — it only changes the auto-posted
+  DESCRIPTION string's score line in `lib/sync-analysis.ts`, leaving Handoff point 4's boundary intact.
+- Round 2's own locked decision (curated intervals are authoritative; no distance/GPS/position
+  inference; ambiguous matches stay ungraded) → Task 11 states it verbatim; Task 12's hierarchy
+  Step 3/4 and its "never guesses" test are where it's actually enforced.
 
 **Placeholder scan:** no TBD/TODO, no "similar to Task N" without repeated code, every step shows the
 actual diff or full new file.
