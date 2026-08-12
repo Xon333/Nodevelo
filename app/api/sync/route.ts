@@ -59,6 +59,7 @@ import { aerobicEffPct, isSteadyEnduranceRide, z2PwHrBaselineBefore } from "@/li
 import { timeAboveAerobicHrFraction } from "@/lib/execution-score";
 import { resolveToday } from "@/lib/date";
 import { deriveFuelPrompt } from "@/lib/fuel-prompt";
+import { isAnthropicConfigured } from "@/lib/anthropic-config";
 import { isSeasonFocus } from "@/lib/season";
 import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
 
@@ -180,7 +181,7 @@ export async function GET(req: Request) {
   });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
-    anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    anthropicConfigured: isAnthropicConfigured(),
     lastSync,
     currentBlock,
     todayAnalysis,
@@ -732,7 +733,7 @@ export async function POST(req: Request) {
       warnings.push(`Intervention validation failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (isAnthropicConfigured()) {
       const todayActivity = lastSync.activities.find(
         (a) => a.date === today && (a.type === "Ride" || a.type === "VirtualRide")
       );

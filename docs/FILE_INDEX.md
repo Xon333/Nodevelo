@@ -90,6 +90,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | Module | Purpose |
 |---|---|
 | `anthropic-api.ts` | SDK shell: client, models, call functions, usage recording |
+| `anthropic-config.ts` | SDK-free Anthropic configuration predicate for deterministic routes |
 | `anthropic-prompts.ts` | ALL prompt assembly, pure/offline-testable. Change via [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape); bump PROMPT_VERSION |
 | `intent-schema.ts` | Ride-intent zod/tool schema; excludes score/compliance fields by construction |
 | `intent-prompt.ts` | Note-only ride-intent prompt, dedicated version, and 2000-character cap |

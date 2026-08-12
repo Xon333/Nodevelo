@@ -23,6 +23,7 @@ live smoke run before "done".
 | Module | Owns | Never contains |
 |---|---|---|
 | `lib/anthropic-api.ts` (265 lines) | The SDK shell: lazy client (240s timeout, 2 retries), model constants, the call functions, usage recording. Re-exports the prompt builders so callers import one module. | Prompt text |
+| `lib/anthropic-config.ts` | SDK-free `isAnthropicConfigured` seam, re-exported by `anthropic-api.ts` but imported directly by deterministic routes that must remain outside the SDK graph. | SDK imports, model calls |
 | `lib/anthropic-prompts.ts` (691 lines) | **All prompt assembly, pure** — no SDK, no network, fully unit-testable. System-prompt cache split, user-message rules, ride-analysis/retrospective/ask-coach prompts, `WORKOUT_SYNTAX_GUIDE`. | Network calls |
 | `lib/tool-schema.ts` | `zodToToolInputSchema` — the ONE zod→Anthropic-tool bridge. | Schemas themselves |
 | `lib/plan-schema.ts`, `lib/retrospective-schema.ts`, `lib/narrative-critic.ts`, `lib/intent-schema.ts` | Each bundles its zod schema + `Tool` + parse/format helpers. There is **no central tool registry**. | |

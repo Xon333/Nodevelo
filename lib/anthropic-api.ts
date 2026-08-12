@@ -3,6 +3,8 @@
 // shell over the SDK that sends those prompts and parses the responses (RV-8 split). The prompt builders
 // and their input types are re-exported below so callers can keep importing them from "@/lib/anthropic-api".
 import Anthropic from "@anthropic-ai/sdk";
+export { isAnthropicConfigured } from "./anthropic-config";
+import { isAnthropicConfigured } from "./anthropic-config";
 import type { IntentInterpretation, StructuredReflection } from "./types";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
@@ -69,10 +71,6 @@ export function generationMaxTokens(lengthWeeks: 2 | 4 | 6 | 8): number {
 let _client: Anthropic | null = null;
 function getClient(): Anthropic {
   return (_client ??= new Anthropic({ timeout: 240_000, maxRetries: 2 }));
-}
-
-export function isAnthropicConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
 // Concatenate the text blocks of a response into the trimmed reply. Shared by the prose calls
