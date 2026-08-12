@@ -157,6 +157,18 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   observation on a future sync (the rolling 90-day window ages it out with no replacement) would freeze
   the value in place with a refreshed timestamp — indistinguishable from a live one on the Model panel.
   Worth a periodic check, not an immediate fix.
+- **Phase 3b's terrain matching can't see a climb and a descent inside the same curated lap.**
+  Flagged 2026-08-12, before 3b's implementation shipped: a real case (an athlete-curated lap for
+  standing-effort intervals with a short recovery descent baked into the same lap) showed the design's
+  climb-XOR-descent match — a single `maxGradientPct` peak value per lap, label-first/gradient-fallback
+  (design §7, `docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md`) — reads
+  only the peak-positive pitch and grades the whole lap a climb; the descent inside it is dropped
+  entirely, not just skewed. There's no `minGradientPct` synced and no concept of a compound/
+  alternating-terrain lap. Interim workaround needs no code: curate one lap per climb and a separate lap
+  per descent — that maps cleanly onto the shipped binary match. Extending the matcher to detect terrain
+  that alternates within one lap is out of 3b's locked scope (design §2 — the implementation plan may not
+  expand those decisions without a new design review) and needs its own scoping session before being
+  built, not a patch onto 3b.
 
 ## Common modifications
 
