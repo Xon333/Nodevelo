@@ -188,6 +188,33 @@ describe("/api/retrospective POST", () => {
     expect(entry.days.map((d: { date: string }) => d.date)).toEqual(block.days.map((d) => d.date));
   });
 
+  it("averages decoupling only across whole-ride-comparable endurance rides", async () => {
+    const steady = sync.activities[0];
+    const mixed = (id: string, date: string, decoupling: number) => ({
+      ...steady,
+      id,
+      date,
+      name: "Mixed climbing ride",
+      normalizedPower: 230,
+      avgWatts: 180,
+      decoupling,
+    });
+
+    h.readLastSync.mockResolvedValueOnce({
+      ...sync,
+      activities: [steady, mixed("a2", "2026-06-17", 8), mixed("a3", "2026-06-20", 10)],
+    });
+    await post();
+    expect(h.generateRetrospective.mock.calls[0][0].avgDecoupling).toBe(3.2);
+
+    h.readLastSync.mockResolvedValueOnce({
+      ...sync,
+      activities: [mixed("a2", "2026-06-17", 8), mixed("a3", "2026-06-20", 10)],
+    });
+    await post();
+    expect(h.generateRetrospective.mock.calls[1][0].avgDecoupling).toBeNull();
+  });
+
   it("carries block.seasonFocus forward onto the archived BlockHistoryEntry (CFS-8)", async () => {
     h.readCurrentBlock.mockResolvedValueOnce({ ...block, seasonFocus: "threshold", seasonPhase: "build" });
     await post();
