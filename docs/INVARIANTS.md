@@ -103,3 +103,60 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     prescribed-only because inferred type comes from whole-ride IF and self-directed rides have no
     compliance concept. Overall and per-type EWMAs use separate sample-derived alphas so self-directed
     volume cannot indirectly alter prescribed-only smoothing.
+41. **Phase 2b writes only on/after `autoFromDate`.** `IntentOverlayStore.autoFromDate` is a persisted
+    floor, initialised on first run to that day's local date (truthy check — a 2a store parses it back
+    `undefined`). Rides before it belong to Phase 4's human-reviewed repair; 2b writes nothing there,
+    not even `pending`. `force` bypasses idempotency, never the boundary.
+42. **The deterministic gate decides scoreability; confidence may only downgrade.** At least one
+    grounded, kind-eligible objective plus evidence scope ≥ `max(INTENT_MIN_SCOPE_MIN,
+    INTENT_SCOPE_MIN_FRACTION × ride minutes)`. `low` vetoes; `medium` drops `structure`; no confidence
+    level can make a ride scoreable that the gate rejected.
+43. **Evidence scope is what the evidence speaks about, never what went well.** A clearly stated target
+    the athlete missed scores low; it never becomes `Not scored`. Scope is the maximum across
+    objectives, not a union — zone arrays are whole-ride aggregates and lap indices carry no stated
+    sample interval, so a union is not computable from the available evidence.
+44. **Grounding is semantic and field-specific.** Zone tokens are masked out with printable text before
+    any numeric scan, so the `4` in `Z4` can never ground `reps: 4`, nor the `5` in `Z5` ground
+    `durationMin: 5`. Each field requires its own unit-bearing form. `verifyGrounding` may only lower
+    the model's claim and takes no FTP: grounding is about what the note says, not what a number
+    converts to.
+45. **Objective decomposition cannot move the score**, via four ordered canonicalisation stages:
+    (1) drop exact semantic duplicates on `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp,
+    reps)`; (2) merge only what remains distinct — `duration` → max, `zone-time` → summed per
+    (zone, basis), `effort` reps never summed; (3) cross-kind subsumption, so one phrase contributes
+    once (`zone-time` subsumes `zone-emphasis` for its zone and a `duration` sharing its span or
+    target); (4) one clamped contribution per kind. Stage order is load-bearing: merging before
+    deduping would make an exact duplicate sum as if it were distinct.
+46. **The athlete's stated `%FTP` is extracted; watts are derived.** `targetPctFtp` and `watts` are
+    separate target fields. The model emits whichever the note states and never converts — it is not
+    given FTP. `resolveTargetWatts` converts against the ledger row's `ftpUsed`; without a usable
+    anchor the objective is ungraded rather than resolved against a guess.
+47. **A zone target is graded on the basis the athlete stated.** `zoneBasis` is `power`, `heart-rate`,
+    or `unspecified`, reported from the note and never inferred from the zone number. An explicit basis
+    never cross-falls-back: if its array is missing, the objective is ungraded. `unspecified` defaults
+    to power, with HR fallback permitted for that basis only, and none at all indoors.
+48. **The intent parser is shown the note and ride duration — nothing else.** No decoupling, scores,
+    zone data, or FTP. The tool schema has no score, compliance, or drift field. Notes are capped at
+    the dedicated `INTENT_NOTE_MAX_CHARS` (2000), not the ride-analysis prompt's 400.
+49. **A note-less ride is decided without an LLM call.** The empty-note branch precedes client
+    construction, and the empty note's fingerprint is stable so the ride is decided once.
+50. **Overlay idempotency reads all records, not applicable ones, and transient call failures write
+    nothing.** `needsParse` skips any unsuperseded `(activityId, noteFingerprint)` record, including
+    `disabled` and `pending`. The runner reports transient failures in `failedIds`; the client echoes
+    them as `skip`, so they wait for a later sync rather than retrying in the same loop.
+51. **Supersession scope follows the ledger row's key.** Activation and supersession are one
+    `updateIntentOverlays` transaction. A row with `activityId` scopes supersession to that id; a legacy
+    row without it resolves through the date index, so every unsuperseded overlay for that date is
+    superseded. Real-data verification on 2026-08-12 found 149 legacy rows and 5 activity-keyed rows,
+    and exercised both paths.
+52. **An overlay binds to the date's primary (longest) ride**, via `primaryRideOfDate` using
+    `buildRideScores`'s strict comparison and array order, first-wins tie included. When the ledger row
+    carries an `activityId`, it must equal that id or the date is skipped and reported; resolution
+    never date-falls-back for a keyed row.
+53. **`effectiveWorkoutType` is provenance, not a learning input.** It records the stated type, never
+    one inferred from IF, and may only accompany `origin: "self-directed"`. Per-type learning stays
+    prescribed-only until the two 1–10 scales are shown comparable on a real corpus and compliance
+    gains a meaning for rides that currently have none.
+54. **`INTENT_PROMPT_VERSION` is independent of `PROMPT_VERSION`.** The latter is stamped on generated
+    plans, today analyses, and block-history entries; bumping it for an unrelated intent prompt would
+    falsely assert changes to all three artifact families.

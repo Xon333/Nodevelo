@@ -55,6 +55,10 @@ One line per file that matters. The authoritative per-file table — README keep
 | `ride-classify.ts` | Off-plan effort-type inference (grouping only, never judgment) |
 | `ride-origin.ts` | Ride-origin derivation + the effective-origin drift rule |
 | `intent-overlay.ts` | Intent-overlay applicability, indexes, and effective-outcome resolution |
+| `intent-queue.ts` | Derivable, idempotent queue for eligible self-directed rides; rollout boundary + primary-ride binding |
+| `intent-grounding.ts` | Field-specific semantic grounding for parsed objective targets |
+| `intent-scoring.ts` | Objective canonicalisation, scoreability gate, deterministic grading, and overlay construction |
+| `intent-runner.ts` | Store/LLM orchestrator: boundary initialization, retry semantics, and atomic supersession |
 | `score-log.ts` | Ledger builder + append-only/rebuild merges (LEDGER-1/2) + provenance stamps. Change when adding ledger fields — needs an idempotent backfill in `sync-ledger.ts` ([RECIPES § scoring](RECIPES.md#change-scoring)) |
 | `athlete-model.ts` | Ledger → EWMA per-type model → ranked `Insight[]` |
 | `athlete-state.ts` | 0–100 fused "right now" score with lived-signal override |
@@ -87,6 +91,8 @@ One line per file that matters. The authoritative per-file table — README keep
 |---|---|
 | `anthropic-api.ts` | SDK shell: client, models, call functions, usage recording |
 | `anthropic-prompts.ts` | ALL prompt assembly, pure/offline-testable. Change via [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape); bump PROMPT_VERSION |
+| `intent-schema.ts` | Ride-intent zod/tool schema; excludes score/compliance fields by construction |
+| `intent-prompt.ts` | Note-only ride-intent prompt, dedicated version, and 2000-character cap |
 | `tool-schema.ts` | The one zod→tool-schema bridge. No test file |
 | `plan-schema.ts` | Block tool schema (`weeks` before `overview` — deliberate) |
 | `retrospective-schema.ts` | Structured-reflection tool schema + re-injection formatter |
@@ -109,6 +115,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 |---|---|---|---|
 | `sync` | GET/POST/DELETE | The sync orchestrator; DELETE removes the current block (the largest route, ~905 lines) | config-check only |
 | `analyze` | POST | Deferred coach-note generation for today's ride | ✅ sonnet |
+| `intent` | POST | Deferred self-directed intent parsing and deterministic overlay scoring | ✅ sonnet |
 | `generate` | POST | Block generation (proposal only) | ✅ sonnet + haiku critic |
 | `write` | POST | Accept a plan: calendar writes w/ rollback, archive, interventions | — |
 | `ask` | POST | Streaming ask-coach | ✅ haiku, streamed |
