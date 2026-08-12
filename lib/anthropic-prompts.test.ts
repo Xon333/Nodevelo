@@ -11,6 +11,7 @@ import {
   type RideAnalysisInput,
 } from "./anthropic-prompts";
 import { computeBlockSkeleton, computeWeekTargets } from "./block-skeleton";
+import { INTENT_NOTE_MAX_CHARS } from "./intent-prompt";
 import { DEFAULT_BLOCK_SETTINGS, type BlockParams, type IntervalComparison } from "./types";
 
 // These prompt builders were inlined in the SDK call functions before the RV-8 split, so they couldn't
@@ -133,6 +134,43 @@ describe("buildRideAnalysisPrompt", () => {
     // (`FUEL PROMPT: ...`) rather than the bare substring, which would false-fail against that sentence.
     expect(buildRideAnalysisPrompt(rideInput())).not.toMatch(/FUEL PROMPT: /);
     expect(buildRideAnalysisPrompt(rideInput({ fuelPromptContext: null }))).not.toMatch(/FUEL PROMPT: /);
+  });
+
+  // Real 849-char note from a live self-directed ride (2026-08-11, activity i174624272). The old 400-char
+  // cap cut it off mid-clause — "...I planned to think" — before the note ever reached the second effort
+  // block ("2nd part roughly km 23 to km 29"), so the model judged the ride on half the athlete's stated
+  // intent without knowing anything was missing.
+  const realSelfDirectedNote =
+    "Intent of the self planned ride\n\n2 main effort parts\n1st km 4 to km 14\n-mix of high gradient " +
+    "shorter climbs and technical descents where the goal is to shift efficently, keep up speed and " +
+    "alternate between seated and standing efforts while trying to control HR and not lose power when " +
+    "switching between seated and standing. Doing standing efforts efficently was also a big goal and I " +
+    "planned to think about my breathing when standing up to not raise my HR just because I stand up. " +
+    "\n\n2nd part roughly  km 23 to km 29\n-Steady upper z4 effort on an 8% climb with some double digit " +
+    "parts and very short flatter portions\n-The goal was to not overcook myself on the double digit " +
+    "gradient parts and to try to keep power mostly the same on lower than average gradients so very much " +
+    "practicing pacing on a not so steady climb.\n\nThen descent and z2 back home";
+
+  it("does not truncate the real self-directed note — the second effort block must reach the model", () => {
+    expect(realSelfDirectedNote.length).toBeGreaterThan(400); // would have been cut by the old cap
+    expect(realSelfDirectedNote.length).toBeLessThan(INTENT_NOTE_MAX_CHARS); // passes through whole
+    const p = buildRideAnalysisPrompt(rideInput({ activityDescription: realSelfDirectedNote }));
+    expect(p).toContain("2nd part roughly  km 23 to km 29");
+    expect(p).toContain("Then descent and z2 back home");
+    expect(p).not.toContain("[note truncated]");
+  });
+
+  it("truncates a note past INTENT_NOTE_MAX_CHARS with an explicit marker, not a silent cut", () => {
+    const long = "x".repeat(INTENT_NOTE_MAX_CHARS + 200);
+    const p = buildRideAnalysisPrompt(rideInput({ activityDescription: long }));
+    expect(p).toContain("… [note truncated]");
+    expect(p).not.toContain("x".repeat(INTENT_NOTE_MAX_CHARS + 1)); // never emits the untruncated tail
+  });
+
+  it("leaves a short note untouched, with no marker", () => {
+    const p = buildRideAnalysisPrompt(rideInput({ activityDescription: "Easy spin, legs felt flat." }));
+    expect(p).toContain('Athlete note: "Easy spin, legs felt flat."');
+    expect(p).not.toContain("[note truncated]");
   });
 });
 
