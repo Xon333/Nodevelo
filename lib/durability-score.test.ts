@@ -5,7 +5,8 @@ import type { ExecutedInterval } from "./types";
 const FTP = 280;
 const TOTAL = 9000; // 2.5 h ride, in stream samples (~1 Hz)
 const iv = (over: Partial<ExecutedInterval>): ExecutedInterval => ({
-  type: "WORK", durationSec: 0, avgWatts: null, npWatts: null, avgHr: null, startIndex: null, endIndex: null, ...over,
+  type: "WORK", durationSec: 0, avgWatts: null, npWatts: null, avgHr: null, startIndex: null, endIndex: null,
+  avgGradientPct: null, groupId: null, zone: null, ...over,
 });
 // Ride-end marker: a Z2 cool-down whose end_index reaches the last sample (intervals span warm-up → cool-down
 // in real data), so timing fractions resolve against the ride end, not the last work effort. 150 W lands in

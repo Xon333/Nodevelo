@@ -403,6 +403,11 @@ export interface ExecutedInterval {
   avgHr: number | null;
   startIndex: number | null; // index into the activity's sample stream
   endIndex: number | null;
+  // Curated-interval context Intervals.icu already returns per rep. Gradient is converted to a
+  // percentage exactly once at the API boundary; no distance/GPS/position inference is added.
+  avgGradientPct: number | null;
+  groupId: string | null;
+  zone: number | null;
 }
 
 // Prescription vs execution, rep-by-rep, with a roll-up — the "second brain" comparison.

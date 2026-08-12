@@ -71,6 +71,9 @@ function lap(durationSec: number, avgWatts: number | null, startIndex: number | 
     avgHr: null,
     startIndex,
     endIndex: startIndex === null ? null : startIndex + durationSec,
+    avgGradientPct: null,
+    groupId: null,
+    zone: null,
   };
 }
 

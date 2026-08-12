@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchActivities, fetchWellness, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
+import { fetchActivities, fetchIntervals, fetchWellness, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
 import type { PowerCurvePoint, SyncData } from "./types";
 
 const mkSync = (over: Partial<SyncData> = {}): SyncData => ({
@@ -110,6 +110,27 @@ describe("intervals-api network failure handling (CR-B)", () => {
     await fetchActivities("2026-01-01", "2026-06-01");
     const init = spy.mock.calls[0][1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("maps the three newly-added interval fields", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 237, average_watts: 267, average_gradient: 0.07907035,
+      zone: 4, group_id: "237s@267w80rpm",
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.avgGradientPct).toBeCloseTo(7.907, 2);
+    expect(interval.zone).toBe(4);
+    expect(interval.groupId).toBe("237s@267w80rpm");
+  });
+
+  it("maps all three to null when the raw payload omits them", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 237, average_watts: 267,
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.avgGradientPct).toBeNull();
+    expect(interval.zone).toBeNull();
+    expect(interval.groupId).toBeNull();
   });
 
   it("maps power metrics off the keys intervals.icu actually returns (NP/decoupling/max)", async () => {
