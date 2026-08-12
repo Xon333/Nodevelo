@@ -107,4 +107,15 @@ describe("addCoachNote — score-line posting (external review, 2026-08-12)", ()
     const [call] = vi.mocked(api.createEvent).mock.calls;
     expect(call[0].description).toContain("Execution score: 2/10");
   });
+
+  it("omits the score line when the block schedules Rest — a ride on that date is unplanned", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue({
+      goal: "Build", lengthWeeks: 4, startDate: TODAY, endDate: TODAY, overview: "", createdAt: TODAY,
+      days: [{ date: TODAY, name: "Rest", type: "Rest", durationMin: 0 }],
+    } as CurrentBlock);
+    await addCoachNote(TODAY, []);
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ plannedName: null }));
+    const [call] = vi.mocked(api.createEvent).mock.calls;
+    expect(call[0].description).not.toContain("Execution score:");
+  });
 });
