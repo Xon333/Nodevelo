@@ -28,3 +28,19 @@ export function originOf(entry: Pick<RideScoreEntry, "planned">): RideOrigin {
 export function countsAsDrift(origin: RideOrigin, legacy: boolean): boolean {
   return !legacy && origin === "unspecified";
 }
+
+// Locates the ledger row a TodayAnalysis (or any single-ride read site) should resolve its overlay
+// against. Mirrors resolveEffectiveOutcome's own contract (lib/intent-overlay.ts) exactly: a present
+// activityId is authoritative and NEVER falls back to date, even on a miss — a same-day secondary
+// ride's row must not be silently substituted for the one actually analysed. Date is consulted only
+// when activityId is absent (a legacy TodayAnalysis record predating Task 1).
+export function findLedgerEntry(
+  entries: RideScoreEntry[],
+  activityId: string | undefined,
+  date: string
+): RideScoreEntry | null {
+  if (activityId) {
+    return entries.find((e) => e.activityId === activityId) ?? null;
+  }
+  return entries.find((e) => e.date === date) ?? null;
+}
