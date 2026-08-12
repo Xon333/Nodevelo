@@ -93,7 +93,11 @@ export async function addCoachNote(
     if (coachNote) {
       const settings = await readBlockSettings();
       if (settings.autoPostCoachNote) {
-        const scoreLine = updated.executionScore !== null ? `\nExecution score: ${updated.executionScore}/10` : "";
+        // A prescribed ride's ledger score is never displaced by an overlay (decision #14) — safe to
+        // post as-is. An unplanned ride may acquire a different Phase 2b overlay-resolved score after
+        // /api/analyze runs, so post nothing rather than a number the in-app debrief may disagree with.
+        const scoreLine =
+          plannedDay && updated.executionScore !== null ? `\nExecution score: ${updated.executionScore}/10` : "";
         await createEvent({
           category: "NOTE",
           start_date_local: `${today}T00:00:00`,
