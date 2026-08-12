@@ -19,6 +19,7 @@ import {
   readDispositions,
   readCalibration,
   readInterventionLog,
+  readIntentOverlays,
   readLastSync,
   readLedgerRebuild,
   readLoadingLog,
@@ -83,12 +84,13 @@ export function resolveCarbsOptimumForPrompt(
 // (so the CoachSnapshot resolves against the calendar day the athlete sees); falls back to UTC.
 export async function GET(req: Request) {
   const today = resolveToday(new URL(req.url).searchParams.get("today"));
-  const [lastSync, currentBlock, todayAnalysis, scoreLog, profile, settings, dispositions, interventionLog, baselines, morningChecks, physStore, calibration] =
+  const [lastSync, currentBlock, todayAnalysis, scoreLog, intentStore, profile, settings, dispositions, interventionLog, baselines, morningChecks, physStore, calibration] =
     await Promise.all([
       readLastSync(),
       readCurrentBlock(),
       readTodayAnalysis(),
       readScoreLog(),
+      readIntentOverlays(),
       readAthleteProfile(),
       readBlockSettings(),
       readDispositions(),
@@ -107,7 +109,7 @@ export async function GET(req: Request) {
   const polarization = lastSync ? computeIntensityDistribution(lastSync.activities, profile.performance.ftp, 7, today) : null;
   // Signal fusion (§5): one glanceable state from the fused signals.
   const athleteState = computeAthleteState(
-    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), acwr, today),
+    athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries, intentStore.overlays), acwr, today),
     resolveAthleteStateWeights(settings.athleteStateWeights)
   );
   // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/ask, so the
@@ -158,6 +160,7 @@ export async function GET(req: Request) {
     sync: lastSync,
     todayAnalysis,
     scoreEntries: scoreLog.entries,
+    intentOverlays: intentStore.overlays,
     baselines,
     dispositions: dispositions.entries,
     interventionLog,
@@ -715,8 +718,8 @@ export async function POST(req: Request) {
     // Close the learning loop: re-evaluate any matured interventions against the freshly
     // updated model + sync, marking whether acting on each past insight actually worked.
     try {
-      const scoreLog = await readScoreLog();
-      const model = buildAthleteModel(scoreLog.entries);
+      const [scoreLog, intentStore] = await Promise.all([readScoreLog(), readIntentOverlays()]);
+      const model = buildAthleteModel(scoreLog.entries, intentStore.overlays);
       // HR-36: read-modify-write inside one locked critical section — a concurrent write's
       // fresh-intervention merge (app/api/write/route.ts) can no longer read the same stale base and
       // clobber this validation pass (or vice versa). validateInterventions itself only bumps
@@ -949,14 +952,17 @@ export async function POST(req: Request) {
     const loadRamp = computeLoadRamp(lastSync.activities, today);
     const acwr = computeAcwr(lastSync.activities, resolveAcwrBands((await readBlockSettings()).acwrBands), today);
     const polarization = computeIntensityDistribution(lastSync.activities, (await readAthleteProfile()).performance.ftp, 7, today);
-    const scoreLog = await readScoreLog();
-    const dispositions = await readDispositions();
+    const [scoreLog, intentStore, dispositions] = await Promise.all([
+      readScoreLog(),
+      readIntentOverlays(),
+      readDispositions(),
+    ]);
     // A fresh ride has its deterministic analysis but no coach note yet — tell the client to
     // trigger /api/analyze for the (slow) LLM note rather than blocking this response on it.
     const analysisPending = todayAnalysis !== null && !todayAnalysis.coachNote;
     // Signal fusion (§5) recomputed on the fresh data so the glanceable state updates after a sync.
     const athleteState = computeAthleteState(
-      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries), acwr, today),
+      athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries, intentStore.overlays), acwr, today),
       resolveAthleteStateWeights((await readBlockSettings()).athleteStateWeights)
     );
     // Rebuild the CoachSnapshot on the fresh data so the Today card updates after a sync without a
@@ -981,6 +987,7 @@ export async function POST(req: Request) {
       sync: lastSync,
       todayAnalysis,
       scoreEntries: scoreLog.entries,
+      intentOverlays: intentStore.overlays,
       baselines: baselinesForSnap,
       dispositions: dispositions.entries,
       interventionLog: interventionLogForSnap,

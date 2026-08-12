@@ -1,7 +1,18 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import type { IntentOverlay, RideScoreEntry, WorkoutType } from "./types";
 import type { AerobicDiscipline } from "./execution-score";
+
+const MODEL_CONSUMERS = [
+  "lib/coach-snapshot.ts",
+  "lib/season-signals.ts",
+  "app/api/generate/route.ts",
+  "app/api/write/route.ts",
+  "app/api/trends/route.ts",
+  "app/api/sync/route.ts",
+];
 
 let day = 0;
 const entry = (type: WorkoutType, executionScore: number, compliancePct: number | null = 100): RideScoreEntry => ({
@@ -60,6 +71,27 @@ describe("buildAthleteModel — effective outcomes", () => {
     expect(model.overallExecEwma).toBeGreaterThan(8);
     expect(model.behaviour.offPlanPct).toBe(0);
     expect(model.behaviour.unplannedRides).toBe(1);
+  });
+
+  it("every production call site passes overlays", () => {
+    const calls = MODEL_CONSUMERS.flatMap((file) =>
+      [...readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8").matchAll(/buildAthleteModel\(([^)]*)\)/g)]
+        .map((match) => `${file}: ${match[1]}`)
+    );
+    expect(calls).toHaveLength(8);
+    for (const call of calls) expect(call).toContain(",");
+  });
+
+  it("the entries and overlays resolve one consistent drift and sample result for every consumer", () => {
+    const entries = [scored("2026-01-01"), scored("2026-01-02", {
+      planned: false, compliancePct: null, activityId: "a2", executionScore: 4,
+    })];
+    const overlays = [selfDirected("a2", "2026-01-02", 9)];
+    const resolved = buildAthleteModel(entries, overlays);
+    expect({ offPlanPct: resolved.behaviour.offPlanPct, sampleSize: resolved.sampleSize }).toEqual({
+      offPlanPct: 0,
+      sampleSize: 2,
+    });
   });
 
   it("keeps self-directed rides out of per-type and compliance statistics", () => {

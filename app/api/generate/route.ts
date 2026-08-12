@@ -13,7 +13,7 @@ import {
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
 import { extractBlockFacts } from "@/lib/narrative-critic";
-import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
+import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readIntentOverlays, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { formatReflectionsForPrompt } from "@/lib/retrospective-schema";
 import { formatQuirksForPrompt } from "@/lib/quirks";
@@ -90,13 +90,14 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, physStore, interventionLog, baselines, currentBlock, blockHistory, quirks, existingSeason] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, intentStore, physStore, interventionLog, baselines, currentBlock, blockHistory, quirks, existingSeason] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
       readBlockSettings(),
       latestRetrospectiveSeeds(),
       readScoreLog(),
+      readIntentOverlays(),
       readPhysiology(),
       readInterventionLog(),
       readRollingBaselines(),
@@ -179,7 +180,7 @@ export async function POST(req: Request) {
     // ONE synthesised coaching block: the athlete model's ranked insights (weak/under-
     // delivering/trending types, off-plan drift) folded together with each dimension's
     // validation track record — instead of three overlapping context blocks.
-    const athleteModel = buildAthleteModel(scoreLog.entries);
+    const athleteModel = buildAthleteModel(scoreLog.entries, intentStore.overlays);
     const insights = deriveInsights(athleteModel); // shared by directives + Track B durability selection
     const directivesContext = synthesizeCoachingDirectives(insights, summariseValidation(interventionLog));
 

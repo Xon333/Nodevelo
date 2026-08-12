@@ -13,6 +13,7 @@ import type {
   DispositionEntry,
   FitnessMetrics,
   InterventionLog,
+  IntentOverlay,
   LoadRampAlert,
   MorningCheckEntry,
   ReadinessSignal,
@@ -319,6 +320,7 @@ export interface CoachSnapshotSources {
   sync: SyncData | null;
   todayAnalysis: TodayAnalysis | null;
   scoreEntries: RideScoreEntry[];
+  intentOverlays: IntentOverlay[];
   baselines: RollingBaselines;
   dispositions: DispositionEntry[];
   interventionLog: InterventionLog;
@@ -332,7 +334,7 @@ export interface CoachSnapshotSources {
 }
 
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
-  const athleteModel = buildAthleteModel(s.scoreEntries);
+  const athleteModel = buildAthleteModel(s.scoreEntries, s.intentOverlays);
   const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date, s.scoreEntries, s.ftp, s.weeklyBalance);
   // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;

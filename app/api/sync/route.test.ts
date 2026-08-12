@@ -56,6 +56,7 @@ vi.mock("@/lib/data-store", () => ({
   readMorningChecks: vi.fn(),
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
+  readIntentOverlays: vi.fn(),
   readTodayAnalysis: vi.fn(),
   updateScoreLog: vi.fn(),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
@@ -236,6 +237,7 @@ beforeEach(() => {
     updatedAt: "",
   });
   vi.mocked(store.readScoreLog).mockImplementation(async () => ({ entries: scoreEntries, updatedAt: "" }));
+  vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
   vi.mocked(store.updateScoreLog).mockImplementation(async (mutate) => {
     scoreEntries = await mutate(scoreEntries);

@@ -3,6 +3,7 @@ import {
   readAthleteProfile,
   readBlockHistory,
   readInterventionLog,
+  readIntentOverlays,
   readLastSync,
   readRollingBaselines,
   readScoreLog,
@@ -31,12 +32,13 @@ export async function GET(req: Request) {
 // NOT reproduce intervals.icu's raw PMC/power-curve charts — only signals that
 // tie training execution to the athlete's own blocks and adaptation.
 async function assembleTrends(req: Request): Promise<Response> {
-  const [sync, profile, history, baselines, scoreLog, interventionLog, physiology] = await Promise.all([
+  const [sync, profile, history, baselines, scoreLog, intentStore, interventionLog, physiology] = await Promise.all([
     readLastSync(),
     readAthleteProfile(),
     readBlockHistory(),
     readRollingBaselines(),
     readScoreLog(),
+    readIntentOverlays(),
     readInterventionLog(),
     readPhysiology(),
   ]);
@@ -108,7 +110,7 @@ async function assembleTrends(req: Request): Promise<Response> {
 
 
   // Learned coaching insights from the execution history (the "second brain").
-  const model = buildAthleteModel(scoreLog.entries);
+  const model = buildAthleteModel(scoreLog.entries, intentStore.overlays);
   const insights = deriveInsights(model);
 
   // Recent-7-day snapshot — the live-data intent relocated from the Profile page, where it

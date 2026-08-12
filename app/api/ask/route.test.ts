@@ -9,6 +9,7 @@ vi.mock("@/lib/data-store", () => ({
   readTodayAnalysis: vi.fn(),
   readDispositions: vi.fn(),
   readScoreLog: vi.fn(),
+  readIntentOverlays: vi.fn(),
   readRollingBaselines: vi.fn(),
   readInterventionLog: vi.fn(),
   readMorningChecks: vi.fn(),
@@ -46,6 +47,7 @@ beforeEach(() => {
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(todayAnalysis);
   vi.mocked(store.readDispositions).mockResolvedValue({ entries: [{ date: TODAY, disposition: "compromised", reason: "equipment", setAt: "" }], updatedAt: "" });
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
+  vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
   vi.mocked(store.readRollingBaselines).mockResolvedValue({} as never);
   vi.mocked(store.readInterventionLog).mockResolvedValue({ records: [], updatedAt: "" });
   vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [], updatedAt: "" });
