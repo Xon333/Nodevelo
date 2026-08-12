@@ -62,7 +62,9 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
 | **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
 | **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
 | **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
-| **Adaptive self-directed coach — Phases 3–4** | Phases 1–2c shipped → [ARCHIVE](ARCHIVE.md#adaptive-self-directed-coach--phases-12c-2026-08-0612). Phase 3 must first design how curated interval gradient/group metadata is persisted and presented; do not infer terrain or widen matching before that. Phase 4 is the human-reviewed historical repair. | [design](docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md) |
+| **Adaptive self-directed coach — Phase 3a** | Weekly TSS envelope + next-session suggestion + no-block Today UI (design §8-10, §12.1). Phases 1–2c shipped → [ARCHIVE](ARCHIVE.md#adaptive-self-directed-coach--phases-12c-2026-08-0612). Not started; scope in a fresh session via the kickoff brief. | [design](docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md) · [scoping handoff](docs/superpowers/2026-08-12-adaptive-coach-p3a-scoping-handoff.md) |
+| **Adaptive self-directed coach — Phase 3b** | Curated-interval HR/cadence/gradient/VAM context for self-directed intent-matching (label-first match, gradient+VAM always attached as evidence). Design brainstormed and written 2026-08-12; implementation plan for Codex in progress. | [design](docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md) |
+| **Adaptive self-directed coach — Phase 4** | One-time historical three-week repair (report → human approval → overlay write → derived-state rebuild), human-reviewed. Not started. | [design](docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md) |
 
 ## Blocked / dormant
 
