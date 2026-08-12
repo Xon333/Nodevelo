@@ -12,6 +12,39 @@ exact commits.
 
 ---
 
+## Adaptive self-directed coach — Phases 1–2c (2026-08-06–12)
+
+- **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
+  variability penalties from structurally unsuitable data.
+- **Phase 2a · origin + overlays (PR #29):** the immutable ledger stays untouched while coherent,
+  active overlays can supply effective origin and outcome to derived coaching state.
+- **Phase 2b · intent scoring (PR #35):** deferred note parsing extracts grounded objectives; deterministic
+  scoring writes idempotent overlays behind an `autoFromDate` rollout boundary.
+- **Phase 2c · debrief (PRs #38/#40):** Today renders interpreted intent, supported evidence, and the
+  overlay-resolved score or `Not scored`; sync refreshes the result after parsing. Phases 3–4 remain in
+  [ROADMAP.md](ROADMAP.md).
+- **Coach-note completeness (PR #36):** ride analysis now shares the intent parser's 2,000-character note
+  cap and marks real truncation instead of silently cutting at 400 characters.
+
+## Nutrition hardening follow-ups (2026-08-05–06)
+
+- **Accounting + calibration (PRs #11–#15, #19, #22):** active burn is net of its resting cost;
+  day-type solves are confidence-gated, reset safely, shrink toward a same-window pooled solve, and use
+  window-mean weight for RMR.
+- **Safety + validation (PRs #18/#20):** carb-reference validation covers pre/in-ride lines, and Today
+  warns when the prescription itself falls in the app's low-EA band without changing calories.
+- **Honest presentation (PRs #21/#25–#27):** target arithmetic is whole-kcal consistent; imbalance
+  warnings bind to the active record; gross-vs-net burn is explained; mechanical kJ is no longer labelled
+  as kcal.
+
+## Proven-workout library — domain substrate only (2026-08-03/11)
+
+`lib/workout-library.ts` now owns fingerprints, manual-promotion eligibility, evidence updates, and
+slot-matched selection (PRs #3/#32). It is intentionally not wired to persistence, generation, export,
+or UI; the remaining product work stays in [ROADMAP.md](ROADMAP.md).
+
+---
+
 ## Developer workflow — isolated Claude + Codex integration (2026-08-03)
 
 Claude Desktop, Codex Desktop, and optional T3 Code sessions now share one low-friction protocol:

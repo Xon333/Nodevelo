@@ -35,7 +35,7 @@ live smoke run before "done".
 
 - `GENERATION_MODEL = "claude-sonnet-4-6"` — block generation, ride analysis, retrospectives.
 - `QUICK_MODEL = "claude-haiku-4-5"` — ask-coach (streamed), narrative critic.
-- `TEMPERATURE = 0.3` · `PROMPT_VERSION = 6` (generation/analysis artifacts) · `INTENT_PROMPT_VERSION = 1` (ride-intent artifacts; independently versioned).
+- `TEMPERATURE = 0.3` · `PROMPT_VERSION = 7` (generation/analysis artifacts) · `INTENT_PROMPT_VERSION = 1` (ride-intent artifacts; independently versioned).
 - `generationMaxTokens(lengthWeeks)`: 8k (2/4wk) → 12k (6wk) → 16k (8wk) — fixes silent truncation of long blocks.
 - ⚠️ Model IDs are string literals duplicated as keys in `ai-usage.ts`'s `PRICING` table. An unknown model records **$0 cost silently** — when bumping a model, update both files.
 

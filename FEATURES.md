@@ -18,8 +18,9 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Self-directed intent learning (AI-assisted)** — after sync, an athlete-authored ride note is parsed
   into grounded objectives and graded deterministically against available evidence. A trustworthy
   result teaches the overall athlete model and no longer counts as plan drift; prescribed sessions
-  remain ledger-authoritative. The Today ride card still shows its ledger score until Phase 2c adds
-  overlay rendering. `app/api/intent`, `lib/intent-runner.ts`, `lib/intent-scoring.ts`
+  remain ledger-authoritative. The Today debrief shows the interpreted intent, supported evidence,
+  and overlay-resolved score or `Not scored` reason. `app/api/intent`, `lib/intent-runner.ts`,
+  `lib/intent-scoring.ts`, `components/dashboard/ride-intent.tsx`
 
 ## Season & macro-periodization (Plan page)
 - **Season objective + target events** — an athlete-owned objective string and A/B/C-priority event
@@ -151,7 +152,9 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **CoachSnapshot (#1)** — one deterministic resolved-numbers bundle (today execution · form + TSB-as-
   actionable-modifier · fuel · fused state · directives · disposition · morning check) read by Ask-Coach
   and generation, so the LLM can't invent numbers. `lib/coach-snapshot.ts`
-- **Per-athlete calibration (partial)** — auto-tuned EWMA α + ACWR bands (the hybrid auto/manual hook). `lib/calibration.ts`
+- **Per-athlete calibration (partial)** — sample-tiered EWMA α plus confidence-gated deep-fatigue,
+  decoupling, endurance-carb, and per-type IF values. ACWR, the remaining TSB edges, durability, and
+  athlete-state weights keep population defaults with manual overrides. `lib/calibration.ts`
 
 ## Model page (Wave 5)
 Three stacked groups, reading order matching how the athlete actually asks:
@@ -204,9 +207,12 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
 - **Early goal-trend warning** — Today surfaces an informational, evidence-gated warning when the
   observed 21-day weight trend misses the configured goal despite estimated prescription adherence;
   calories stay unchanged while maintenance calibration gathers stronger evidence.
-- **Deterministic targets** — daily kcal (base + session kJ + buffer; flat on rest days) + pre/in/post
-  carbs & protein; buffer self-adjusts ±150 kcal against the 7-day weight trend. The AI only phrases the
-  pre-computed table. `lib/nutrition.ts`
+- **Deterministic targets** — daily kcal = trusted rest/train `k` (pooled/default fallback while the
+  active split is low-confidence) × RMR + net active burn + the feed-forward weight-goal buffer, with
+  an RMR floor. Pre/in/post carbs and protein use the same resolved model; AI only phrases the table.
+  `lib/nutrition.ts`
+- **Prescription safety warning** — Today warns when the prescribed target itself falls into the app's
+  low-EA band. Informational only: it never changes calories. `lib/nutrition.ts`
 - **Weekly energy balance (§6)** — precise intake-vs-need ratio per complete week (need = the app's
   own daily-target formula, day-matched to logged days), banded low/adequate/ample; owns the
   snapshot's `fuelingState` when present (EA proxy is the fallback). Trends readout + CoachSnapshot.

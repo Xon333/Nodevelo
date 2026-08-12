@@ -53,8 +53,9 @@ One line per file that matters. The authoritative per-file table — README keep
 | `durability-score.ts` | Grades template delivery (±2); `EXPECTS_EMBEDDED_EFFORTS` gate |
 | `ride-analysis.ts` | Today-ride analysis assembler (extracted from sync for testability) |
 | `ride-classify.ts` | Off-plan effort-type inference (grouping only, never judgment) |
-| `ride-origin.ts` | Ride-origin derivation + the effective-origin drift rule |
+| `ride-origin.ts` | Ride-origin derivation, ledger-row lookup, and the effective-origin drift rule |
 | `intent-overlay.ts` | Intent-overlay applicability, indexes, and effective-outcome resolution |
+| `intent-display.ts` | Copy formatters for overlay-aware ride debriefs |
 | `intent-queue.ts` | Derivable, idempotent queue for eligible self-directed rides; rollout boundary + primary-ride binding |
 | `intent-grounding.ts` | Field-specific semantic grounding for parsed objective targets |
 | `intent-scoring.ts` | Objective canonicalisation, scoreability gate, deterministic grading, and overlay construction |

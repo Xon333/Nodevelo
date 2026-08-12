@@ -70,9 +70,10 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 
 ## Known rough edges
 
-- **Phase 2b's intent producer shipped 2026-08-12.** A self-directed ride can now replace the ledger's
+- **Phases 2b–2c shipped 2026-08-12.** A self-directed ride can now replace the ledger's
   generic off-plan verdict in derived state with a deterministic score against objectives recovered
-  from the athlete's own note. Sandboxed real-data verification started at sample size 27, overall
+  from the athlete's own note; the Today debrief renders that effective outcome and refreshes after
+  deferred parsing completes. Sandboxed real-data verification started at sample size 27, overall
   execution EWMA 6.7, all-time off-plan 50%, and recent drift quality 5.0; the three live-smoke
   overlays moved those reads to 29, 5.5, 46%, and 5.3. The August 5 and 6 acceptance rides resolved as
   medium-confidence RaceSim outcomes scored 5 and 4. The model did invent/assume two ungrounded
@@ -87,9 +88,6 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   intent existed; it now maps to `intent-unreliable`/unspecified. Neither fix touches classification of a
   ride with a real, gradable note (e.g. two described effort blocks) — those already resolve
   `self-directed` and are excluded from drift by construction, unaffected by either fix.
-- **The ride debrief is still ledger-based.** Phase 2b changes derived coaching state only. The Today
-  card may therefore keep showing the old ledger score even while the athlete model reads an overlay;
-  rendering the interpreted intent and effective score belongs to Phase 2c.
 - **`autoFromDate` gates rollout.** The historical no-block period from 2026-07-24 to the persisted
   boundary remains Phase 4's human-reviewed work and is never auto-written by 2b.
 - **Per-type learning deliberately excludes self-directed rides.** Their current inferred type comes
@@ -118,10 +116,6 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   existing guarantee still holds there — don't assume it does because it held somewhere else. All four are
   fixed on `main` as of PR #29; see `lib/intent-overlay.ts`'s `isCoherent`/`isApplicable` and
   `lib/athlete-model.ts`'s `overallScored` filter for the closed shape.
-  Phase 2c (the debrief UI) is the first render-layer consumer of `resolveEffectiveOutcome`'s output —
-  it resolves fresh per `/api/sync` request rather than persisting the verdict into
-  `today-analysis.json`, specifically because Phase 2b's intent parse is deferred/async and can
-  complete after the day's analysis was last written.
 - **Off-plan rides without trustworthy measurable intent (and planned-but-surgy rides) still score
   flat.** Phase 1 (2026-08-06) removed
   the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,

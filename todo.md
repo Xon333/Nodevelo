@@ -14,18 +14,14 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
-**Block-generation architecture — research-backed redesign (2026-07-24).** P1, P2, P3a-c, P4, P5, and
-P7(verify) all shipped → [ARCHIVE.md](ARCHIVE.md) "Block-generation architecture redesign — P1–P7
-(2026-07-24)". Full plan detail + known gaps →
+**Block-generation architecture follow-ons.** Shipped work → [ARCHIVE.md](ARCHIVE.md). Known gaps →
 [docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
 
 - ☐ P3d–e, P6 `feat` — queued. P3d/e deliberately deferred (need new forward-projection code / new
   regen infrastructure, and no live evidence yet justifies either). P6 not yet scoped to
   file/function detail.
 
-**Block-generation Phases A + B (2026-07-29).** ☑ Both shipped → [ARCHIVE.md](ARCHIVE.md)
-"Block generation — recovery-week defect + deterministic skeleton (Phase A + B, 2026-07-29)". The
-season tripwire fired and its prescribed response is built. One item stays open below.
+**Block-generation live verification.** Phases A + B shipped → [ARCHIVE.md](ARCHIVE.md). One check remains:
 
 - ☐ P2 `bug` **Confirm loading weeks now hit their hour target.** Phase B took them from 1/4 inside
   the 30-min tolerance to 3/4 (measured −20/−34/−10 min vs 12h; recovery week −4). The residual cause
@@ -34,12 +30,6 @@ season tripwire fired and its prescribed response is built. One item stays open 
   conformance warnings 3→0. **Unverified for hours:** needs one live 4-week generation to confirm the
   freed minutes actually land. If a week still misses, read the `SKELETON:` warnings first — they name
   the exact day and slot.
-
-**HR-2026-07-23 — hostile review of the block/sync/archive data flows.** All 29 findings (HR-31
-through HR-59) fixed → [ARCHIVE.md](ARCHIVE.md) "Hostile review — block/sync/archive data flows
-(HR-2026-07-23)". Nothing open from this round.
-
----
 
 **Post-2026-08-03: hybrid Claude + Codex workflow — shipped but not exercised live yet.** Sequential
 handoff is proven (3 Codex PRs landed 2026-08-03, zero regressions); the concurrency half of the
@@ -70,21 +60,6 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 ---
 
 - ☐ decide `i-have-adhd/`: delete or properly install (untracked clone at repo root since 2026-06-25)
-- ☑ **Nutrition Phases 1–3, the buffer redesign, and day-type NEAT calibration — shipped &
-  live-verified 2026-07-30 through 2026-08-01.**
-  Record → [ARCHIVE.md](ARCHIVE.md) · how it works → [docs/systems/09-nutrition.md](docs/systems/09-nutrition.md).
-  Five defects that were **live in production** (training days prescribing less than rest days; no way
-  to express a deficit; `targetWeight` never read; mechanical `kj` treated as calories; off-bike burn
-  dropped), then NEAT derived from the athlete's own logs, then the buffer changed from a trend servo
-  to a feed-forward goal surplus, then the under-fuelling streak alert, then day-type-conditioned NEAT
-  (rest days no longer share a `k` dragged down by training days).
-  **Live-measured, most recent first:** rest-day target 2080 → **2230** (day-type split, weight 0.29 at
-  n=5 logged rest days, grows as data accrues — raw unshrunk rest-day solve 1.55, within rounding of the
-  original review's independent 1.53 finding). Pooled `k` = 1.2584 (high confidence, 42 d/39 logged/21
-  weigh-ins) before the split. Caught and fixed a real bug along the way: the block validator was
-  checking every day against one shared model, which would have falsely "corrected" correct rest-day
-  figures once `k_rest`/`k_train` diverged — confirmed live on a real generated block, zero false
-  corrections. D1 holds on real LLM output; 1614 tests green.
 - ☐ `audit` Nutrition follow-ups — none blocking; magnitudes in
   [09-nutrition § known rough edges](docs/systems/09-nutrition.md#known-rough-edges). `weeklyEnergy`
   remains approximate because NodeVelo does not yet persist the final prescription for every calendar

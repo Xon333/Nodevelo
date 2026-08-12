@@ -1,6 +1,7 @@
 # Nutrition Provenance and Safety Transparency
 
-**Status:** Approved design — 2026-08-02
+**Status:** Partially shipped 2026-08-03 through 2026-08-06: RMR-floor transparency and local-date
+resolution shipped; immutable day-keyed prescription history remains deferred.
 
 ## Goal
 

@@ -1,7 +1,9 @@
 # Day-to-Day Nutrition Accuracy — Design
 
 **Date:** 2026-07-30 (revised same day after a pro-nutritionist-lens review)
-**Status:** Draft — pending user review
+**Status:** Phases 1–2 shipped 2026-07-30; Phase 3 shipped 2026-07-31; Phase 4's under-fuelling
+streak shipped 2026-08-01, while daily carbohydrate targeting remains open. Day-type calibration
+also shipped 2026-08-01 as a later follow-on.
 **todo.md:** "Scope a real day-to-day nutrition system" (added 2026-07-30)
 **Ties:** ROADMAP #2 (per-athlete calibration) — §7 below is a first concrete client for it.
 **Phase 1+2 plan:** [2026-07-30-nutrition-phase-1-formula-and-burn.md](../plans/2026-07-30-nutrition-phase-1-formula-and-burn.md)

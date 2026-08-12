@@ -1,7 +1,7 @@
 # Buffer redesign — feed-forward from the goal, not feedback on the trend
 
 **Date:** 2026-07-31
-**Status:** Proposal — not implemented. Phase 3 candidate.
+**Status:** Shipped 2026-07-31.
 **Context:** Nutrition Phases 1 + 2 shipped (`docs/superpowers/specs/2026-07-30-day-to-day-nutrition-accuracy-design.md`).
 Written after simulating the shipped controller and finding two defects.
 
