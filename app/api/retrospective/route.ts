@@ -15,6 +15,7 @@ import { blockChangedResponse } from "@/lib/block-version";
 import { resolveToday } from "@/lib/date";
 import { truncateBlockDays } from "@/lib/score-log";
 import { isSeasonFocus } from "@/lib/season";
+import { isSteadyEnduranceRide } from "@/lib/aerobic";
 import {
   generateRetrospective,
   generateStructuredRetrospective,
@@ -119,6 +120,9 @@ export async function POST(req: Request) {
   const ctlEnd = closestCtl(sync.wellness, block.endDate);
 
   const decoupList = blockActivities
+    // INVARIANT 34: this block average needs whole-ride comparability, not qualifyingPwHr's
+    // separate Z2-segment trust gate; mixed/high-variability rides must not leak into it.
+    .filter((a) => isSteadyEnduranceRide(a, athleteProfile.performance.ftp))
     .map((a) => a.decoupling)
     .filter((v): v is number => v !== null);
   const avgDecoupling =

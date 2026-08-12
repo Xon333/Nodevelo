@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, fetchEvents, isIntervalsConfigured } from "@/lib/intervals-api";
-import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, updateInterventionLog } from "@/lib/data-store";
+import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readIntentOverlays, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, updateInterventionLog } from "@/lib/data-store";
 import { blockChangedResponse } from "@/lib/block-version";
 import { dayToEventPayload } from "@/lib/calendar-mirror";
 import { currentPeriod, isSeasonFocus } from "@/lib/season";
@@ -273,8 +273,8 @@ export async function POST(req: Request) {
   // to be validated after a horizon (the learning loop). Best-effort.
   try {
     const firedAt = new Date().toISOString().slice(0, 10);
-    const [scoreLog, sync] = await Promise.all([readScoreLog(), readLastSync()]);
-    const model = buildAthleteModel(scoreLog.entries);
+    const [scoreLog, intentStore, sync] = await Promise.all([readScoreLog(), readIntentOverlays(), readLastSync()]);
+    const model = buildAthleteModel(scoreLog.entries, intentStore.overlays);
     const fresh = buildInterventions(deriveInsights(model), model, sync, currentBlock.startDate, firedAt);
     if (fresh.length > 0) {
       // HR-36: read-modify-write inside one locked critical section — a concurrent sync's

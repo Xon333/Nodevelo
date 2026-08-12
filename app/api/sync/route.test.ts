@@ -23,8 +23,8 @@ vi.mock("@/lib/intervals-api", async (orig) => {
     createEvent: vi.fn(async () => null),
   };
 });
-vi.mock("@/lib/anthropic-api", async (orig) => {
-  const actual = await orig<typeof import("@/lib/anthropic-api")>();
+vi.mock("@/lib/anthropic-config", async (orig) => {
+  const actual = await orig<typeof import("@/lib/anthropic-config")>();
   return { ...actual, isAnthropicConfigured: vi.fn(() => false) };
 });
 vi.mock("@/lib/physiology", async (orig) => {
@@ -56,6 +56,7 @@ vi.mock("@/lib/data-store", () => ({
   readMorningChecks: vi.fn(),
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
+  readIntentOverlays: vi.fn(),
   readTodayAnalysis: vi.fn(),
   updateScoreLog: vi.fn(),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
@@ -74,7 +75,7 @@ vi.mock("@/lib/data-store", () => ({
 }));
 
 import * as api from "@/lib/intervals-api";
-import * as anthropic from "@/lib/anthropic-api";
+import * as anthropic from "@/lib/anthropic-config";
 import * as phys from "@/lib/physiology";
 import * as store from "@/lib/data-store";
 import { DELETE, GET, POST, resolveCarbsOptimumForPrompt } from "@/app/api/sync/route";
@@ -236,6 +237,7 @@ beforeEach(() => {
     updatedAt: "",
   });
   vi.mocked(store.readScoreLog).mockImplementation(async () => ({ entries: scoreEntries, updatedAt: "" }));
+  vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
   vi.mocked(store.updateScoreLog).mockImplementation(async (mutate) => {
     scoreEntries = await mutate(scoreEntries);

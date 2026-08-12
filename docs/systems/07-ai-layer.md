@@ -4,7 +4,9 @@
 
 ## Every LLM call site
 
-The complete set — exactly six. Adding a seventh? Follow the pattern: prompt builder in `anthropic-prompts.ts` (pure), call function in `anthropic-api.ts`, zod schema bundled with its tool if structured, usage recorded, one live smoke run before "done".
+The complete set — exactly seven. Adding an eighth? Follow the pattern: a pure prompt builder, a call
+function in `anthropic-api.ts`, zod schema bundled with its tool if structured, usage recorded, and one
+live smoke run before "done".
 
 | # | Trigger | Call | Model | Structured? | Prompt owner | Validation |
 |---|---|---|---|---|---|---|
@@ -14,15 +16,18 @@ The complete set — exactly six. Adding a seventh? Follow the pattern: prompt b
 | 4 | `POST /api/retrospective` | `generateRetrospective` | sonnet | free text | `buildRetrospectivePrompt` | none |
 | 5 | same request, after 4 | `generateStructuredRetrospective` | sonnet | ✅ forced `RETROSPECTIVE_TOOL` | `buildStructuredRetrospectivePrompt` | zod; degrades to `[]` |
 | 6 | `POST /api/ask` | `streamAskCoach` | haiku, **streamed** | free text | `buildAskCoachPrompt` (no `system` param; excludes the ledger, <1200 chars) | none |
+| 7 | `POST /api/intent` (deferred from sync) | `parseRideIntent` | sonnet, 900 tokens | ✅ forced `INTENT_TOOL` | `buildIntentPrompt`, independently versioned by `INTENT_PROMPT_VERSION` | zod `IntentToolSchema`; empty note skips the call, transient throws write nothing/retry next sync, completed unusable output records `interpreter-failed`, deterministic grounding/scoring may downgrade |
 
 ## Module layout (deliberate split)
 
 | Module | Owns | Never contains |
 |---|---|---|
 | `lib/anthropic-api.ts` (265 lines) | The SDK shell: lazy client (240s timeout, 2 retries), model constants, the call functions, usage recording. Re-exports the prompt builders so callers import one module. | Prompt text |
+| `lib/anthropic-config.ts` | SDK-free `isAnthropicConfigured` seam, re-exported by `anthropic-api.ts` but imported directly by deterministic routes that must remain outside the SDK graph. | SDK imports, model calls |
 | `lib/anthropic-prompts.ts` (691 lines) | **All prompt assembly, pure** — no SDK, no network, fully unit-testable. System-prompt cache split, user-message rules, ride-analysis/retrospective/ask-coach prompts, `WORKOUT_SYNTAX_GUIDE`. | Network calls |
 | `lib/tool-schema.ts` | `zodToToolInputSchema` — the ONE zod→Anthropic-tool bridge. | Schemas themselves |
-| `lib/plan-schema.ts`, `lib/retrospective-schema.ts`, `lib/narrative-critic.ts` | Each bundles its zod schema + `Tool` + parse/format helpers. There is **no central tool registry** — these three files are the complete set of `Anthropic.Tool` definitions. | |
+| `lib/plan-schema.ts`, `lib/retrospective-schema.ts`, `lib/narrative-critic.ts`, `lib/intent-schema.ts` | Each bundles its zod schema + `Tool` + parse/format helpers. There is **no central tool registry**. | |
+| `lib/intent-prompt.ts` | The isolated ride-intent prompt and `INTENT_PROMPT_VERSION`; note + ride duration only. | Ride metrics, FTP, scores |
 | `lib/generate-cache.ts` | 60-second in-flight dedupe (SHA-256 of the three prompt parts, NUL-separated). Not a cache. | |
 | `lib/ai-usage.ts` | Token/cost telemetry → `data/ai-usage.json` (surfaced on Settings). | |
 
@@ -30,7 +35,7 @@ The complete set — exactly six. Adding a seventh? Follow the pattern: prompt b
 
 - `GENERATION_MODEL = "claude-sonnet-4-6"` — block generation, ride analysis, retrospectives.
 - `QUICK_MODEL = "claude-haiku-4-5"` — ask-coach (streamed), narrative critic.
-- `TEMPERATURE = 0.3` · `PROMPT_VERSION = 4` (bump on prompt-structure changes; stamped onto every AI artifact).
+- `TEMPERATURE = 0.3` · `PROMPT_VERSION = 6` (generation/analysis artifacts) · `INTENT_PROMPT_VERSION = 1` (ride-intent artifacts; independently versioned).
 - `generationMaxTokens(lengthWeeks)`: 8k (2/4wk) → 12k (6wk) → 16k (8wk) — fixes silent truncation of long blocks.
 - ⚠️ Model IDs are string literals duplicated as keys in `ai-usage.ts`'s `PRICING` table. An unknown model records **$0 cost silently** — when bumping a model, update both files.
 

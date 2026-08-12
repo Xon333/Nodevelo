@@ -3,7 +3,7 @@
 // app/api/season/route.ts's roadmap-outlook projection (a later plan) can build the identical input
 // shape without a second, potentially-drifting copy. Server-only (imports lib/data-store) — never
 // import this from a client component.
-import { readAthleteProfile, readLastSync, readCurrentBlock, readBlockHistory, readScoreLog, readSeasonPlan } from "./data-store";
+import { readAthleteProfile, readLastSync, readCurrentBlock, readBlockHistory, readIntentOverlays, readScoreLog, readSeasonPlan } from "./data-store";
 import { analyzePowerProfile } from "./power-profile";
 import { buildAthleteModel } from "./athlete-model";
 import { exposureFromSessions, execQualityByFocus, isSeasonFocus, type ChooseNextFocusInput } from "./season";
@@ -39,12 +39,13 @@ export async function gatherFocusInputs(
   // matches the same resolveToday(body.today) call /api/generate makes; never inline
   // new Date().toISOString().slice(0, 10) here (see AGENTS.md: that's the UTC-drift bug class).
   const today = resolveToday(opts.today);
-  const [profile, sync, currentBlock, blockHistory, scoreLog, existingSeason] = await Promise.all([
+  const [profile, sync, currentBlock, blockHistory, scoreLog, intentStore, existingSeason] = await Promise.all([
     readAthleteProfile(),
     readLastSync(),
     readCurrentBlock(),
     readBlockHistory(),
     readScoreLog(),
+    readIntentOverlays(),
     readSeasonPlan(),
   ]);
 
@@ -64,7 +65,7 @@ export async function gatherFocusInputs(
     ...profile.weakpoints.map((w) => `${w.weakpoint} ${w.detail}`),
   ].join(" \n ");
 
-  const athleteModel = buildAthleteModel(scoreLog.entries);
+  const athleteModel = buildAthleteModel(scoreLog.entries, intentStore.overlays);
   const lastFocus = isSeasonFocus(currentBlock?.seasonFocus) ? currentBlock.seasonFocus : null;
 
   return {

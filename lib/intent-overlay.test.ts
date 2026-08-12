@@ -29,7 +29,18 @@ const overlay = (over: Partial<IntentOverlay> = {}): IntentOverlay => ({
   interpretation: {
     intent: { primaryPurpose: "steady endurance", phases: [] },
     confidence: "high",
-    objectives: [{ description: "45 min Z2", measurable: true, scored: true, evidence: "44 min in Z2" }],
+    objectives: [{
+      description: "45 min Z2",
+      kind: "zone-time",
+      target: { durationMin: 45, zone: "Z2" },
+      zoneBasis: "power",
+      grounded: true,
+      sourceText: "45 min Z2",
+      measurable: true,
+      scored: true,
+      scopeMin: 45,
+      evidence: "44 min in Z2",
+    }],
     model: "claude-sonnet-4-6",
     promptVersion: 7,
   },
@@ -187,6 +198,50 @@ describe("origin and score coherence", () => {
     expect(result.source).toBe("ledger");
     expect(result.origin).toBe("unspecified");
     expect(result.effectiveExecutionScore).toBe(4);
+  });
+});
+
+describe("effectiveWorkoutType coherence", () => {
+  it("accepts an authoritative type on a self-directed overlay", () => {
+    const result = resolveEffectiveOutcome(
+      entry({ activityId: "a1" }),
+      indexOverlaysByActivity([overlay({ effectiveWorkoutType: "Threshold" })]),
+      new Map()
+    );
+    expect(result.source).toBe("overlay");
+  });
+
+  it("rejects an authoritative type on an unspecified overlay", () => {
+    const result = resolveEffectiveOutcome(
+      entry({ activityId: "a1" }),
+      indexOverlaysByActivity([
+        notScored("no-intent-found", { effectiveWorkoutType: "Threshold" }),
+      ]),
+      new Map()
+    );
+    expect(result.source).toBe("ledger");
+  });
+
+  it("accepts no-measurable-objectives with a self-directed origin and null type", () => {
+    const result = resolveEffectiveOutcome(
+      entry({ activityId: "a1" }),
+      indexOverlaysByActivity([
+        notScored("no-measurable-objectives", { effectiveWorkoutType: null }),
+      ]),
+      new Map()
+    );
+    expect(result.source).toBe("overlay");
+  });
+
+  it("accepts an historical record that predates effectiveWorkoutType", () => {
+    const record = overlay({ effectiveWorkoutType: "Threshold" });
+    delete (record as Partial<IntentOverlay>).effectiveWorkoutType;
+    const result = resolveEffectiveOutcome(
+      entry({ activityId: "a1" }),
+      indexOverlaysByActivity([record]),
+      new Map()
+    );
+    expect(result.source).toBe("overlay");
   });
 });
 

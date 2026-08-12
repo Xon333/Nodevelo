@@ -31,12 +31,15 @@ const mkAppState = (createdAt: string | null): AppState =>
   }) as AppState;
 
 function Harness() {
-  const { state, doSync, syncing } = useSync();
+  const { state, doSync, reAnalyse, syncing, analyzing } = useSync();
   return (
     <div>
       <div data-testid="createdAt">{state?.currentBlock?.createdAt ?? "none"}</div>
       <button onClick={() => void doSync()} disabled={syncing}>
         sync
+      </button>
+      <button onClick={() => void reAnalyse()} disabled={analyzing}>
+        analyse
       </button>
     </div>
   );
@@ -104,5 +107,30 @@ describe("SyncProvider — HR-45 (doSync refreshes currentBlock)", () => {
     // just because the POST response had no currentBlock field to merge.
     await waitFor(() => expect(screen.getByTestId("createdAt").textContent).toBe("createdAt-NEW"));
     expect(getCalls).toBe(2); // initial load + the post-sync invalidate refetch
+  });
+});
+
+describe("SyncProvider — deferred intent parsing", () => {
+  it("carries failed ids across bounded rounds without retrying them", async () => {
+    const intentBodies: Array<{ force: boolean; skip: string[] }> = [];
+    h.api.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.startsWith("/api/sync?today=")) return mkAppState(null);
+      if (url === "/api/analyze") return { todayAnalysis: null, warnings: [] };
+      if (url === "/api/intent") {
+        intentBodies.push(JSON.parse(String(init?.body)) as { force: boolean; skip: string[] });
+        if (intentBodies.length === 1) return { processed: 2, remaining: 2, stalled: false, failedIds: ["a1"], warnings: [] };
+        if (intentBodies.length === 2) return { processed: 1, remaining: 1, stalled: false, failedIds: ["a2"], warnings: [] };
+        return { processed: 0, remaining: 2, stalled: true, failedIds: [], warnings: [] };
+      }
+      throw new Error(`unexpected api call: ${url}`);
+    });
+
+    renderHarness();
+    await screen.findByText("analyse");
+    fireEvent.click(screen.getByText("analyse"));
+
+    await waitFor(() => expect(intentBodies).toHaveLength(3));
+    expect(intentBodies.map((body) => body.skip)).toEqual([[], ["a1"], ["a1", "a2"]]);
+    expect(intentBodies.every((body) => body.force)).toBe(true);
   });
 });

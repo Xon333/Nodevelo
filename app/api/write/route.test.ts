@@ -25,6 +25,7 @@ vi.mock("@/lib/data-store", () => ({
   readCurrentBlock: vi.fn(async () => null),
   readLastSync: vi.fn(async () => null),
   readScoreLog: vi.fn(async () => ({ entries: [] })),
+  readIntentOverlays: vi.fn(async () => ({ overlays: [], updatedAt: "" })),
   readSeasonPlan: vi.fn(async () => ({ objective: "", events: [], periods: [], updatedAt: "" })),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
   updateInterventionLog: vi.fn(async (mutate: (log: { records: unknown[]; updatedAt: string }) => unknown) =>

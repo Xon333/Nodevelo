@@ -8,6 +8,7 @@ vi.mock("@/lib/data-store", () => ({
   readCurrentBlock: vi.fn(),
   readBlockHistory: vi.fn(),
   readScoreLog: vi.fn(),
+  readIntentOverlays: vi.fn(),
   readSeasonPlan: vi.fn(),
 }));
 
@@ -30,6 +31,7 @@ beforeEach(() => {
   vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
   vi.mocked(store.readBlockHistory).mockResolvedValue([]);
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
+  vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
   vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "get faster", events: [], periods: [], updatedAt: "" });
 });
 

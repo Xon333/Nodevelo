@@ -63,6 +63,7 @@ vi.mock("@/lib/data-store", () => ({
   readQuirks: vi.fn(),
   readRollingBaselines: vi.fn(),
   readScoreLog: vi.fn(),
+  readIntentOverlays: vi.fn(),
   readSeasonPlan: vi.fn(),
   updateSeasonPlan: vi.fn(),
 }));
@@ -90,6 +91,7 @@ beforeEach(() => {
   vi.mocked(store.readQuirks).mockResolvedValue({ entries: [], extractedAt: "", engine: "" });
   vi.mocked(store.readRollingBaselines).mockResolvedValue({} as never);
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
+  vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
   vi.mocked(store.readSeasonPlan).mockResolvedValue({ objective: "", events: [], periods: [], updatedAt: "" });
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) =>
     mutate({ objective: "", events: [], periods: [], updatedAt: "" })

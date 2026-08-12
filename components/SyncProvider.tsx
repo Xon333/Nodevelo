@@ -130,8 +130,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // AskCoach's own self-guard, which already gets this right independent of its button's disabled prop.
   const analyzingRef = useRef(false);
 
-  // The deferred AI coach-note step. Shared by the post-sync auto-run (force=false, idempotent) and
-  // the manual re-analyse action (force=true, regenerates).
+  // Deferred AI work. Shared by the post-sync auto-run (force=false, idempotent) and the manual
+  // re-analyse action (force=true). One ref guard covers both billed endpoints.
   const runAnalysis = useCallback(async (force: boolean) => {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
@@ -145,6 +145,27 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       if (a.warnings?.length) setSyncWarnings((w) => [...w, ...a.warnings]);
     } catch (e) {
       setSyncWarnings((w) => [...w, `Coach analysis failed: ${e instanceof Error ? e.message : "error"}`]);
+    }
+
+    try {
+      const failed = new Set<string>();
+      for (let round = 0; round < 6; round += 1) {
+        const result = await api<{
+          processed: number;
+          remaining: number;
+          stalled: boolean;
+          failedIds: string[];
+          warnings: string[];
+        }>("/api/intent", {
+          method: "POST",
+          body: JSON.stringify({ today: localToday(), force, skip: [...failed] }),
+        });
+        for (const id of result.failedIds) failed.add(id);
+        if (result.warnings?.length) setSyncWarnings((w) => [...w, ...result.warnings]);
+        if (!(result.remaining > 0 && !result.stalled && result.processed > 0)) break;
+      }
+    } catch (e) {
+      setSyncWarnings((w) => [...w, `Intent analysis failed: ${e instanceof Error ? e.message : "error"}`]);
     } finally {
       setAnalyzing(false);
       analyzingRef.current = false;
@@ -155,7 +176,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setSyncing(true);
     setSyncError(null);
     setSyncWarnings([]);
-    let analysisPending = false;
     try {
       const result = await api<{
         lastSync: SyncData;
@@ -199,7 +219,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           : s
       );
       if (result.warnings?.length) setSyncWarnings(result.warnings);
-      analysisPending = result.analysisPending;
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : "Couldn't sync — try again.");
       setSyncing(false);
@@ -214,7 +233,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     // Fast path done — surface the data immediately, then fetch the deferred coach note so an
     // Anthropic hiccup never blocks (or fails) the sync itself.
     setSyncing(false);
-    if (analysisPending) await runAnalysis(false);
+    // Always run the idempotent deferred step: a prior transient intent failure must retry on a later
+    // sync even when today's coach note already exists.
+    await runAnalysis(false);
   }, [queryClient, runAnalysis, setState]);
 
   // Manual re-analyse — force a fresh coach note (e.g. after the auto-run failed).

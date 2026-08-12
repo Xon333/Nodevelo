@@ -62,7 +62,7 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
 | **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
 | **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
 | **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
-| **Adaptive self-directed coach — Phase 2** | Phase 2a landed as inert infrastructure: origin taxonomy, permanent overlay store, and one effective-outcome seam. Phase 2b (intent parser/scoring) and 2c (deferred re-analysis + debrief UI) remain; Phases 3–4 are not started | [2a plan](docs/superpowers/plans/2026-08-07-adaptive-coach-p2a-origin-and-overlay.md) |
+| **Adaptive self-directed coach — Phase 2** | Phase 2b shipped: deferred note parsing now writes grounded, deterministic intent overlays and derived state reads them. Phase 2c (debrief UI) remains; Phases 3–4 are not started | [2b plan](docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md) |
 
 ## Blocked / dormant
 

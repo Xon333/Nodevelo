@@ -3,10 +3,14 @@
 // shell over the SDK that sends those prompts and parses the responses (RV-8 split). The prompt builders
 // and their input types are re-exported below so callers can keep importing them from "@/lib/anthropic-api".
 import Anthropic from "@anthropic-ai/sdk";
-import type { StructuredReflection } from "./types";
+export { isAnthropicConfigured } from "./anthropic-config";
+import { isAnthropicConfigured } from "./anthropic-config";
+import type { IntentInterpretation, StructuredReflection } from "./types";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
 import { buildNarrativeCriticPrompt, NARRATIVE_CRITIC_TOOL, parseNarrativeCriticOutput, type NarrativeCriticOutput, type WeekFacts } from "./narrative-critic";
+import { INTENT_TOOL, parseIntentToolOutput } from "./intent-schema";
+import { buildIntentPrompt, INTENT_PROMPT_VERSION } from "./intent-prompt";
 import { recordUsage } from "./ai-usage";
 import {
   buildAskCoachPrompt,
@@ -69,10 +73,6 @@ function getClient(): Anthropic {
   return (_client ??= new Anthropic({ timeout: 240_000, maxRetries: 2 }));
 }
 
-export function isAnthropicConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
-}
-
 // Concatenate the text blocks of a response into the trimmed reply. Shared by the prose calls
 // (ride analysis / retrospective / ask-coach) so the extraction isn't copy-pasted four times.
 function textOf(response: Anthropic.Message): string {
@@ -88,6 +88,58 @@ export interface GenerationResult {
   raw: string; // any text content — the regex-parser fallback path
   truncated: boolean;
   stopReason: Anthropic.Message["stop_reason"]; // the provider's raw stop reason, so the route can tell a token-limit cutoff apart from other malformed output
+}
+
+// ---------- Activity-note intent ----------
+
+export async function parseRideIntent(note: string, rideDurationMin: number): Promise<IntentInterpretation | null> {
+  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
+  const client = getClient();
+  const response = await client.messages.create({
+    model: GENERATION_MODEL,
+    max_tokens: 900,
+    temperature: TEMPERATURE,
+    tools: [INTENT_TOOL],
+    tool_choice: { type: "tool", name: INTENT_TOOL.name },
+    messages: [{ role: "user", content: buildIntentPrompt(note, rideDurationMin) }],
+  });
+  void recordUsage(GENERATION_MODEL, response.usage);
+
+  const toolUse = response.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+  );
+  const parsed = toolUse ? parseIntentToolOutput(toolUse.input) : null;
+  // A completed response with no usable tool output is a terminal interpreter result. SDK errors are
+  // deliberately allowed to throw so a transient network failure does not burn the note fingerprint.
+  if (!parsed) return null;
+
+  return {
+    intent: {
+      primaryPurpose: parsed.primaryPurpose,
+      // Field-by-field, never `...phase`: the tool schema's phase carries `zone`, `zoneBasis`,
+      // `targetPctFtp` and `reps`, none of which `StructuredIntent.phases[]` declares. A spread is
+      // exempt from excess-property checking, so TypeScript would wave those through into
+      // `IntentOverlay.interpretation` — a permanent stored record. Fields with no slot here are
+      // dropped, not smuggled in under their raw names.
+      phases: parsed.phases.map((phase) => ({
+        description: phase.description,
+        kind: phase.kind,
+        ...(phase.durationMin === undefined ? {} : { durationMin: phase.durationMin }),
+        ...(phase.zone === undefined ? {} : { targetZone: phase.zone }),
+        ...(phase.targetWatts === undefined ? {} : { targetWatts: phase.targetWatts }),
+      })),
+    },
+    confidence: parsed.confidence,
+    objectives: parsed.objectives.map((objective) => ({
+      ...objective,
+      measurable: false,
+      scored: false,
+      scopeMin: null,
+      evidence: null,
+    })),
+    model: GENERATION_MODEL,
+    promptVersion: INTENT_PROMPT_VERSION,
+  };
 }
 
 // ---------- Today's ride analysis ----------

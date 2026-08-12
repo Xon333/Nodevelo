@@ -70,13 +70,23 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 
 ## Known rough edges
 
-- **Phase 2a is infrastructure — nothing is classified `self-directed` yet.** The origin taxonomy,
-  overlay store, and effective-outcome seam landed 2026-08-07, but Phase 2b still must produce intent
-  interpretations. The store ships empty; real-ledger verification confirmed unchanged sample size,
-  drift percentage, and drift quality. Do not loosen the applicability gates to activate it early.
+- **Phase 2b's intent producer shipped 2026-08-12.** A self-directed ride can now replace the ledger's
+  generic off-plan verdict in derived state with a deterministic score against objectives recovered
+  from the athlete's own note. Sandboxed real-data verification started at sample size 27, overall
+  execution EWMA 6.7, all-time off-plan 50%, and recent drift quality 5.0; the three live-smoke
+  overlays moved those reads to 29, 5.5, 46%, and 5.3. The August 5 and 6 acceptance rides resolved as
+  medium-confidence RaceSim outcomes scored 5 and 4. The model did invent/assume two ungrounded
+  details (full-ride duration and bare `292` as watts/power); deterministic grounding excluded both.
+- **The ride debrief is still ledger-based.** Phase 2b changes derived coaching state only. The Today
+  card may therefore keep showing the old ledger score even while the athlete model reads an overlay;
+  rendering the interpreted intent and effective score belongs to Phase 2c.
+- **`autoFromDate` gates rollout.** The historical no-block period from 2026-07-24 to the persisted
+  boundary remains Phase 4's human-reviewed work and is never auto-written by 2b.
 - **Per-type learning deliberately excludes self-directed rides.** Their current inferred type comes
-  from whole-ride IF, so including it would revive circular type learning. Revisit only when Phase 2b
-  supplies an authoritative intent-derived type; see INVARIANT 40.
+  from whole-ride IF, so including it would revive circular type learning. Two independent unlock
+  conditions remain: **the two score populations are not yet known to be comparable** (prescribed
+  adherence/IF scores versus self-directed objective scores need a real corpus), and **compliance still
+  has no meaning for these rides** (`comps.length ? … : 0` would falsely report 0%). See INVARIANT 40.
 - **Phase 2a's review found the same defect shape four times, across two different authors — read this
   before adding a new place that reads `origin`, `status`, or `legacy`.** Two were caught in the plan
   before implementation: drift accounting read the raw ledger row's origin instead of the effective,
@@ -98,13 +108,15 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   existing guarantee still holds there — don't assume it does because it held somewhere else. All four are
   fixed on `main` as of PR #29; see `lib/intent-overlay.ts`'s `isCoherent`/`isApplicable` and
   `lib/athlete-model.ts`'s `overallScored` filter for the closed shape.
-- **Off-plan (and planned-but-surgy) rides score flat until intent lands.** Phase 1 (2026-08-06) removed
+- **Off-plan rides without trustworthy measurable intent (and planned-but-surgy rides) still score
+  flat.** Phase 1 (2026-08-06) removed
   the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,
   and the contaminated intrinsic/merged-read Pw:HR efficiency signal (fixed entirely at its producer,
   `qualifyingPwHr` in `lib/aerobic.ts` — no gate was added in `score-log.ts` or `ride-analysis.ts` for this
   signal). Both removals are correct, but they leave a mixed ride with almost no quality differentiator:
-  expect scores clustering around baseline (5/10) for most of them. The differentiator returns in Phase 2,
-  when the athlete's activity note becomes the scoring target. Don't "fix" the flatness by re-adding a
+  expect scores clustering around baseline (5/10) for most of them. Phase 2b restores the differentiator
+  only when the athlete's activity note provides grounded, measurable intent. Don't "fix" the residual
+  flatness by re-adding a
   structure-derived penalty, and don't re-add a consumer-side comparability gate for `aerobicEffPct` — it's
   already correctly gated where it's computed.
 - **The Pw:HR baseline and decoupling-good cutoff moved when Phase 1 shipped, and will keep moving.** The
@@ -116,12 +128,18 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 - **`qualifyingPwHr` and `isSteadyEnduranceRide` are deliberately different gates.** See INVARIANT 34. A
   future change that needs "is this ride aerobically trustworthy" almost always means ONE of these two,
   not both — check which question is actually being asked before reaching for either.
-- **Two other raw-decoupling consumers are still ungated.** `lib/readiness.ts`'s `computeRollingBaselines`
-  (feeds `avgDecoupling90d` on the Recent Baselines card) and `app/api/retrospective/route.ts`'s block
-  `avgDecoupling` (fed verbatim into the retrospective LLM prompt) both average `activity.decoupling`
-  across ALL activities with no `isSteadyEnduranceRide` gate — Phase 1 only touched
-  `TodayAnalysis.activityDecoupling`. A mixed climbing day can still inflate these two reads. Gating
-  them, if wanted, is a small follow-up in the same shape as Task 4 of this plan, not a Phase 1 gap.
+- **`computeRollingBaselines`'s `avgDecoupling90d` remains the one ungated raw-decoupling consumer.**
+  It is a broad recent-baseline display, not a ride-quality verdict; the block retrospective now gates
+  its average through `isSteadyEnduranceRide`. Revisit the rolling baseline only if the card needs a
+  whole-ride-comparable endurance meaning rather than its current broad descriptive one.
+- **Non-today zone evidence uses Intervals.icu's own zone boundaries.** Those arrays are the only
+  historical evidence available without extra network work. Boundary definitions can change a zone
+  objective's grade; an absent array can make it unscoreable. Both are intended and explicit.
+- **Segment decoupling is deliberately absent.** Unlock it only after (1) measuring the actual stream
+  sample rate across at least 20 real activities, (2) characterising whether dropouts are absent or
+  zero-filled samples, and (3) showing a 30-minute half-split reproduces after a refetch under those
+  conditions. Until then, a mixed ride cannot manufacture an aerobic-drift verdict from an assumed
+  timeline.
 - **`carbsOptimum`'s calibration pool is thin, and this branch narrows it further.** It shares
   `steadyEndurance90d` with `decouplingGood` (see the bullet above on that pool shrinking), then filters
   further to rides ≥90 min with logged carbs and `|aerobicEffPct| ≥ 3%` — as of the 2026-08-06 sync

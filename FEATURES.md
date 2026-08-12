@@ -15,6 +15,11 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Discrepancy reconciliation** — an FTP/zone change archives the old snapshot and starts the new one
   effective today ("FTP changed 288 → 300 W on …; zones updated"). `reconcile()`
 - **History anchored to the right FTP** — each ride is scored against the physiology in effect *that day*.
+- **Self-directed intent learning (AI-assisted)** — after sync, an athlete-authored ride note is parsed
+  into grounded objectives and graded deterministically against available evidence. A trustworthy
+  result teaches the overall athlete model and no longer counts as plan drift; prescribed sessions
+  remain ledger-authoritative. The Today ride card still shows its ledger score until Phase 2c adds
+  overlay rendering. `app/api/intent`, `lib/intent-runner.ts`, `lib/intent-scoring.ts`
 
 ## Season & macro-periodization (Plan page)
 - **Season objective + target events** — an athlete-owned objective string and A/B/C-priority event

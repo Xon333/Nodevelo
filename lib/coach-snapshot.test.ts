@@ -307,6 +307,7 @@ describe("buildCoachSnapshotFromSources", () => {
     sync,
     todayAnalysis: null,
     scoreEntries: [],
+    intentOverlays: [],
     baselines,
     dispositions: [] as DispositionEntry[],
     interventionLog,

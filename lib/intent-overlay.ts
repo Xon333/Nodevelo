@@ -36,6 +36,12 @@ function isCoherent(overlay: IntentOverlay): boolean {
   ) {
     return false;
   }
+  // An authoritative workout type may only accompany a recovered intent. `unspecified` means no
+  // trustworthy intent existed, so a type asserted alongside it was derived from nothing — and a
+  // future per-type consumer reading the field through a different path would inherit it silently.
+  // Truthy check, not `!== null`: a record written before this field existed parses back `undefined`
+  // (INVARIANT 3), and rejecting those would break every historical overlay Phase 4 must read.
+  if (overlay.effectiveWorkoutType && overlay.origin !== "self-directed") return false;
   // An overlay can never legitimately assert a prescription — only the ledger's own `planned` flag can
   // establish that (decision #14). Without this, a malformed overlay claiming `origin: "prescribed"`
   // on an unplanned row would be admitted into per-type/compliance grouping keyed on whole-ride-IF

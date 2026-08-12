@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logError } from "@/lib/log";
 import { isAnthropicConfigured, streamAskCoach, type AskCoachContext } from "@/lib/anthropic-api";
-import { readAthleteProfile, readBlockSettings, readCurrentBlock, readDispositions, readInterventionLog, readLastSync, readMorningChecks, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
+import { readAthleteProfile, readBlockSettings, readCurrentBlock, readDispositions, readIntentOverlays, readInterventionLog, readLastSync, readMorningChecks, readRollingBaselines, readScoreLog, readTodayAnalysis } from "@/lib/data-store";
 import { resolveNutritionModel } from "@/lib/nutrition";
 import { readPhysiology } from "@/lib/physiology";
 import { buildCoachSnapshotFromSources } from "@/lib/coach-snapshot";
@@ -31,13 +31,14 @@ export async function POST(req: Request) {
   if (query.length > 600) return NextResponse.json({ error: "Question is too long (max 600 chars)." }, { status: 400 });
 
   const today = resolveToday((body as Record<string, unknown>)?.today);
-  const [block, sync, physStore, todayAnalysis, dispositions, scoreLog, baselines, interventionLog, morningChecks, settings, profile] = await Promise.all([
+  const [block, sync, physStore, todayAnalysis, dispositions, scoreLog, intentStore, baselines, interventionLog, morningChecks, settings, profile] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),
     readPhysiology(),
     readTodayAnalysis(),
     readDispositions(),
     readScoreLog(),
+    readIntentOverlays(),
     readRollingBaselines(),
     readInterventionLog(),
     readMorningChecks(),
@@ -80,6 +81,7 @@ export async function POST(req: Request) {
     sync,
     todayAnalysis,
     scoreEntries: scoreLog.entries,
+    intentOverlays: intentStore.overlays,
     baselines,
     dispositions: dispositions.entries,
     interventionLog,
