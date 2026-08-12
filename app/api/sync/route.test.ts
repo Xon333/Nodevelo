@@ -540,6 +540,25 @@ describe("GET /api/sync — todayOutcome", () => {
     expect(body.todayOutcome.source).toBe("ledger");
     expect(body.todayOutcome.effectiveExecutionScore).toBe(3);
   });
+
+  it("ledger-fallback effectiveExecutionScore equals the analysis's own executionScore", async () => {
+    scoreEntries = [
+      {
+        date: "2026-08-11", executionScore: 6, plannedType: "Z2", inferredType: "Z2", planned: true,
+        legacy: false, activityId: "act-1", compliancePct: 95, intensityFactor: 0.68, ftpUsed: 280,
+        durationMin: 90, tss: 62,
+      },
+    ];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({
+      activityDate: "2026-08-11", activityId: "act-1", executionScore: 6,
+    } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
+
+    const res = await GET(new Request("http://localhost/api/sync"));
+    const body = await res.json();
+    expect(body.todayOutcome.source).toBe("ledger");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(body.todayAnalysis.executionScore);
+  });
 });
 
 describe("POST /api/sync — todayOutcome", () => {
