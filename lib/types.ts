@@ -1116,6 +1116,10 @@ export interface AthleteState {
 // ---------- Today's ride analysis (data/today-analysis.json) ----------
 
 export interface TodayAnalysis {
+  // Intervals.icu's own activity id — the join key intent-overlay resolution matches on
+  // (lib/ride-origin.ts's findLedgerEntry). Optional: a record written before this field existed
+  // parses back as undefined, not null — read sites must truthy-check, never `=== null`.
+  activityId?: string;
   analysedAt: string;
   activityDate: string;
   activityName: string;
