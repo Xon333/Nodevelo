@@ -27,7 +27,7 @@ Navigation (`components/Nav.tsx`): three tiers — primary (Today/Plan/Trends), 
 | Feature | Page | Components | API |
 |---|---|---|---|
 | Morning check-in | Today | `MorningCheckIn` | `/api/morning-check` |
-| Ride debrief (reps, trace, PRs, note) | Today | `dashboard/today.tsx` → `TodayRideCard`, `RideTrace` | `/api/sync`, `/api/analyze`, `/api/note` |
+| Ride debrief (reps, trace, PRs, note) | Today | `dashboard/today.tsx` → `TodayRideCard`, `dashboard/ride-intent.tsx` → `RideIntentBlock`, `RideTrace` | `/api/sync`, `/api/analyze`, `/api/note` |
 | Session disposition | Today | `SessionDisposition` | `/api/disposition` |
 | Ask coach (streaming) | Today | `AskCoach` | `/api/ask` |
 | Carb-loading prompt | Today | `LoadingPrompt` | `/api/loading` |
@@ -49,7 +49,11 @@ Component tests cover the Plan/generation flow plus the Today nutrition-trend wa
 
 ## Known rough edges
 
-- **Big files (split candidates, in order):** `dashboard/today.tsx` (740 — `TodayRideCard` alone ~385), `AthleteProfileForm.tsx` (712, five distinct sections), `dashboard/plan.tsx` (604). Precedent for extraction: `SeasonSection` was already split out of the profile form.
+- **Big files (split candidates, in order):** `dashboard/today.tsx` (917 — `TodayRideCard` alone ~406),
+  `AthleteProfileForm.tsx` (712, five distinct sections), `dashboard/plan.tsx` (604). Precedent for
+  extraction: `SeasonSection` was already split out of the profile form; Phase 2c split
+  `RideIntentBlock` out into `dashboard/ride-intent.tsx` rather than growing `TodayRideCard` further —
+  follow that precedent for the next addition too, rather than reversing it.
 
 ## Common modifications
 

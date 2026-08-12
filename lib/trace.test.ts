@@ -10,6 +10,9 @@ const work = (startIndex: number, endIndex: number): ExecutedInterval => ({
   avgHr: 165,
   startIndex,
   endIndex,
+  avgGradientPct: null,
+  groupId: null,
+  zone: null,
 });
 
 describe("buildRideTrace", () => {

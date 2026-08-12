@@ -199,6 +199,9 @@ export async function fetchIntervals(activityId: string): Promise<ExecutedInterv
         avgHr: num(iv.average_heartrate) ?? num(iv.icu_average_hr),
         startIndex: num(iv.start_index),
         endIndex: num(iv.end_index),
+        avgGradientPct: (() => { const g = num(iv.average_gradient); return g === null ? null : g * 100; })(),
+        groupId: typeof iv.group_id === "string" && iv.group_id ? iv.group_id : null,
+        zone: num(iv.zone),
       };
     });
   } catch {

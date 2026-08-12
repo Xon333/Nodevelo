@@ -403,6 +403,11 @@ export interface ExecutedInterval {
   avgHr: number | null;
   startIndex: number | null; // index into the activity's sample stream
   endIndex: number | null;
+  // Curated-interval context Intervals.icu already returns per rep. Gradient is converted to a
+  // percentage exactly once at the API boundary; no distance/GPS/position inference is added.
+  avgGradientPct: number | null;
+  groupId: string | null;
+  zone: number | null;
 }
 
 // Prescription vs execution, rep-by-rep, with a roll-up — the "second brain" comparison.
@@ -1116,6 +1121,10 @@ export interface AthleteState {
 // ---------- Today's ride analysis (data/today-analysis.json) ----------
 
 export interface TodayAnalysis {
+  // Intervals.icu's own activity id — the join key intent-overlay resolution matches on
+  // (lib/ride-origin.ts's findLedgerEntry). Optional: a record written before this field existed
+  // parses back as undefined, not null — read sites must truthy-check, never `=== null`.
+  activityId?: string;
   analysedAt: string;
   activityDate: string;
   activityName: string;

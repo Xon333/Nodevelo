@@ -17,6 +17,9 @@ const ex = (type: string, np: number, durationSec = 1200): ExecutedInterval => (
   avgHr: 165,
   startIndex: null,
   endIndex: null,
+  avgGradientPct: null,
+  groupId: null,
+  zone: null,
 });
 
 describe("matchPrescription", () => {

@@ -167,6 +167,7 @@ export default function TodayView() {
           <Zone rank={1} title="Debrief — how did it go?" hero accent="pink">
             <TodayRideCard
               analysis={todayRide}
+              outcome={state.todayOutcome}
               onPostNote={state.configured ? postNote : undefined}
               notePosting={notePosting}
               notePosted={notePosted}
@@ -242,7 +243,7 @@ export default function TodayView() {
                 </summary>
                 <div className="mt-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
                   {/* No re-analyse / note-post actions on a past ride's debrief — disposition stays interactive. */}
-                  <TodayRideCard analysis={state.todayAnalysis} />
+                  <TodayRideCard analysis={state.todayAnalysis} outcome={state.todayOutcome} />
                 </div>
               </details>
             )}

@@ -201,3 +201,98 @@ describe("TodayRideCard gross-burn header", () => {
     expect(screen.getByText("0 kcal", { exact: false })).toBeTruthy();
   });
 });
+
+describe("TodayRideCard overlay-resolved score", () => {
+  const baseAnalysis = {
+    activityDate: "2026-08-11",
+    activityName: "Ride",
+    activityDurationMin: 90,
+    activityDecoupling: null,
+    executionScore: 2,
+    coachNote: null,
+    powerPRs: [],
+  } as unknown as TodayAnalysis;
+
+  const activeOverlay = {
+    id: "ov-1", activityId: "a1", date: baseAnalysis.activityDate, noteFingerprint: "fp",
+    status: "active" as const, origin: "self-directed" as const, effectiveExecutionScore: 8,
+    notScoredReason: null,
+    interpretation: { intent: { primaryPurpose: "endurance", phases: [] }, confidence: "high" as const, objectives: [], model: "m", promptVersion: 1 },
+    scoringVersion: 1, schemaVersion: 1, createdAt: "2026-08-11T00:00:00.000Z",
+    approvedAt: null, supersededBy: null,
+  };
+
+  it("shows the effective (overlay) score instead of the analysis's own score once an overlay applies", () => {
+    render(
+      <TodayRideCard
+        analysis={{ ...baseAnalysis, executionScore: 2 }}
+        outcome={{ effectiveExecutionScore: 8, origin: "self-directed", source: "overlay", overlay: activeOverlay }}
+      />
+    );
+    expect(screen.getByText("8")).toBeTruthy();
+    expect(screen.queryByText("2")).toBeNull();
+  });
+
+  it("suppresses the score entirely when the overlay says Not scored", () => {
+    render(
+      <TodayRideCard
+        analysis={{ ...baseAnalysis, executionScore: 2 }}
+        outcome={{
+          effectiveExecutionScore: null,
+          origin: "unspecified",
+          source: "overlay",
+          overlay: {
+            ...activeOverlay,
+            origin: "unspecified",
+            effectiveExecutionScore: null,
+            notScoredReason: "intent-unreliable",
+            interpretation: { ...activeOverlay.interpretation, confidence: "low" },
+            scoringVersion: null,
+          },
+        }}
+      />
+    );
+    expect(screen.queryByText("2")).toBeNull();
+    expect(screen.getByText("Not scored — intent could not be determined reliably")).toBeTruthy();
+  });
+
+  it("renders exactly as before when outcome is null (backward compatible)", () => {
+    render(<TodayRideCard analysis={{ ...baseAnalysis, executionScore: 5 }} outcome={null} />);
+    expect(screen.getByText("5")).toBeTruthy();
+  });
+
+  it("keeps the analysis's own score when a ledger outcome resolved but NO overlay applies — the actual bug this guards", () => {
+    render(
+      <TodayRideCard
+        analysis={{ ...baseAnalysis, executionScore: 7 }}
+        outcome={{ effectiveExecutionScore: 3, origin: "prescribed", source: "ledger", overlay: null }}
+      />
+    );
+    expect(screen.getByText("7")).toBeTruthy();
+    expect(screen.queryByText("3")).toBeNull();
+  });
+
+  it("keeps the Post-to-Intervals.icu button visible for a Not-scored ride", () => {
+    render(
+      <TodayRideCard
+        analysis={{ ...baseAnalysis, executionScore: 2, coachNote: "Good effort out there." }}
+        outcome={{
+          effectiveExecutionScore: null,
+          origin: "unspecified",
+          source: "overlay",
+          overlay: {
+            ...activeOverlay,
+            origin: "unspecified",
+            effectiveExecutionScore: null,
+            notScoredReason: "intent-unreliable",
+            interpretation: { ...activeOverlay.interpretation, confidence: "low" },
+            scoringVersion: null,
+          },
+        }}
+        onPostNote={() => {}}
+      />
+    );
+    expect(screen.queryByText("2")).toBeNull();
+    expect(screen.getByTitle("Post coach note to Intervals.icu")).toBeTruthy();
+  });
+});

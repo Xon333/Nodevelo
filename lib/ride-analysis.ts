@@ -220,6 +220,7 @@ export function buildTodayAnalysis(input: TodayAnalysisInputs): TodayAnalysisRes
   const todayAnalysis: TodayAnalysis = {
     analysedAt: new Date().toISOString(),
     activityDate: input.today,
+    activityId: activity.id,
     activityName: activity.name,
     activityDurationMin: metrics.actualMin,
     activityAvgWatts: activity.avgWatts,

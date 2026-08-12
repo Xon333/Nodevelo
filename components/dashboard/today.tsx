@@ -6,12 +6,14 @@
 import type {
   AcwrResult,
   CurrentBlock,
+  EffectiveOutcome,
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
   SyncData,
   TodayAnalysis,
 } from "@/lib/types";
+import { RideIntentBlock } from "./ride-intent";
 import { executionScoreLabel } from "@/lib/execution-score";
 import { ifBandLabel } from "@/lib/zones";
 import { TYPE_STYLES } from "@/lib/workout-types";
@@ -148,6 +150,7 @@ const NET_RIDE_FUEL_TIP =
 
 export function TodayRideCard({
   analysis,
+  outcome,
   onPostNote,
   notePosting,
   notePosted,
@@ -156,6 +159,7 @@ export function TodayRideCard({
   onReAnalyse,
 }: {
   analysis: TodayAnalysis;
+  outcome?: EffectiveOutcome | null;
   onPostNote?: () => void;
   notePosting?: boolean;
   notePosted?: boolean;
@@ -180,6 +184,11 @@ export function TodayRideCard({
   // truthy-check convention) and mirrors `activeBurn`'s own legacy branch, which treats kJ as kcal —
   // so an old record reads exactly as it did before rather than through a new approximation.
   const grossBurnKcal = analysis.activityBurnKcal ?? analysis.activityKj ?? null;
+
+  // Once an overlay APPLIES, its effective score (or Not-scored reason) is authoritative — the old
+  // intrinsic scorer's analysis.executionScore must not leak through. A non-null outcome alone means
+  // only that a ledger row was found; prescribed/no-overlay rides keep the analysis score.
+  const displayScore = outcome?.overlay != null ? outcome.effectiveExecutionScore : analysis.executionScore;
 
   // Compliance % removed — execution (the duration/completion-aware 1–10 shown above) is the
   // single completion-anchored index; a separate macro % only duplicated the same story.
@@ -223,15 +232,20 @@ export function TodayRideCard({
   const body = (
     <>
       {/* The debrief verdict first (M2): execution is the answer to "how did it go?". */}
-      {analysis.executionScore != null && (
+      <RideIntentBlock outcome={outcome ?? null} activityDecoupling={analysis.activityDecoupling} />
+      {(displayScore != null || (onPostNote && analysis.coachNote)) && (
         <div className="flex items-center gap-3">
-          <span className="font-mono text-3xl font-bold leading-none text-zinc-800 dark:text-[#ff49c8]">
-            {analysis.executionScore}
-            <span className="font-sans text-sm font-normal text-zinc-500 dark:text-zinc-400">/10</span>
-          </span>
-          <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-            {executionScoreLabel(analysis.executionScore)}
-          </span>
+          {displayScore != null && (
+            <>
+              <span className="font-mono text-3xl font-bold leading-none text-zinc-800 dark:text-[#ff49c8]">
+                {displayScore}
+                <span className="font-sans text-sm font-normal text-zinc-500 dark:text-zinc-400">/10</span>
+              </span>
+              <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                {executionScoreLabel(displayScore)}
+              </span>
+            </>
+          )}
           {onPostNote && analysis.coachNote && (
             <button
               onClick={onPostNote}

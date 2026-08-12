@@ -71,6 +71,9 @@ function lap(durationSec: number, avgWatts: number | null, startIndex: number | 
     avgHr: null,
     startIndex,
     endIndex: startIndex === null ? null : startIndex + durationSec,
+    avgGradientPct: null,
+    groupId: null,
+    zone: null,
   };
 }
 
@@ -673,6 +676,48 @@ describe("effort grading — every combination of question 7's table", () => {
 // ---------------------------------------------------------------------------
 // Zone semantics and zoneBasis (question 8)
 // ---------------------------------------------------------------------------
+
+describe("matchLaps — zone-only fallback (narrowed hierarchy, external review 2026-08-12)", () => {
+  it("matches on zone alone when the target has no explicit duration", () => {
+    const target: IntentTarget = { zone: "Z4" };
+    const candidate = { ...lap(600, 220), zone: 4 };
+    const other = { ...lap(600, 220), zone: 2 };
+    expect(matchLaps(target, [other, candidate], null)).toEqual([candidate]);
+  });
+
+  it("stays ungraded on a gradient/ordinal-only reference — no matching key exists for either", () => {
+    const target: IntentTarget = {};
+    const laps = [lap(600, 220), lap(700, 240)];
+    expect(matchLaps(target, laps, null)).toEqual([]);
+  });
+
+  it("groups efforts sharing a groupId into one presented set, not N separate objectives", () => {
+    const target: IntentTarget = { durationMin: 4, watts: 267, reps: 3 };
+    const laps = [
+      { ...lap(237, 265), groupId: "237s@267w80rpm" },
+      { ...lap(237, 268), groupId: "237s@267w80rpm" },
+      { ...lap(237, 270), groupId: "237s@267w80rpm" },
+    ];
+    const matched = matchLaps(target, laps, 267);
+    expect(matched).toHaveLength(3);
+    expect(new Set(matched.map((m) => m.groupId))).toEqual(new Set(["237s@267w80rpm"]));
+  });
+
+  it("stays ungraded when multiple zone-only candidates remain plausible — never guesses", () => {
+    const target: IntentTarget = { zone: "Z4" };
+    const a = { ...lap(600, 220), zone: 4 };
+    const b = { ...lap(900, 230), zone: 4 };
+    expect(matchLaps(target, [a, b], null)).toEqual([]);
+  });
+
+  it("never introduces a gradient-based scoring axis — gradient is evidence text only", () => {
+    const target: IntentTarget = { durationMin: 10, watts: 250, reps: 1 };
+    const steep = { ...lap(600, 250), avgGradientPct: 7.9 };
+    const flat = { ...steep, avgGradientPct: 0.5 };
+    expect(matchLaps(target, [steep], 250)).toEqual([steep]);
+    expect(matchLaps(target, [flat], 250)).toEqual([flat]);
+  });
+});
 
 describe("zone evidence: units, indices and the basis rule", () => {
   it("converts seconds to minutes without rounding the seconds first", () => {

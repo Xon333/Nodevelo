@@ -140,6 +140,11 @@ describe("buildTodayAnalysis (CR-G)", () => {
     resolvedCal: {},
   };
 
+  it("stamps the activity's own id onto the analysis", () => {
+    const { todayAnalysis } = buildTodayAnalysis(base);
+    expect(todayAnalysis.activityId).toBe(base.activity.id);
+  });
+
   it("assembles a coherent analysis with a numeric execution score and capped compliance", () => {
     const { todayAnalysis, executionScore, resolvedCompliancePct } = buildTodayAnalysis(base);
     expect(todayAnalysis.activityDate).toBe("2026-06-22");

@@ -160,3 +160,11 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 54. **`INTENT_PROMPT_VERSION` is independent of `PROMPT_VERSION`.** The latter is stamped on generated
     plans, today analyses, and block-history entries; bumping it for an unrelated intent prompt would
     falsely assert changes to all three artifact families.
+55. **The debrief never displays the raw ledger/analysis score once an overlay applies.**
+    `RideIntentBlock`/`TodayRideCard` (`components/dashboard/ride-intent.tsx`,
+    `components/dashboard/today.tsx`) read `todayOutcome.effectiveExecutionScore` — resolved
+    server-side by the same `resolveEffectiveOutcome` seam items 36-40 govern — never
+    `TodayAnalysis.executionScore` directly once `todayOutcome.overlay` is non-null. The old
+    intrinsic scorer's number is the exact "generic 2/10" pathway design §14.1 replaces; a future
+    consumer of `TodayAnalysis` that reads `.executionScore` for display without checking
+    `todayOutcome` first would silently reintroduce it.

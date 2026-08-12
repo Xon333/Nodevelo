@@ -118,6 +118,10 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   existing guarantee still holds there — don't assume it does because it held somewhere else. All four are
   fixed on `main` as of PR #29; see `lib/intent-overlay.ts`'s `isCoherent`/`isApplicable` and
   `lib/athlete-model.ts`'s `overallScored` filter for the closed shape.
+  Phase 2c (the debrief UI) is the first render-layer consumer of `resolveEffectiveOutcome`'s output —
+  it resolves fresh per `/api/sync` request rather than persisting the verdict into
+  `today-analysis.json`, specifically because Phase 2b's intent parse is deferred/async and can
+  complete after the day's analysis was last written.
 - **Off-plan rides without trustworthy measurable intent (and planned-but-surgy rides) still score
   flat.** Phase 1 (2026-08-06) removed
   the axes that were punishing structurally mixed rides for their own structure — the circular VI penalty,
