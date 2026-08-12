@@ -1,6 +1,7 @@
 # Prescribed-EA warning
 
-**Status:** Design approved 2026-08-06, not yet implemented
+**Status:** Today warning shipped 2026-08-06 (PR #20). The unused generate/profile response fields
+described below were not added.
 **Date:** 2026-08-06
 
 ## Purpose

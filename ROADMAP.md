@@ -62,7 +62,7 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
 | **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
 | **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
 | **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
-| **Adaptive self-directed coach — Phase 2** | Phase 2b writes grounded, deterministic intent overlays; Phase 2c makes the debrief overlay-aware. Phases 3–4 are not started. Phase 3 must first brainstorm how curated interval gradient/group metadata is synced, persisted, and presented; do not infer terrain or widen the matching hierarchy before that design. | [2b plan](docs/superpowers/plans/2026-08-07-adaptive-coach-p2b-intent-scoring.md) · [2c plan](docs/superpowers/plans/2026-08-12-adaptive-coach-p2c-debrief-ui.md) |
+| **Adaptive self-directed coach — Phases 3–4** | Phases 1–2c shipped → [ARCHIVE](ARCHIVE.md#adaptive-self-directed-coach--phases-12c-2026-08-0612). Phase 3 must first design how curated interval gradient/group metadata is persisted and presented; do not infer terrain or widen matching before that. Phase 4 is the human-reviewed historical repair. | [design](docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md) |
 
 ## Blocked / dormant
 

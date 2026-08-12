@@ -1,7 +1,7 @@
 # Rest-Day Energy Model — Research & Architecture Review
 
 **Date:** 2026-08-01
-**Status:** Research complete. Architecture proposed, **not implemented** — this is a review, not a build.
+**Status:** Research complete; recommended day-type calibration shipped 2026-08-01.
 **Requested by:** the athlete, questioning whether `Maintenance = k × RMR` under-predicts true rest-day
 need after heavy training.
 **Ties to:** [09-nutrition.md](../../systems/09-nutrition.md) (the model this reviews),

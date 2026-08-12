@@ -137,7 +137,8 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     to power, with HR fallback permitted for that basis only, and none at all indoors.
 48. **The intent parser is shown the note and ride duration — nothing else.** No decoupling, scores,
     zone data, or FTP. The tool schema has no score, compliance, or drift field. Notes are capped at
-    the dedicated `INTENT_NOTE_MAX_CHARS` (2000), not the ride-analysis prompt's 400.
+    the shared `INTENT_NOTE_MAX_CHARS` (2000) in both intent parsing and ride analysis; longer notes
+    get an explicit truncation marker.
 49. **A note-less ride is decided without an LLM call.** The empty-note branch precedes client
     construction, and the empty note's fingerprint is stable so the ride is decided once.
 50. **Overlay idempotency reads all records, not applicable ones, and transient call failures write
