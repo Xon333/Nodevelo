@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SyncProvider, useSync } from "./SyncProvider";
+import { SYNC_QUERY_KEY, SyncProvider, useSync } from "./SyncProvider";
 import type { AppState } from "./SyncProvider";
 
 const h = vi.hoisted(() => ({ api: vi.fn() }));
@@ -106,11 +106,30 @@ describe("SyncProvider — HR-45 (doSync refreshes currentBlock)", () => {
     // Eventually reflects the block sync itself changed server-side — not left stale at "createdAt-OLD"
     // just because the POST response had no currentBlock field to merge.
     await waitFor(() => expect(screen.getByTestId("createdAt").textContent).toBe("createdAt-NEW"));
-    expect(getCalls).toBe(2); // initial load + the post-sync invalidate refetch
+    expect(getCalls).toBe(3); // initial load + post-sync refetch + post-intent refetch
   });
 });
 
 describe("SyncProvider — deferred intent parsing", () => {
+  it("invalidates the sync query after the intent loop, so a newly-written overlay becomes visible without another manual sync", async () => {
+    h.api.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.startsWith("/api/sync?today=")) return mkAppState(null);
+      if (url === "/api/analyze") return { todayAnalysis: null, warnings: [] };
+      if (url === "/api/intent") return { processed: 0, remaining: 0, stalled: false, failedIds: [], warnings: [] };
+      throw new Error(`unexpected api call: ${url}`);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SyncProvider><Harness /></SyncProvider>
+      </QueryClientProvider>
+    );
+    await screen.findByText("analyse");
+    fireEvent.click(screen.getByText("analyse"));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: SYNC_QUERY_KEY }));
+  });
+
   it("carries failed ids across bounded rounds without retrying them", async () => {
     const intentBodies: Array<{ force: boolean; skip: string[] }> = [];
     h.api.mockImplementation(async (url: string, init?: RequestInit) => {

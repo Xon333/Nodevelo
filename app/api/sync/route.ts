@@ -61,13 +61,26 @@ import { resolveToday } from "@/lib/date";
 import { deriveFuelPrompt } from "@/lib/fuel-prompt";
 import { isAnthropicConfigured } from "@/lib/anthropic-config";
 import { isSeasonFocus } from "@/lib/season";
-import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, ExecutedInterval, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
+import { findLedgerEntry } from "@/lib/ride-origin";
+import { indexOverlaysByActivity, indexOverlaysByDate, resolveEffectiveOutcome } from "@/lib/intent-overlay";
+import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, EffectiveOutcome, ExecutedInterval, IntentOverlay, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
 
 // A sync fires several sequential Intervals.icu requests (each network-bounded to 20s in the API
 // client) plus, on a ride day, per-ride stream/interval fetches. Cap the whole handler so a slow
 // upstream surfaces as an error rather than an open-ended request (CR-B). The slow LLM coach note is
 // deferred to /api/analyze, so this ceiling doesn't need to cover model latency.
 export const maxDuration = 120;
+
+function resolveTodayOutcome(
+  todayAnalysis: TodayAnalysis | null,
+  entries: RideScoreEntry[],
+  overlays: IntentOverlay[]
+): EffectiveOutcome | null {
+  if (!todayAnalysis) return null;
+  const entry = findLedgerEntry(entries, todayAnalysis.activityId, todayAnalysis.activityDate);
+  if (!entry) return null;
+  return resolveEffectiveOutcome(entry, indexOverlaysByActivity(overlays), indexOverlaysByDate(overlays));
+}
 
 // Resolve the athlete's carbsOptimum calibration into the shape deriveFuelPrompt wants — a value PLUS
 // its confidence, so a "gap" claim can be gated on trustworthiness (calibrated-honesty: never let a
@@ -185,6 +198,7 @@ export async function GET(req: Request) {
     lastSync,
     currentBlock,
     todayAnalysis,
+    todayOutcome: resolveTodayOutcome(todayAnalysis, scoreLog.entries, intentStore.overlays),
     readiness,
     fatigueAlert,
     loadRamp,
@@ -1009,7 +1023,7 @@ export async function POST(req: Request) {
       warnings.push("A background backup didn't complete — your training data itself is unaffected.");
     }
 
-    return NextResponse.json({ lastSync, todayAnalysis, analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date), athleteState, coachSnapshot, calibration });
+    return NextResponse.json({ lastSync, todayAnalysis, todayOutcome: resolveTodayOutcome(todayAnalysis, scoreLog.entries, intentStore.overlays), analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date), athleteState, coachSnapshot, calibration });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

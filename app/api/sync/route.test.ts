@@ -451,6 +451,117 @@ describe("GET /api/sync", () => {
   });
 });
 
+describe("GET /api/sync — todayOutcome", () => {
+  it("surfaces an active overlay for today's activity", async () => {
+    scoreEntries = [
+      {
+        date: "2026-08-11", executionScore: 3, plannedType: null, inferredType: "Z2", planned: false,
+        legacy: false, activityId: "act-1", compliancePct: null, intensityFactor: 0.7, ftpUsed: 280,
+        durationMin: 90, tss: 70,
+      },
+    ];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({
+      analysedAt: "2026-08-11T12:00:00.000Z", activityDate: "2026-08-11", activityId: "act-1",
+      activityName: "Ride", activityDurationMin: 90, activityAvgWatts: null,
+      activityNormalizedPower: null, activityMaxWatts: null, activityAvgHr: null, activityMaxHr: null,
+      activityKj: null, activityBurnKcal: null, activityTrainingLoad: null, activityRpe: null,
+      activityDecoupling: null, aerobicDiscipline: null, aerobicEffPct: null,
+      activityDistanceMeters: null, plannedName: null, plannedType: null, plannedDurationMin: null,
+      compliancePct: null, intensityFactor: 0.7, advisedIntakeKcal: null, advisedBaseKcal: null,
+      advisedBufferKcal: null, advisedRideFuelKcal: null,
+      activityDescription: "45 min Z2 then some climbing", powerZoneTimes: null, hrZoneTimes: null,
+      powerZoneTopsPct: null, executionScore: 3, coachNote: "", intervalComparison: null, trace: null,
+    } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [{
+        id: "ov-1", activityId: "act-1", date: "2026-08-11", noteFingerprint: "fp-1",
+        status: "active", origin: "self-directed", effectiveExecutionScore: 8, notScoredReason: null,
+        interpretation: {
+          intent: { primaryPurpose: "endurance", phases: [] }, confidence: "high", objectives: [],
+          model: "claude-sonnet-4-6", promptVersion: 1,
+        },
+        scoringVersion: 1, schemaVersion: 1, createdAt: "2026-08-11T13:00:00.000Z",
+        approvedAt: null, supersededBy: null,
+      }],
+      updatedAt: "2026-08-11T13:00:00.000Z",
+    });
+
+    const body = await (await GET(new Request("http://localhost/api/sync"))).json();
+    expect(body.todayOutcome.source).toBe("overlay");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(8);
+    expect(body.todayOutcome.origin).toBe("self-directed");
+  });
+
+  it("does not surface a pending overlay — falls back to the ledger", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-08-11", executionScore: 3, plannedType: null, inferredType: "Z2", planned: false, activityId: "act-1" })];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({ activityDate: "2026-08-11", activityId: "act-1", executionScore: 3 } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [{
+        id: "ov-1", activityId: "act-1", date: "2026-08-11", noteFingerprint: "fp-1",
+        status: "pending", origin: "self-directed", effectiveExecutionScore: 9, notScoredReason: null,
+        interpretation: null, scoringVersion: 1, schemaVersion: 1,
+        createdAt: "2026-08-11T13:00:00.000Z", approvedAt: null, supersededBy: null,
+      }],
+      updatedAt: "2026-08-11T13:00:00.000Z",
+    });
+
+    const body = await (await GET(new Request("http://localhost/api/sync"))).json();
+    expect(body.todayOutcome.source).toBe("ledger");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(3);
+  });
+
+  it("is null when there is no today-analysis record", async () => {
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue(null);
+    const body = await (await GET(new Request("http://localhost/api/sync"))).json();
+    expect(body.todayOutcome).toBeNull();
+  });
+
+  it("is null when today-analysis exists but no ledger row matches it — NOT the same as no analysis record", async () => {
+    scoreEntries = [];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({ activityDate: "2026-08-11", activityId: "act-1", executionScore: 3 } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
+    const body = await (await GET(new Request("http://localhost/api/sync"))).json();
+    expect(body.todayOutcome).toBeNull();
+  });
+
+  it("does not surface a SUPERSEDED overlay, even while its status still reads active — distinct from pending", async () => {
+    scoreEntries = [mkScoreEntry({ date: "2026-08-11", executionScore: 3, plannedType: null, inferredType: "Z2", planned: false, activityId: "act-1" })];
+    vi.mocked(store.readTodayAnalysis).mockResolvedValue({ activityDate: "2026-08-11", activityId: "act-1", executionScore: 3 } as never);
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [{
+        id: "ov-1", activityId: "act-1", date: "2026-08-11", noteFingerprint: "fp-1",
+        status: "active", origin: "self-directed", effectiveExecutionScore: 9, notScoredReason: null,
+        interpretation: null, scoringVersion: 1, schemaVersion: 1,
+        createdAt: "2026-08-11T13:00:00.000Z", approvedAt: null, supersededBy: "ov-2",
+      }],
+      updatedAt: "2026-08-11T13:00:00.000Z",
+    });
+    const body = await (await GET(new Request("http://localhost/api/sync"))).json();
+    expect(body.todayOutcome.source).toBe("ledger");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(3);
+  });
+});
+
+describe("POST /api/sync — todayOutcome", () => {
+  it("surfaces an active overlay for today's activity", async () => {
+    scoreEntries = [mkScoreEntry({ date: TODAY, executionScore: 3, plannedType: null, inferredType: "Z2", planned: false, activityId: "act-1" })];
+    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
+    vi.mocked(api.runFullSync).mockResolvedValue(mkSync({ activities: [mkActivity({ id: "act-1" })] }));
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [{
+        id: "ov-1", activityId: "act-1", date: TODAY, noteFingerprint: "fp-1", status: "active",
+        origin: "self-directed", effectiveExecutionScore: 8, notScoredReason: null,
+        interpretation: null, scoringVersion: 1, schemaVersion: 1,
+        createdAt: "2026-08-11T13:00:00.000Z", approvedAt: null, supersededBy: null,
+      }],
+      updatedAt: "2026-08-11T13:00:00.000Z",
+    });
+    const body = await (await postSync()).json();
+    expect(body.todayOutcome.source).toBe("overlay");
+    expect(body.todayOutcome.effectiveExecutionScore).toBe(8);
+  });
+});
+
 describe("POST /api/sync — guards + error mapping", () => {
   it("400 when Intervals.icu is not configured", async () => {
     vi.mocked(api.isIntervalsConfigured).mockReturnValue(false);

@@ -8,6 +8,7 @@ import type {
   AcwrResult,
   AthleteState,
   CurrentBlock,
+  EffectiveOutcome,
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
@@ -26,6 +27,9 @@ export interface AppState {
   lastSync: SyncData | null;
   currentBlock: CurrentBlock | null;
   todayAnalysis: TodayAnalysis | null;
+  // Phase 2c: today's overlay-resolved outcome (null score display is wrong without this — the
+  // debrief must not fall back to TodayAnalysis.executionScore once a self-directed overlay applies).
+  todayOutcome: EffectiveOutcome | null;
   readiness: ReadinessSignal | null;
   fatigueAlert: FatigueAlert | null;
   loadRamp: LoadRampAlert | null;
@@ -167,10 +171,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setSyncWarnings((w) => [...w, `Intent analysis failed: ${e instanceof Error ? e.message : "error"}`]);
     } finally {
+      // Phase 2c: an overlay this loop just wrote is invisible to the UI until /api/sync is
+      // re-fetched — todayOutcome was resolved from whatever the store held BEFORE this loop ran.
+      // Invalidating (not just marking stale) forces the refetch even if the athlete isn't looking at
+      // a component that would otherwise trigger one on its own.
+      await queryClient.invalidateQueries({ queryKey: SYNC_QUERY_KEY });
       setAnalyzing(false);
       analyzingRef.current = false;
     }
-  }, [setState]);
+  }, [setState, queryClient]);
 
   const doSync = useCallback(async () => {
     setSyncing(true);
