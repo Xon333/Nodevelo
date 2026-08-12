@@ -18,6 +18,7 @@ import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { isSteadyEnduranceRide } from "./aerobic";
+import { INTENT_NOTE_MAX_CHARS } from "./intent-prompt";
 import type { AerobicDiscipline } from "./execution-score";
 import { round1 } from "./stats";
 import { AEROBIC_DEADBAND_PCT } from "./aerobic";
@@ -464,8 +465,18 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
           .join(", ")}`
       : null;
 
-  const athleteNote = input.activityDescription?.trim()
-    ? `Athlete note: "${input.activityDescription.trim().slice(0, 400)}"`
+  // Was capped at 400 chars, which silently cut a real self-directed ride's note mid-sentence before it
+  // ever reached the note's second effort block — with no marker, so the model had no way to know its
+  // input was a fragment and would describe the cut as the athlete's note being incomplete. Now shares
+  // INTENT_NOTE_MAX_CHARS with the intent-parsing prompt (lib/intent-prompt.ts) — one cap, not two
+  // drifting numbers — and marks a real truncation explicitly rather than cutting silently.
+  const trimmedNote = input.activityDescription?.trim();
+  const athleteNote = trimmedNote
+    ? `Athlete note: "${
+        trimmedNote.length > INTENT_NOTE_MAX_CHARS
+          ? `${trimmedNote.slice(0, INTENT_NOTE_MAX_CHARS)}… [note truncated]`
+          : trimmedNote
+      }"`
     : null;
 
   // Deterministic fuel-prompt context (lib/fuel-prompt.ts) — a pre-computed, one-line nudge or gap
