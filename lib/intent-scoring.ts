@@ -867,12 +867,22 @@ export function scoreIntentExecution(
 
   const objectives = results.map((result) => result.objective);
   const scopeMin = evidenceScope(objectives);
-  const { scoreable, reason, requiredScopeMin } = assessScoreability({
+  const assessed = assessScoreability({
     confidence: interpretation.confidence,
     gradableCount: gradable.length,
     scopeMin,
     rideMin: evidence.durationMin,
   });
+  // assessScoreability's "no-measurable-objectives" conflates two different situations: real objectives
+  // that simply aren't verifiable from the ride data (its documented contract — genuinely self-directed),
+  // and zero objectives extracted at all (nothing about training intent was recovered — unspecified).
+  // Only override the latter; a real-but-ungradable objective keeps self-directed exactly as before
+  // (PR #35 review finding N2, 2026-08-12).
+  const { scoreable, requiredScopeMin } = assessed;
+  const reason =
+    assessed.reason === "no-measurable-objectives" && interpretation.objectives.length === 0
+      ? "intent-unreliable"
+      : assessed.reason;
 
   // Stage 4 — bounded aggregation.
   let total = 5;

@@ -77,6 +77,16 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   overlays moved those reads to 29, 5.5, 46%, and 5.3. The August 5 and 6 acceptance rides resolved as
   medium-confidence RaceSim outcomes scored 5 and 4. The model did invent/assume two ungrounded
   details (full-ride duration and bare `292` as watts/power); deterministic grounding excluded both.
+- **Two drift-signal defects found in PR #35's review, fixed 2026-08-12 (Phase 2c Tasks 8–9).**
+  `summariseBehaviour`'s `driftAvgQuality` was excluding any drift ride whose overlay carried a
+  `notScoredReason` (empty/unreliable note → `effectiveExecutionScore: null`) instead of falling back to
+  the ledger's own deterministic score — left unfixed, the average would have degraded toward permanently
+  `null` as more drift rides acquired an overlay. And a note from which the model extracted zero
+  objectives was classified `no-measurable-objectives`/self-directed — the same reason genuinely
+  ungradable-but-real objectives get — exempting it from `offPlanPct` even though no trustworthy training
+  intent existed; it now maps to `intent-unreliable`/unspecified. Neither fix touches classification of a
+  ride with a real, gradable note (e.g. two described effort blocks) — those already resolve
+  `self-directed` and are excluded from drift by construction, unaffected by either fix.
 - **The ride debrief is still ledger-based.** Phase 2b changes derived coaching state only. The Today
   card may therefore keep showing the old ledger score even while the athlete model reads an overlay;
   rendering the interpreted intent and effective score belongs to Phase 2c.

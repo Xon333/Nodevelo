@@ -1331,3 +1331,23 @@ describe("the score model", () => {
     });
   });
 });
+
+describe("scoreIntentExecution — zero-objective vs. ungradable-objective notes (PR #35 finding N2)", () => {
+  it("a note with zero extracted objectives is intent-unreliable, not no-measurable-objectives", () => {
+    const I = interp({ objectives: [] });
+    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
+    expect(result.reason).toBe("intent-unreliable");
+  });
+
+  it("a note with real but ungradable objectives keeps no-measurable-objectives", () => {
+    const I = interp({ objectives: [obj("qualitative", { description: "descending practice" })] });
+    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
+    expect(result.reason).toBe("no-measurable-objectives");
+  });
+
+  it("low confidence still wins over the zero-objective override", () => {
+    const I = interp({ confidence: "low", objectives: [] });
+    const result = scoreIntentExecution(I, evidence({ durationMin: 90 }));
+    expect(result.reason).toBe("intent-unreliable");
+  });
+});
