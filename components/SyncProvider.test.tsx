@@ -18,6 +18,7 @@ const mkAppState = (createdAt: string | null): AppState =>
       ? { goal: "g", lengthWeeks: 1, startDate: "2026-06-15", endDate: "2026-06-21", overview: "", createdAt, days: [] }
       : null,
     todayAnalysis: null,
+    todayOutcome: null,
     readiness: null,
     fatigueAlert: null,
     loadRamp: null,

@@ -43,6 +43,7 @@ const mkState = (currentBlock: CurrentBlock | null): AppState =>
     lastSync: null,
     currentBlock,
     todayAnalysis: null,
+    todayOutcome: null,
     readiness: null,
     fatigueAlert: null,
     loadRamp: null,
