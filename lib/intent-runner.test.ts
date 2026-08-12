@@ -292,4 +292,40 @@ describe("runIntentParsing", () => {
     await runIntentParsing(TODAY, []);
     expect(overlayStore.overlays[0].noteFingerprint).toBe(noteFingerprint(activities[0].description));
   });
+
+  it("force re-analysis picks up curated intervals the athlete edited after the first parse", async () => {
+    activities[0].description = "1 x 10 min at 250W";
+    const effortInterpretation: IntentInterpretation = {
+      ...interpretation(),
+      intent: {
+        primaryPurpose: "10 min effort",
+        phases: [{ description: "10 min at 250W", kind: "effort", durationMin: 10, targetWatts: 250 }],
+      },
+      objectives: [{
+        description: "10 min at 250W", kind: "effort",
+        target: { durationMin: 10, watts: 250, reps: 1 }, zoneBasis: "unspecified",
+        grounded: true, sourceText: "10 min at 250W", measurable: false, scored: false,
+        scopeMin: null, evidence: null,
+      }],
+    };
+    const curatedLap = (avgWatts: number) => ({
+      type: "WORK", durationSec: 600, avgWatts, npWatts: avgWatts, avgHr: null,
+      startIndex: 0, endIndex: 600, avgGradientPct: null, groupId: null, zone: null,
+    });
+
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);
+    vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(250)]);
+    await runIntentParsing(TODAY, [], { force: true });
+    const first = overlayStore.overlays.find((o) => o.supersededBy === null);
+    expect(first?.interpretation?.objectives[0].evidence).toContain("at 250 W vs");
+
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);
+    vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(200)]);
+    await runIntentParsing(TODAY, [], { force: true });
+
+    const active = overlayStore.overlays.filter((o) => o.supersededBy === null);
+    expect(active).toHaveLength(1);
+    expect(active[0].interpretation?.objectives[0].evidence).toContain("at 200 W vs");
+    expect(active[0].interpretation?.objectives[0].evidence).not.toContain("at 250 W vs");
+  });
 });
