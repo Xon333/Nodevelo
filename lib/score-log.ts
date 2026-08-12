@@ -400,9 +400,10 @@ export function summariseBehaviour(resolved: ResolvedRide[]): BehaviourSummary {
   const driftRides = resolved.filter((r) => countsAsDrift(r.outcome.origin, r.entry.legacy));
   const offPlanPct = total > 0 ? Math.round((driftRides.length / total) * 100) : 0;
 
-  const driftScores = driftRides
-    .map((r) => r.outcome.effectiveExecutionScore)
-    .filter((v): v is number => v !== null);
+  // A Not-scored overlay (empty/unreliable note) still leaves the ledger's own deterministic score
+  // intact — falling back to it keeps driftAvgQuality representative instead of degrading toward null
+  // as more drift rides acquire an overlay (PR #35 review finding N1, 2026-08-12).
+  const driftScores = driftRides.map((r) => r.outcome.effectiveExecutionScore ?? r.entry.executionScore);
   const driftAvgQuality = driftScores.length
     ? round1(driftScores.reduce((s, v) => s + v, 0) / driftScores.length)
     : null;
