@@ -929,6 +929,14 @@ describe("summariseBehaviour — effective origin", () => {
       resolved(ride("2026-01-02", { planned: false, compliancePct: null }), "self-directed"),
     ]).offPlanPct).toBe(0);
   });
+
+  it("falls back to the ledger's own score when the overlay is Not scored (PR #35 finding N1)", () => {
+    const summary = summariseBehaviour([
+      resolved(ride("2026-01-01"), "prescribed"),
+      resolved(ride("2026-01-02", { planned: false, compliancePct: null, executionScore: 6 }), "unspecified", null),
+    ]);
+    expect(summary.driftAvgQuality).toBe(6);
+  });
 });
 
 describe("truncateBlockDays", () => {
