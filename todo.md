@@ -68,5 +68,10 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 - ☐ P3 `feat` Nutrition Phase 4 — daily carbohydrate target (spec §9). Protein deliberately out (the
   athlete already covers it); within-day timing out (needs meal-level logging they've declined);
   wearables out.
+- ☐ `ux` Phase 3a no-block Today layout — revisit whether the fused `AthleteStateCard` (Zone 1,
+  `lib/athlete-state.ts`) should eventually be replaced/merged with design §10's three-stream
+  Load/Recovery/Execution read for the no-block case, rather than keeping the fused score permanent and
+  adding §10's read as Zone 2 supplementary text. Chose the lower-risk option for v1 (2026-08-12,
+  athlete's explicit call); flagged to reconsider once the no-block section has shipped and been used.
 
 Add new bugs/feedback here as they come in; strategy → [ROADMAP.md](ROADMAP.md).
