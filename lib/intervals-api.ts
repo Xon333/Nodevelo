@@ -202,6 +202,13 @@ export async function fetchIntervals(activityId: string): Promise<ExecutedInterv
         avgGradientPct: (() => { const g = num(iv.average_gradient); return g === null ? null : g * 100; })(),
         groupId: typeof iv.group_id === "string" && iv.group_id ? iv.group_id : null,
         zone: num(iv.zone),
+        maxHr: num(iv.max_heartrate),
+        avgCadenceRpm: num(iv.average_cadence),
+        // NOTE the exact raw key casing: `Maxgradient` — capital M, no underscore, unlike every other
+        // snake_case field on this payload. Verified live 2026-08-12; do not "fix" it to max_gradient.
+        maxGradientPct: num(iv.Maxgradient),
+        elevationGainM: num(iv.total_elevation_gain),
+        label: typeof iv.label === "string" && iv.label.trim() ? iv.label : null,
       };
     });
   } catch {

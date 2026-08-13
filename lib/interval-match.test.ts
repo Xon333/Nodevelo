@@ -20,6 +20,11 @@ const ex = (type: string, np: number, durationSec = 1200): ExecutedInterval => (
   avgGradientPct: null,
   groupId: null,
   zone: null,
+  maxHr: null,
+  avgCadenceRpm: null,
+  maxGradientPct: null,
+  elevationGainM: null,
+  label: null,
 });
 
 describe("matchPrescription", () => {

@@ -46,6 +46,18 @@ export function groundsWatts(note: string, watts: number): boolean {
   return hasValue(valuesFor(masked, unit), watts) || inRanges(masked, watts, unit);
 }
 
+export function groundsHrBpm(note: string, bpm: number): boolean {
+  const masked = maskZoneTokens(note);
+  const unit = "(?:bpm|beats?\\s*per\\s*minute)\\b";
+  return hasValue(valuesFor(masked, unit), bpm) || inRanges(masked, bpm, unit);
+}
+
+export function groundsCadenceRpm(note: string, rpm: number): boolean {
+  const masked = maskZoneTokens(note);
+  const unit = "(?:rpm|revolutions?\\s*per\\s*minute)\\b";
+  return hasValue(valuesFor(masked, unit), rpm) || inRanges(masked, rpm, unit);
+}
+
 export function groundsPctFtp(note: string, pct: number): boolean {
   const masked = maskZoneTokens(note);
   const unit = "(?:%|pct\\b|percent\\b)";
@@ -77,17 +89,31 @@ export function groundsZone(note: string, zone: string): boolean {
   return Object.entries(WORD_ZONES).some(([word, mapped]) => mapped === target && new RegExp(`\\b${word}\\b`, "i").test(note));
 }
 
+// Word-boundary vocabulary match, not numeric — mirrors groundsZone's WORD_ZONES approach. Conservative
+// on purpose (design doc §5's "no fuzzy NLP matching" discipline, same rule Task 6's label matching uses).
+const TERRAIN_WORDS: Record<"climb" | "descent", string[]> = {
+  climb: ["climb", "climbing", "climbed", "kicker", "kickers", "ascent"],
+  descent: ["descent", "descending", "descended", "downhill"],
+};
+
+export function groundsTerrain(note: string, terrain: "climb" | "descent"): boolean {
+  return TERRAIN_WORDS[terrain].some((word) => new RegExp(`\\b${word}\\b`, "i").test(note));
+}
+
 // The model may decline grounding, but may never promote unsupported numeric specificity.
 export function verifyGrounding(objective: Pick<ScoredObjective, "grounded" | "target">, note: string): boolean {
   if (!objective.grounded || !objective.target) return false;
-  const { durationMin, watts, targetPctFtp, reps, zone } = objective.target;
-  const targets = [durationMin, watts, targetPctFtp, reps, zone];
+  const { durationMin, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain } = objective.target;
+  const targets = [durationMin, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain];
   const fields = [
     durationMin === undefined || groundsDuration(note, durationMin),
     watts === undefined || groundsWatts(note, watts),
     targetPctFtp === undefined || groundsPctFtp(note, targetPctFtp),
     reps === undefined || groundsReps(note, reps),
     zone === undefined || groundsZone(note, zone),
+    targetHrBpm === undefined || groundsHrBpm(note, targetHrBpm),
+    targetCadenceRpm === undefined || groundsCadenceRpm(note, targetCadenceRpm),
+    terrain === undefined || groundsTerrain(note, terrain),
   ];
   return fields.every(Boolean) && targets.some((target) => target !== undefined);
 }

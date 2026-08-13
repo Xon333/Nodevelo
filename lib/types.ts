@@ -408,6 +408,20 @@ export interface ExecutedInterval {
   avgGradientPct: number | null;
   groupId: string | null;
   zone: number | null;
+  // Phase 3b: the metrics Intervals.icu already computes per curated interval, beyond gradient/zone.
+  // Peak HR (not just average) is needed so a claim like "stay under 154bpm" can catch a brief spike
+  // even when the interval's average stayed under the ceiling.
+  maxHr: number | null;
+  avgCadenceRpm: number | null;
+  // Peak gradient, not average — a real interval's average can read near 0% while its peak hits double
+  // digits; the mean washes out short pitches (verified against real ride data during design).
+  maxGradientPct: number | null;
+  elevationGainM: number | null;
+  // Athlete-typed free text on a manually curated interval (Intervals.icu's own "label" feature) — the
+  // highest-confidence terrain/effort match signal this phase has, when present. Confirmed API-exposed
+  // as `iv.label`; empty string is normalised to null at the mapping boundary (Step 4), never an
+  // empty-but-present match target.
+  label: string | null;
 }
 
 // Prescription vs execution, rep-by-rep, with a roll-up — the "second brain" comparison.
@@ -680,7 +694,7 @@ export type NotScoredReason =
   | "no-measurable-objectives" // intent understood; nothing the ride data can verify
   | "interpreter-failed"; // the parse itself errored
 
-export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative";
+export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative" | "terrain";
 export type ZoneBasis = "power" | "heart-rate" | "unspecified";
 
 export interface IntentTarget {
@@ -689,6 +703,12 @@ export interface IntentTarget {
   targetPctFtp?: number;
   zone?: string;
   reps?: number;
+  // Phase 3b. Ceiling, not a range — matches the athlete's actual note style ("under 154bpm").
+  targetHrBpm?: number;
+  targetCadenceRpm?: number;
+  // Qualifier, not a numeric target — resolved by ExecutedInterval.label first, ExecutedInterval's
+  // maxGradientPct/elevationGainM as fallback. See lib/intent-scoring.ts's matchLaps.
+  terrain?: "climb" | "descent";
 }
 
 // The structured intent recovered from a note. Deliberately loose — Phase 2b's zod schema is the

@@ -133,6 +133,40 @@ describe("intervals-api network failure handling (CR-B)", () => {
     expect(interval.groupId).toBeNull();
   });
 
+  it("maps the five Phase 3b interval fields", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 480, average_watts: 210,
+      max_heartrate: 172, average_cadence: 88, Maxgradient: 11.7,
+      total_elevation_gain: 42.5, label: "Climb 1",
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.maxHr).toBe(172);
+    expect(interval.avgCadenceRpm).toBe(88);
+    expect(interval.maxGradientPct).toBeCloseTo(11.7, 1);
+    expect(interval.elevationGainM).toBeCloseTo(42.5, 1);
+    expect(interval.label).toBe("Climb 1");
+  });
+
+  it("maps all five to null when the raw payload omits them", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 480, average_watts: 210,
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.maxHr).toBeNull();
+    expect(interval.avgCadenceRpm).toBeNull();
+    expect(interval.maxGradientPct).toBeNull();
+    expect(interval.elevationGainM).toBeNull();
+    expect(interval.label).toBeNull();
+  });
+
+  it("treats an empty-string label as null, not an empty match target", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 480, average_watts: 210, label: "",
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.label).toBeNull();
+  });
+
   it("maps power metrics off the keys intervals.icu actually returns (NP/decoupling/max)", async () => {
     // Raw shape from a real activity: NP under icu_weighted_avg_watts, decoupling under `decoupling`,
     // max power under icu_pm_p_max — NOT icu_normalized_power / max_watts (which it doesn't send).

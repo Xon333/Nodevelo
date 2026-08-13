@@ -97,4 +97,41 @@ describe("RideIntentBlock", () => {
     render(<RideIntentBlock outcome={outcome()} activityDecoupling={3.8} />);
     expect(screen.queryByText(/Aerobic drift not measurable/)).toBeNull();
   });
+
+  it("renders terrain evidence without special-casing", () => {
+    const terrain = outcome({
+      overlay: overlay({
+        interpretation: {
+          ...overlay().interpretation!,
+          objectives: [{
+            description: "did a climb", kind: "terrain", target: { terrain: "climb", durationMin: 8 },
+            zoneBasis: "unspecified", grounded: true, sourceText: "did a climb",
+            measurable: true, scored: true, scopeMin: 8,
+            evidence: "8.0 min climb vs 8 min stated (labelled) — avg 6.2%, VAM 780 m/h",
+          }],
+        },
+      }),
+    });
+    render(<RideIntentBlock outcome={terrain} activityDecoupling={1} />);
+    expect(screen.getByText(/did a climb/)).toBeTruthy();
+    expect(screen.getByText(/VAM 780 m\/h/)).toBeTruthy();
+  });
+
+  it("renders HR-ceiling evidence without special-casing", () => {
+    const hr = outcome({
+      overlay: overlay({
+        interpretation: {
+          ...overlay().interpretation!,
+          objectives: [{
+            description: "stay under 154bpm", kind: "effort", target: { durationMin: 30, targetHrBpm: 154 },
+            zoneBasis: "heart-rate", grounded: true, sourceText: "under 154bpm",
+            measurable: true, scored: true, scopeMin: 30,
+            evidence: "1 matching lap, peak HR 150 vs 154 bpm ceiling",
+          }],
+        },
+      }),
+    });
+    render(<RideIntentBlock outcome={hr} activityDecoupling={1} />);
+    expect(screen.getByText(/peak HR 150 vs 154 bpm ceiling/)).toBeTruthy();
+  });
 });

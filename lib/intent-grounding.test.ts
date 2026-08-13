@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  groundsCadenceRpm,
   groundsDuration,
+  groundsHrBpm,
   groundsPctFtp,
   groundsReps,
+  groundsTerrain,
   groundsWatts,
   groundsZone,
   maskZoneTokens,
@@ -99,5 +102,33 @@ describe("semantic intent grounding", () => {
     expect(verifyGrounding(claimed, "some Z4 efforts")).toBe(false);
     const honest = { ...claimed, grounded: false, target: { durationMin: 9, watts: 292 } };
     expect(verifyGrounding(honest, "9 min around 292 W")).toBe(false);
+  });
+});
+
+describe("Phase 3b grounding — HR, cadence, terrain", () => {
+  it("grounds an HR ceiling only from a bpm-unit form", () => {
+    expect(groundsHrBpm("if HR goes over 154bpm dial back", 154)).toBe(true);
+    expect(groundsHrBpm("30 min effort", 154)).toBe(false); // no bpm unit anywhere — must not invent one
+  });
+
+  it("grounds a cadence target only from an rpm-unit form", () => {
+    expect(groundsCadenceRpm("high cadence spin, aim for 95rpm", 95)).toBe(true);
+    expect(groundsCadenceRpm("30 min effort", 95)).toBe(false);
+  });
+
+  it("grounds a terrain claim from climb/descent vocabulary", () => {
+    expect(groundsTerrain("did a proper climb today", "climb")).toBe(true);
+    expect(groundsTerrain("fast technical descent at the end", "descent")).toBe(true);
+    expect(groundsTerrain("steady z2 ride", "climb")).toBe(false);
+  });
+
+  it("no longer rejects a terrain-only objective outright — the R1 bug this step fixes", () => {
+    const objective = { grounded: true, target: { terrain: "climb" as const } };
+    expect(verifyGrounding(objective, "did a proper climb today")).toBe(true);
+  });
+
+  it("no longer lets an invented HR value pass on another field's coattails — the other R1 bug", () => {
+    const objective = { grounded: true, target: { durationMin: 30, targetHrBpm: 154 } };
+    expect(verifyGrounding(objective, "30 min steady endurance ride")).toBe(false); // no bpm anywhere
   });
 });

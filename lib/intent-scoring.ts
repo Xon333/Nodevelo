@@ -12,10 +12,9 @@
 //   • the scoreability gate — grounding, then kind-eligibility-by-confidence, then evidence scope.
 //
 // Three things this module deliberately CANNOT see, each pinned by a test that reads this source file:
-// whole-ride aerobic drift, the ride's existing execution score, and any ride-variability figure. A
-// judge shown no drift number cannot report a drift verdict, and this scorer must not either. There is
-// no variability axis here at all — not suppressed, absent — so design §14.1's "do not penalise
-// variability that belongs to the climbing purpose" holds by construction.
+// whole-ride aerobic drift, the ride's existing execution score, and any whole-ride variability figure.
+// Matched-lap NP/variability may appear in evidence text only, never as a scoring input. A judge shown
+// no drift number cannot report a drift verdict, and this scorer must not either.
 //
 // THE ONE-WAY CONFIDENCE RULE. The deterministic gate decides scoreability FIRST. Confidence may then
 // only SHRINK the gradable kind set (`medium` drops `structure`) or veto outright (`low`). No
@@ -69,8 +68,10 @@ export type IntentConfidence = IntentInterpretation["confidence"];
 // `qualitative` is in no list — it is acknowledged (`measurable: false, scored: false`) and never
 // graded: speed, braking and GPS cannot establish that cornering was good (design §6/§12.2).
 export const GRADABLE_KINDS_BY_CONFIDENCE: Record<IntentConfidence, readonly ObjectiveKind[]> = {
-  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure"],
-  medium: ["duration", "zone-time", "zone-emphasis", "effort"], // structure dropped
+  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure", "terrain"],
+  // structure dropped at medium (ordinal/reward-only); terrain KEPT — it is a falsifiable existence
+  // claim from lap data, the same rigor class as `effort`, not an ordinal claim like `structure`.
+  medium: ["duration", "zone-time", "zone-emphasis", "effort", "terrain"],
   low: [],
 };
 
@@ -94,6 +95,8 @@ export interface RideEvidence {
   hrZoneTimes: number[] | null; // SECONDS per zone, index 0 = zone 1
   laps: ExecutedInterval[]; // athlete-curated intervals; `[]` means none were available
   ftpUsed: number; // the FTP that applied on the RIDE's date, from the ledger row
+  wholeRideMaxHr: number | null;
+  wholeRideAvgCadence: number | null;
 }
 
 // One zone reading, plus which array it came from and whether that array was the athlete's stated
@@ -147,6 +150,15 @@ function adherenceDelta(pct: number): number {
   return -2;
 }
 
+function hrCeilingDelta(peakHr: number, ceilingBpm: number): number {
+  const over = peakHr - ceilingBpm;
+  if (over <= 0) return 2;
+  if (over <= 3) return 1;
+  if (over <= 8) return 0;
+  if (over <= 15) return -1;
+  return -2;
+}
+
 // Reused from the duration-compliance band in lib/execution-score.ts, and one-sided by design: riding
 // LONGER than you said is not a failure of your own session (design §6 forbids penalising a
 // self-directed ride for its own structure). Question 1 pins the low end — "3 hours of Z2" ridden for
@@ -176,6 +188,7 @@ const KIND_BAND: Record<ObjectiveKind, { min: number; max: number }> = {
   "zone-emphasis": { min: 0, max: 2 },
   effort: { min: -2, max: 2 },
   structure: { min: 0, max: 1 },
+  terrain: { min: -2, max: 2 },
   qualitative: { min: 0, max: 0 },
 };
 
@@ -299,9 +312,9 @@ export function resolveTargetWatts(target: IntentTarget, ftpUsed: number): numbe
 const roundOr = (value: number | undefined, step: number): string =>
   value == null || !Number.isFinite(value) ? "-" : String(Math.round(value / step) * step);
 
-// `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp, reps)`, with `durationMin` rounded to the
-// minute, `watts` to 5 W and `targetPctFtp` to 1%. `description` and `sourceText` are EXCLUDED — free
-// text varies while the claim does not.
+// `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp, reps, targetHrBpm, targetCadenceRpm,
+// terrain)`, with `durationMin` rounded to the minute, `watts` to 5 W and `targetPctFtp` to 1%.
+// `description` and `sourceText` are EXCLUDED — free text varies while the claim does not.
 //
 // The one exception is `qualitative`, whose stage-2 merge key is `("qualitative", description)`: a
 // stage-1 key COARSER than stage 2's own would drop entries stage 2 was told to keep, collapsing
@@ -316,6 +329,9 @@ export function identityKey(objective: ScoredObjective): string {
     roundOr(target.watts, 5),
     roundOr(target.targetPctFtp, 1),
     roundOr(target.reps, 1),
+    roundOr(target.targetHrBpm, 1),
+    roundOr(target.targetCadenceRpm, 1),
+    target.terrain ?? "-",
   ];
   if (objective.kind === "qualitative") parts.push(objective.description);
   return parts.join("|");
@@ -373,11 +389,13 @@ function mergeKey(objective: ScoredObjective): string {
       return `${objective.kind}|${zoneKey(target.zone)}|${objective.zoneBasis}`;
     case "effort":
       // `reps` is deliberately absent: two readings of one effort that disagree only on rep count are
-      // CONTRADICTORY, not additive.
+      // CONTRADICTORY, not additive. HR and cadence targets distinguish separate effort claims.
       return `effort|${roundOr(target.durationMin, 1)}|${roundOr(target.watts, 5)}|${roundOr(
         target.targetPctFtp,
         1
-      )}|${zoneKey(target.zone)}`;
+      )}|${zoneKey(target.zone)}|${roundOr(target.targetHrBpm, 1)}|${roundOr(target.targetCadenceRpm, 1)}`;
+    case "terrain":
+      return `terrain|${target.terrain ?? "-"}|${roundOr(target.durationMin, 1)}`;
     case "qualitative":
       return `qualitative|${objective.description}`;
   }
@@ -506,14 +524,15 @@ export function canonicalise(objectives: ScoredObjective[]): ScoredObjective[] {
 // Lap matching
 // ---------------------------------------------------------------------------
 
-// Candidate laps are those within +-20% of the stated duration; the best `reps` of them are returned,
-// ranked by closeness to the resolved watt target when there is one and by closeness in duration
-// otherwise. Ties keep the ride's own lap order (Array.prototype.sort is stable).
 export function matchLaps(
   target: IntentTarget,
   laps: ExecutedInterval[],
   resolvedWatts: number | null = null
 ): ExecutedInterval[] {
+  // Terrain is handled entirely separately (R3/R4 fix, 2026-08-12) — it never shares the duration
+  // pre-filter or the distance() ranking below. See matchTerrain.
+  if (target.terrain) return matchTerrain(target, laps);
+
   const durationMin = numeric(target.durationMin);
   if (durationMin === null || durationMin <= 0) {
     const zone = zoneIndex(target.zone);
@@ -527,6 +546,14 @@ export function matchLaps(
   const candidates = laps.filter((lap) => lap.durationSec >= low && lap.durationSec <= high);
   const wanted = Math.max(1, Math.round(numeric(target.reps) ?? 1));
   const distance = (lap: ExecutedInterval): number => {
+    if (target.targetHrBpm != null) {
+      return lap.avgHr == null ? Number.MAX_SAFE_INTEGER : Math.abs(lap.avgHr - target.targetHrBpm);
+    }
+    if (target.targetCadenceRpm != null) {
+      return lap.avgCadenceRpm == null
+        ? Number.MAX_SAFE_INTEGER
+        : Math.abs(lap.avgCadenceRpm - target.targetCadenceRpm);
+    }
     if (resolvedWatts === null) return Math.abs(lap.durationSec - targetSec);
     if (lap.avgWatts == null) return Number.MAX_SAFE_INTEGER;
     return Math.abs(lap.avgWatts - resolvedWatts);
@@ -534,8 +561,71 @@ export function matchLaps(
   return [...candidates].sort((a, b) => distance(a) - distance(b)).slice(0, wanted);
 }
 
+// Strava's own published climb-categorization floor (support.strava.com/hc/en-us/articles/216917057) —
+// borrowed here as the minimum |gradient| that counts as a climb/descent at all, not their full
+// length×gradient category scoring, which this phase doesn't need.
+const CLIMB_GRADIENT_FLOOR_PCT = 3;
+
+function hasLabelHint(lap: ExecutedInterval, terrain: "climb" | "descent"): boolean {
+  return (lap.label ?? "").trim().toLowerCase().includes(terrain);
+}
+
+// R4 fix (2026-08-12): climb and descent deliberately read DIFFERENT gradient statistics, not the same
+// field with a sign flip. Climb keeps maxGradientPct (peak) — a short steep pitch inside an otherwise
+// flat lap should still count (design doc §4: a real climb lap's average read ~0.4% while its peak hit
+// 14-15%). Descent switches to avgGradientPct (already-synced, signed, pre-dates this phase) — the NET
+// gradient over the lap is the honest "was this a sustained descent" signal. maxGradientPct is the wrong
+// extremum for descent: it's the most-POSITIVE sample, so one flat or uphill moment anywhere in a real
+// descent would defeat a maxGradientPct<=-3% check even though the lap genuinely descended overall.
+function clearsGradientFloor(lap: ExecutedInterval, terrain: "climb" | "descent"): boolean {
+  if (terrain === "climb") {
+    return lap.maxGradientPct != null && lap.maxGradientPct >= CLIMB_GRADIENT_FLOOR_PCT;
+  }
+  return lap.avgGradientPct != null && lap.avgGradientPct <= -CLIMB_GRADIENT_FLOOR_PCT;
+}
+
+// A candidate qualifies as the stated terrain only via its own label or a gradient clearing the floor
+// above — NEVER by elimination among duration-matched laps. A lap that shows no climb/descent signal is
+// not evidence of one; without this filter, "closest by distance" among non-qualifying candidates would
+// silently guess.
+function filterByTerrain(terrain: "climb" | "descent", candidates: ExecutedInterval[]): ExecutedInterval[] {
+  const labelled = candidates.filter((lap) => hasLabelHint(lap, terrain));
+  if (labelled.length > 0) return labelled; // label is the primary signal — don't dilute with gradient-only candidates once any label exists
+  return candidates.filter((lap) => clearsGradientFloor(lap, terrain));
+}
+
+// R3 fix (2026-08-12): terrain candidacy is decided ENTIRELY by filterByTerrain (label/gradient) — it
+// never shares the ±20% duration pre-filter that gates power/HR/cadence matching above. A stated
+// duration is used only to pick the single best-matching terrain-qualified candidate (closest duration
+// wins); it no longer excludes a real but badly-mismatched terrain lap from candidacy outright.
+// gradeTerrain's own compliance-vs-stated-duration math (Task 7) is what penalizes the mismatch.
+function matchTerrain(target: IntentTarget, laps: ExecutedInterval[]): ExecutedInterval[] {
+  const terrain = target.terrain!;
+  const qualifying = filterByTerrain(terrain, laps);
+  const durationMin = numeric(target.durationMin);
+  if (durationMin === null || durationMin <= 0) {
+    // No stated duration: same ultra-conservative "exactly one candidate or nothing" rule the zone-only
+    // branch above already uses — a genuinely ambiguous terrain claim stays ungraded.
+    return qualifying.length === 1 ? qualifying : [];
+  }
+  if (qualifying.length === 0) return [];
+  const targetSec = durationMin * 60;
+  const closest = [...qualifying].sort(
+    (a, b) => Math.abs(a.durationSec - targetSec) - Math.abs(b.durationSec - targetSec)
+  )[0];
+  return [closest];
+}
+
 const lapMinutes = (laps: ExecutedInterval[]): number =>
   round1(laps.reduce((total, lap) => total + lap.durationSec, 0) / 60);
+
+// VAM (vertical ascent meters/hour) — Michele Ferrari's "Velocità Ascensionale Media", an established
+// cycling climbing-effort metric independent of gradient noise. Evidence-text context only (design doc
+// §6) — never a scored dimension by itself. Reference points: club cyclists ~700-900 m/h, professional
+// mountain-stage efforts ~1650-1800 m/h.
+export function vam(elevationGainM: number, durationSec: number): number {
+  return elevationGainM / (durationSec / 3600);
+}
 
 // ---------------------------------------------------------------------------
 // Grading
@@ -608,11 +698,86 @@ function gradeZoneEmphasis(objective: ScoredObjective, evidence: RideEvidence): 
   };
 }
 
+function gradeHrCeiling(matched: ExecutedInterval[], scopeMin: number, ceilingBpm: number): Verdict {
+  const withHr = matched.filter((lap) => lap.avgHr != null || lap.maxHr != null);
+  if (withHr.length === 0) {
+    return {
+      delta: 1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} (no HR recorded on them, graded on presence)`,
+    };
+  }
+  const peakHr = Math.max(...withHr.map((lap) => lap.maxHr ?? lap.avgHr ?? 0));
+  const vi = viEvidenceText(matched);
+  return {
+    delta: hrCeilingDelta(peakHr, ceilingBpm),
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"}, peak HR ${Math.round(peakHr)} vs ${ceilingBpm} bpm ceiling${vi ? `, ${vi}` : ""}`,
+  };
+}
+
+function gradeCadenceTarget(matched: ExecutedInterval[], scopeMin: number, targetRpm: number): Verdict {
+  const withCadence = matched.filter((lap) => lap.avgCadenceRpm != null);
+  if (withCadence.length === 0) {
+    return {
+      delta: 1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} (no cadence recorded on them, graded on presence)`,
+    };
+  }
+  const meanCadence = withCadence.reduce((sum, lap) => sum + (lap.avgCadenceRpm ?? 0), 0) / withCadence.length;
+  const pct = (meanCadence / targetRpm) * 100;
+  const vi = viEvidenceText(matched);
+  return {
+    delta: adherenceDelta(pct),
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} averaging ${Math.round(meanCadence)} rpm vs ${targetRpm} rpm target (${Math.round(pct)}% adherence)${vi ? `, ${vi}` : ""}`,
+  };
+}
+
+function gradeWholeRideHrCeiling(evidence: RideEvidence, ceilingBpm: number): Verdict {
+  if (evidence.wholeRideMaxHr == null) {
+    return ungraded("no HR recorded for the ride (whole-ride ceiling claim, no evidence to grade)");
+  }
+  return {
+    delta: hrCeilingDelta(evidence.wholeRideMaxHr, ceilingBpm),
+    scored: true,
+    measurable: true,
+    scopeMin: evidence.durationMin,
+    evidence: `whole ride, peak HR ${Math.round(evidence.wholeRideMaxHr)} vs ${ceilingBpm} bpm ceiling`,
+  };
+}
+
+function gradeWholeRideCadence(evidence: RideEvidence, targetRpm: number): Verdict {
+  if (evidence.wholeRideAvgCadence == null) {
+    return ungraded("no cadence recorded for the ride (whole-ride target, no evidence to grade)");
+  }
+  const pct = (evidence.wholeRideAvgCadence / targetRpm) * 100;
+  return {
+    delta: adherenceDelta(pct),
+    scored: true,
+    measurable: true,
+    scopeMin: evidence.durationMin,
+    evidence: `whole ride averaged ${Math.round(evidence.wholeRideAvgCadence)} rpm vs ${targetRpm} rpm target (${Math.round(pct)}% adherence)`,
+  };
+}
+
 function gradeEffort(objective: ScoredObjective, evidence: RideEvidence, pool: ExecutedInterval[]): Verdict {
   const target = objective.target ?? {};
   const stated = numeric(target.durationMin);
-  // Checked first: with no window there is nothing to evaluate over, whatever else is present.
-  if (stated === null || stated <= 0) return ungraded("no duration stated for this effort");
+  const noDuration = stated === null || stated <= 0;
+  const wholeRideShaped = noDuration || target.zone !== undefined;
+  if (wholeRideShaped && target.targetHrBpm != null) return gradeWholeRideHrCeiling(evidence, target.targetHrBpm);
+  if (wholeRideShaped && target.targetCadenceRpm != null) return gradeWholeRideCadence(evidence, target.targetCadenceRpm);
+  if (noDuration) return ungraded("no duration stated for this effort");
 
   // Checked before the lap data, because an unresolvable percentage is a defect in the CLAIM rather
   // than in the evidence: the target cannot even be expressed.
@@ -641,6 +806,9 @@ function gradeEffort(objective: ScoredObjective, evidence: RideEvidence, pool: E
       matchedLaps: matched,
     };
   }
+
+  if (target.targetHrBpm != null) return gradeHrCeiling(matched, scopeMin, target.targetHrBpm);
+  if (target.targetCadenceRpm != null) return gradeCadenceTarget(matched, scopeMin, target.targetCadenceRpm);
 
   const withPower = matched.filter((lap) => lap.avgWatts != null && lap.avgWatts > 0);
   if (resolvedWatts !== null && withPower.length > 0) {
@@ -700,6 +868,74 @@ function gradeStructure(effortStartIndices: (number | null)[] | undefined): Verd
   };
 }
 
+// R11 fix (2026-08-12, second review round): VI (npWatts / avgWatts) rides along as evidence text only
+// on any matched lap (design doc §8) — never a scored dimension, purely context on how steady vs surgy
+// the effort was, independent of whichever field actually drove the match/grade. Computed from the
+// PRIMARY (first) matched lap only — VI is inherently a per-effort ratio; this file doesn't invent a
+// multi-lap aggregation formula for it (same "no fabricated formula" discipline as elsewhere here).
+// Shared by gradeTerrain (below) and Task 8's gradeHrCeiling/gradeCadenceTarget — the three matched-lap
+// grading functions Phase 3b adds. Whole-ride grading has no matched lap, so it's out of scope there.
+function viEvidenceText(matched: ExecutedInterval[]): string | null {
+  const primary = matched[0];
+  if (!primary || primary.avgWatts == null || primary.avgWatts <= 0 || primary.npWatts == null) return null;
+  return `VI ${(primary.npWatts / primary.avgWatts).toFixed(2)}`;
+}
+
+// Existence + duration compliance ONLY — never a quality/technique grade (design doc §15's non-goal on
+// descending/cornering skill). `matchLaps` (Task 6) does the label-first/gradient-fallback selection;
+// this function only grades what it returns.
+function gradeTerrain(objective: ScoredObjective, pool: ExecutedInterval[]): Verdict {
+  const target = objective.target ?? {};
+  const terrain = target.terrain;
+  if (!terrain) return ungraded("no terrain stated");
+  if (pool.length === 0) return ungraded("no interval data");
+
+  const matched = matchLaps(target, pool);
+  if (matched.length === 0) {
+    return { delta: null, scored: false, measurable: true, scopeMin: 0, evidence: `no ${terrain} found in the curated intervals` };
+  }
+
+  const scopeMin = lapMinutes(matched);
+  const primary = matched[0];
+  // R6 fix (2026-08-12): must check that the label actually mentions THIS terrain, not merely that
+  // `primary.label` is non-empty — a gradient-matched lap (guaranteed to not label-match, since
+  // filterByTerrain prefers label matches first) can still carry an unrelated label like "Tempo 1".
+  const labelled = hasLabelHint(primary, terrain);
+  const contextParts = [
+    primary.avgGradientPct != null ? `avg ${primary.avgGradientPct.toFixed(1)}%` : null,
+    primary.maxGradientPct != null ? `max ${primary.maxGradientPct.toFixed(1)}%` : null,
+    // R4 fix (2026-08-12): VAM is an ascent-rate metric; elevationGainM is a gross positive-only
+    // accumulation, near-meaningless on a genuine descent lap. Climb evidence only.
+    terrain === "climb" && primary.elevationGainM != null && primary.durationSec > 0
+      ? `VAM ${Math.round(vam(primary.elevationGainM, primary.durationSec))} m/h`
+      : null,
+    viEvidenceText(matched), // R11 fix — climb AND descent both get VI, unlike VAM above
+  ].filter((part): part is string => part !== null);
+  const context = contextParts.length > 0 ? ` — ${contextParts.join(", ")}` : "";
+  const source = labelled ? "labelled" : "matched by gradient";
+
+  const stated = numeric(target.durationMin);
+  if (stated === null || stated <= 0) {
+    return {
+      delta: 1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence: `${scopeMin.toFixed(1)} min ${terrain} (${source})${context}`,
+      matchedLaps: matched,
+    };
+  }
+  const pct = (scopeMin / stated) * 100;
+  return {
+    delta: complianceDelta(pct),
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${scopeMin.toFixed(1)} min ${terrain} vs ${stated} min stated (${source})${context}`,
+    matchedLaps: matched,
+  };
+}
+
 export function gradeObjective(
   objective: ScoredObjective,
   evidence: RideEvidence,
@@ -722,6 +958,9 @@ export function gradeObjective(
       break;
     case "structure":
       verdict = gradeStructure(context.effortStartIndices);
+      break;
+    case "terrain":
+      verdict = gradeTerrain(objective, pool);
       break;
     case "qualitative":
       verdict = {
