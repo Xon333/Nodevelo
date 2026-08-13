@@ -408,6 +408,20 @@ export interface ExecutedInterval {
   avgGradientPct: number | null;
   groupId: string | null;
   zone: number | null;
+  // Phase 3b: the metrics Intervals.icu already computes per curated interval, beyond gradient/zone.
+  // Peak HR (not just average) is needed so a claim like "stay under 154bpm" can catch a brief spike
+  // even when the interval's average stayed under the ceiling.
+  maxHr: number | null;
+  avgCadenceRpm: number | null;
+  // Peak gradient, not average — a real interval's average can read near 0% while its peak hits double
+  // digits; the mean washes out short pitches (verified against real ride data during design).
+  maxGradientPct: number | null;
+  elevationGainM: number | null;
+  // Athlete-typed free text on a manually curated interval (Intervals.icu's own "label" feature) — the
+  // highest-confidence terrain/effort match signal this phase has, when present. Confirmed API-exposed
+  // as `iv.label`; empty string is normalised to null at the mapping boundary (Step 4), never an
+  // empty-but-present match target.
+  label: string | null;
 }
 
 // Prescription vs execution, rep-by-rep, with a roll-up — the "second brain" comparison.
