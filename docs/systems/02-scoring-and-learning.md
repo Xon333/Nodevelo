@@ -169,6 +169,21 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   that alternates within one lap is out of 3b's locked scope (design §2 — the implementation plan may not
   expand those decisions without a new design review) and needs its own scoping session before being
   built, not a patch onto 3b.
+- **Phase 3b (2026-08-12) added HR-ceiling, cadence and terrain claims to self-directed intent-scoring.**
+  `ExecutedInterval` gained `maxHr`/`avgCadenceRpm`/`maxGradientPct`/`elevationGainM`/`label`; `matchLaps`
+  now ranks by whichever target field an objective stated (never a blend — `TargetSchema` enforces at
+  most one of {power, HR, cadence, terrain} per objective; `zone`/`durationMin`/`reps` may still co-occur
+  with any of them). Terrain matching is label-first (`ExecutedInterval.label`, athlete-typed free text —
+  real per Intervals.icu's own labelling feature, but null on every real ride sampled during design; the
+  athlete had not started labelling yet), gradient-fallback second — climb uses `maxGradientPct` (peak),
+  descent uses `avgGradientPct` (signed average; a peak-gradient check is the wrong statistic for
+  descents, found in this phase's own review). **An HR/cadence claim with no stated interval duration
+  (the phase's own motivating note, "if HR goes over 154bpm dial back to stay in z2") grades against the
+  WHOLE ride** (`RideEvidence.wholeRideMaxHr`/`wholeRideAvgCadence`, from already-synced
+  `activity.maxHr`/`activity.avgCadence`) rather than staying ungraded — a duration-only, non-zone claim
+  prefers the more precise matched-lap path instead. **Per-interval `decoupling` is also real and
+  synced-for-free on the same payload but has no consumer yet** — flagged here as a future unlock for the
+  segment-scoped aerobic drift feature this doc already notes is deferred, not built by Phase 3b.
 
 ## Common modifications
 

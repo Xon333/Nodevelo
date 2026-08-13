@@ -122,7 +122,8 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     converts to.
 45. **Objective decomposition cannot move the score**, via four ordered canonicalisation stages:
     (1) drop exact semantic duplicates on `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp,
-    reps)`; (2) merge only what remains distinct — `duration` → max, `zone-time` → summed per
+    reps, targetHrBpm, targetCadenceRpm, terrain)`; (2) merge only what remains distinct — `duration` → max,
+    `zone-time` → summed per
     (zone, basis), `effort` reps never summed; (3) cross-kind subsumption, so one phrase contributes
     once (`zone-time` subsumes `zone-emphasis` for its zone and a `duration` sharing its span or
     target); (4) one clamped contribution per kind. Stage order is load-bearing: merging before
@@ -169,3 +170,9 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     intrinsic scorer's number is the exact "generic 2/10" pathway design §14.1 replaces; a future
     consumer of `TodayAnalysis` that reads `.executionScore` for display without checking
     `todayOutcome` first would silently reintroduce it.
+56. **A `terrain` objective is graded on existence and duration compliance only, never on technique.**
+    `gradeTerrain` (`lib/intent-scoring.ts`) must never produce a skill/quality verdict for a climb or
+    descent — that stays the explicit non-goal it always was (design doc §10's explicit non-goals). A future
+    change that makes gradeTerrain's delta depend on anything besides matched-lap existence and
+    duration-vs-stated compliance is the thing this invariant
+    exists to catch.
