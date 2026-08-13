@@ -8,7 +8,7 @@ import { analyzePowerProfile } from "./power-profile";
 import { buildAthleteModel } from "./athlete-model";
 import { exposureFromSessions, execQualityByFocus, isSeasonFocus, type ChooseNextFocusInput } from "./season";
 import { resolveToday } from "./date";
-import type { PowerSystem, SeasonFocus } from "./types";
+import type { CurrentBlock, IntentOverlay, PowerSystem, RideScoreEntry, SeasonFocus } from "./types";
 
 // Maps the power-profile's physiological systems onto the season engine's focus vocabulary. Threshold
 // maps 1:1; anaerobic covers both neuromuscular and anaerobic (the season arc has no separate sprint
@@ -33,19 +33,27 @@ export function mapSystemToFocus(system: PowerSystem): SeasonFocus {
 // two the way two independently-hand-rolled copies eventually would (the exact drift class HR-18,
 // 2026-07-17 hostile review, closed for durability-template selection).
 export async function gatherFocusInputs(
-  opts: { blockGoal?: string; weakpoints?: string[]; today?: string } = {}
+  opts: {
+    blockGoal?: string;
+    weakpoints?: string[];
+    today?: string;
+    // A caller that already loaded these this request (e.g. a sync handler mid-response) can hand
+    // them straight through instead of paying for a second disk read of the same store.
+    preloaded?: { currentBlock?: CurrentBlock | null; scoreEntries?: RideScoreEntry[]; overlays?: IntentOverlay[] };
+  } = {}
 ): Promise<ChooseNextFocusInput> {
   // resolveToday's own fallback (no valid caller-supplied date) is the server's UTC-anchored "today" —
   // matches the same resolveToday(body.today) call /api/generate makes; never inline
   // new Date().toISOString().slice(0, 10) here (see AGENTS.md: that's the UTC-drift bug class).
   const today = resolveToday(opts.today);
-  const [profile, sync, currentBlock, blockHistory, scoreLog, intentStore, existingSeason] = await Promise.all([
+  const pre = opts.preloaded;
+  const [profile, sync, currentBlock, blockHistory, scoreEntries, overlays, existingSeason] = await Promise.all([
     readAthleteProfile(),
     readLastSync(),
-    readCurrentBlock(),
+    pre?.currentBlock !== undefined ? Promise.resolve(pre.currentBlock) : readCurrentBlock(),
     readBlockHistory(),
-    readScoreLog(),
-    readIntentOverlays(),
+    pre?.scoreEntries !== undefined ? Promise.resolve(pre.scoreEntries) : readScoreLog().then((s) => s.entries),
+    pre?.overlays !== undefined ? Promise.resolve(pre.overlays) : readIntentOverlays().then((s) => s.overlays),
     readSeasonPlan(),
   ]);
 
@@ -65,7 +73,7 @@ export async function gatherFocusInputs(
     ...profile.weakpoints.map((w) => `${w.weakpoint} ${w.detail}`),
   ].join(" \n ");
 
-  const athleteModel = buildAthleteModel(scoreLog.entries, intentStore.overlays);
+  const athleteModel = buildAthleteModel(scoreEntries, overlays);
   const lastFocus = isSeasonFocus(currentBlock?.seasonFocus) ? currentBlock.seasonFocus : null;
 
   return {

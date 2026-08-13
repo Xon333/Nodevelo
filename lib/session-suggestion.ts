@@ -3,7 +3,17 @@
 // §15 non-goal forbids in this app's own voice.
 import { FOCUS_LABELS, chooseNextFocus } from "./season";
 import { gatherFocusInputs } from "./season-signals";
-import type { AcwrResult, LoadRampAlert, ReadinessSignal, SeasonFocus, SessionSuggestion, WeeklyEnvelope } from "./types";
+import type {
+  AcwrResult,
+  CurrentBlock,
+  IntentOverlay,
+  LoadRampAlert,
+  ReadinessSignal,
+  RideScoreEntry,
+  SeasonFocus,
+  SessionSuggestion,
+  WeeklyEnvelope,
+} from "./types";
 
 // Coarse duration/structure template per focus — deliberately simple (§9: "a duration/intensity dose
 // that fits the weekly envelope" is priority 5 of 5, after the harder gates). Not the block generator's
@@ -38,10 +48,18 @@ export async function suggestSession(
   weekToDateTss: number,
   readiness: ReadinessSignal,
   loadRamp: LoadRampAlert,
-  acwr: AcwrResult | null
+  acwr: AcwrResult | null,
+  // The caller (a sync handler) already has these this request — pass them through so
+  // gatherFocusInputs doesn't re-read current-block/score-log/intent-overlays from disk.
+  preloaded?: { currentBlock?: CurrentBlock | null; scoreEntries?: RideScoreEntry[]; overlays?: IntentOverlay[] }
 ): Promise<SessionSuggestion | null> {
   // Gate 1: readiness. Never suggest pushing through a Recover read.
   if (readiness.level === "Recover") return null;
+
+  // Gate 0b: no tolerated week has ever been found, so the envelope has no real range yet (resolves to
+  // 0-0 — see resolveWeeklyEnvelope's own "nothing to say yet, not reduce to zero" precedent). Nothing
+  // to suggest a session against, and NOT the same as "already at the top of the range."
+  if (envelope.range.max === 0) return null;
 
   // Gate 2: the envelope's own range vs. completed-load-to-date. Design §9: "above range: prefer
   // recovery/low load without calling the week a failure" — a distinct THIRD case, not folded into the
@@ -66,7 +84,7 @@ export async function suggestSession(
 
   // today threaded through explicitly — gatherFocusInputs' own fallback (no today) is server UTC, which
   // would silently diverge from the client-supplied sync date this whole call chain is anchored to.
-  const inputs = await gatherFocusInputs({ today });
+  const inputs = await gatherFocusInputs({ today, preloaded });
   const choice = chooseNextFocus(inputs);
   const template = FOCUS_SESSION_TEMPLATE[choice.focus];
 

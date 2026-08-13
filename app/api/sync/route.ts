@@ -121,7 +121,11 @@ async function resolveNoBlockSummary(
   );
 
   const weekToDateTss = weekToDateLoad(activities, envelope.weekStart, today);
-  const suggestion = await suggestSession(today, envelope, weekToDateTss, readiness, loadRamp, acwr);
+  const suggestion = await suggestSession(today, envelope, weekToDateTss, readiness, loadRamp, acwr, {
+    currentBlock: block,
+    scoreEntries,
+    overlays,
+  });
   const behaviour = buildAthleteModel(scoreEntries, overlays).behaviour;
   return composeNoBlockSummary(envelope, suggestion, behaviour, readiness, weekToDateTss);
 }
