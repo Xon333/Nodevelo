@@ -40,6 +40,23 @@ fallbacks. No new API route, no new LLM call, no change to `AthleteStateCard`/Zo
 - **Historical per-day TSB comes from `WellnessEntry.ctl`/`.atl`** (`lib/types.ts:246-247`, TSB = ctl −
   atl) — `SyncData.fitness` is a single current snapshot, not a history; do not attempt to read historical
   TSB from it.
+- **Canonical completed-ride load is `ActivitySummary.trainingLoad`, never `RideScoreEntry.tss`.** Design
+  §8.1: "Use Intervals.icu's synced activity `trainingLoad` as the canonical completed-ride load." These
+  are two different fields on two different types (`lib/types.ts:196` vs `:825`) — `RideScoreEntry.tss`
+  is the ledger's own scoring-time value, not the synced canonical one. The anchor/week-load calculation
+  reads `ActivitySummary[]`; `RideScoreEntry[]` is only for the tolerance classifier's `compromised` flag
+  and (via `buildAthleteModel`) the execution stream.
+- **The persisted envelope is read-modified-written as ONE atomic operation via `lib/json-store.ts`'s
+  `updateJsonFile`**, never a separate read call followed by a separate write call — two concurrent syncs
+  racing a plain read-then-write could otherwise both read the same base and one's midweek reduction could
+  clobber the other's.
+- **`suggestSession` gates on the envelope's range and the current week's completed load-to-date**, not
+  just readiness/spacing levels — a session must not be suggested that would push the athlete past an
+  already-frozen weekly ceiling.
+- **Every call that resolves "today" downstream also receives the same client-supplied value** — this
+  includes `gatherFocusInputs({ today })`, not just the top-level `resolveWeeklyEnvelope`/`isBlockFinished`
+  calls. `gatherFocusInputs`'s own fallback (no `today` passed) is `resolveToday(undefined)` → server UTC,
+  reintroducing exactly the drift risk the constraint above exists to prevent.
 
 ---
 
@@ -241,14 +258,18 @@ git commit -m "feat(weekly-envelope): add classifyWeekTolerance — new logic, n
 
 **Files:**
 - Modify: `lib/weekly-envelope.ts`
-- Modify: `lib/data-store.ts` (new `readWeeklyEnvelope`/`writeWeeklyEnvelope`, mirroring
-  `readCurrentBlock`/`writeCurrentBlock` at `lib/data-store.ts:178-186`)
+- Modify: `lib/data-store.ts` (new `updateWeeklyEnvelope`, an atomic wrapper around
+  `lib/json-store.ts`'s `updateJsonFile` — NOT a separate read/write pair)
 - Modify: `lib/types.ts` (new `WeeklyEnvelope` interface)
 - Test: `lib/weekly-envelope.test.ts`, `lib/data-store.test.ts`
 
 **Interfaces:**
 - Produces: `WeeklyEnvelope` type; `resolveWeeklyEnvelope(input): { envelope: WeeklyEnvelope; wrote: boolean }`
-  — the function `/api/sync` calls (Task 5). Consumes `classifyWeekTolerance` (Task 1).
+  — a PURE function (no I/O), called from inside `updateWeeklyEnvelope`'s `mutate` callback (Task 5), so
+  the read-compute-write sequence runs under `updateJsonFile`'s file lock as one atomic unit. Consumes
+  `classifyWeekTolerance` (Task 1) and `ActivitySummary[]` for canonical load — NOT `RideScoreEntry.tss`
+  (external review: these are different fields on different types; the design requires the synced
+  canonical `trainingLoad`).
 
 - [ ] **Step 1: Add the persisted type**
 
@@ -270,54 +291,96 @@ export interface WeeklyEnvelope {
 }
 ```
 
-- [ ] **Step 2: Add the store read/write pair**
+- [ ] **Step 2: Add the atomic update wrapper**
 
-Read `lib/data-store.ts:178-186` first (the `readCurrentBlock`/`writeCurrentBlock` pair) and mirror its
-exact shape — same `readJsonFile`/atomic-write helper calls, same null-fallback convention. Add
-`readWeeklyEnvelope`/`writeWeeklyEnvelope` for `data/weekly-envelope.json`, fallback `null`.
+**Corrected (external review): a separate read call followed by a separate write call is NOT atomic** —
+two concurrent syncs could both read the same persisted value and one's midweek reduction would be lost
+when the other writes second. Read `lib/json-store.ts:102`'s `updateJsonFile<T>(file, fallback, mutate:
+(current: T) => T | Promise<T>): Promise<T>` first — it holds a file lock for the ENTIRE read-mutate-write
+sequence. Add to `lib/data-store.ts`:
+
+```ts
+import { updateJsonFile } from "./json-store";
+import type { WeeklyEnvelope } from "./types";
+
+const WEEKLY_ENVELOPE_FILE = "weekly-envelope.json";
+
+export function updateWeeklyEnvelope(
+  mutate: (current: WeeklyEnvelope | null) => WeeklyEnvelope
+): Promise<WeeklyEnvelope> {
+  return updateJsonFile<WeeklyEnvelope | null>(WEEKLY_ENVELOPE_FILE, null, mutate) as Promise<WeeklyEnvelope>;
+}
+```
+
+No separate `readWeeklyEnvelope`/`writeWeeklyEnvelope` — Task 5's caller passes `resolveWeeklyEnvelope`
+itself (adapted to the `mutate` shape) as the callback, so the read it does internally happens INSIDE the
+lock `updateJsonFile` already holds.
 
 - [ ] **Step 3: Write the failing tests**
 
 Add to `lib/weekly-envelope.test.ts`:
 
 ```ts
+import type { ActivitySummary } from "./types";
+
+const activity = (date: string, trainingLoad: number): ActivitySummary => ({
+  id: `act-${date}`, date, type: "Ride", name: "Ride", movingTimeSec: 3600, avgWatts: 200,
+  normalizedPower: null, maxWatts: null, icuFtp: null, avgHr: null, maxHr: null, kj: null,
+  activeBurnKcal: null, trainingLoad, rpe: null, carbsIngestedG: null, decoupling: null,
+  efficiencyFactor: null, powerHrZ2: null, powerHrZ2Mins: null, description: null, avgCadence: null,
+  distanceMeters: null, elevationGain: null, powerZoneTimes: null, hrZoneTimes: null,
+  wPrimeRollingJ: null, wBalDepletionJ: null, hrrc: null,
+});
+
 describe("resolveWeeklyEnvelope", () => {
-  const scoredWeeks = (n: number) => {
-    // n "tolerated" weeks of activities.trainingLoad averaging ~650 TSS/week, oldest first
-    const entries = [];
+  // n "tolerated" weeks (two rides each, ~325 TSS/ride via canonical trainingLoad, ~650/week), oldest first.
+  // classifyWeekTolerance needs matching RideScoreEntry rows (>= MIN_RIDES_TO_CLASSIFY) for the SAME dates
+  // so these weeks actually classify as tolerated, not unknown — entries and activities must agree on dates.
+  const weeksOfData = (n: number, mondayOfCurrentWeek: string) => {
+    const activities: ActivitySummary[] = [];
+    const entries: RideScoreEntry[] = [];
+    const wellness: WellnessEntry[] = [];
+    let cursor = mondayOfCurrentWeek;
     for (let w = 0; w < n; w++) {
-      for (let d = 0; d < 2; d++) {
-        entries.push({ /* ...fixture, two rides/week, tss summing near 650... */ });
-      }
+      cursor = addDaysIso(cursor, -7);
+      const d1 = cursor;
+      const d2 = addDaysIso(cursor, 2);
+      activities.push(activity(d1, 325), activity(d2, 325));
+      entries.push(entry({ date: d1 }), entry({ date: d2 }));
+      // post-week recovery read: comfortably tolerated (TSB well above deep-fatigue territory)
+      const postWeekDate = addDaysIso(cursor, 8);
+      wellness.push(wellness_(postWeekDate, 60, 45));
     }
-    return entries;
+    return { activities, entries, wellness };
   };
+  const wellness_ = (date: string, ctl: number, atl: number): WellnessEntry => ({
+    date, weightKg: null, hrv: null, sleepHours: null, sleepQuality: null, kcalConsumed: null, ctl, atl,
+  });
 
   it("Monday recompute: no persisted envelope yet resolves a fresh one for the current week", () => {
-    const result = resolveWeeklyEnvelope({
-      today: "2026-08-10", // a Monday
-      persisted: null,
-      entries: scoredWeeks(7),
-      wellness: [/* enough post-week wellness to classify each as tolerated */],
-    });
+    const { activities, entries, wellness } = weeksOfData(7, "2026-08-10");
+    const result = resolveWeeklyEnvelope({ today: "2026-08-10", persisted: null, activities, entries, wellness });
     expect(result.envelope.weekStart).toBe("2026-08-10");
     expect(result.envelope.previousRange).toBeNull();
     expect(result.wrote).toBe(true);
+    // anchor ~650, build role needs 2+ classifiable recent weeks with zero not-tolerated — all 7 here
+    // qualify, so role should read "build" and the range should center above the raw anchor.
+    expect(result.envelope.role).toBe("build");
   });
 
   it("non-Monday sync with no new reducing evidence reads the persisted value unchanged", () => {
     const persisted = { weekStart: "2026-08-10", role: "build" as const, range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" };
-    const result = resolveWeeklyEnvelope({ today: "2026-08-12", persisted, entries: [], wellness: [] });
+    const result = resolveWeeklyEnvelope({ today: "2026-08-12", persisted, activities: [], entries: [], wellness: [] });
     expect(result.envelope).toEqual(persisted);
     expect(result.wrote).toBe(false);
   });
 
-  it("midweek reduction: new fatigue evidence writes a strictly lower range, never higher", () => {
+  it("midweek reduction: a not-tolerated recent week writes a strictly lower range, never higher", () => {
     const persisted = { weekStart: "2026-08-10", role: "build" as const, range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" };
-    // today's fatigue read implies a materially lower ceiling than 700 — exact trigger condition is this
-    // task's own implementation-plan decision (design §8.2 defers exact thresholds); the test only pins
-    // the CONTRACT: reduction never raises, always stamps previousRange + reductionApplied.
-    const result = resolveWeeklyEnvelope({ today: "2026-08-11", persisted, entries: [/* deep-fatigue-implying data */], wellness: [] });
+    const { activities, entries } = weeksOfData(3, "2026-08-10");
+    // Deep-fatigue post-week read for the most recent classified week — implies a lower fresh anchor/role.
+    const wellness = [wellness_(addDaysIso("2026-08-03", 1), 40, 70)];
+    const result = resolveWeeklyEnvelope({ today: "2026-08-11", persisted, activities, entries, wellness });
     if (result.wrote) {
       expect(result.envelope.range.max).toBeLessThanOrEqual(persisted.range.max);
       expect(result.envelope.range.min).toBeLessThanOrEqual(persisted.range.min);
@@ -328,24 +391,24 @@ describe("resolveWeeklyEnvelope", () => {
 
   it("never raises an already-persisted range mid-week, even if this sync's fresh calc would be higher", () => {
     const persisted = { weekStart: "2026-08-10", role: "build" as const, range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" };
-    const result = resolveWeeklyEnvelope({ today: "2026-08-11", persisted, entries: scoredWeeks(8) /* would compute higher fresh */, wellness: [] });
+    const { activities, entries, wellness } = weeksOfData(8, "2026-08-10"); // would compute higher fresh
+    const result = resolveWeeklyEnvelope({ today: "2026-08-11", persisted, activities, entries, wellness });
     expect(result.envelope.range.max).toBeLessThanOrEqual(700);
     expect(result.envelope.range.min).toBeLessThanOrEqual(600);
   });
 });
 ```
 
-(This test file needs real fixture data for `scoredWeeks`/wellness that actually drives the anchor/role
-calculation — the placeholders above mark where Step 4's concrete thresholds determine the exact
-numbers; fill in real values once Step 4 is implemented, following TDD red-green in the normal order
-rather than writing untestable placeholders permanently.)
+(`entry`/`addDaysIso` reuse Task 1's own test fixture/import — this describe block lives in the same
+`lib/weekly-envelope.test.ts` file. `RideScoreEntry`/`WellnessEntry` types come from the same imports
+Task 1 already added.)
 
 - [ ] **Step 4: Implement `resolveWeeklyEnvelope`**
 
 Add to `lib/weekly-envelope.ts`:
 
 ```ts
-import type { RideScoreEntry, WeeklyEnvelope, WellnessEntry } from "./types";
+import type { ActivitySummary, RideScoreEntry, WeeklyEnvelope, WellnessEntry } from "./types";
 // WeekTolerance is defined earlier in this same file (Task 1) — no cross-file import needed.
 
 export const WEEKLY_ENVELOPE_CALCULATION_VERSION = 1;
@@ -367,12 +430,13 @@ function weekBounds(mondayIso: string): { start: string; end: string } {
   return { start: mondayIso, end: end.toISOString().slice(0, 10) };
 }
 
-function weekLoad(entries: RideScoreEntry[], start: string, end: string): number {
-  // trainingLoad lives on ActivitySummary, not RideScoreEntry — resolveWeeklyEnvelope's caller (Task 5)
-  // passes the joined view; see that task's Step 3 for exactly which field this reads.
-  return entries
-    .filter((e) => e.date >= start && e.date <= end && !e.legacy)
-    .reduce((sum, e) => sum + (e.tss ?? 0), 0);
+// Corrected (external review): canonical load is ActivitySummary.trainingLoad (design §8.1, verbatim:
+// "Use Intervals.icu's synced activity trainingLoad as the canonical completed-ride load"), NOT
+// RideScoreEntry.tss — a different field on a different type, the ledger's own scoring-time value.
+function weekLoad(activities: ActivitySummary[], start: string, end: string): number {
+  return activities
+    .filter((a) => a.date >= start && a.date <= end && a.trainingLoad !== null)
+    .reduce((sum, a) => sum + (a.trainingLoad as number), 0);
 }
 
 function median(values: number[]): number {
@@ -385,16 +449,17 @@ function median(values: number[]): number {
 export function resolveWeeklyEnvelope(input: {
   today: string;
   persisted: WeeklyEnvelope | null;
+  activities: ActivitySummary[];
   entries: RideScoreEntry[];
   wellness: WellnessEntry[];
 }): { envelope: WeeklyEnvelope; wrote: boolean } {
-  const { today, persisted, entries, wellness } = input;
+  const { today, persisted, activities, entries, wellness } = input;
   const currentMonday = mondayOf(today);
 
   if (!persisted || persisted.weekStart !== currentMonday) {
     // Path A: Monday full recompute (also fires the FIRST time this ever runs, whatever weekday that is —
     // there is no persisted week to compare against yet).
-    const anchor = resolveAnchor(entries, wellness, currentMonday);
+    const anchor = resolveAnchor(activities, entries, wellness, currentMonday);
     const role = resolveRole(anchor.recentTolerance);
     const centre = roleAdjustedCentre(anchor.median, role);
     const envelope: WeeklyEnvelope = {
@@ -412,7 +477,8 @@ export function resolveWeeklyEnvelope(input: {
 
   // Path B: every sync (including Monday's, after path A already ran this week), reduction-only safety
   // check against the CURRENTLY PERSISTED range — never raises it.
-  const freshCentre = roleAdjustedCentre(resolveAnchor(entries, wellness, currentMonday).median, persisted.role);
+  const freshAnchor = resolveAnchor(activities, entries, wellness, currentMonday);
+  const freshCentre = roleAdjustedCentre(freshAnchor.median, persisted.role);
   const freshRange = roundedRange(freshCentre);
   const impliesLower = freshRange.max < persisted.range.max || freshRange.min < persisted.range.min;
   if (!impliesLower) return { envelope: persisted, wrote: false };
@@ -430,8 +496,11 @@ export function resolveWeeklyEnvelope(input: {
 
 // Returns the median load AND the ordered tolerance sequence (newest week first) — resolveRole reads
 // the same sequence rather than re-classifying, so the two functions can never disagree about which
-// weeks were tolerated.
+// weeks were tolerated. Load comes from `activities` (canonical trainingLoad); tolerance classification
+// comes from `entries` (the compromised flag) + `wellness` (post-week recovery read) — two different
+// inputs feeding two different questions about the same week.
 function resolveAnchor(
+  activities: ActivitySummary[],
   entries: RideScoreEntry[],
   wellness: WellnessEntry[],
   currentMonday: string
@@ -444,7 +513,7 @@ function resolveAnchor(
     const { start, end } = weekBounds(cursor);
     const tolerance = classifyWeekTolerance({ weekStart: start, weekEnd: end, entries, wellness });
     recentTolerance.push(tolerance);
-    if (tolerance === "tolerated") loads.push(weekLoad(entries, start, end));
+    if (tolerance === "tolerated") loads.push(weekLoad(activities, start, end));
   }
   return { median: median(loads), recentTolerance };
 }
@@ -515,12 +584,16 @@ git commit -m "feat(weekly-envelope): resolveWeeklyEnvelope — Monday recompute
 - Test: `lib/session-suggestion.test.ts`
 
 **Interfaces:**
-- Consumes: `gatherFocusInputs()` (`lib/season-signals.ts:35`), `chooseNextFocus()` (`lib/season.ts:262`),
-  `computeReadiness`, `computeLoadRamp`, `computeAcwr` (`.level` only).
+- Consumes: `gatherFocusInputs({ today })` (`lib/season-signals.ts:35` — MUST pass `today`, its own
+  fallback is server UTC), `chooseNextFocus()` (`lib/season.ts:262`), `computeReadiness`,
+  `computeLoadRamp`, `computeAcwr` (`.level` only).
 - Produces: `SessionSuggestion { purpose: string; structure: string; durationRangeMin: [number, number]; expectedTssRange: [number, number]; reason: string }`,
-  `suggestSession(envelope: WeeklyEnvelope, readiness: ReadinessSignal, loadRamp: LoadRampAlert, acwr: AcwrResult | null): Promise<SessionSuggestion | null>`.
-  `null` return = the non-coercive "below range: never prescribe a desperate catch-up ride" / insufficient-
-  history case — no session is suggested rather than a guessed one.
+  `suggestSession(today: string, envelope: WeeklyEnvelope, weekToDateTss: number, readiness: ReadinessSignal, loadRamp: LoadRampAlert, acwr: AcwrResult | null): Promise<SessionSuggestion | null>`.
+  **Corrected (external review): gates on `envelope`'s own range vs. `weekToDateTss`, not just
+  readiness/spacing levels** — a session must never be suggested that would push completed-plus-suggested
+  load past an already-frozen weekly ceiling. `null` return covers both the Recover-gate case and the
+  insufficient-history case; **above-range is a distinct third case** (design §9: "prefer recovery/low
+  load without calling the week a failure") — a low-dose suggestion, not `null` and not the normal dose.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -532,10 +605,12 @@ import { suggestSession } from "./session-suggestion";
 import * as seasonSignals from "./season-signals";
 import * as season from "./season";
 
+const envelope = { weekStart: "2026-08-10", role: "build" as const, range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" };
+
 describe("suggestSession", () => {
   it("returns null when the readiness gate says Recover — never suggests pushing through fatigue", async () => {
     const result = await suggestSession(
-      { weekStart: "2026-08-10", role: "build", range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" },
+      "2026-08-12", envelope, 400,
       { level: "Recover", reason: "TSB -20 — accumulated fatigue" },
       { triggered: false, level: "none", thisWeekTss: 400, lastWeekTss: 400, changePct: 0, reason: null },
       null
@@ -543,11 +618,18 @@ describe("suggestSession", () => {
     expect(result).toBeNull();
   });
 
+  it("passes today through to gatherFocusInputs — never lets its date fallback diverge from the client-supplied sync date", async () => {
+    const spy = vi.spyOn(seasonSignals, "gatherFocusInputs").mockResolvedValue({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} });
+    vi.spyOn(season, "chooseNextFocus").mockReturnValue({ focus: "aerobic-base", rationale: "aerobic-base is neglected", scores: [] });
+    await suggestSession("2026-08-12", envelope, 400, { level: "Build", reason: "TSB 5" }, { triggered: false, level: "none", thisWeekTss: 400, lastWeekTss: 400, changePct: 0, reason: null }, null);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ today: "2026-08-12" }));
+  });
+
   it("never forwards computeLoadRamp's reason text into the suggestion output", async () => {
     vi.spyOn(seasonSignals, "gatherFocusInputs").mockResolvedValue({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} });
     vi.spyOn(season, "chooseNextFocus").mockReturnValue({ focus: "aerobic-base", rationale: "aerobic-base is neglected", scores: [] });
     const result = await suggestSession(
-      { weekStart: "2026-08-10", role: "build", range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" },
+      "2026-08-12", envelope, 400,
       { level: "Build", reason: "TSB 5 — good conditions to train" },
       { triggered: true, level: "caution", thisWeekTss: 450, lastWeekTss: 380, changePct: 18, reason: "Load up 18% on the previous 7 days (450 vs 380 TSS) — above the ~10% progressive-overload guideline. Watch recovery." },
       null
@@ -560,7 +642,7 @@ describe("suggestSession", () => {
     vi.spyOn(seasonSignals, "gatherFocusInputs").mockResolvedValue({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} });
     vi.spyOn(season, "chooseNextFocus").mockReturnValue({ focus: "threshold", rationale: "threshold execution has been strong", scores: [] });
     const result = await suggestSession(
-      { weekStart: "2026-08-10", role: "build", range: { min: 600, max: 700 }, previousRange: null, reductionApplied: false, reductionReason: null, calculationVersion: 1, resolvedAt: "2026-08-10T06:00:00.000Z" },
+      "2026-08-12", envelope, 400,
       { level: "Build", reason: "TSB 5" },
       { triggered: false, level: "none", thisWeekTss: 400, lastWeekTss: 400, changePct: 0, reason: null },
       null
@@ -568,6 +650,34 @@ describe("suggestSession", () => {
     expect(result).not.toBeNull();
     expect(result!.durationRangeMin[0]).toBeGreaterThan(0);
     expect(result!.expectedTssRange[0]).toBeGreaterThan(0);
+  });
+
+  it("above range: suggests a low-dose recovery session, never null, never calling the week a failure", async () => {
+    vi.spyOn(seasonSignals, "gatherFocusInputs").mockResolvedValue({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} });
+    vi.spyOn(season, "chooseNextFocus").mockReturnValue({ focus: "threshold", rationale: "threshold execution has been strong", scores: [] });
+    // weekToDateTss already exceeds envelope.range.max (700)
+    const result = await suggestSession(
+      "2026-08-12", envelope, 750,
+      { level: "Build", reason: "TSB 5" },
+      { triggered: false, level: "none", thisWeekTss: 750, lastWeekTss: 400, changePct: 0, reason: null },
+      null
+    );
+    expect(result).not.toBeNull();
+    expect(result!.purpose.toLowerCase()).toMatch(/recovery|easy/);
+    expect(result!.reason.toLowerCase()).not.toMatch(/failure|failed/);
+  });
+
+  it("below range: suggests normally — never a desperate catch-up framing", async () => {
+    vi.spyOn(seasonSignals, "gatherFocusInputs").mockResolvedValue({ limiter: { system: null, confidence: "low" }, lastFocus: null, signals: {} });
+    vi.spyOn(season, "chooseNextFocus").mockReturnValue({ focus: "aerobic-base", rationale: "aerobic-base is neglected", scores: [] });
+    const result = await suggestSession(
+      "2026-08-12", envelope, 200, // well below range.min (600)
+      { level: "Build", reason: "TSB 5" },
+      { triggered: false, level: "none", thisWeekTss: 200, lastWeekTss: 400, changePct: 0, reason: null },
+      null
+    );
+    expect(result).not.toBeNull();
+    expect(result!.reason.toLowerCase()).not.toMatch(/catch.?up|behind|make up/);
   });
 });
 ```
@@ -617,8 +727,14 @@ function expectedTss(durationMin: number, ifEstimate: number): number {
   return Math.round((durationMin / 60) * ifEstimate * ifEstimate * 100);
 }
 
+// A dedicated low-dose template, used only for the above-range case — never the block generator's job,
+// never a full recovery-day plan, just this suggestion's own concrete option.
+const RECOVERY_TEMPLATE = { structure: "easy spin, conversational pace", durationRangeMin: [30, 45] as [number, number], ifEstimate: 0.55 };
+
 export async function suggestSession(
+  today: string,
   envelope: WeeklyEnvelope,
+  weekToDateTss: number,
   readiness: ReadinessSignal,
   loadRamp: LoadRampAlert,
   acwr: AcwrResult | null
@@ -626,11 +742,27 @@ export async function suggestSession(
   // Gate 1: readiness. Never suggest pushing through a Recover read.
   if (readiness.level === "Recover") return null;
 
-  // Gate 2: hard-session spacing. A high load-ramp level or a danger-band ACWR level defers to the
-  // envelope's own role/range rather than compounding — read levels only.
+  // Gate 2 (external review, corrected): the envelope's own range vs. completed-load-to-date. Design §9:
+  // "above range: prefer recovery/low load without calling the week a failure" — a distinct THIRD case,
+  // not folded into the Recover gate above and not treated as a normal-dose suggestion either.
+  if (weekToDateTss >= envelope.range.max) {
+    const t = RECOVERY_TEMPLATE;
+    return {
+      purpose: "Easy recovery spin",
+      structure: t.structure,
+      durationRangeMin: t.durationRangeMin,
+      expectedTssRange: [expectedTss(t.durationRangeMin[0], t.ifEstimate), expectedTss(t.durationRangeMin[1], t.ifEstimate)],
+      reason: `This week's load is already at the top of the ${envelope.range.min}-${envelope.range.max} range — an easy spin keeps the legs moving without adding to it.`,
+    };
+  }
+
+  // Gate 3: hard-session spacing. A high load-ramp level or a danger-band ACWR level trims the dose
+  // rather than compounding — read levels only, never computeLoadRamp's/computeAcwr's .reason text.
   const spacingCaution = loadRamp.level === "high" || acwr?.level === "danger";
 
-  const inputs = await gatherFocusInputs();
+  // today threaded through explicitly — gatherFocusInputs' own fallback (no today) is server UTC, which
+  // would silently diverge from the client-supplied sync date this whole call chain is anchored to.
+  const inputs = await gatherFocusInputs({ today });
   const choice = chooseNextFocus(inputs);
   const template = FOCUS_SESSION_TEMPLATE[choice.focus];
 
@@ -640,8 +772,9 @@ export async function suggestSession(
   const expectedMin = expectedTss(minDur, template.ifEstimate);
   const expectedMax = expectedTss(maxDur, template.ifEstimate);
 
-  // Non-coercive framing (§9): reason text is templated from levels/labels only, never forwarded
-  // reason strings from computeLoadRamp/computeAcwr.
+  // Below-range (design §9: "never a desperate catch-up ride") needs no special branch — the normal
+  // suggestion above already doesn't reference how far below range the week is; there is nothing here
+  // that COULD read as catch-up framing, which is the point.
   const reason = spacingCaution
     ? `Recent load has ramped quickly — ${FOCUS_LABELS[choice.focus]} at a controlled dose fits better than pushing another hard day.`
     : choice.rationale;
@@ -658,7 +791,9 @@ export async function suggestSession(
 
 (Verify `FOCUS_LABELS`'s exact export shape — `grep -n "export const FOCUS_LABELS" lib/season.ts` — before
 relying on the import above; this plan references it from an earlier read but did not re-verify its exact
-type at write time.)
+type at write time. Verify `gatherFocusInputs`'s `opts` parameter is genuinely named `today` — grep
+`lib/season-signals.ts:35`'s signature — this plan read it as `{ blockGoal?, weakpoints?, today? }`
+earlier but re-confirm before relying on the object-shape call above.)
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -681,7 +816,11 @@ git commit -m "feat(session-suggestion): suggestSession — gatherFocusInputs/ch
 ## Task 4: `lib/no-block-summary.ts` — the three-stream composition
 
 **Files:**
-- Create: `lib/no-block-summary.ts`
+- Modify: `lib/types.ts` (new `NoBlockSummary` interface — **corrected, external review: shared
+  response-shape types live in `types.ts` in this codebase, same as `WeeklyEnvelope`/`SessionSuggestion`
+  should for consistency; Task 6 already assumed this location, this task now actually puts it there
+  instead of leaving it implicitly defined in `no-block-summary.ts`**)
+- Create: `lib/no-block-summary.ts` (the `composeNoBlockSummary` function only — no type declaration)
 - Test: `lib/no-block-summary.test.ts`
 
 **Interfaces:**
@@ -689,8 +828,27 @@ git commit -m "feat(session-suggestion): suggestSession — gatherFocusInputs/ch
   (verify its exact return shape — `grep -n "export function summariseBehaviour" lib/score-log.ts` — this
   plan has not re-verified it beyond confirming the function exists and is fed `resolveAll`'s output, per
   the external review's confirmed `lib/athlete-model.ts:84-86` chain).
-- Produces: `NoBlockSummary { headline: string; body: string; weeklyRange: { min: number; max: number; thisWeekTss: number }; suggestion: SessionSuggestion | null }`,
-  `composeNoBlockSummary(envelope, suggestion, behaviour, fitness): NoBlockSummary`.
+- Produces: `NoBlockSummary` (defined in `lib/types.ts`, Step 0 below), `composeNoBlockSummary(envelope, suggestion, behaviour): NoBlockSummary`.
+
+- [ ] **Step 0: Add `NoBlockSummary` to `lib/types.ts`**
+
+Near the new `WeeklyEnvelope` interface (Task 2, Step 1):
+
+```ts
+export interface NoBlockSummary {
+  headline: string;
+  body: string;
+  weeklyRange: { min: number; max: number; thisWeekTss: number };
+  suggestion: SessionSuggestion | null;
+}
+```
+
+`SessionSuggestion` also needs to move here if it doesn't already live in `types.ts` — check Task 3's
+actual file placement before this step; if `SessionSuggestion` stayed in `lib/session-suggestion.ts` per
+Task 3's original text, either move it to `types.ts` now for consistency with `NoBlockSummary`/
+`WeeklyEnvelope`, or import it from `session-suggestion.ts` here — pick one and apply it consistently
+across every file that imports `SessionSuggestion`, don't leave two different import paths for the same
+type in the codebase.
 
 - [ ] **Step 1: Read `summariseBehaviour`'s actual return shape**
 
@@ -732,7 +890,13 @@ git commit -m "feat(no-block-summary): composeNoBlockSummary — pure compositio
 - Test: `app/api/sync/route.test.ts`
 
 **Interfaces:**
-- Produces: `noBlockSummary: NoBlockSummary | null` on both GET and POST JSON responses.
+- Produces: `noBlockSummary: NoBlockSummary | null` on both GET and POST JSON responses. `null` covers
+  three distinct cases, not conflated: an active unfinished block, no sync data yet (`readiness`/
+  `loadRamp` are themselves `null` in GET pre-first-sync — **corrected, external review**: do not pass a
+  null value where `suggestSession` requires a real `ReadinessSignal`/`LoadRampAlert`), and — never
+  reachable via this path, listed only for completeness — a `resolveWeeklyEnvelope` result with no data
+  to build an anchor from (that case still returns a `maintain`-role envelope with a `median([])===0`
+  range per Task 2, not `null`; a genuinely empty range is itself informative, unlike "no sync yet").
 
 - [ ] **Step 1: Re-confirm the exact current line numbers**
 
@@ -787,7 +951,7 @@ Add imports at the top of `app/api/sync/route.ts`:
 
 ```ts
 import { resolveWeeklyEnvelope } from "@/lib/weekly-envelope";
-import { readWeeklyEnvelope, writeWeeklyEnvelope } from "@/lib/data-store";
+import { updateWeeklyEnvelope } from "@/lib/data-store";
 import { suggestSession } from "@/lib/session-suggestion";
 import { composeNoBlockSummary } from "@/lib/no-block-summary";
 import { isBlockFinished } from "@/lib/date";
@@ -797,23 +961,38 @@ Add a shared helper near `resolveTodayOutcome` (mirroring that function's existi
 call one shared function rather than duplicating this logic inline):
 
 ```ts
+function weekToDateLoad(activities: ActivitySummary[], weekStart: string, today: string): number {
+  return activities
+    .filter((a) => a.date >= weekStart && a.date <= today && a.trainingLoad !== null)
+    .reduce((sum, a) => sum + (a.trainingLoad as number), 0);
+}
+
 async function resolveNoBlockSummary(
   block: CurrentBlock | null,
   today: string,
+  activities: ActivitySummary[],
   scoreEntries: RideScoreEntry[],
   wellness: WellnessEntry[],
-  readiness: ReadinessSignal,
-  loadRamp: LoadRampAlert,
+  readiness: ReadinessSignal | null,
+  loadRamp: LoadRampAlert | null,
   acwr: AcwrResult | null
 ): Promise<NoBlockSummary | null> {
   const noActiveBlock = !block || isBlockFinished(block, today);
   if (!noActiveBlock) return null;
+  // Corrected (external review): GET's readiness/loadRamp are themselves null pre-first-sync
+  // (`lastSync ? computeX(...) : null`) — there is no history to build an envelope OR a suggestion
+  // from yet, so this is its own real state, not a 0-0 envelope manufactured from nothing.
+  if (!readiness || !loadRamp) return null;
 
-  const persisted = await readWeeklyEnvelope();
-  const { envelope, wrote } = resolveWeeklyEnvelope({ today, persisted, entries: scoreEntries, wellness });
-  if (wrote) await writeWeeklyEnvelope(envelope);
+  // Corrected (external review): read-compute-write as ONE atomic operation via updateWeeklyEnvelope —
+  // resolveWeeklyEnvelope's own read of `current` happens INSIDE updateJsonFile's lock, so two
+  // concurrent syncs can never both read the same base and clobber each other's midweek reduction.
+  const envelope = await updateWeeklyEnvelope(
+    (persisted) => resolveWeeklyEnvelope({ today, persisted, activities, entries: scoreEntries, wellness }).envelope
+  );
 
-  const suggestion = await suggestSession(envelope, readiness, loadRamp, acwr);
+  const weekToDateTss = weekToDateLoad(activities, envelope.weekStart, today);
+  const suggestion = await suggestSession(today, envelope, weekToDateTss, readiness, loadRamp, acwr);
   // behaviour input — grep Task 4's Step 1 confirmed shape and thread the same call this file already
   // makes for buildAthleteModel's behaviour field, don't re-derive it a second way.
   const behaviour = buildAthleteModel(scoreEntries, /* intentStore.overlays, already in scope */ []).behaviour;
@@ -828,13 +1007,16 @@ store.)
 In `GET`, immediately after the existing `athleteState` computation (Step 1's grep target), add:
 
 ```ts
-  const noBlockSummary = await resolveNoBlockSummary(currentBlock, today, scoreLog.entries, lastSync?.wellness ?? [], readiness, loadRamp, acwr);
+  const noBlockSummary = await resolveNoBlockSummary(currentBlock, today, lastSync?.activities ?? [], scoreLog.entries, lastSync?.wellness ?? [], readiness, loadRamp, acwr);
 ```
 
 Add `noBlockSummary,` to `GET`'s response object literal, alongside `athleteState,`.
 
 Repeat identically in `POST` (same helper call, same field name, added to `POST`'s response object at its
-existing single-line literal near `athleteState`).
+existing single-line literal near `athleteState`). **`POST`'s `readiness`/`loadRamp`/`acwr` are
+non-nullable per Step 1's grep** (`POST` only reaches this code after confirming `lastSync` exists,
+unlike `GET`) — the `resolveNoBlockSummary` helper's nullable parameter types still apply (it's shared),
+they simply never read `null` on the `POST` path.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1007,7 +1189,12 @@ git commit -m "docs: record the Phase 3a no-block Today surface"
 ## Handoff
 
 Implements `docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md` in full,
-including all six external-review corrections folded into that design doc on 2026-08-12. No LLM call
-added — no live-smoke-run task in this plan, deliberately (see Global Constraints). Explicit non-goals
-from the design doc (§7) are not tasks here on purpose: no change to `AthleteStateCard`/Zone 1 (flagged
-in `todo.md` for revisit), no historical backfill, no new wellness/readiness data collection.
+including all six external-review corrections folded into that design doc on 2026-08-12. This plan
+itself carries a second round of external-review corrections (2026-08-13): canonical `trainingLoad` vs.
+`RideScoreEntry.tss`, atomic read-modify-write via `updateJsonFile`, nullable `readiness`/`loadRamp`
+handling in `GET`, `NoBlockSummary`'s actual location, `suggestSession`'s envelope/week-to-date gate, and
+`gatherFocusInputs({ today })` threading — all folded in place, all verified against the real code before
+fixing, not taken on faith. No LLM call added — no live-smoke-run task in this plan, deliberately (see
+Global Constraints). Explicit non-goals from the design doc (§7) are not tasks here on purpose: no change
+to `AthleteStateCard`/Zone 1 (flagged in `todo.md` for revisit), no historical backfill, no new
+wellness/readiness data collection.
