@@ -119,7 +119,10 @@ export function updateJsonFile<T>(
       );
     }
     const nextValue = await mutate(current);
-    await atomicWrite(file, nextValue);
+    // A mutate that hands back the exact same reference it was given (e.g. a CAS no-op, or
+    // resolveWeeklyEnvelope's `wrote: false` path) has nothing new to persist — skip the write
+    // instead of rewriting identical content to disk on every call.
+    if (nextValue !== current) await atomicWrite(file, nextValue);
     return nextValue;
   });
 }
