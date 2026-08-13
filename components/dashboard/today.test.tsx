@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner, TodayRideCard } from "./today";
+import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner, PlannedToday, TodayRideCard } from "./today";
 import type { NeatImbalanceContext, NutritionTrendWarning } from "@/lib/nutrition";
-import type { SyncData, TodayAnalysis } from "@/lib/types";
+import type { CurrentBlock, NoBlockSummary, SyncData, TodayAnalysis } from "@/lib/types";
 
 afterEach(() => {
   cleanup();
@@ -294,5 +294,62 @@ describe("TodayRideCard overlay-resolved score", () => {
     );
     expect(screen.queryByText("2")).toBeNull();
     expect(screen.getByTitle("Post coach note to Intervals.icu")).toBeTruthy();
+  });
+});
+
+describe("PlannedToday — Phase 3a no-block summary", () => {
+  const mkBlock = (over: Partial<CurrentBlock> = {}): CurrentBlock => ({
+    goal: "g",
+    lengthWeeks: 1,
+    startDate: "2026-06-01",
+    endDate: "2026-06-07",
+    overview: "",
+    createdAt: "2026-06-01T00:00:00.000Z",
+    days: [],
+    ...over,
+  });
+
+  const summary: NoBlockSummary = {
+    headline: "Productive training · mild fatigue",
+    body: "Weekly load is within your normal build range.",
+    weeklyRange: { min: 600, max: 700, thisWeekTss: 450 },
+    suggestion: {
+      purpose: "aerobic base",
+      structure: "mostly Z2, controlled climbing optional",
+      durationRangeMin: [90, 120],
+      expectedTssRange: [85, 115],
+      reason: "recent high-intensity exposure means another threshold session adds little value today.",
+    },
+  };
+
+  it("never-had-a-block: renders the summary alongside the existing 'Plan your next block' link, not instead of it", () => {
+    render(<PlannedToday block={null} noBlockSummary={summary} />);
+    expect(screen.getByText("No active training block yet.")).toBeTruthy();
+    expect(screen.getByText("Plan your next block →")).toBeTruthy();
+    expect(screen.getByText("Productive training · mild fatigue")).toBeTruthy();
+    expect(screen.getByText(/Suggested: aerobic base/)).toBeTruthy();
+  });
+
+  it("finished block: renders the summary alongside the existing 'Generate the next block' link", () => {
+    render(<PlannedToday block={mkBlock({ endDate: "2020-01-01" })} noBlockSummary={summary} />);
+    expect(screen.getByText("Generate the next block →")).toBeTruthy();
+    expect(screen.getByText("Productive training · mild fatigue")).toBeTruthy();
+  });
+
+  it("active, unfinished block: renders neither the summary nor either CTA — no regression", () => {
+    render(
+      <PlannedToday
+        block={mkBlock({ endDate: "2099-01-01", days: [{ date: "2099-01-01", name: "Rest", type: "Rest", durationMin: 0, workoutText: "" }] })}
+        noBlockSummary={summary}
+      />
+    );
+    expect(screen.queryByText("Productive training · mild fatigue")).toBeNull();
+    expect(screen.queryByText("Plan your next block →")).toBeNull();
+    expect(screen.queryByText("Generate the next block →")).toBeNull();
+  });
+
+  it("null summary renders no section at all", () => {
+    render(<PlannedToday block={null} noBlockSummary={null} />);
+    expect(screen.queryByText(/Suggested:/)).toBeNull();
   });
 });

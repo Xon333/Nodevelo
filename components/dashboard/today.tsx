@@ -10,6 +10,7 @@ import type {
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
+  NoBlockSummary,
   SyncData,
   TodayAnalysis,
 } from "@/lib/types";
@@ -822,7 +823,43 @@ export function EnergyAvailabilityTile({
 
 // ---------- Today's planned session (Zone 2 fallback before a ride is logged) ----------
 
-export function PlannedToday({ block }: { block: CurrentBlock | null }) {
+// Phase 3a §12.1: the one compact no-block section — headline, three-stream body, weekly TSS line,
+// suggested session. No confirmation, completion, planning, or calendar-write control (design §12.1's
+// explicit statement). Renders alongside the existing finished-block/never-had-a-block CTA, never
+// replacing it (design §3/§6's finished-block decision).
+function NoBlockSummarySection({ summary }: { summary: NoBlockSummary }) {
+  return (
+    <div className="mt-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800">
+      <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{summary.headline}</p>
+      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">{summary.body}</p>
+      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+        <span className="font-medium text-zinc-700 dark:text-zinc-300">{summary.weeklyRange.thisWeekTss} TSS</span>{" "}
+        this week · normal range {summary.weeklyRange.min}–{summary.weeklyRange.max}
+      </p>
+      {summary.suggestion && (
+        <div className="mt-2 border-t border-zinc-100 pt-2 dark:border-zinc-700">
+          <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
+            Suggested: {summary.suggestion.purpose}
+          </p>
+          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+            {summary.suggestion.durationRangeMin[0]}–{summary.suggestion.durationRangeMin[1]} min ·{" "}
+            {summary.suggestion.structure} · expected {summary.suggestion.expectedTssRange[0]}–
+            {summary.suggestion.expectedTssRange[1]} TSS
+          </p>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{summary.suggestion.reason}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function PlannedToday({
+  block,
+  noBlockSummary,
+}: {
+  block: CurrentBlock | null;
+  noBlockSummary: NoBlockSummary | null;
+}) {
   const today = todayIso();
   if (isBlockFinished(block, today)) {
     return (
@@ -836,6 +873,7 @@ export function PlannedToday({ block }: { block: CurrentBlock | null }) {
         >
           Generate the next block →
         </Link>
+        {noBlockSummary && <NoBlockSummarySection summary={noBlockSummary} />}
       </div>
     );
   }
@@ -876,6 +914,7 @@ export function PlannedToday({ block }: { block: CurrentBlock | null }) {
           >
             Plan your next block →
           </Link>
+          {noBlockSummary && <NoBlockSummarySection summary={noBlockSummary} />}
         </div>
       );
     }
