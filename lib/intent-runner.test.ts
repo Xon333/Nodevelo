@@ -311,6 +311,7 @@ describe("runIntentParsing", () => {
     const curatedLap = (avgWatts: number) => ({
       type: "WORK", durationSec: 600, avgWatts, npWatts: avgWatts, avgHr: null,
       startIndex: 0, endIndex: 600, avgGradientPct: null, groupId: null, zone: null,
+      maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null,
     });
 
     vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);

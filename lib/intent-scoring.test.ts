@@ -74,6 +74,11 @@ function lap(durationSec: number, avgWatts: number | null, startIndex: number | 
     avgGradientPct: null,
     groupId: null,
     zone: null,
+    maxHr: null,
+    avgCadenceRpm: null,
+    maxGradientPct: null,
+    elevationGainM: null,
+    label: null,
   };
 }
 
