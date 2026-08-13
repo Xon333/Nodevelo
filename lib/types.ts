@@ -694,7 +694,7 @@ export type NotScoredReason =
   | "no-measurable-objectives" // intent understood; nothing the ride data can verify
   | "interpreter-failed"; // the parse itself errored
 
-export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative";
+export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative" | "terrain";
 export type ZoneBasis = "power" | "heart-rate" | "unspecified";
 
 export interface IntentTarget {
@@ -703,6 +703,12 @@ export interface IntentTarget {
   targetPctFtp?: number;
   zone?: string;
   reps?: number;
+  // Phase 3b. Ceiling, not a range — matches the athlete's actual note style ("under 154bpm").
+  targetHrBpm?: number;
+  targetCadenceRpm?: number;
+  // Qualifier, not a numeric target — resolved by ExecutedInterval.label first, ExecutedInterval's
+  // maxGradientPct/elevationGainM as fallback. See lib/intent-scoring.ts's matchLaps.
+  terrain?: "climb" | "descent";
 }
 
 // The structured intent recovered from a note. Deliberately loose — Phase 2b's zod schema is the

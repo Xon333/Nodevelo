@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodToToolInputSchema } from "./tool-schema";
 
-const ObjectiveKindSchema = z.enum(["duration", "zone-time", "zone-emphasis", "effort", "structure", "qualitative"]);
+const ObjectiveKindSchema = z.enum(["duration", "zone-time", "zone-emphasis", "effort", "structure", "qualitative", "terrain"]);
 const ZoneBasisSchema = z.enum(["power", "heart-rate", "unspecified"]);
 
 const TargetSchema = z
@@ -12,11 +12,30 @@ const TargetSchema = z
     targetPctFtp: z.number().min(30).max(200).optional(),
     zone: z.string().optional(),
     reps: z.number().int().positive().optional(),
+    targetHrBpm: z.number().min(60).max(230).optional(),
+    targetCadenceRpm: z.number().min(30).max(150).optional(),
+    terrain: z.enum(["climb", "descent"]).optional(),
   })
   .strict()
   .refine((target) => target.watts === undefined || target.targetPctFtp === undefined, {
     message: "watts and targetPctFtp are mutually exclusive",
-  });
+  })
+  // R5 (resolved 2026-08-12): at most one of {power, HR, cadence, terrain} may compete for ranking.
+  // zone/durationMin/reps are deliberately excluded — real notes combine them with exactly one of the
+  // four above (e.g. "1h z2 HR cap at 152"), and none of the three is ever a matchLaps ranking signal.
+  .refine(
+    (target) => {
+      const power = target.watts !== undefined || target.targetPctFtp !== undefined;
+      const competing = [
+        power,
+        target.targetHrBpm !== undefined,
+        target.targetCadenceRpm !== undefined,
+        target.terrain !== undefined,
+      ];
+      return competing.filter(Boolean).length <= 1;
+    },
+    { message: "at most one of power, targetHrBpm, targetCadenceRpm, terrain may be set per objective" }
+  );
 
 const PhaseSchema = z
   .object({

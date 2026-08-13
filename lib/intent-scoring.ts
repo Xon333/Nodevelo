@@ -176,6 +176,9 @@ const KIND_BAND: Record<ObjectiveKind, { min: number; max: number }> = {
   "zone-emphasis": { min: 0, max: 2 },
   effort: { min: -2, max: 2 },
   structure: { min: 0, max: 1 },
+  // PLACEHOLDER (Task 3) — Task 7 replaces this with the real terrain band. Terrain remains ungraded
+  // until then; this exists only to keep the exhaustive record complete.
+  terrain: { min: 0, max: 0 },
   qualitative: { min: 0, max: 0 },
 };
 
@@ -378,6 +381,10 @@ function mergeKey(objective: ScoredObjective): string {
         target.targetPctFtp,
         1
       )}|${zoneKey(target.zone)}`;
+    case "terrain":
+      // PLACEHOLDER (Task 3) — Task 7 replaces this with the real merge key. Exists only to keep
+      // mergeKey's switch exhaustive between Task 3 and Task 7.
+      return "terrain|placeholder";
     case "qualitative":
       return `qualitative|${objective.description}`;
   }
@@ -722,6 +729,13 @@ export function gradeObjective(
       break;
     case "structure":
       verdict = gradeStructure(context.effortStartIndices);
+      break;
+    case "terrain":
+      // PLACEHOLDER (Task 3) — Task 7 replaces this with a real gradeTerrain(...) call. Exists only to
+      // keep gradeObjective's switch exhaustive (and `verdict` definitely assigned) between Task 3 and
+      // Task 7. A terrain objective is simply ungraded until Task 7 lands — no test in this task or
+      // Tasks 4-6 exercises terrain grading, so this is inert until then.
+      verdict = ungraded("terrain grading not yet implemented");
       break;
     case "qualitative":
       verdict = {
