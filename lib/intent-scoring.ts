@@ -95,6 +95,8 @@ export interface RideEvidence {
   hrZoneTimes: number[] | null; // SECONDS per zone, index 0 = zone 1
   laps: ExecutedInterval[]; // athlete-curated intervals; `[]` means none were available
   ftpUsed: number; // the FTP that applied on the RIDE's date, from the ledger row
+  wholeRideMaxHr: number | null;
+  wholeRideAvgCadence: number | null;
 }
 
 // One zone reading, plus which array it came from and whether that array was the athlete's stated
@@ -145,6 +147,15 @@ function adherenceDelta(pct: number): number {
   if ((pct >= 90 && pct < 95) || (pct > 106 && pct <= 112)) return 1;
   if (pct >= 85 && pct < 90) return 0;
   if (pct >= 80 && pct < 85) return -1;
+  return -2;
+}
+
+function hrCeilingDelta(peakHr: number, ceilingBpm: number): number {
+  const over = peakHr - ceilingBpm;
+  if (over <= 0) return 2;
+  if (over <= 3) return 1;
+  if (over <= 8) return 0;
+  if (over <= 15) return -1;
   return -2;
 }
 
@@ -687,11 +698,86 @@ function gradeZoneEmphasis(objective: ScoredObjective, evidence: RideEvidence): 
   };
 }
 
+function gradeHrCeiling(matched: ExecutedInterval[], scopeMin: number, ceilingBpm: number): Verdict {
+  const withHr = matched.filter((lap) => lap.avgHr != null || lap.maxHr != null);
+  if (withHr.length === 0) {
+    return {
+      delta: 1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} (no HR recorded on them, graded on presence)`,
+    };
+  }
+  const peakHr = Math.max(...withHr.map((lap) => lap.maxHr ?? lap.avgHr ?? 0));
+  const vi = viEvidenceText(matched);
+  return {
+    delta: hrCeilingDelta(peakHr, ceilingBpm),
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"}, peak HR ${Math.round(peakHr)} vs ${ceilingBpm} bpm ceiling${vi ? `, ${vi}` : ""}`,
+  };
+}
+
+function gradeCadenceTarget(matched: ExecutedInterval[], scopeMin: number, targetRpm: number): Verdict {
+  const withCadence = matched.filter((lap) => lap.avgCadenceRpm != null);
+  if (withCadence.length === 0) {
+    return {
+      delta: 1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} (no cadence recorded on them, graded on presence)`,
+    };
+  }
+  const meanCadence = withCadence.reduce((sum, lap) => sum + (lap.avgCadenceRpm ?? 0), 0) / withCadence.length;
+  const pct = (meanCadence / targetRpm) * 100;
+  const vi = viEvidenceText(matched);
+  return {
+    delta: adherenceDelta(pct),
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${matched.length} matching lap${matched.length === 1 ? "" : "s"} averaging ${Math.round(meanCadence)} rpm vs ${targetRpm} rpm target (${Math.round(pct)}% adherence)${vi ? `, ${vi}` : ""}`,
+  };
+}
+
+function gradeWholeRideHrCeiling(evidence: RideEvidence, ceilingBpm: number): Verdict {
+  if (evidence.wholeRideMaxHr == null) {
+    return ungraded("no HR recorded for the ride (whole-ride ceiling claim, no evidence to grade)");
+  }
+  return {
+    delta: hrCeilingDelta(evidence.wholeRideMaxHr, ceilingBpm),
+    scored: true,
+    measurable: true,
+    scopeMin: evidence.durationMin,
+    evidence: `whole ride, peak HR ${Math.round(evidence.wholeRideMaxHr)} vs ${ceilingBpm} bpm ceiling`,
+  };
+}
+
+function gradeWholeRideCadence(evidence: RideEvidence, targetRpm: number): Verdict {
+  if (evidence.wholeRideAvgCadence == null) {
+    return ungraded("no cadence recorded for the ride (whole-ride target, no evidence to grade)");
+  }
+  const pct = (evidence.wholeRideAvgCadence / targetRpm) * 100;
+  return {
+    delta: adherenceDelta(pct),
+    scored: true,
+    measurable: true,
+    scopeMin: evidence.durationMin,
+    evidence: `whole ride averaged ${Math.round(evidence.wholeRideAvgCadence)} rpm vs ${targetRpm} rpm target (${Math.round(pct)}% adherence)`,
+  };
+}
+
 function gradeEffort(objective: ScoredObjective, evidence: RideEvidence, pool: ExecutedInterval[]): Verdict {
   const target = objective.target ?? {};
   const stated = numeric(target.durationMin);
-  // Checked first: with no window there is nothing to evaluate over, whatever else is present.
-  if (stated === null || stated <= 0) return ungraded("no duration stated for this effort");
+  const noDuration = stated === null || stated <= 0;
+  const wholeRideShaped = noDuration || target.zone !== undefined;
+  if (wholeRideShaped && target.targetHrBpm != null) return gradeWholeRideHrCeiling(evidence, target.targetHrBpm);
+  if (wholeRideShaped && target.targetCadenceRpm != null) return gradeWholeRideCadence(evidence, target.targetCadenceRpm);
+  if (noDuration) return ungraded("no duration stated for this effort");
 
   // Checked before the lap data, because an unresolvable percentage is a defect in the CLAIM rather
   // than in the evidence: the target cannot even be expressed.
@@ -720,6 +806,9 @@ function gradeEffort(objective: ScoredObjective, evidence: RideEvidence, pool: E
       matchedLaps: matched,
     };
   }
+
+  if (target.targetHrBpm != null) return gradeHrCeiling(matched, scopeMin, target.targetHrBpm);
+  if (target.targetCadenceRpm != null) return gradeCadenceTarget(matched, scopeMin, target.targetCadenceRpm);
 
   const withPower = matched.filter((lap) => lap.avgWatts != null && lap.avgWatts > 0);
   if (resolvedWatts !== null && withPower.length > 0) {

@@ -109,6 +109,8 @@ function evidence(over: EvidenceSpec = {}): RideEvidence {
     hrZoneTimes: null,
     laps: [],
     ftpUsed: 288,
+    wholeRideMaxHr: null,
+    wholeRideAvgCadence: null,
     ...rest,
   };
 }
@@ -976,6 +978,119 @@ describe("terrain kind — gating and banding", () => {
     });
 
     expect(gradeObjective(terrain, steady).delta).toBe(gradeObjective(terrain, steep).delta);
+  });
+});
+
+describe("gradeEffort — Phase 3b: HR ceiling and cadence", () => {
+  it("grades an HR ceiling claim by peak HR, not average — a brief spike still counts", () => {
+    const o = obj("effort", { durationMin: 30, targetHrBpm: 154 });
+    const matchedLap = { ...lap(1800, 200, 0), avgHr: 150, maxHr: 170 };
+    const ev = evidence({ laps: [matchedLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.delta).toBeLessThan(0);
+    expect(result.objective.evidence).toMatch(/peak HR 170/);
+  });
+
+  it("grades an HR ceiling claim as compliant when peak stayed under it", () => {
+    const o = obj("effort", { durationMin: 30, targetHrBpm: 154 });
+    const ev = evidence({ laps: [{ ...lap(1800, 200, 0), avgHr: 145, maxHr: 150 }] });
+    expect(gradeObjective(o, ev, { laps: ev.laps }).delta).toBe(2);
+  });
+
+  it("grades on presence when HR data is missing on all matched laps — never a failed metric", () => {
+    const o = obj("effort", { durationMin: 30, targetHrBpm: 154 });
+    const ev = evidence({ laps: [lap(1800, 200, 0)] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.delta).toBe(1);
+    expect(result.objective.evidence).toMatch(/no HR recorded/);
+  });
+
+  it("grades a cadence target using the same adherence-delta shape as power", () => {
+    const o = obj("effort", { durationMin: 20, targetCadenceRpm: 95 });
+    const ev = evidence({ laps: [{ ...lap(1200, 200, 0), avgCadenceRpm: 96 }] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.delta).toBe(2);
+    expect(result.objective.evidence).toMatch(/96 rpm vs 95 rpm target/);
+  });
+
+  it("includes VI in evidence text when the matched lap has power data", () => {
+    const o = obj("effort", { durationMin: 30, targetHrBpm: 154 });
+    const ev = evidence({ laps: [{ ...lap(1800, 200, 0), avgHr: 145, maxHr: 150, npWatts: 214 }] });
+    expect(gradeObjective(o, ev, { laps: ev.laps }).objective.evidence).toMatch(/VI 1\.07/);
+  });
+
+  it("omits VI from evidence text when the matched lap has no power data", () => {
+    const o = obj("effort", { durationMin: 30, targetHrBpm: 154 });
+    const ev = evidence({ laps: [{ ...lap(1800, null, 0), avgHr: 145, maxHr: 150 }] });
+    expect(gradeObjective(o, ev, { laps: ev.laps }).objective.evidence).not.toMatch(/VI/);
+  });
+});
+
+describe("gradeEffort — Phase 3b: whole-ride HR/cadence grading", () => {
+  it("grades an undurated HR ceiling by the whole ride's peak HR", () => {
+    const o = obj("effort", { targetHrBpm: 154 });
+    const ev = evidence({ wholeRideMaxHr: 170 });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.delta).toBeLessThan(0);
+    expect(result.objective.evidence).toMatch(/whole ride/i);
+    expect(result.objective.evidence).toMatch(/peak HR 170/);
+  });
+
+  it("grades an undurated HR ceiling as compliant when the whole ride's peak stayed under it", () => {
+    const o = obj("effort", { targetHrBpm: 154 });
+    expect(gradeObjective(o, evidence({ wholeRideMaxHr: 150 })).delta).toBe(2);
+  });
+
+  it("stays ungraded — not graded on presence — when the ride has no recorded HR", () => {
+    const o = obj("effort", { targetHrBpm: 154 });
+    const result = gradeObjective(o, evidence({ wholeRideMaxHr: null }));
+    expect(result.objective.scored).toBe(false);
+    expect(result.delta).toBeNull();
+    expect(result.objective.scopeMin).toBe(0);
+    expect(result.objective.evidence).toMatch(/no HR recorded/);
+  });
+
+  it("stays ungraded when the ride has no recorded cadence", () => {
+    const o = obj("effort", { targetCadenceRpm: 95 });
+    const result = gradeObjective(o, evidence({ wholeRideAvgCadence: null }));
+    expect(result.objective.scored).toBe(false);
+    expect(result.delta).toBeNull();
+    expect(result.objective.scopeMin).toBe(0);
+  });
+
+  it("grades an undurated cadence claim by the whole ride's average cadence", () => {
+    const o = obj("effort", { targetCadenceRpm: 95 });
+    expect(gradeObjective(o, evidence({ wholeRideAvgCadence: 96 })).delta).toBe(2);
+  });
+
+  it("prefers matching a stated duration over whole-ride grading without a zone", () => {
+    const o = obj("effort", { durationMin: 30, targetHrBpm: 154 });
+    const ev = evidence({
+      laps: [{ ...lap(1800, 200, 0), avgHr: 145, maxHr: 150 }],
+      wholeRideMaxHr: 200,
+    });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.delta).toBe(2);
+    expect(result.objective.evidence).not.toMatch(/whole ride/i);
+  });
+
+  it("grades whole-ride, not a matched lap, when a duration is combined with a zone", () => {
+    const o = obj("effort", { durationMin: 60, zone: "Z2", targetHrBpm: 152 });
+    const ev = evidence({ laps: [{ ...lap(480, 220, 0), avgHr: 140 }], wholeRideMaxHr: 150 });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.delta).toBe(2);
+    expect(result.objective.evidence).toMatch(/whole ride/i);
+  });
+
+  it("grades whole-ride cadence too when a stated duration is combined with a zone", () => {
+    const o = obj("effort", { durationMin: 60, zone: "Z2", targetCadenceRpm: 85 });
+    const result = gradeObjective(o, evidence({ wholeRideAvgCadence: 86 }));
+    expect(result.delta).toBe(2);
+    expect(result.objective.evidence).toMatch(/whole ride/i);
   });
 });
 

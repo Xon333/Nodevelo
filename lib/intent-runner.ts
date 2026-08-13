@@ -115,6 +115,8 @@ export async function runIntentParsing(
           hrZoneTimes: activity.hrZoneTimes,
           laps,
           ftpUsed: entry.ftpUsed,
+          wholeRideMaxHr: activity.maxHr,
+          wholeRideAvgCadence: activity.avgCadence,
         };
         const verdict = scoreIntentExecution(interpretation, evidence, item.note);
         next = buildOverlay({
