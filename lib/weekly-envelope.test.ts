@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { classifyWeekTolerance } from "./weekly-envelope";
-import type { RideScoreEntry, WellnessEntry } from "./types";
+import { addDaysIso } from "./date";
+import { classifyWeekTolerance, resolveWeeklyEnvelope } from "./weekly-envelope";
+import type { ActivitySummary, RideScoreEntry, WellnessEntry } from "./types";
 
 const entry = (over: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
   date: "2026-07-06",
@@ -73,5 +74,120 @@ describe("classifyWeekTolerance", () => {
     expect(
       classifyWeekTolerance({ weekStart: "2026-07-06", weekEnd: "2026-07-12", entries, wellness: [] })
     ).toBe("unknown");
+  });
+});
+
+const activity = (date: string, trainingLoad: number): ActivitySummary => ({
+  id: `act-${date}`,
+  date,
+  type: "Ride",
+  name: "Ride",
+  movingTimeSec: 3600,
+  avgWatts: 200,
+  normalizedPower: null,
+  maxWatts: null,
+  icuFtp: null,
+  avgHr: null,
+  maxHr: null,
+  kj: null,
+  activeBurnKcal: null,
+  trainingLoad,
+  rpe: null,
+  carbsIngestedG: null,
+  decoupling: null,
+  efficiencyFactor: null,
+  powerHrZ2: null,
+  powerHrZ2Mins: null,
+  description: null,
+  avgCadence: null,
+  distanceMeters: null,
+  elevationGain: null,
+  powerZoneTimes: null,
+  hrZoneTimes: null,
+  wPrimeRollingJ: null,
+  wBalDepletionJ: null,
+  hrrc: null,
+});
+
+describe("resolveWeeklyEnvelope", () => {
+  // n "tolerated" weeks (two rides each, ~325 TSS/ride via canonical trainingLoad, ~650/week), oldest first.
+  const weeksOfData = (n: number, mondayOfCurrentWeek: string) => {
+    const activities: ActivitySummary[] = [];
+    const entries: RideScoreEntry[] = [];
+    const w: WellnessEntry[] = [];
+    let cursor = mondayOfCurrentWeek;
+    for (let i = 0; i < n; i++) {
+      cursor = addDaysIso(cursor, -7);
+      const d1 = cursor;
+      const d2 = addDaysIso(cursor, 2);
+      activities.push(activity(d1, 325), activity(d2, 325));
+      entries.push(entry({ date: d1 }), entry({ date: d2 }));
+      w.push(wellness(addDaysIso(cursor, 8), 60, 45));
+    }
+    return { activities, entries, wellness: w };
+  };
+
+  it("Monday recompute: no persisted envelope yet resolves a fresh one for the current week", () => {
+    const { activities, entries, wellness: w } = weeksOfData(7, "2026-08-10");
+    const result = resolveWeeklyEnvelope({ today: "2026-08-10", persisted: null, activities, entries, wellness: w });
+    expect(result.envelope.weekStart).toBe("2026-08-10");
+    expect(result.envelope.previousRange).toBeNull();
+    expect(result.wrote).toBe(true);
+    expect(result.envelope.role).toBe("build");
+  });
+
+  it("non-Monday sync with no new reducing evidence reads the persisted value unchanged", () => {
+    const persisted = {
+      weekStart: "2026-08-10",
+      role: "build" as const,
+      range: { min: 600, max: 700 },
+      previousRange: null,
+      reductionApplied: false,
+      reductionReason: null,
+      calculationVersion: 1,
+      resolvedAt: "2026-08-10T06:00:00.000Z",
+    };
+    const result = resolveWeeklyEnvelope({ today: "2026-08-12", persisted, activities: [], entries: [], wellness: [] });
+    expect(result.envelope).toEqual(persisted);
+    expect(result.wrote).toBe(false);
+  });
+
+  it("midweek: a not-tolerated recent week can only lower the range, never raise it", () => {
+    const persisted = {
+      weekStart: "2026-08-10",
+      role: "build" as const,
+      range: { min: 600, max: 700 },
+      previousRange: null,
+      reductionApplied: false,
+      reductionReason: null,
+      calculationVersion: 1,
+      resolvedAt: "2026-08-10T06:00:00.000Z",
+    };
+    const { activities, entries } = weeksOfData(3, "2026-08-10");
+    const w = [wellness(addDaysIso("2026-07-27", 8), 40, 70)]; // deep-fatigue read for the Jul27 week
+    const result = resolveWeeklyEnvelope({ today: "2026-08-11", persisted, activities, entries, wellness: w });
+    expect(result.envelope.range.max).toBeLessThanOrEqual(persisted.range.max);
+    expect(result.envelope.range.min).toBeLessThanOrEqual(persisted.range.min);
+    if (result.wrote) {
+      expect(result.envelope.previousRange).toEqual(persisted.range);
+      expect(result.envelope.reductionApplied).toBe(true);
+    }
+  });
+
+  it("never raises an already-persisted range mid-week, even if this sync's fresh calc would be higher", () => {
+    const persisted = {
+      weekStart: "2026-08-10",
+      role: "build" as const,
+      range: { min: 600, max: 700 },
+      previousRange: null,
+      reductionApplied: false,
+      reductionReason: null,
+      calculationVersion: 1,
+      resolvedAt: "2026-08-10T06:00:00.000Z",
+    };
+    const { activities, entries, wellness: w } = weeksOfData(8, "2026-08-10");
+    const result = resolveWeeklyEnvelope({ today: "2026-08-11", persisted, activities, entries, wellness: w });
+    expect(result.envelope.range.max).toBeLessThanOrEqual(700);
+    expect(result.envelope.range.min).toBeLessThanOrEqual(600);
   });
 });
