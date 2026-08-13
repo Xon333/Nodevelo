@@ -302,9 +302,9 @@ export function resolveTargetWatts(target: IntentTarget, ftpUsed: number): numbe
 const roundOr = (value: number | undefined, step: number): string =>
   value == null || !Number.isFinite(value) ? "-" : String(Math.round(value / step) * step);
 
-// `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp, reps)`, with `durationMin` rounded to the
-// minute, `watts` to 5 W and `targetPctFtp` to 1%. `description` and `sourceText` are EXCLUDED — free
-// text varies while the claim does not.
+// `(kind, zone, zoneBasis, durationMin, watts, targetPctFtp, reps, targetHrBpm, targetCadenceRpm,
+// terrain)`, with `durationMin` rounded to the minute, `watts` to 5 W and `targetPctFtp` to 1%.
+// `description` and `sourceText` are EXCLUDED — free text varies while the claim does not.
 //
 // The one exception is `qualitative`, whose stage-2 merge key is `("qualitative", description)`: a
 // stage-1 key COARSER than stage 2's own would drop entries stage 2 was told to keep, collapsing
@@ -319,6 +319,9 @@ export function identityKey(objective: ScoredObjective): string {
     roundOr(target.watts, 5),
     roundOr(target.targetPctFtp, 1),
     roundOr(target.reps, 1),
+    roundOr(target.targetHrBpm, 1),
+    roundOr(target.targetCadenceRpm, 1),
+    target.terrain ?? "-",
   ];
   if (objective.kind === "qualitative") parts.push(objective.description);
   return parts.join("|");
@@ -376,11 +379,11 @@ function mergeKey(objective: ScoredObjective): string {
       return `${objective.kind}|${zoneKey(target.zone)}|${objective.zoneBasis}`;
     case "effort":
       // `reps` is deliberately absent: two readings of one effort that disagree only on rep count are
-      // CONTRADICTORY, not additive.
+      // CONTRADICTORY, not additive. HR and cadence targets distinguish separate effort claims.
       return `effort|${roundOr(target.durationMin, 1)}|${roundOr(target.watts, 5)}|${roundOr(
         target.targetPctFtp,
         1
-      )}|${zoneKey(target.zone)}`;
+      )}|${zoneKey(target.zone)}|${roundOr(target.targetHrBpm, 1)}|${roundOr(target.targetCadenceRpm, 1)}`;
     case "terrain":
       // PLACEHOLDER (Task 3) — Task 7 replaces this with the real merge key. Exists only to keep
       // mergeKey's switch exhaustive between Task 3 and Task 7.

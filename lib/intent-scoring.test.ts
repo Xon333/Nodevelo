@@ -305,6 +305,32 @@ describe("evidence scope is what the evidence speaks about, never how much went 
 describe("canonicalisation: the model cannot move the score by how it splits an intent", () => {
   const ev = evidence({ durationMin: 90, z2Min: 44, laps: [lap(540, 291), lap(540, 289)] });
 
+  describe("identityKey — Phase 3b collision guard", () => {
+    it("a power-targeted effort and an HR-targeted effort with the same duration do NOT collide", () => {
+      const power = obj("effort", { durationMin: 9, watts: 250 });
+      const hr = obj("effort", { durationMin: 9, targetHrBpm: 154 });
+      expect(identityKey(power)).not.toBe(identityKey(hr));
+    });
+
+    it("a power-targeted effort and a cadence-targeted effort with the same duration do NOT collide", () => {
+      const power = obj("effort", { durationMin: 9, watts: 250 });
+      const cadence = obj("effort", { durationMin: 9, targetCadenceRpm: 95 });
+      expect(identityKey(power)).not.toBe(identityKey(cadence));
+    });
+
+    it("an HR-targeted effort and a cadence-targeted effort with the same duration do NOT collide", () => {
+      const hr = obj("effort", { durationMin: 9, targetHrBpm: 154 });
+      const cadence = obj("effort", { durationMin: 9, targetCadenceRpm: 95 });
+      expect(identityKey(hr)).not.toBe(identityKey(cadence));
+    });
+
+    it("keeps distinct HR and cadence efforts from merging", () => {
+      const hr = obj("effort", { durationMin: 9, targetHrBpm: 154 });
+      const cadence = obj("effort", { durationMin: 9, targetCadenceRpm: 95 });
+      expect(canonicalise([hr, cadence])).toHaveLength(2);
+    });
+  });
+
   it("exact duplicates score as one claim, not as a sum", () => {
     const single = [obj("zone-time", { zone: "Z2", durationMin: 45 })];
     const dup = [single[0], { ...single[0] }, { ...single[0], description: "steady Z2 block" }];
