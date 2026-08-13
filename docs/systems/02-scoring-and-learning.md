@@ -181,9 +181,9 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   (the phase's own motivating note, "if HR goes over 154bpm dial back to stay in z2") grades against the
   WHOLE ride** (`RideEvidence.wholeRideMaxHr`/`wholeRideAvgCadence`, from already-synced
   `activity.maxHr`/`activity.avgCadence`) rather than staying ungraded — a duration-only, non-zone claim
-  prefers the more precise matched-lap path instead. **Per-interval `decoupling` is also real and
-  synced-for-free on the same payload but has no consumer yet** — flagged here as a future unlock for the
-  segment-scoped aerobic drift feature this doc already notes is deferred, not built by Phase 3b.
+  prefers the more precise matched-lap path instead. **Per-interval `decoupling` is available in the
+  existing interval payload but is neither mapped into nor consumed through `ExecutedInterval`.** It
+  remains a possible input to Phase 3a's deferred segment-scoped aerobic-drift work, not Phase 3b.
 
 ## Common modifications
 
