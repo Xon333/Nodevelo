@@ -184,6 +184,26 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   prefers the more precise matched-lap path instead. **Per-interval `decoupling` is available in the
   existing interval payload but is neither mapped into nor consumed through `ExecutedInterval`.** It
   remains a possible input to Phase 3a's deferred segment-scoped aerobic-drift work, not Phase 3b.
+- **Terrain gradient-fallback matching can silently match the whole ride when a ride has no
+  meaningfully-segmented curated intervals.** Live-smoke-confirmed 2026-08-13 (Task 11 of the
+  implementation plan, run against real production data in a sandboxed data dir): a real note combining
+  an HR ceiling with a stated "10 min climb" claim, on a ride whose Intervals.icu data was essentially
+  one giant undivided lap, produced `evidence: "103.0 min climb vs 10 min stated (matched by gradient) —
+  avg 0.0%, max 8.7%, ..."`. `filterByTerrain`'s gradient-floor fallback (design §7,
+  `lib/intent-scoring.ts`) matched the entire ride because its max gradient cleared the 3% floor
+  somewhere in it, and `gradeTerrain`'s duration-compliance math (`complianceDelta`, reused from
+  whole-ride duration grading's deliberate "riding longer is never a failure" principle) rewarded the
+  10x overmatch as full compliance instead of flagging the mismatch. Not wrong-direction or crash-level —
+  the athlete did climb something real — but the evidence text is misleading, and "over-matching is
+  generous" doesn't obviously transfer from whole-ride duration claims (where it's an intentional design
+  choice, design doc's original spec) to terrain claims (where a 10x duration mismatch usually means the
+  matcher picked the only available candidate, not that the athlete over-delivered). Only fires on rides
+  without meaningfully-segmented curated intervals; label-first matching (once the athlete starts
+  labelling, still unexercised live — see the bullet above) sidesteps it entirely by construction. Fixing
+  it well needs a design decision — cap terrain compliance reward at some over-match ratio, or treat a
+  gross duration mismatch as a `filterByTerrain` disqualifier even on the sole-candidate path — not a
+  silent patch; flagged here for the next Phase 3b-adjacent scoping session alongside the compound-terrain
+  gap above.
 
 ## Common modifications
 
