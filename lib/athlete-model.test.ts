@@ -78,7 +78,9 @@ describe("buildAthleteModel — effective outcomes", () => {
       [...readFileSync(path.resolve(import.meta.dirname, "..", file), "utf8").matchAll(/buildAthleteModel\(([^)]*)\)/g)]
         .map((match) => `${file}: ${match[1]}`)
     );
-    expect(calls).toHaveLength(8);
+    // 9 as of Phase 3a: app/api/sync/route.ts gained a second buildAthleteModel call site
+    // (resolveNoBlockSummary's behaviour input), overlay-aware like every other call here.
+    expect(calls).toHaveLength(9);
     for (const call of calls) expect(call).toContain(",");
   });
 

@@ -60,6 +60,7 @@ vi.mock("@/lib/data-store", () => ({
   readTodayAnalysis: vi.fn(),
   updateScoreLog: vi.fn(),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
+  updateWeeklyEnvelope: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
   updateBlockHistory: vi.fn(),
   updateInterventionLog: vi.fn(async (mutate: (log: { records: unknown[]; updatedAt: string }) => unknown) =>
     mutate({ records: [], updatedAt: "" })
@@ -259,6 +260,7 @@ describe("GET /api/sync", () => {
     expect(json.fatigueAlert).toBeNull();
     expect(json.loadRamp).toBeNull();
     expect(json.acwr).toBeNull();
+    expect(json.noBlockSummary).toBeNull();
     expect(json.polarization).toBeNull();
     expect(json.autoSyncOnOpen).toBe(true);
   });
@@ -448,6 +450,33 @@ describe("GET /api/sync", () => {
     expect(json.scores.map((e: RideScoreEntry) => e.date)).toEqual(["2026-06-18"]);
     expect(json.compromisedDates).toEqual(["2026-06-20"]);
     expect(json.partialDates).toEqual(["2026-06-21"]);
+  });
+});
+
+describe("GET/POST /api/sync — noBlockSummary", () => {
+  beforeEach(() => {
+    vi.mocked(store.readLastSync).mockResolvedValue(
+      mkSync({ activities: [mkActivity({ date: TODAY, trainingLoad: 60 })], fitness: { ctl: 50, atl: 45, tsb: 5 } })
+    );
+  });
+
+  it("is present and non-null when there is no active block", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.noBlockSummary).not.toBeNull();
+    expect(typeof json.noBlockSummary.headline).toBe("string");
+  });
+
+  it("is null when a block is active and not finished", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ endDate: "2026-12-31" }));
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.noBlockSummary).toBeNull();
+  });
+
+  it("is present when the block has finished (isBlockFinished true)", async () => {
+    vi.mocked(store.readCurrentBlock).mockResolvedValue(mkBlock({ endDate: "2026-06-01" }));
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.noBlockSummary).not.toBeNull();
   });
 });
 
