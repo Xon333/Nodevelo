@@ -1,5 +1,11 @@
 # Adaptive self-directed coach — Phase 3a scoping handoff
 
+**Superseded 2026-08-13 — Phase 3a shipped.** This briefing did its job (the design/plan/implementation
+it kicked off are in [ARCHIVE.md](../../ARCHIVE.md#adaptive-self-directed-coach--phases-13a-2026-08-0613));
+kept as a historical record, not a live pointer. For what Phase 3a actually built, read the design
+(`docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md`) and plan
+(`docs/superpowers/plans/2026-08-13-adaptive-coach-p3a-no-block-today.md`) directly.
+
 **This is a kickoff briefing, not a design or a plan.** It exists so a fresh session doesn't have to
 re-derive what this session spent real effort establishing: what Phase 3a actually is, what it is
 *not*, and what's already shipped underneath it. Start here, then run the `brainstorming` skill with

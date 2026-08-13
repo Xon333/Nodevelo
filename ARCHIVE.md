@@ -12,7 +12,7 @@ exact commits.
 
 ---
 
-## Adaptive self-directed coach — Phases 1–2c (2026-08-06–12)
+## Adaptive self-directed coach — Phases 1–3a (2026-08-06–13)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
   variability penalties from structurally unsuitable data.
@@ -21,10 +21,19 @@ exact commits.
 - **Phase 2b · intent scoring (PR #35):** deferred note parsing extracts grounded objectives; deterministic
   scoring writes idempotent overlays behind an `autoFromDate` rollout boundary.
 - **Phase 2c · debrief (PRs #38/#40):** Today renders interpreted intent, supported evidence, and the
-  overlay-resolved score or `Not scored`; sync refreshes the result after parsing. Phases 3–4 remain in
-  [ROADMAP.md](ROADMAP.md).
+  overlay-resolved score or `Not scored`; sync refreshes the result after parsing.
 - **Coach-note completeness (PR #36):** ride analysis now shares the intent parser's 2,000-character note
   cap and marks real truncation instead of silently cutting at 400 characters.
+- **Phase 3a · no-block Today (2026-08-13):** a weekly TSS envelope (Monday-resolved, one-way
+  reduction-only through the week), one suggested session (`gatherFocusInputs`/`chooseNextFocus` reuse,
+  gated on the envelope's own range vs. week-to-date load), and a three-stream Load/Recovery/Execution
+  read replace the bare "No active training block yet" fallback — for both the never-had-a-block state
+  and a finished-but-not-regenerated block. No new LLM call; Zone 1's fused `AthleteStateCard` unchanged
+  (flagged in `todo.md` to revisit). Design and plan went through two external-review rounds each before
+  implementation; see [docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md](docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md)
+  and [docs/superpowers/plans/2026-08-13-adaptive-coach-p3a-no-block-today.md](docs/superpowers/plans/2026-08-13-adaptive-coach-p3a-no-block-today.md).
+  Phase 3b (curated-interval HR/cadence/gradient/VAM context) shipped separately; Phase 4 remains in
+  [ROADMAP.md](ROADMAP.md).
 
 ## Nutrition hardening follow-ups (2026-08-05–06)
 
