@@ -230,7 +230,7 @@ export default function TodayView() {
               is logged and on true rest days). */}
           <Zone rank={2} title="Today's session — what am I riding?" hero>
             <MorningCheckIn />
-            <PlannedToday block={state.currentBlock} />
+            <PlannedToday block={state.currentBlock} noBlockSummary={state.noBlockSummary} />
           </Zone>
 
           {/* Quiet footer: everything else is one disclosure away (masterplan §4). */}

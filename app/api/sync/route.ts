@@ -63,7 +63,12 @@ import { isAnthropicConfigured } from "@/lib/anthropic-config";
 import { isSeasonFocus } from "@/lib/season";
 import { findLedgerEntry } from "@/lib/ride-origin";
 import { indexOverlaysByActivity, indexOverlaysByDate, resolveEffectiveOutcome } from "@/lib/intent-overlay";
-import type { ActivitySummary, CalibratedParameter, CurrentBlockDay, EffectiveOutcome, ExecutedInterval, IntentOverlay, PrescribedInterval, RideEntryContext, RideScoreEntry, TodayAnalysis } from "@/lib/types";
+import type { AcwrResult, ActivitySummary, CalibratedParameter, CurrentBlock, CurrentBlockDay, EffectiveOutcome, ExecutedInterval, IntentOverlay, LoadRampAlert, NoBlockSummary, PrescribedInterval, ReadinessSignal, RideEntryContext, RideScoreEntry, TodayAnalysis, WellnessEntry } from "@/lib/types";
+import { resolveWeeklyEnvelope } from "@/lib/weekly-envelope";
+import { updateWeeklyEnvelope } from "@/lib/data-store";
+import { suggestSession } from "@/lib/session-suggestion";
+import { composeNoBlockSummary } from "@/lib/no-block-summary";
+import { isBlockFinished } from "@/lib/date";
 
 // A sync fires several sequential Intervals.icu requests (each network-bounded to 20s in the API
 // client) plus, on a ride day, per-ride stream/interval fetches. Cap the whole handler so a slow
@@ -80,6 +85,45 @@ function resolveTodayOutcome(
   const entry = findLedgerEntry(entries, todayAnalysis.activityId, todayAnalysis.activityDate);
   if (!entry) return null;
   return resolveEffectiveOutcome(entry, indexOverlaysByActivity(overlays), indexOverlaysByDate(overlays));
+}
+
+// Phase 3a §8/§9/§10. Weekly-envelope + suggested-session + three-stream summary for the no-block Today
+// surface — shared by GET and POST so the resolution logic exists exactly once.
+function weekToDateLoad(activities: ActivitySummary[], weekStart: string, today: string): number {
+  return activities
+    .filter((a) => a.date >= weekStart && a.date <= today && a.trainingLoad !== null)
+    .reduce((sum, a) => sum + (a.trainingLoad as number), 0);
+}
+
+async function resolveNoBlockSummary(
+  block: CurrentBlock | null,
+  today: string,
+  activities: ActivitySummary[],
+  scoreEntries: RideScoreEntry[],
+  overlays: IntentOverlay[],
+  wellness: WellnessEntry[],
+  readiness: ReadinessSignal | null,
+  loadRamp: LoadRampAlert | null,
+  acwr: AcwrResult | null
+): Promise<NoBlockSummary | null> {
+  const noActiveBlock = !block || isBlockFinished(block, today);
+  if (!noActiveBlock) return null;
+  // GET's readiness/loadRamp are themselves null pre-first-sync (`lastSync ? computeX(...) : null`) —
+  // there is no history to build an envelope OR a suggestion from yet, so this is its own real state,
+  // not a 0-0 envelope manufactured from nothing.
+  if (!readiness || !loadRamp) return null;
+
+  // Read-compute-write as ONE atomic operation via updateWeeklyEnvelope — resolveWeeklyEnvelope's own
+  // read of `current` happens INSIDE updateJson's lock, so two concurrent syncs can never both read the
+  // same base and clobber each other's midweek reduction.
+  const envelope = await updateWeeklyEnvelope(
+    (persisted) => resolveWeeklyEnvelope({ today, persisted, activities, entries: scoreEntries, wellness }).envelope
+  );
+
+  const weekToDateTss = weekToDateLoad(activities, envelope.weekStart, today);
+  const suggestion = await suggestSession(today, envelope, weekToDateTss, readiness, loadRamp, acwr);
+  const behaviour = buildAthleteModel(scoreEntries, overlays).behaviour;
+  return composeNoBlockSummary(envelope, suggestion, behaviour, readiness, weekToDateTss);
 }
 
 // Resolve the athlete's carbsOptimum calibration into the shape deriveFuelPrompt wants — a value PLUS
@@ -125,6 +169,19 @@ export async function GET(req: Request) {
   const athleteState = computeAthleteState(
     athleteStateInputsFrom(lastSync, buildAthleteModel(scoreLog.entries, intentStore.overlays), acwr, today),
     resolveAthleteStateWeights(settings.athleteStateWeights)
+  );
+  // Phase 3a: the no-block weekly-envelope/session-suggestion/three-stream surface — null while a block
+  // is genuinely active, or before the first sync (readiness/loadRamp themselves null there).
+  const noBlockSummary = await resolveNoBlockSummary(
+    currentBlock,
+    today,
+    lastSync?.activities ?? [],
+    scoreLog.entries,
+    intentStore.overlays,
+    lastSync?.wellness ?? [],
+    readiness,
+    loadRamp,
+    acwr
   );
   // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/ask, so the
   // Today card shows the exact figures the coach reasons from (FTP off the physiology SoT).
@@ -203,6 +260,7 @@ export async function GET(req: Request) {
     fatigueAlert,
     loadRamp,
     acwr,
+    noBlockSummary,
     polarization,
     // Legacy (pre-first-block) and compromised (equipment/sickness) rides stay in the ledger
     // but are excluded from the execution metrics the client renders (trend pulse, calendar).
@@ -989,6 +1047,21 @@ export async function POST(req: Request) {
       readBlockSettings(),
       readRollingBaselines(), // the freshly-persisted baselines (with updatedAt), written earlier this sync
     ]); // morningChecks already read once above (CS-6)
+    // Phase 3a: the no-block weekly-envelope/session-suggestion/three-stream surface. POST's
+    // readiness/loadRamp/acwr are never null (computed unconditionally above from lastSync, which POST
+    // has already confirmed exists by this point) — resolveNoBlockSummary's nullable params simply never
+    // read null on this path. Reuses blockForSnap rather than a second readCurrentBlock() call.
+    const noBlockSummary = await resolveNoBlockSummary(
+      blockForSnap,
+      today,
+      lastSync.activities,
+      scoreLog.entries,
+      intentStore.overlays,
+      lastSync.wellness,
+      readiness,
+      loadRamp,
+      acwr
+    );
     const latestWeightKgForSnapEnergy =
       (lastSync?.wellness ?? [])
         .filter((w) => w.weightKg !== null)
@@ -1023,7 +1096,7 @@ export async function POST(req: Request) {
       warnings.push("A background backup didn't complete — your training data itself is unaffected.");
     }
 
-    return NextResponse.json({ lastSync, todayAnalysis, todayOutcome: resolveTodayOutcome(todayAnalysis, scoreLog.entries, intentStore.overlays), analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date), athleteState, coachSnapshot, calibration });
+    return NextResponse.json({ lastSync, todayAnalysis, todayOutcome: resolveTodayOutcome(todayAnalysis, scoreLog.entries, intentStore.overlays), analysisPending, warnings, readiness, fatigueAlert, loadRamp, acwr, noBlockSummary, polarization, scores: scoreLog.entries.filter((e) => !e.legacy && !e.compromised), compromisedDates: [...compromisedDates(dispositions.entries)], partialDates: dispositions.entries.filter((e) => e.disposition === "partial").map((e) => e.date), completedDates: dispositions.entries.filter((e) => e.disposition === "completed").map((e) => e.date), athleteState, coachSnapshot, calibration });
   } catch (err) {
     const status = err instanceof IntervalsApiError && err.status === 401 ? 401 : 502;
     const message = err instanceof Error ? err.message : "Sync failed";

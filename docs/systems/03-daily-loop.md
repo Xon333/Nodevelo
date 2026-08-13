@@ -11,6 +11,7 @@ Surface: the Today page (auto-switches pre-ride ↔ post-ride when a synced ride
 3. **Athlete state** (`lib/athlete-state.ts`): the 0–100 fused score — TSB, ACWR, execution EWMA (from the athlete model), Z2 aerobic efficiency, off-plan behaviour — with the **lived-signal override**: ≥2 corroborated negative signals cap a fresh-looking load-model score. Shown on Today (`AthleteStateCard`) with its "why" drivers on Model (`StateDriversCard`); both share `athlete-state-ui.tsx` so band colors can't drift. Spec: [../specs/athlete-state.md](../specs/athlete-state.md).
 4. **Coach snapshot** (`lib/coach-snapshot.ts`): fuses all of the above plus fuel state, FTP-retest advisory, and TSB-modifier guidance (`resolveTsbModifier`: deep-fatigue / productive-overload / balanced / fresh, calibratable edges) into the ONE bundle both the Today card and Ask-Coach read. There is deliberately **no auto-mutation of today's plan from readiness** — signals are advisory; only the athlete-confirmed morning-check path changes the plan.
 5. **Carb-loading prompt** (`lib/loading.ts`, `/api/loading`): day-before g/kg target ahead of a durability long ride; one-tap loaded/skipped attribution feeds an effectiveness assessment.
+6. **No-block Today** (Phase 3a, `lib/weekly-envelope.ts`, `lib/session-suggestion.ts`, `lib/no-block-summary.ts`): when there's no active block — never had one, or a block finished and hasn't been regenerated — `PlannedToday` (`components/dashboard/today.tsx`) renders a weekly TSS envelope (resolved Monday, one-way-reduction-only through the week, persisted to `data/weekly-envelope.json` via `lib/data-store.ts`'s `updateWeeklyEnvelope`), one suggested session (`gatherFocusInputs`/`chooseNextFocus` reuse from `lib/season.ts`, gated on the envelope's own range vs. week-to-date load — never a menu, never a plan), and a three-stream Load/Recovery/Execution headline. No new LLM call; the fused `AthleteStateCard` (Zone 1) is unchanged. Hidden entirely while a block is genuinely active.
 
 ## After the ride
 
@@ -32,4 +33,5 @@ Post-ride surfaces on Today: `TodayRideCard` (rep breakdown, `RideTrace` power c
 | New readiness signal | `readiness.ts` → wire into `athlete-state.athleteStateInputsFrom` and/or `coach-snapshot.resolveCoachSignals`; weights via `calibration.resolveAthleteStateWeights` |
 | State-fusion weights/bands | `calibration.ts` (defaults) / Settings overrides; spec's tunable-knobs section |
 | Morning-check decision rules | `morning-check.decideMorningCheck` (pure, tested) |
-| Today-card content | `components/dashboard/today.tsx` (740 lines — the page's named-export module) |
+| Today-card content | `components/dashboard/today.tsx` (~960 lines — the page's named-export module, already flagged as a split candidate) |
+| No-block envelope/suggestion logic | `lib/weekly-envelope.ts` (role/range/persistence), `lib/session-suggestion.ts` (focus→session mapping), `lib/no-block-summary.ts` (composition) |

@@ -505,6 +505,39 @@ export interface CurrentBlock {
   seasonPhase?: string;
 }
 
+// ---------- No-block Today (data/weekly-envelope.json) — Phase 3a §8-10 ----------
+
+// data/weekly-envelope.json. previousRange/reductionApplied exist specifically so "Monday full
+// recompute" vs "midweek reduction-only" is mechanically testable, not just documented behavior
+// (external review, 2026-08-12).
+export interface WeeklyEnvelope {
+  weekStart: string; // ISO Monday date this range applies to
+  role: "build" | "maintain" | "recovery";
+  range: { min: number; max: number }; // TSS
+  previousRange: { min: number; max: number } | null; // set only when reductionApplied
+  reductionApplied: boolean;
+  reductionReason: string | null;
+  calculationVersion: number;
+  resolvedAt: string; // ISO timestamp
+}
+
+// §9 — one concrete optional session, never a menu or a plan.
+export interface SessionSuggestion {
+  purpose: string;
+  structure: string;
+  durationRangeMin: [number, number];
+  expectedTssRange: [number, number];
+  reason: string;
+}
+
+// §10 + composition — the one compact section PlannedToday renders for a no-block day.
+export interface NoBlockSummary {
+  headline: string;
+  body: string;
+  weeklyRange: { min: number; max: number; thisWeekTss: number };
+  suggestion: SessionSuggestion | null;
+}
+
 // ---------- Season plan (data/season-plan.json) — macro periodization (MACRO-1..3) ----------
 
 export type SeasonFocus = "aerobic-base" | "threshold" | "vo2max" | "anaerobic" | "durability" | "sharpen";

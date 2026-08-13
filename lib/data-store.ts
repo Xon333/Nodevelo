@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis, WeeklyEnvelope } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
@@ -204,6 +204,15 @@ export async function updateCurrentBlock(
     if (expectedCreatedAt !== undefined && (cur?.createdAt ?? null) !== expectedCreatedAt) return cur;
     return mutate(cur);
   });
+}
+
+// Phase 3a §8. Read-compute-write as ONE atomic operation — resolveWeeklyEnvelope's own read of
+// `current` happens INSIDE updateJson's lock, so two concurrent syncs can never both read the same
+// base and clobber each other's midweek reduction (external review, 2026-08-12).
+export async function updateWeeklyEnvelope(
+  mutate: (current: WeeklyEnvelope | null) => WeeklyEnvelope
+): Promise<WeeklyEnvelope> {
+  return updateJson<WeeklyEnvelope | null>("weekly-envelope.json", null, mutate) as Promise<WeeklyEnvelope>;
 }
 
 // Merges only `touchedDays` (by date) onto the fresh on-disk block. Any other writer's change to a

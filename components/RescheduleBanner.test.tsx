@@ -33,6 +33,7 @@ const mkState = (createdAt: string | null): AppState =>
     fatigueAlert: null,
     loadRamp: null,
     acwr: null,
+    noBlockSummary: null,
     polarization: null,
     scores: [],
     compromisedDates: [],
