@@ -329,6 +329,14 @@ describe("canonicalisation: the model cannot move the score by how it splits an 
       const cadence = obj("effort", { durationMin: 9, targetCadenceRpm: 95 });
       expect(canonicalise([hr, cadence])).toHaveLength(2);
     });
+
+    it("keeps equal-duration climb and descent objectives distinct", () => {
+      const terrain = [
+        obj("terrain", { terrain: "climb", durationMin: 8 }),
+        obj("terrain", { terrain: "descent", durationMin: 8 }),
+      ];
+      expect(canonicalise(terrain)).toHaveLength(2);
+    });
   });
 
   it("exact duplicates score as one claim, not as a sum", () => {
@@ -942,6 +950,32 @@ describe("terrain kind — gating and banding", () => {
     expect(GRADABLE_KINDS_BY_CONFIDENCE.high).toContain("terrain");
     expect(GRADABLE_KINDS_BY_CONFIDENCE.medium).toContain("terrain");
     expect(GRADABLE_KINDS_BY_CONFIDENCE.low).not.toContain("terrain");
+  });
+
+  it("contributes its full positive and negative bands to the end-to-end score", () => {
+    const duration = obj("duration", { durationMin: 90 });
+    const terrain = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const hit = evidence({
+      laps: [{ ...lap(480, 220, 0), label: "Climb", maxGradientPct: 9, elevationGainM: 120 }],
+    });
+    const miss = evidence({
+      laps: [{ ...lap(120, 220, 0), label: "Climb", maxGradientPct: 9, elevationGainM: 30 }],
+    });
+
+    expect(scoreIntentExecution(interp({ objectives: [duration, terrain] }), hit).score).toBe(9);
+    expect(scoreIntentExecution(interp({ objectives: [duration, terrain] }), miss).score).toBe(5);
+  });
+
+  it("uses terrain existence and duration only, despite radically different lap metrics", () => {
+    const terrain = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const steady = evidence({
+      laps: [{ ...lap(480, 120, 0), label: "Climb", maxGradientPct: 3, elevationGainM: 20, npWatts: 121 }],
+    });
+    const steep = evidence({
+      laps: [{ ...lap(480, 450, 0), label: "Climb", maxGradientPct: 22, elevationGainM: 500, npWatts: 900 }],
+    });
+
+    expect(gradeObjective(terrain, steady).delta).toBe(gradeObjective(terrain, steep).delta);
   });
 });
 

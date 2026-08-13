@@ -12,10 +12,9 @@
 //   • the scoreability gate — grounding, then kind-eligibility-by-confidence, then evidence scope.
 //
 // Three things this module deliberately CANNOT see, each pinned by a test that reads this source file:
-// whole-ride aerobic drift, the ride's existing execution score, and any ride-variability figure. A
-// judge shown no drift number cannot report a drift verdict, and this scorer must not either. There is
-// no variability axis here at all — not suppressed, absent — so design §14.1's "do not penalise
-// variability that belongs to the climbing purpose" holds by construction.
+// whole-ride aerobic drift, the ride's existing execution score, and any whole-ride variability figure.
+// Matched-lap NP/variability may appear in evidence text only, never as a scoring input. A judge shown
+// no drift number cannot report a drift verdict, and this scorer must not either.
 //
 // THE ONE-WAY CONFIDENCE RULE. The deterministic gate decides scoreability FIRST. Confidence may then
 // only SHRINK the gradable kind set (`medium` drops `structure`) or veto outright (`low`). No
