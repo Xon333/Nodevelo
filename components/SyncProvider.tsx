@@ -12,6 +12,7 @@ import type {
   FatigueAlert,
   IntensityDistribution,
   LoadRampAlert,
+  NoBlockSummary,
   ReadinessSignal,
   CalibrationStore,
   RideScoreEntry,
@@ -34,6 +35,9 @@ export interface AppState {
   fatigueAlert: FatigueAlert | null;
   loadRamp: LoadRampAlert | null;
   acwr: AcwrResult | null;
+  // Phase 3a: the no-block weekly-envelope/session-suggestion/three-stream surface. Null while a block
+  // is genuinely active, or before the first sync (readiness/loadRamp themselves null there).
+  noBlockSummary: NoBlockSummary | null;
   polarization: IntensityDistribution | null;
   scores: RideScoreEntry[];
   compromisedDates: string[];
@@ -195,6 +199,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         fatigueAlert: FatigueAlert | null;
         loadRamp: LoadRampAlert | null;
         acwr: AcwrResult | null;
+        noBlockSummary: NoBlockSummary | null;
         polarization: IntensityDistribution | null;
         scores: RideScoreEntry[];
         compromisedDates: string[];
@@ -216,6 +221,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               fatigueAlert: result.fatigueAlert,
               loadRamp: result.loadRamp,
               acwr: result.acwr,
+              noBlockSummary: result.noBlockSummary,
               polarization: result.polarization,
               scores: result.scores,
               compromisedDates: result.compromisedDates,
