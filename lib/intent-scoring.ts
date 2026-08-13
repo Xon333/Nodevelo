@@ -544,6 +544,14 @@ export function matchLaps(
 const lapMinutes = (laps: ExecutedInterval[]): number =>
   round1(laps.reduce((total, lap) => total + lap.durationSec, 0) / 60);
 
+// VAM (vertical ascent meters/hour) — Michele Ferrari's "Velocità Ascensionale Media", an established
+// cycling climbing-effort metric independent of gradient noise. Evidence-text context only (design doc
+// §6) — never a scored dimension by itself. Reference points: club cyclists ~700-900 m/h, professional
+// mountain-stage efforts ~1650-1800 m/h.
+export function vam(elevationGainM: number, durationSec: number): number {
+  return elevationGainM / (durationSec / 3600);
+}
+
 // ---------------------------------------------------------------------------
 // Grading
 // ---------------------------------------------------------------------------

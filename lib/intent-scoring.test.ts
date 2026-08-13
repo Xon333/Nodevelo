@@ -16,6 +16,7 @@ import {
   matchLaps,
   resolveTargetWatts,
   scoreIntentExecution,
+  vam,
   zoneMinutes,
   type RideEvidence,
 } from "./intent-scoring";
@@ -30,6 +31,19 @@ import type {
   StructuredIntent,
   ZoneBasis,
 } from "./types";
+
+describe("vam", () => {
+  it("computes vertical meters per hour", () => {
+    // 500 m gained in 30 min (1800s) → 1000 m/h
+    expect(vam(500, 1800)).toBeCloseTo(1000, 0);
+  });
+
+  it("matches a realistic club-cyclist reference point", () => {
+    // ~800 m gained over a 1-hour climb is within the ~700-900 m/h club-cyclist VAM range
+    // (Cycling Weekly / TrainingPeaks reference points cited in the design doc).
+    expect(vam(800, 3600)).toBe(800);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Fixtures
