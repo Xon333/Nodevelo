@@ -516,14 +516,15 @@ export function canonicalise(objectives: ScoredObjective[]): ScoredObjective[] {
 // Lap matching
 // ---------------------------------------------------------------------------
 
-// Candidate laps are those within +-20% of the stated duration; the best `reps` of them are returned,
-// ranked by closeness to the resolved watt target when there is one and by closeness in duration
-// otherwise. Ties keep the ride's own lap order (Array.prototype.sort is stable).
 export function matchLaps(
   target: IntentTarget,
   laps: ExecutedInterval[],
   resolvedWatts: number | null = null
 ): ExecutedInterval[] {
+  // Terrain is handled entirely separately (R3/R4 fix, 2026-08-12) — it never shares the duration
+  // pre-filter or the distance() ranking below. See matchTerrain.
+  if (target.terrain) return matchTerrain(target, laps);
+
   const durationMin = numeric(target.durationMin);
   if (durationMin === null || durationMin <= 0) {
     const zone = zoneIndex(target.zone);
@@ -537,11 +538,74 @@ export function matchLaps(
   const candidates = laps.filter((lap) => lap.durationSec >= low && lap.durationSec <= high);
   const wanted = Math.max(1, Math.round(numeric(target.reps) ?? 1));
   const distance = (lap: ExecutedInterval): number => {
+    if (target.targetHrBpm != null) {
+      return lap.avgHr == null ? Number.MAX_SAFE_INTEGER : Math.abs(lap.avgHr - target.targetHrBpm);
+    }
+    if (target.targetCadenceRpm != null) {
+      return lap.avgCadenceRpm == null
+        ? Number.MAX_SAFE_INTEGER
+        : Math.abs(lap.avgCadenceRpm - target.targetCadenceRpm);
+    }
     if (resolvedWatts === null) return Math.abs(lap.durationSec - targetSec);
     if (lap.avgWatts == null) return Number.MAX_SAFE_INTEGER;
     return Math.abs(lap.avgWatts - resolvedWatts);
   };
   return [...candidates].sort((a, b) => distance(a) - distance(b)).slice(0, wanted);
+}
+
+// Strava's own published climb-categorization floor (support.strava.com/hc/en-us/articles/216917057) —
+// borrowed here as the minimum |gradient| that counts as a climb/descent at all, not their full
+// length×gradient category scoring, which this phase doesn't need.
+const CLIMB_GRADIENT_FLOOR_PCT = 3;
+
+function hasLabelHint(lap: ExecutedInterval, terrain: "climb" | "descent"): boolean {
+  return (lap.label ?? "").trim().toLowerCase().includes(terrain);
+}
+
+// R4 fix (2026-08-12): climb and descent deliberately read DIFFERENT gradient statistics, not the same
+// field with a sign flip. Climb keeps maxGradientPct (peak) — a short steep pitch inside an otherwise
+// flat lap should still count (design doc §4: a real climb lap's average read ~0.4% while its peak hit
+// 14-15%). Descent switches to avgGradientPct (already-synced, signed, pre-dates this phase) — the NET
+// gradient over the lap is the honest "was this a sustained descent" signal. maxGradientPct is the wrong
+// extremum for descent: it's the most-POSITIVE sample, so one flat or uphill moment anywhere in a real
+// descent would defeat a maxGradientPct<=-3% check even though the lap genuinely descended overall.
+function clearsGradientFloor(lap: ExecutedInterval, terrain: "climb" | "descent"): boolean {
+  if (terrain === "climb") {
+    return lap.maxGradientPct != null && lap.maxGradientPct >= CLIMB_GRADIENT_FLOOR_PCT;
+  }
+  return lap.avgGradientPct != null && lap.avgGradientPct <= -CLIMB_GRADIENT_FLOOR_PCT;
+}
+
+// A candidate qualifies as the stated terrain only via its own label or a gradient clearing the floor
+// above — NEVER by elimination among duration-matched laps. A lap that shows no climb/descent signal is
+// not evidence of one; without this filter, "closest by distance" among non-qualifying candidates would
+// silently guess.
+function filterByTerrain(terrain: "climb" | "descent", candidates: ExecutedInterval[]): ExecutedInterval[] {
+  const labelled = candidates.filter((lap) => hasLabelHint(lap, terrain));
+  if (labelled.length > 0) return labelled; // label is the primary signal — don't dilute with gradient-only candidates once any label exists
+  return candidates.filter((lap) => clearsGradientFloor(lap, terrain));
+}
+
+// R3 fix (2026-08-12): terrain candidacy is decided ENTIRELY by filterByTerrain (label/gradient) — it
+// never shares the ±20% duration pre-filter that gates power/HR/cadence matching above. A stated
+// duration is used only to pick the single best-matching terrain-qualified candidate (closest duration
+// wins); it no longer excludes a real but badly-mismatched terrain lap from candidacy outright.
+// gradeTerrain's own compliance-vs-stated-duration math (Task 7) is what penalizes the mismatch.
+function matchTerrain(target: IntentTarget, laps: ExecutedInterval[]): ExecutedInterval[] {
+  const terrain = target.terrain!;
+  const qualifying = filterByTerrain(terrain, laps);
+  const durationMin = numeric(target.durationMin);
+  if (durationMin === null || durationMin <= 0) {
+    // No stated duration: same ultra-conservative "exactly one candidate or nothing" rule the zone-only
+    // branch above already uses — a genuinely ambiguous terrain claim stays ungraded.
+    return qualifying.length === 1 ? qualifying : [];
+  }
+  if (qualifying.length === 0) return [];
+  const targetSec = durationMin * 60;
+  const closest = [...qualifying].sort(
+    (a, b) => Math.abs(a.durationSec - targetSec) - Math.abs(b.durationSec - targetSec)
+  )[0];
+  return [closest];
 }
 
 const lapMinutes = (laps: ExecutedInterval[]): number =>

@@ -755,12 +755,96 @@ describe("matchLaps — zone-only fallback (narrowed hierarchy, external review 
     expect(matchLaps(target, [a, b], null)).toEqual([]);
   });
 
-  it("never introduces a gradient-based scoring axis — gradient is evidence text only", () => {
+  it("never uses gradient as a matching signal for power/duration-targeted objectives (terrain-targeted objectives do — see the describe block above)", () => {
     const target: IntentTarget = { durationMin: 10, watts: 250, reps: 1 };
     const steep = { ...lap(600, 250), avgGradientPct: 7.9 };
     const flat = { ...steep, avgGradientPct: 0.5 };
     expect(matchLaps(target, [steep], 250)).toEqual([steep]);
     expect(matchLaps(target, [flat], 250)).toEqual([flat]);
+  });
+});
+
+describe("matchLaps — Phase 3b: HR and cadence ranking", () => {
+  it("ranks by HR distance when targetHrBpm is set", () => {
+    const target: IntentTarget = { durationMin: 10, targetHrBpm: 154 };
+    const close = { ...lap(600, 200), avgHr: 152 };
+    const far = { ...lap(600, 200), avgHr: 170 };
+    expect(matchLaps(target, [far, close])).toEqual([close]);
+  });
+
+  it("ranks by cadence distance when targetCadenceRpm is set", () => {
+    const target: IntentTarget = { durationMin: 10, targetCadenceRpm: 95 };
+    const close = { ...lap(600, 200), avgCadenceRpm: 93 };
+    const far = { ...lap(600, 200), avgCadenceRpm: 70 };
+    expect(matchLaps(target, [far, close])).toEqual([close]);
+  });
+});
+
+describe("matchLaps — Phase 3b: terrain, label-first with gradient fallback", () => {
+  it("prefers a labelled climb over an unlabelled one clearing the gradient floor, with a stated duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const labelled = { ...lap(480, 220), label: "Climb 1", maxGradientPct: 5 };
+    const unlabelled = { ...lap(480, 220), maxGradientPct: 12 };
+    expect(matchLaps(target, [unlabelled, labelled])).toEqual([labelled]);
+  });
+
+  it("falls back to the gradient floor when no label exists, with a stated duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const climb = { ...lap(480, 220), maxGradientPct: 9 };
+    const flat = { ...lap(480, 220), maxGradientPct: 1 };
+    expect(matchLaps(target, [flat, climb])).toEqual([climb]);
+  });
+
+  it("never selects a duration-matched lap that clears neither label nor gradient floor — no guessing", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const flat = { ...lap(480, 220), maxGradientPct: 1 };
+    expect(matchLaps(target, [flat])).toEqual([]);
+  });
+
+  it("resolves an unstated-duration climb claim only when exactly one candidate qualifies", () => {
+    const target: IntentTarget = { terrain: "climb" };
+    const one = { ...lap(300, 220), maxGradientPct: 9 };
+    expect(matchLaps(target, [one])).toEqual([one]);
+  });
+
+  it("stays ungraded on an unstated-duration climb claim with two qualifying candidates — never guesses", () => {
+    const target: IntentTarget = { terrain: "climb" };
+    const a = { ...lap(300, 220), maxGradientPct: 9 };
+    const b = { ...lap(400, 230), maxGradientPct: 10 };
+    expect(matchLaps(target, [a, b])).toEqual([]);
+  });
+
+  // R4 fix (2026-08-12): descent detection reads avgGradientPct (signed, net-over-the-lap), not
+  // maxGradientPct (a peak/most-positive sample — the wrong extremum for "was this a descent").
+  it("descent uses the negative AVERAGE gradient floor, not the peak", () => {
+    const target: IntentTarget = { terrain: "descent", durationMin: 5 };
+    const descent = { ...lap(300, 150), avgGradientPct: -6 };
+    const flat = { ...lap(300, 150), avgGradientPct: 0.5 };
+    expect(matchLaps(target, [flat, descent])).toEqual([descent]);
+  });
+
+  it("still detects a real descent when a brief flat/uphill blip pushes the PEAK sample positive — the exact R4 bug", () => {
+    const target: IntentTarget = { terrain: "descent", durationMin: 5 };
+    // maxGradientPct is positive (one uphill blip in an otherwise-descending lap) — a maxGradientPct-only
+    // check would have missed this descent entirely. avgGradientPct correctly reads net-negative.
+    const descent = { ...lap(300, 150), maxGradientPct: 1.5, avgGradientPct: -4 };
+    expect(matchLaps(target, [descent])).toEqual([descent]);
+  });
+
+  // R3 fix (2026-08-12): a terrain-qualified lap is never excluded from candidacy for failing the ±20%
+  // duration window that gates power/HR/cadence matching — gradeTerrain's own compliance math (Task 7)
+  // is what penalizes a big duration mismatch, not exclusion here.
+  it("does not discard a terrain-qualified lap for failing the ±20% duration window", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 20 };
+    const shortClimb = { ...lap(240, 220), label: "Climb 1", maxGradientPct: 8 }; // 4 min vs 20 stated
+    expect(matchLaps(target, [shortClimb])).toEqual([shortClimb]);
+  });
+
+  it("prefers the closest-duration terrain-qualified candidate when several qualify with a stated duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 20 };
+    const close = { ...lap(1140, 220), maxGradientPct: 9 }; // 19 min
+    const far = { ...lap(240, 220), maxGradientPct: 9 }; // 4 min
+    expect(matchLaps(target, [far, close])).toEqual([close]);
   });
 });
 
