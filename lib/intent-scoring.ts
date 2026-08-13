@@ -69,8 +69,10 @@ export type IntentConfidence = IntentInterpretation["confidence"];
 // `qualitative` is in no list — it is acknowledged (`measurable: false, scored: false`) and never
 // graded: speed, braking and GPS cannot establish that cornering was good (design §6/§12.2).
 export const GRADABLE_KINDS_BY_CONFIDENCE: Record<IntentConfidence, readonly ObjectiveKind[]> = {
-  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure"],
-  medium: ["duration", "zone-time", "zone-emphasis", "effort"], // structure dropped
+  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure", "terrain"],
+  // structure dropped at medium (ordinal/reward-only); terrain KEPT — it is a falsifiable existence
+  // claim from lap data, the same rigor class as `effort`, not an ordinal claim like `structure`.
+  medium: ["duration", "zone-time", "zone-emphasis", "effort", "terrain"],
   low: [],
 };
 
@@ -176,9 +178,7 @@ const KIND_BAND: Record<ObjectiveKind, { min: number; max: number }> = {
   "zone-emphasis": { min: 0, max: 2 },
   effort: { min: -2, max: 2 },
   structure: { min: 0, max: 1 },
-  // PLACEHOLDER (Task 3) — Task 7 replaces this with the real terrain band. Terrain remains ungraded
-  // until then; this exists only to keep the exhaustive record complete.
-  terrain: { min: 0, max: 0 },
+  terrain: { min: -2, max: 2 },
   qualitative: { min: 0, max: 0 },
 };
 
@@ -385,9 +385,7 @@ function mergeKey(objective: ScoredObjective): string {
         1
       )}|${zoneKey(target.zone)}|${roundOr(target.targetHrBpm, 1)}|${roundOr(target.targetCadenceRpm, 1)}`;
     case "terrain":
-      // PLACEHOLDER (Task 3) — Task 7 replaces this with the real merge key. Exists only to keep
-      // mergeKey's switch exhaustive between Task 3 and Task 7.
-      return "terrain|placeholder";
+      return `terrain|${target.terrain ?? "-"}|${roundOr(target.durationMin, 1)}`;
     case "qualitative":
       return `qualitative|${objective.description}`;
   }
@@ -782,6 +780,74 @@ function gradeStructure(effortStartIndices: (number | null)[] | undefined): Verd
   };
 }
 
+// R11 fix (2026-08-12, second review round): VI (npWatts / avgWatts) rides along as evidence text only
+// on any matched lap (design doc §8) — never a scored dimension, purely context on how steady vs surgy
+// the effort was, independent of whichever field actually drove the match/grade. Computed from the
+// PRIMARY (first) matched lap only — VI is inherently a per-effort ratio; this file doesn't invent a
+// multi-lap aggregation formula for it (same "no fabricated formula" discipline as elsewhere here).
+// Shared by gradeTerrain (below) and Task 8's gradeHrCeiling/gradeCadenceTarget — the three matched-lap
+// grading functions Phase 3b adds. Whole-ride grading has no matched lap, so it's out of scope there.
+function viEvidenceText(matched: ExecutedInterval[]): string | null {
+  const primary = matched[0];
+  if (!primary || primary.avgWatts == null || primary.avgWatts <= 0 || primary.npWatts == null) return null;
+  return `VI ${(primary.npWatts / primary.avgWatts).toFixed(2)}`;
+}
+
+// Existence + duration compliance ONLY — never a quality/technique grade (design doc §15's non-goal on
+// descending/cornering skill). `matchLaps` (Task 6) does the label-first/gradient-fallback selection;
+// this function only grades what it returns.
+function gradeTerrain(objective: ScoredObjective, pool: ExecutedInterval[]): Verdict {
+  const target = objective.target ?? {};
+  const terrain = target.terrain;
+  if (!terrain) return ungraded("no terrain stated");
+  if (pool.length === 0) return ungraded("no interval data");
+
+  const matched = matchLaps(target, pool);
+  if (matched.length === 0) {
+    return { delta: null, scored: false, measurable: true, scopeMin: 0, evidence: `no ${terrain} found in the curated intervals` };
+  }
+
+  const scopeMin = lapMinutes(matched);
+  const primary = matched[0];
+  // R6 fix (2026-08-12): must check that the label actually mentions THIS terrain, not merely that
+  // `primary.label` is non-empty — a gradient-matched lap (guaranteed to not label-match, since
+  // filterByTerrain prefers label matches first) can still carry an unrelated label like "Tempo 1".
+  const labelled = hasLabelHint(primary, terrain);
+  const contextParts = [
+    primary.avgGradientPct != null ? `avg ${primary.avgGradientPct.toFixed(1)}%` : null,
+    primary.maxGradientPct != null ? `max ${primary.maxGradientPct.toFixed(1)}%` : null,
+    // R4 fix (2026-08-12): VAM is an ascent-rate metric; elevationGainM is a gross positive-only
+    // accumulation, near-meaningless on a genuine descent lap. Climb evidence only.
+    terrain === "climb" && primary.elevationGainM != null && primary.durationSec > 0
+      ? `VAM ${Math.round(vam(primary.elevationGainM, primary.durationSec))} m/h`
+      : null,
+    viEvidenceText(matched), // R11 fix — climb AND descent both get VI, unlike VAM above
+  ].filter((part): part is string => part !== null);
+  const context = contextParts.length > 0 ? ` — ${contextParts.join(", ")}` : "";
+  const source = labelled ? "labelled" : "matched by gradient";
+
+  const stated = numeric(target.durationMin);
+  if (stated === null || stated <= 0) {
+    return {
+      delta: 1,
+      scored: true,
+      measurable: true,
+      scopeMin,
+      evidence: `${scopeMin.toFixed(1)} min ${terrain} (${source})${context}`,
+      matchedLaps: matched,
+    };
+  }
+  const pct = (scopeMin / stated) * 100;
+  return {
+    delta: complianceDelta(pct),
+    scored: true,
+    measurable: true,
+    scopeMin,
+    evidence: `${scopeMin.toFixed(1)} min ${terrain} vs ${stated} min stated (${source})${context}`,
+    matchedLaps: matched,
+  };
+}
+
 export function gradeObjective(
   objective: ScoredObjective,
   evidence: RideEvidence,
@@ -806,11 +872,7 @@ export function gradeObjective(
       verdict = gradeStructure(context.effortStartIndices);
       break;
     case "terrain":
-      // PLACEHOLDER (Task 3) — Task 7 replaces this with a real gradeTerrain(...) call. Exists only to
-      // keep gradeObjective's switch exhaustive (and `verdict` definitely assigned) between Task 3 and
-      // Task 7. A terrain objective is simply ungraded until Task 7 lands — no test in this task or
-      // Tasks 4-6 exercises terrain grading, so this is inert until then.
-      verdict = ungraded("terrain grading not yet implemented");
+      verdict = gradeTerrain(objective, pool);
       break;
     case "qualitative":
       verdict = {

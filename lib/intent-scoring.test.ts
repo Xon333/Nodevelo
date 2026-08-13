@@ -848,6 +848,103 @@ describe("matchLaps — Phase 3b: terrain, label-first with gradient fallback", 
   });
 });
 
+describe("gradeTerrain (via gradeObjective)", () => {
+  it("grades a labelled climb as existence + duration compliance", () => {
+    const o = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const climbLap = { ...lap(480, 220, 0), label: "Climb 1", maxGradientPct: 9.2, elevationGainM: 120 };
+    const ev = evidence({ laps: [climbLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.delta).toBeGreaterThanOrEqual(1);
+    expect(result.objective.evidence).toMatch(/climb/i);
+    expect(result.objective.evidence).toMatch(/labelled/i);
+  });
+
+  it("falls back to gradient when no label matches, and says so in evidence", () => {
+    const o = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const climbLap = { ...lap(480, 220, 0), maxGradientPct: 9.2, elevationGainM: 120 };
+    const ev = evidence({ laps: [climbLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.objective.evidence).toMatch(/gradient/i);
+  });
+
+  it("stays ungraded — never guesses — when nothing clears the climb floor and no label exists", () => {
+    const o = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const flatLap = lap(480, 220, 0); // maxGradientPct null via the lap() helper default
+    const ev = evidence({ laps: [flatLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(false);
+    expect(result.delta).toBeNull();
+  });
+
+  it("includes VAM in the evidence text when elevationGainM is present", () => {
+    const o = obj("terrain", { terrain: "climb", durationMin: 8 });
+    // 480s = 1/7.5 h; 100 m gain → VAM = 100 / (480/3600) = 750 m/h
+    const climbLap = { ...lap(480, 220, 0), label: "Climb", elevationGainM: 100, maxGradientPct: 6 };
+    const ev = evidence({ laps: [climbLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.evidence).toMatch(/VAM/);
+    expect(result.objective.evidence).toMatch(/750/);
+  });
+
+  it("never produces a technique/quality grade — only existence and duration compliance", () => {
+    // A very short matched climb (well under the stated duration) still SCORES, on compliance — it is
+    // never "ungraded" for being a bad climb. This is the design's existence-vs-quality boundary. (This
+    // also exercises the R3 fix: the 4-min lap is well outside the ±20% window of the 20-min stated
+    // duration, so it would have been silently excluded from candidacy before that fix — see Task 6.)
+    const o = obj("terrain", { terrain: "climb", durationMin: 20 });
+    const shortClimb = { ...lap(240, 220, 0), label: "Climb", maxGradientPct: 8 }; // 4 min vs 20 stated
+    const ev = evidence({ laps: [shortClimb] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.delta).toBeLessThan(0); // low compliance, not "ungraded", not a skill verdict
+  });
+
+  // R6 fix (2026-08-12): a gradient-matched lap carrying an unrelated non-empty label must not be
+  // misreported as "(labelled)".
+  it("reports 'matched by gradient', not 'labelled', when the matched lap's label doesn't mention the terrain", () => {
+    const o = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const climbLap = { ...lap(480, 220, 0), label: "Tempo 1", maxGradientPct: 9.2 }; // unrelated label
+    const ev = evidence({ laps: [climbLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.evidence).toMatch(/matched by gradient/i);
+    expect(result.objective.evidence).not.toMatch(/\(labelled\)/i);
+  });
+
+  // R4 fix (2026-08-12), evidence half: VAM is an ascent-rate metric — never shown on a descent claim.
+  it("omits VAM from descent evidence even when elevationGainM is present", () => {
+    const o = obj("terrain", { terrain: "descent", durationMin: 5 });
+    const descentLap = { ...lap(300, 150, 0), avgGradientPct: -6, elevationGainM: 8 };
+    const ev = evidence({ laps: [descentLap] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    expect(result.objective.scored).toBe(true);
+    expect(result.objective.evidence).not.toMatch(/VAM/);
+  });
+
+  // R11 fix (2026-08-12, second review round): VI shows on BOTH climb and descent evidence — unlike VAM,
+  // it isn't ascent-specific.
+  it("includes VI in terrain evidence for both climb and descent, when power data is present", () => {
+    const climbTarget = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const climbLap = { ...lap(480, 220, 0), label: "Climb", maxGradientPct: 9, npWatts: 240 }; // VI 1.09
+    const climbResult = gradeObjective(climbTarget, evidence({ laps: [climbLap] }), { laps: [climbLap] });
+    expect(climbResult.objective.evidence).toMatch(/VI 1\.09/);
+
+    const descentTarget = obj("terrain", { terrain: "descent", durationMin: 5 });
+    const descentLap = { ...lap(300, 150, 0), avgGradientPct: -6, npWatts: 140 }; // VI 0.93
+    const descentResult = gradeObjective(descentTarget, evidence({ laps: [descentLap] }), { laps: [descentLap] });
+    expect(descentResult.objective.evidence).toMatch(/VI 0\.93/);
+  });
+});
+
+describe("terrain kind — gating and banding", () => {
+  it("is gradable at high and medium confidence, not low", () => {
+    expect(GRADABLE_KINDS_BY_CONFIDENCE.high).toContain("terrain");
+    expect(GRADABLE_KINDS_BY_CONFIDENCE.medium).toContain("terrain");
+    expect(GRADABLE_KINDS_BY_CONFIDENCE.low).not.toContain("terrain");
+  });
+});
+
 describe("zone evidence: units, indices and the basis rule", () => {
   it("converts seconds to minutes without rounding the seconds first", () => {
     const ev = evidence({ powerZoneTimes: [0, 2705, 0, 0, 0, 0, 0] });
@@ -1139,17 +1236,14 @@ describe("acceptance example 14.1 — the real 2026-08-06 mixed ride", () => {
     expect(descending?.scored).toBe(false);
   });
 
-  it("has no variability axis at all, so no delta can derive from ride variability", () => {
-    // By construction, per the brief: RideEvidence carries no VI/NP/variability input, so there is no
-    // number a variability-derived delta could be computed from. Asserted structurally, not by
-    // probing for the absence of a value.
-    expect(Object.keys(ev).sort()).toEqual(
-      ["durationMin", "ftpUsed", "hrZoneTimes", "isIndoor", "laps", "powerZoneTimes"].sort()
+  it("derives no score delta from ride variability", () => {
+    const changedVariability = evidence({
+      ...ev,
+      laps: ev.laps.map((rideLap) => ({ ...rideLap, npWatts: (rideLap.avgWatts ?? 0) * 1.5 })),
+    });
+    expect(scoreIntentExecution(interp({ confidence: "high", objectives, intent }), changedVariability).score).toBe(
+      result.score
     );
-    const source = readFileSync(new URL("./intent-scoring.ts", import.meta.url), "utf8");
-    for (const forbidden of [/variabilityIndex/, /\bVI\b/, /normalizedPower/, /npWatts/]) {
-      expect(source).not.toMatch(forbidden);
-    }
   });
 
   it("grounds the real note's Z2 and 9-minute objectives without guessing bare watts", () => {
