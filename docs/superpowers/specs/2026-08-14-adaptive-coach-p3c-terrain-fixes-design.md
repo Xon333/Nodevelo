@@ -8,8 +8,9 @@ the live 25-payload data gate found no usable minimum/trough-gradient field.
 Phase 3b (`docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md`) shipped
 gradient-fallback terrain matching and flagged two gaps for a future scoping session
 (`docs/systems/02-scoring-and-learning.md` § Known rough edges, `ROADMAP.md`'s Phase 3b entry). This
-phase closes both, scoped narrowly to `lib/intent-scoring.ts`'s terrain path — no other objective kind
-is touched.
+phase scopes both narrowly to `lib/intent-scoring.ts`'s terrain path — no other objective kind is
+touched. Gap B shipped; Gap A remains open because the live payloads lacked a usable
+minimum/trough-gradient field.
 
 - **Gap A — compound lap.** A lap containing both a climb and a descent (a curated standing-effort
   interval with a short recovery descent baked in) reads only its peak-positive gradient and is graded a

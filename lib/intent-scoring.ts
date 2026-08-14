@@ -599,11 +599,10 @@ function filterByTerrain(terrain: "climb" | "descent", candidates: ExecutedInter
   return candidates.filter((lap) => clearsGradientFloor(lap, terrain));
 }
 
-// R3 fix (2026-08-12): terrain candidacy is decided ENTIRELY by filterByTerrain (label/gradient) — it
-// never shares the ±20% duration pre-filter that gates power/HR/cadence matching above. A stated
-// duration is used only to pick the single best-matching terrain-qualified candidate (closest duration
-// wins); it no longer excludes a real but badly-mismatched terrain lap from candidacy outright.
-// gradeTerrain's own compliance-vs-stated-duration math (Task 7) is what penalizes the mismatch.
+// R3 fix (2026-08-12): terrain candidacy comes from filterByTerrain (label/gradient), never the ±20%
+// duration pre-filter that gates power/HR/cadence matching above. Phase 3c additionally rejects an
+// unlabelled gradient-fallback candidate over 3× the stated duration; labelled candidates remain exempt.
+// Other duration mismatches are selected by closest duration, then graded by gradeTerrain.
 function matchTerrain(target: IntentTarget, laps: ExecutedInterval[]): ExecutedInterval[] {
   const terrain = target.terrain!;
   const qualifying = filterByTerrain(terrain, laps);
