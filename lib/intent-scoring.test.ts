@@ -841,9 +841,9 @@ describe("matchLaps — Phase 3b: terrain, label-first with gradient fallback", 
     expect(matchLaps(target, [descent])).toEqual([descent]);
   });
 
-  // R3 fix (2026-08-12): a terrain-qualified lap is never excluded from candidacy for failing the ±20%
-  // duration window that gates power/HR/cadence matching — gradeTerrain's own compliance math (Task 7)
-  // is what penalizes a big duration mismatch, not exclusion here.
+  // R3 fix (2026-08-12): a terrain-qualified lap is never excluded for failing the ±20% duration window
+  // that gates power/HR/cadence matching. Phase 3c only rejects an unlabelled gradient fallback over 3×
+  // the stated duration; labelled candidates remain exempt and other mismatches reach gradeTerrain.
   it("does not discard a terrain-qualified lap for failing the ±20% duration window", () => {
     const target: IntentTarget = { terrain: "climb", durationMin: 20 };
     const shortClimb = { ...lap(240, 220), label: "Climb 1", maxGradientPct: 8 }; // 4 min vs 20 stated
@@ -855,6 +855,37 @@ describe("matchLaps — Phase 3b: terrain, label-first with gradient fallback", 
     const close = { ...lap(1140, 220), maxGradientPct: 9 }; // 19 min
     const far = { ...lap(240, 220), maxGradientPct: 9 }; // 4 min
     expect(matchLaps(target, [far, close])).toEqual([close]);
+  });
+
+  it("rejects an undivided gradient-fallback lap at 10x the stated climb duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const wholeRide = { ...lap(4800, 220), maxGradientPct: 8.7 }; // 80 min vs 8 stated
+    expect(matchLaps(target, [wholeRide])).toEqual([]);
+
+    const result = gradeObjective(obj("terrain", target), evidence({ laps: [wholeRide] }), { laps: [wholeRide] });
+    expect(result.objective.scored).toBe(false);
+    expect(result.delta).toBeNull();
+  });
+
+  it("keeps a gradient-fallback lap at exactly 3x the stated climb duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const exactBoundary = { ...lap(1440, 220), maxGradientPct: 8.7 }; // 24 min = 3x stated
+    expect(matchLaps(target, [exactBoundary])).toEqual([exactBoundary]);
+    expect(gradeObjective(obj("terrain", target), evidence({ laps: [exactBoundary] }), { laps: [exactBoundary] }).delta).toBe(2);
+  });
+
+  it("keeps a gradient-fallback lap just under 3x the stated climb duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const justUnderBoundary = { ...lap(1392, 220), maxGradientPct: 8.7 }; // 23.2 min = 2.9x stated
+    expect(matchLaps(target, [justUnderBoundary])).toEqual([justUnderBoundary]);
+    expect(gradeObjective(obj("terrain", target), evidence({ laps: [justUnderBoundary] }), { laps: [justUnderBoundary] }).delta).toBe(2);
+  });
+
+  it("keeps a labelled climb at 10x the stated duration", () => {
+    const target: IntentTarget = { terrain: "climb", durationMin: 8 };
+    const labelledWholeRide = { ...lap(4800, 220), label: "Climb", maxGradientPct: 8.7 }; // 80 min vs 8 stated
+    expect(matchLaps(target, [labelledWholeRide])).toEqual([labelledWholeRide]);
+    expect(gradeObjective(obj("terrain", target), evidence({ laps: [labelledWholeRide] }), { laps: [labelledWholeRide] }).delta).toBe(2);
   });
 });
 

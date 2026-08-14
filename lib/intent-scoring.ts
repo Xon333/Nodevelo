@@ -565,6 +565,11 @@ export function matchLaps(
 // borrowed here as the minimum |gradient| that counts as a climb/descent at all, not their full
 // length×gradient category scoring, which this phase doesn't need.
 const CLIMB_GRADIENT_FLOOR_PCT = 3;
+// Same family as CLIMB_GRADIENT_FLOOR_PCT — a named, tunable constant, not an inline magic number.
+// A gradient-fallback terrain match whose duration exceeds this multiple of the stated claim is treated
+// as "wrong lap, not a generous ride" — see docs/systems/02-scoring-and-learning.md's rough-edges entry
+// for the reproduction (10.3x overmatch on an undivided ride).
+const TERRAIN_OVERMATCH_RATIO = 3;
 
 function hasLabelHint(lap: ExecutedInterval, terrain: "climb" | "descent"): boolean {
   return (lap.label ?? "").trim().toLowerCase().includes(terrain);
@@ -594,11 +599,10 @@ function filterByTerrain(terrain: "climb" | "descent", candidates: ExecutedInter
   return candidates.filter((lap) => clearsGradientFloor(lap, terrain));
 }
 
-// R3 fix (2026-08-12): terrain candidacy is decided ENTIRELY by filterByTerrain (label/gradient) — it
-// never shares the ±20% duration pre-filter that gates power/HR/cadence matching above. A stated
-// duration is used only to pick the single best-matching terrain-qualified candidate (closest duration
-// wins); it no longer excludes a real but badly-mismatched terrain lap from candidacy outright.
-// gradeTerrain's own compliance-vs-stated-duration math (Task 7) is what penalizes the mismatch.
+// R3 fix (2026-08-12): terrain candidacy comes from filterByTerrain (label/gradient), never the ±20%
+// duration pre-filter that gates power/HR/cadence matching above. Phase 3c additionally rejects an
+// unlabelled gradient-fallback candidate over 3× the stated duration; labelled candidates remain exempt.
+// Other duration mismatches are selected by closest duration, then graded by gradeTerrain.
 function matchTerrain(target: IntentTarget, laps: ExecutedInterval[]): ExecutedInterval[] {
   const terrain = target.terrain!;
   const qualifying = filterByTerrain(terrain, laps);
@@ -613,6 +617,7 @@ function matchTerrain(target: IntentTarget, laps: ExecutedInterval[]): ExecutedI
   const closest = [...qualifying].sort(
     (a, b) => Math.abs(a.durationSec - targetSec) - Math.abs(b.durationSec - targetSec)
   )[0];
+  if (!hasLabelHint(closest, terrain) && closest.durationSec > targetSec * TERRAIN_OVERMATCH_RATIO) return [];
   return [closest];
 }
 

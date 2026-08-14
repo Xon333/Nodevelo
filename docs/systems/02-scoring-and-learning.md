@@ -157,18 +157,13 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   observation on a future sync (the rolling 90-day window ages it out with no replacement) would freeze
   the value in place with a refreshed timestamp — indistinguishable from a live one on the Model panel.
   Worth a periodic check, not an immediate fix.
-- **Phase 3b's terrain matching can't see a climb and a descent inside the same curated lap.**
-  Flagged 2026-08-12, before 3b's implementation shipped: a real case (an athlete-curated lap for
-  standing-effort intervals with a short recovery descent baked into the same lap) showed the design's
-  climb-XOR-descent match — a single `maxGradientPct` peak value per lap, label-first/gradient-fallback
-  (design §7, `docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md`) — reads
-  only the peak-positive pitch and grades the whole lap a climb; the descent inside it is dropped
-  entirely, not just skewed. There's no `minGradientPct` synced and no concept of a compound/
-  alternating-terrain lap. Interim workaround needs no code: curate one lap per climb and a separate lap
-  per descent — that maps cleanly onto the shipped binary match. Extending the matcher to detect terrain
-  that alternates within one lap is out of 3b's locked scope (design §2 — the implementation plan may not
-  expand those decisions without a new design review) and needs its own scoping session before being
-  built, not a patch onto 3b.
+- **A compound climb+descent lap remains a terrain-matching limitation after Phase 3c (2026-08-14).**
+  The Phase 3c data gate inspected 25 live non-empty Intervals.icu interval payloads and found only
+  `average_gradient` and `Maxgradient`, with no minimum/trough-gradient field. Without that source, the
+  matcher cannot honestly distinguish a lap containing both terrains, and this phase did not invent a
+  stream- or elevation-derived substitute. Gradient fallback can therefore still read such a lap's
+  peak-positive pitch as a climb while dropping its descent. Curate one lap per climb and another per
+  descent as the interim workaround; a future fix needs a newly verified data source and design review.
 - **Phase 3b (2026-08-12) added HR-ceiling, cadence and terrain claims to self-directed intent-scoring.**
   `ExecutedInterval` gained `maxHr`/`avgCadenceRpm`/`maxGradientPct`/`elevationGainM`/`label`; `matchLaps`
   now ranks by whichever target field an objective stated (never a blend — `TargetSchema` enforces at
@@ -184,26 +179,12 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   prefers the more precise matched-lap path instead. **Per-interval `decoupling` is available in the
   existing interval payload but is neither mapped into nor consumed through `ExecutedInterval`.** It
   remains a possible input to Phase 3a's deferred segment-scoped aerobic-drift work, not Phase 3b.
-- **Terrain gradient-fallback matching can silently match the whole ride when a ride has no
-  meaningfully-segmented curated intervals.** Live-smoke-confirmed 2026-08-13 (Task 11 of the
-  implementation plan, run against real production data in a sandboxed data dir): a real note combining
-  an HR ceiling with a stated "10 min climb" claim, on a ride whose Intervals.icu data was essentially
-  one giant undivided lap, produced `evidence: "103.0 min climb vs 10 min stated (matched by gradient) —
-  avg 0.0%, max 8.7%, ..."`. `filterByTerrain`'s gradient-floor fallback (design §7,
-  `lib/intent-scoring.ts`) matched the entire ride because its max gradient cleared the 3% floor
-  somewhere in it, and `gradeTerrain`'s duration-compliance math (`complianceDelta`, reused from
-  whole-ride duration grading's deliberate "riding longer is never a failure" principle) rewarded the
-  10x overmatch as full compliance instead of flagging the mismatch. Not wrong-direction or crash-level —
-  the athlete did climb something real — but the evidence text is misleading, and "over-matching is
-  generous" doesn't obviously transfer from whole-ride duration claims (where it's an intentional design
-  choice, design doc's original spec) to terrain claims (where a 10x duration mismatch usually means the
-  matcher picked the only available candidate, not that the athlete over-delivered). Only fires on rides
-  without meaningfully-segmented curated intervals; label-first matching (once the athlete starts
-  labelling, still unexercised live — see the bullet above) sidesteps it entirely by construction. Fixing
-  it well needs a design decision — cap terrain compliance reward at some over-match ratio, or treat a
-  gross duration mismatch as a `filterByTerrain` disqualifier even on the sole-candidate path — not a
-  silent patch; flagged here for the next Phase 3b-adjacent scoping session alongside the compound-terrain
-  gap above.
+- **Phase 3c closed the terrain gradient-fallback overmatch (2026-08-14, `5c8b473`).** The live-smoke
+  shape was an unlabelled 103-minute lap matching a stated 10-minute climb through a peak-gradient floor,
+  which `complianceDelta` then rewarded as full compliance. `matchTerrain` in
+  `lib/intent-scoring.ts` now rejects an unlabelled gradient-fallback candidate longer than
+  `TERRAIN_OVERMATCH_RATIO` (3×) the stated duration, leaving the terrain objective ungraded instead.
+  Label-matched laps remain exempt, and the no-stated-duration path is unchanged.
 
 ## Common modifications
 
