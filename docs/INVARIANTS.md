@@ -176,3 +176,10 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     change that makes gradeTerrain's delta depend on anything besides matched-lap existence and
     duration-vs-stated compliance is the thing this invariant
     exists to catch.
+57. **A gross terrain gradient fallback is disqualified, never rewarded as over-delivery.**
+    `filterByTerrain`/`matchTerrain` (`lib/intent-scoring.ts`) must reject an unlabelled gradient-fallback
+    candidate whose duration is greater than `TERRAIN_OVERMATCH_RATIO` times the stated terrain duration;
+    it is ungraded rather than receiving `complianceDelta`'s normal longer-is-better reward. Athlete
+    labels remain the primary signal and are exempt. Phase 3c checked 25 live non-empty interval payloads
+    and found no minimum/trough-gradient field, so the separate compound climb+descent-lap exclusion was
+    not built and remains a documented rough edge rather than a guessed signal.
