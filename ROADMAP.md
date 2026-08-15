@@ -1,6 +1,6 @@
 # NodeVelo roadmap
 
-*Last verified 2026-07-25.* The forward backlog — open work only. Mission: be a coaching **layer**
+*Last verified 2026-08-15.* The forward backlog — open work only. Mission: be a coaching **layer**
 that fuses signals into one coherent, self-correcting athlete model — not a re-skin of Intervals.icu.
 
 Companion docs: live bugs → [todo.md](todo.md) · shipped detail → [ARCHIVE.md](ARCHIVE.md) · why
@@ -20,10 +20,12 @@ The one thing not yet proven is the *self-correcting loop* — it has turned ove
 
 - First in-app block: 2026-06-15. Rides before that are `legacy` — real training, excluded from
   learning by design (no plan to score against).
-- First loop turnover fired 2026-07-15 (SUB-5 → ARCHIVE.md): 6 directives are live in
-  `intervention-log.json`, `outcome: null`, on 28-day horizons.
-  **First verdicts mature ~2026-08-12.** Until then, most calibrated parameters return population
-  defaults (n=1–8 per type, below the trend/discrimination gates) — expected, not a bug.
+- First loop turnover fired 2026-07-15 (SUB-5 → ARCHIVE.md): all 6 directives in
+  `intervention-log.json` matured over their 28-day horizons 2026-08-12–14 — **4 validated, 2
+  inconclusive, 0 refuted** (100% hit-rate on decisive outcomes). `synthesis.ts`'s demotion path
+  (≤34% hit-rate over ≥3 decisive blocks) has real verdicts to run on now but hasn't fired — nothing
+  has been this poor yet. Most other calibrated parameters still return population defaults or
+  thin-sample derivations (n=1–8 per type, below the trend/discrimination gates) — expected, not a bug.
 
 **Standing focus: data over features.** Every learning mechanism is code-complete and dormant. The
 loop pays out as generate→ride→score→learn cycles accrue, not as more code ships.
@@ -62,17 +64,16 @@ stamp on every ledger entry it scores → test that a fresh athlete scores ident
 | **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
 | **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
 | **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
-| **Adaptive self-directed coach — Phase 3b** | Curated-interval HR/cadence/gradient/VAM context for self-directed intent-matching (label-first match, gradient+VAM always attached as evidence). Implemented and live-smoke-tested 2026-08-13, Claude-reviewed, shipped/merged. Phase 3c fixed the gradient-fallback whole-ride overmatch in `5c8b473`: an unlabelled candidate longer than 3× its stated terrain claim is now ungraded, not rewarded. The compound climb+descent-lap gap remains open: Phase 3c's 25-payload data gate found no minimum/trough-gradient field, so the matcher cannot detect it without inventing a signal. | [Phase 3b plan](docs/superpowers/plans/2026-08-12-adaptive-coach-p3b-interval-context.md) · [Phase 3b design](docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md) · [Phase 3c plan](docs/superpowers/plans/2026-08-14-adaptive-coach-p3c-terrain-fixes.md) · [Phase 3c design](docs/superpowers/specs/2026-08-14-adaptive-coach-p3c-terrain-fixes-design.md) · [rough edges](docs/systems/02-scoring-and-learning.md#known-rough-edges) |
 | **Adaptive self-directed coach — Phase 4** | One-time historical three-week repair (report → human approval → overlay write → derived-state rebuild), human-reviewed. Not started. | [design](docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md) |
 
 ## Blocked / dormant
 
 | | Waiting on |
 |---|---|
-| **#4 · Validation loop → auto-down-weight** | Mechanism complete — needs matured verdicts (~2026-08-12) |
 | **SUB-2 · Legacy backfill importer** | Paused — Intervals.icu recovers only ~25% of legacy rides, doesn't justify an importer. Revisit only if manual relabeling proves painful. |
 | **Event-anchored season mode** | `SEASON_SHAPES_GENERATION=false` — an athlete decision (2026-07-16); reopen when event-mode planning is wanted |
 | **P1 · Event phase text** | Gated by the flag above; also needs a future A-event to matter |
+| **Compound climb+descent-lap terrain matching** | Needs a new gradient data source + design review — Phase 3c's 25-payload sample found no minimum/trough-gradient field to split one lap into both terrains. Interim: curate one lap per climb, another per descent. [rough edges](docs/systems/02-scoring-and-learning.md#known-rough-edges) |
 
 ## Watch — known, dormant, not scheduled
 
@@ -109,7 +110,7 @@ omission. Detail + the reopen trigger for taking it further:
   once a wearable is in the loop.
 - **In-app proven-workout library (generation-time reuse + Intervals.icu export)** — NodeVelo builds a
   local library of athlete-curated well-executed sessions and selects from it during generation instead
-  of always asking Claude to author `← #4`; every promotion also exports to Intervals.icu's own library,
+  of always asking Claude to author from scratch; every promotion also exports to Intervals.icu's own library,
   absorbing the older manual-push-only idea (`docs/superpowers/specs/2026-07-18-workout-library-sync-design.md`,
   retired 2026-08-05 — do not implement that doc). **v1 is manual-promotion-only** (athlete decision,
   2026-08-05) — automatic evidence-based promotion + historical bootstrap are designed (§5a) but

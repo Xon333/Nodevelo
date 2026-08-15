@@ -1,5 +1,9 @@
 # Adaptive self-directed coach — Phase 3b: curated-interval context — Design scope
 
+**Status:** Shipped 2026-08-13 (PR #48), live-smoke-tested, Claude-reviewed. Phase 3c (2026-08-14)
+fixed a gradient-fallback overmatch found after shipment. See [ARCHIVE.md](../../../ARCHIVE.md) §
+Adaptive self-directed coach.
+
 ## 1. Purpose
 
 Phase 2b/2c's intent-scoring (`lib/intent-scoring.ts`) grades a self-directed ride's note against

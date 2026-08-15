@@ -59,4 +59,9 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 - **`durability.ts`** selects the template; **`durability-score.ts`** grades its delivery.
 - **`session-requirements.ts`** = block-level requirements (does this block need a RaceSim?); **`prescription.ts`** = parsing one day's workout text.
 - **`trends.ts`** = raw time series; **`trends-verdict.ts`** = the one-word conclusion (computed client-side from the `/api/trends` payload).
+- **"Envelope" is overloaded — three unrelated meanings by file.** `block-skeleton.ts`'s envelope is a
+  per-slot duration leeway inside a generated week; `calibration.ts`'s durability-insert envelope is
+  the KB §12 embedded-hard-effort bound for a durability template; `weekly-envelope.ts`'s
+  `WeeklyEnvelope` (`data/weekly-envelope.json`) is the no-block Today weekly TSS range. Check the
+  importing module before assuming which one a comment or variable means.
 - **HR-nn / UXA-nn / P1–P7 / SUB-n / LEDGER-n / S#-#** in comments and docs are stable finding/plan IDs from hostile reviews, UX audits, and redesign plans — grep ARCHIVE.md for their closeout records.

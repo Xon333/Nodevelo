@@ -1,5 +1,8 @@
 # Adaptive self-directed coach — Phase 3a: no-block Today — Design scope
 
+**Status:** Shipped 2026-08-13 (PR #49, fixes r2 PR #47, follow-up fix PR #50). See
+[ARCHIVE.md](../../../ARCHIVE.md) § Adaptive self-directed coach.
+
 ## 1. Purpose
 
 The original design (`docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md` §8-10,

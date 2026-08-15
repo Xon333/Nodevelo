@@ -12,7 +12,7 @@ exact commits.
 
 ---
 
-## Adaptive self-directed coach — Phases 1–3a (2026-08-06–13)
+## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
   variability penalties from structurally unsuitable data.
@@ -32,8 +32,30 @@ exact commits.
   (flagged in `todo.md` to revisit). Design and plan went through two external-review rounds each before
   implementation; see [docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md](docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md)
   and [docs/superpowers/plans/2026-08-13-adaptive-coach-p3a-no-block-today.md](docs/superpowers/plans/2026-08-13-adaptive-coach-p3a-no-block-today.md).
-  Phase 3b (curated-interval HR/cadence/gradient/VAM context) shipped separately; Phase 4 remains in
-  [ROADMAP.md](ROADMAP.md).
+  **Follow-up fix (PR #50, same day):** a brand-new athlete's 0–0 envelope no longer reads as "already
+  at range top" (no suggestion instead), plus a json-store no-op-write skip and a preloaded-inputs
+  path to avoid a redundant disk read per sync. Phase 4 remains in [ROADMAP.md](ROADMAP.md).
+- **Phase 3b · curated-interval context (PR #48, 2026-08-12):** self-directed intent-matching gains
+  HR-ceiling, cadence, and terrain claims (`ExecutedInterval` gains `maxHr`/`avgCadenceRpm`/
+  `maxGradientPct`/`elevationGainM`/`label`); `matchLaps` ranks by whichever target field an objective
+  states (never a blend — at most one of {power, HR, cadence, terrain} per objective). Terrain
+  matching is label-first (Intervals.icu's own per-lap labelling — real, but null on every ride
+  sampled during design), gradient-fallback second (climb = peak `maxGradientPct`, descent = signed
+  average `avgGradientPct`). An HR/cadence claim with no stated interval duration grades against the
+  whole ride (`RideEvidence.wholeRideMaxHr`/`wholeRideAvgCadence`) instead of staying ungraded.
+  Implemented and live-smoke-tested 2026-08-13, Claude-reviewed. Design/plan:
+  [docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md](docs/superpowers/specs/2026-08-12-adaptive-coach-p3b-interval-context-design.md),
+  [docs/superpowers/plans/2026-08-12-adaptive-coach-p3b-interval-context.md](docs/superpowers/plans/2026-08-12-adaptive-coach-p3b-interval-context.md).
+- **Phase 3c · terrain gradient-fallback overmatch fix (PR #51, 2026-08-14, `5c8b473`):** closed a
+  live-smoke defect where an unlabelled 103-minute lap satisfied a stated 10-minute climb through a
+  peak-gradient floor and `complianceDelta` rewarded it as full compliance. `matchTerrain` in
+  `lib/intent-scoring.ts` now rejects an unlabelled gradient-fallback candidate longer than 3×
+  (`TERRAIN_OVERMATCH_RATIO`) the stated duration, leaving the objective ungraded instead;
+  label-matched laps and the no-stated-duration path are unaffected. A compound climb+descent-in-one-
+  lap gap remains — Phase 3c's 25-payload data gate found no minimum/trough-gradient field to detect
+  it — tracked in [ROADMAP.md](ROADMAP.md)'s Blocked/dormant section. Design/plan:
+  [docs/superpowers/specs/2026-08-14-adaptive-coach-p3c-terrain-fixes-design.md](docs/superpowers/specs/2026-08-14-adaptive-coach-p3c-terrain-fixes-design.md),
+  [docs/superpowers/plans/2026-08-14-adaptive-coach-p3c-terrain-fixes.md](docs/superpowers/plans/2026-08-14-adaptive-coach-p3c-terrain-fixes.md).
 
 ## Nutrition hardening follow-ups (2026-08-05–06)
 
@@ -356,6 +378,12 @@ build time (SUB-5's build half, 2026-07-03); this just confirms the live event a
 cleanly. The 6 directives haven't matured yet (28-day horizon from the latest fire date) — first
 verdicts land ~2026-08-12, at which point **#4**'s auto-down-weight loop has its first real data to
 act on.
+
+**#4 closed out — first verdicts matured 2026-08-12–14:** 4 validated, 2 inconclusive, 0 refuted
+(100% hit-rate on decisive outcomes). `synthesis.ts`'s demotion path (≤34% hit-rate over ≥3 decisive
+blocks) now has real verdicts to run on but hasn't fired — nothing has been this poor yet, so the
+down-weighting behavior itself remains unexercised in practice. Mechanism confirmed working
+end-to-end; removed from ROADMAP's Blocked/dormant table.
 
 ---
 
