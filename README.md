@@ -50,8 +50,8 @@ have the whole architecture. Every doc opens with *why the system exists* before
 
 | | |
 |---|---|
-| `lib/` | The brain: 68 flat engine modules, every number computed here, tests colocated |
-| `app/` | 7 thin pages + 21 API routes (IO shells over `lib/`) |
+| `lib/` | The brain: 83 flat engine modules, every number computed here, tests colocated |
+| `app/` | 7 thin pages + 22 API routes (IO shells over `lib/`) |
 | `components/` | The UI (design system: [DESIGN.md](DESIGN.md), governed by [UX-CONSTITUTION.md](UX-CONSTITUTION.md)) |
 | `data/` | The database — JSON files, gitignored, atomic writes + backups |
 | `knowledge-base/` | Your coaching corpus (gitignored; committed skeleton in `knowledge-base-defaults/`) |

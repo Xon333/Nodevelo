@@ -1,9 +1,11 @@
 # Adaptive self-directed coach — Design scope
 
-**Status:** Partially shipped through Phase 2c (2026-08-12): Phase 1 aerobic eligibility (PR #28),
-Phase 2a origin/overlay envelope (PR #29), Phase 2b intent parsing/scoring (PR #35), and Phase 2c
-overlay-aware debrief (PR #40). Phases 3 (TSS envelope + session suggestion) and 4 (historical repair)
-remain unimplemented. **The locked product decisions in §2 are unchanged.**
+**Status:** Partially shipped through Phase 3c (2026-08-14): Phase 1 aerobic eligibility (PR #28),
+Phase 2a origin/overlay envelope (PR #29), Phase 2b intent parsing/scoring (PR #35), Phase 2c
+overlay-aware debrief (PR #40), Phase 3a no-block Today (PR #49, follow-up PR #50), Phase 3b
+curated-interval context (PR #48), and Phase 3c terrain-matching fixes (PR #51). Only Phase 4
+(one-time historical repair) remains unimplemented — see [ROADMAP.md](../../../ROADMAP.md). **The
+locked product decisions in §2 are unchanged.**
 
 **Date:** 2026-08-06
 

@@ -43,6 +43,9 @@ One line per file that matters. The authoritative per-file table — README keep
 | `session-level.ts` | Difficulty stamp for cross-block comparability |
 | `prescription.ts` | Workout-text → structured `PrescribedInterval[]`; `carriesEmbeddedIntensity` |
 | `durability.ts` | The 5 long-ride templates (A–E) + deterministic selection |
+| `weekly-envelope.ts` | No-block Today: Monday-resolved, one-way-reduction-only weekly TSS range + week tolerance classification |
+| `session-suggestion.ts` | No-block Today: one suggested session from `chooseNextFocus`, gated on envelope range vs. week-to-date load — never a menu |
+| `no-block-summary.ts` | No-block Today: pure composition of the Load/Recovery/Execution three-stream headline, no new calculation, no LLM |
 
 ### Scoring & learning
 
@@ -160,6 +163,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `calibration.json` | calibration | — | Derived + overridden parameters |
 | `athlete-quirks.json` | quirks | — | Mined quirks (fully regenerated each sync) |
 | `ai-usage.json` | ai-usage | — | Token/cost telemetry |
+| `weekly-envelope.json` | data-store | — | No-block Today: current week's resolved TSS range + tolerance history |
 
 ## `components/` — see [systems/08-frontend.md](systems/08-frontend.md) for the ownership map
 

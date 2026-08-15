@@ -97,6 +97,12 @@ AI — and the AI only ever phrases numbers the code already computed.
   `lib/generate-cache.ts`
 
 ## Today page
+- **No-block Today** — when there's no active block (never had one, or one finished and hasn't been
+  regenerated), Today replaces the bare "no active training block" fallback with a weekly TSS
+  envelope (Monday-resolved, tightens only, never widens mid-week), one suggested session gated on
+  that range vs. week-to-date load (never a menu, never a plan), and a plain-language
+  Load/Recovery/Execution readout. No LLM call. `lib/weekly-envelope.ts`, `lib/session-suggestion.ts`,
+  `lib/no-block-summary.ts`, `components/dashboard/today.tsx`
 - **Pre-ride / post-ride auto-switch (Wave 2)** — mode is data-derived, never athlete-picked: a
   synced ride matching today's *local* date (`localToday()`) → post-ride mode, else pre-ride.
   Pre-ride promotes the readiness verdict + full session-prescription card (name, type, duration,
