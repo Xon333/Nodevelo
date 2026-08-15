@@ -315,6 +315,64 @@ describe("intervals-api network failure handling (CR-B)", () => {
   });
 });
 
+describe("zoneSecs — overlapping-bucket rejection (NV-9)", () => {
+  const realFetch = globalThis.fetch;
+  beforeEach(() => {
+    process.env.INTERVALS_API_KEY = "test-key";
+    process.env.INTERVALS_ATHLETE_ID = "i1";
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    delete process.env.INTERVALS_API_KEY;
+    delete process.env.INTERVALS_ATHLETE_ID;
+  });
+
+  it("drops a trailing overlapping bucket whose own seconds double-count a prior zone (live-confirmed 2026-08-15)", async () => {
+    // Live payload: an athlete-defined "Sweet Spot" range appended as an 8th element. Its first 7
+    // elements alone sum to the ride's moving_time (5689s); the 8th (1518s) adds another ~25 minutes
+    // of double-counted zone time on top.
+    const raw = [{
+      id: "s1", start_date_local: "2026-08-15T08:00:00", type: "Ride", name: "Cycling",
+      moving_time: 5689, icu_average_watts: 224,
+      icu_power_zone_times: [551, 1504, 2410, 906, 249, 51, 19, 1518],
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-08-01", "2026-08-15");
+    expect(a.powerZoneTimes).toEqual([551, 1504, 2410, 906, 249, 51, 19]);
+  });
+
+  it("passes through a well-formed exclusive array unchanged (no false positive on the common case)", async () => {
+    const raw = [{
+      id: "s2", start_date_local: "2026-08-14T08:00:00", type: "Ride", name: "Cycling",
+      moving_time: 7577, icu_average_watts: 210,
+      icu_power_zone_times: [2059, 1870, 1781, 1234, 389, 212, 32],
+      icu_hr_zone_times: [4177, 2406, 618, 376, 0, 0, 0],
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-08-01", "2026-08-14");
+    expect(a.powerZoneTimes).toEqual([2059, 1870, 1781, 1234, 389, 212, 32]);
+    expect(a.hrZoneTimes).toEqual([4177, 2406, 618, 376, 0, 0, 0]);
+  });
+
+  it("returns null (no evidence) rather than a wrong reading when no prefix reproduces moving time", async () => {
+    // No possible prefix sums anywhere near 3600s — a genuinely untrustworthy/corrupt shape.
+    const raw = [{
+      id: "s3", start_date_local: "2026-08-10T08:00:00", type: "Ride", name: "Corrupt",
+      moving_time: 3600, icu_average_watts: 200,
+      icu_power_zone_times: [50, 60, 70],
+    }];
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 200, headers: { "Content-Type": "application/json" } })
+    ) as unknown as typeof fetch;
+    const [a] = await fetchActivities("2026-08-01", "2026-08-10");
+    expect(a.powerZoneTimes).toBeNull();
+  });
+});
+
 describe("fetchWellness — subjective self-report mapping", () => {
   const realFetch = globalThis.fetch;
   beforeEach(() => {

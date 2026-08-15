@@ -50,7 +50,7 @@ import { buildTodayAnalysis } from "@/lib/ride-analysis";
 import { gradeDurabilityDelivery } from "@/lib/durability-score";
 import { backfillLedgerEntries, shouldRebuildLedger } from "@/lib/sync-ledger";
 import { detectPowerPRs } from "@/lib/pr";
-import { backfillExecutionOntoDays, buildRideScores, calStampFor, easyStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
+import { backfillExecutionOntoDays, buildRideScores, calStampFor, easyStampFor, fuelStampFor, intervalStampFrom, mergeScoreLog, mergeScoreLogRebuild, truncateBlockDays } from "@/lib/score-log";
 import { applyDispositions, compromisedDates } from "@/lib/disposition";
 import { buildFormStateLookup, computeAcwr, computeFatigueAlert, computeIntensityDistribution, computeLoadRamp, computeReadiness, computeRollingBaselines } from "@/lib/readiness";
 import { deriveCarbsOptimum, deriveDecouplingGood, deriveIfBandOffsets, resolveAcwrBands, resolveAthleteStateWeights, trustedCalibration } from "@/lib/calibration";
@@ -1005,6 +1005,15 @@ export async function POST(req: Request) {
                         // the executionScore this same patch just replaced. Gated internally by easyStampFor
                         // itself (Z2/Recovery, non-embeds-efforts template) — `{}` when it doesn't apply.
                         ...easyStampFor(todayActivity, plannedDay?.type ?? "", plannedDay?.durabilityTemplate, todayAboveAerobicHrFrac, todayAerobicEffPct),
+                        // NV-13 (2026-08-15): mergeScoreLog's "existing overrides fresh" rule freezes
+                        // whatever fuelStampFor read at the FIRST sync of the day — if carbs were logged
+                        // on Intervals.icu after that (a common sequence: sync, then log nutrition), every
+                        // later sync's freshly-computed fuel stamp was discarded in favour of the stale,
+                        // carbs-less one. Only this today-patch can still mutate today's entry, so it's the
+                        // one place that can refresh the stamp while the date is still mutable.
+                        // Spread-ready `{}` from fuelStampFor when nothing is logged — preserves whatever
+                        // this entry already had (does not un-stamp on a transient carbs read failure).
+                        ...fuelStampFor(todayActivity),
                       }
                     : e
                 )
