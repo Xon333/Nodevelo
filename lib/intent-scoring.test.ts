@@ -894,6 +894,23 @@ describe("matchLaps — Phase 3b: terrain, label-first with gradient fallback", 
     expect(matchLaps(target, [labelledWholeRide])).toEqual([labelledWholeRide]);
     expect(gradeObjective(obj("terrain", target), evidence({ laps: [labelledWholeRide] }), { laps: [labelledWholeRide] }).delta).toBe(2);
   });
+
+  // NV-3 (2026-08-15): live-confirmed — a lap labelled "Rolling climb/descents" matched via substring
+  // for BOTH "climb" and "descent" queries, so whichever terrain asked first claimed the whole lap as
+  // pure. Live numbers: avg -0.6%, max 10.4% — the max alone would clear the climb gradient floor, but
+  // the label itself says this lap also contains a descent, so guessing which half is which would
+  // contradict the athlete's own label. Must exclude from BOTH label matching and the gradient fallback.
+  it("excludes a compound-labelled lap ('climb/descents') from EITHER terrain — the live bug", () => {
+    const compound = { ...lap(954, 200), label: "Rolling climb/descents", avgGradientPct: -0.6, maxGradientPct: 10.4 };
+    expect(matchLaps({ terrain: "descent", durationMin: 15.9 }, [compound])).toEqual([]);
+    expect(matchLaps({ terrain: "climb", durationMin: 15.9 }, [compound])).toEqual([]);
+  });
+
+  it("a genuinely single-terrain labelled lap in the same pool is unaffected by a compound lap alongside it", () => {
+    const compound = { ...lap(954, 200), label: "Rolling climb/descents", avgGradientPct: -0.6, maxGradientPct: 10.4 };
+    const pureClimb = { ...lap(480, 220), label: "Climb 1", maxGradientPct: 9 };
+    expect(matchLaps({ terrain: "climb", durationMin: 8 }, [compound, pureClimb])).toEqual([pureClimb]);
+  });
 });
 
 describe("gradeTerrain (via gradeObjective)", () => {

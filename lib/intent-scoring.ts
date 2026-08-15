@@ -585,7 +585,22 @@ const CLIMB_GRADIENT_FLOOR_PCT = 3;
 // for the reproduction (10.3x overmatch on an undivided ride).
 const TERRAIN_OVERMATCH_RATIO = 3;
 
+// NV-3 (2026-08-15): a lap's OWN label can be compound by its own text — e.g. "Rolling climb/descents"
+// — and a naive substring check matches BOTH "climb" and "descent" queries on the exact same lap,
+// letting whichever terrain asks first claim the whole lap as pure. Live-confirmed: such a lap graded
+// as a pure 15.9-min descent (`"15.9 min descent (labelled) — avg -0.6%, max 10.4%, VI 1.08"`) despite
+// its own label naming a climb too. Detecting this needs no new data, unlike P3c's Gap A (deferred for
+// lack of a stream-level min-gradient field to detect a compound lap from the DATA side) — the label
+// text itself already states both terrains.
+function isCompoundLabel(lap: ExecutedInterval): boolean {
+  const label = (lap.label ?? "").trim().toLowerCase();
+  return label.includes("climb") && label.includes("descent");
+}
+
 function hasLabelHint(lap: ExecutedInterval, terrain: "climb" | "descent"): boolean {
+  // A compound label is never a pure hint for EITHER terrain — fail closed rather than let the first
+  // query to run claim it.
+  if (isCompoundLabel(lap)) return false;
   return (lap.label ?? "").trim().toLowerCase().includes(terrain);
 }
 
@@ -610,7 +625,10 @@ function clearsGradientFloor(lap: ExecutedInterval, terrain: "climb" | "descent"
 function filterByTerrain(terrain: "climb" | "descent", candidates: ExecutedInterval[]): ExecutedInterval[] {
   const labelled = candidates.filter((lap) => hasLabelHint(lap, terrain));
   if (labelled.length > 0) return labelled; // label is the primary signal — don't dilute with gradient-only candidates once any label exists
-  return candidates.filter((lap) => clearsGradientFloor(lap, terrain));
+  // NV-3: a compound-labelled lap is excluded from the gradient fallback too, not just label matching —
+  // the athlete's own label already states it contains both terrains, which is stronger ground truth
+  // than a single peak/net gradient reading; guessing which half applies would contradict the label.
+  return candidates.filter((lap) => !isCompoundLabel(lap) && clearsGradientFloor(lap, terrain));
 }
 
 // R3 fix (2026-08-12): terrain candidacy comes from filterByTerrain (label/gradient), never the ±20%
