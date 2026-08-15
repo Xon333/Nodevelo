@@ -76,6 +76,32 @@ describe("semantic intent grounding", () => {
     expect(groundsZone("45 min", "Z2")).toBe(false);
   });
 
+  // NV-2 (2026-08-15): live-confirmed on a real overlay — the target's zone arrived as a bare "3", and
+  // groundsZone required the exact canonical "Z3" string, so an explicitly-stated zone claim was
+  // reported as "not grounded in the note" even though the note literally said "z3". Ranges like "3-4"
+  // (also seen verbatim in production) were unrepresentable by either side.
+  it("grounds a bare-digit zone target the same as its canonical Z-prefixed form (the live bug)", () => {
+    expect(groundsZone("Main z3 block, 75 minutes", "3")).toBe(true);
+    expect(groundsZone("Main z3 block, 75 minutes", "zone 3")).toBe(true);
+    expect(groundsZone("no zone mentioned here", "3")).toBe(false);
+  });
+
+  it("grounds a range zone target when the note mentions ANY zone within the range", () => {
+    expect(groundsZone("z3 low z4 average on climbs", "3-4")).toBe(true);
+    expect(groundsZone("push into z4 on the climbs", "Z3-4")).toBe(true); // only the high end is mentioned
+    expect(groundsZone("steady z2 the whole way", "3-4")).toBe(false);
+  });
+
+  it("grounds a comma-list zone target the same way", () => {
+    expect(groundsZone("z2 on the flats, z3 on climbs", "z2,z3")).toBe(true);
+    expect(groundsZone("all z1 recovery", "z2,z3")).toBe(false);
+  });
+
+  it("stays false for a genuinely unparseable zone expression, never guesses", () => {
+    expect(groundsZone("z3 block", "bogus")).toBe(false);
+    expect(groundsZone("z3 block", "z9")).toBe(false);
+  });
+
   it("keeps watts and percentage targets separate", () => {
     expect(groundsDuration("9 min around 292 W", 9)).toBe(true);
     expect(groundsWatts("9 min around 292 W", 292)).toBe(true);

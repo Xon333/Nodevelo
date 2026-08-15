@@ -1,4 +1,5 @@
 import type { ScoredObjective } from "./types";
+import { parseZoneExpression } from "./zone-expression";
 
 const ZONE_TOKEN = /\b(?:z|zone\s*)([1-7])\b/gi;
 const NUMBER = "\\d+(?:\\.\\d+)?";
@@ -81,12 +82,21 @@ const WORD_ZONES: Record<string, string> = {
   vo2: "Z5",
 };
 
+// NV-2 (2026-08-15): used to require its `zone` argument already in exact canonical "Z<n>" form —
+// live-confirmed to reject a bare "3" outright, even though the scorer's own zoneIndex (lib/
+// intent-scoring.ts) had always accepted it. Now parses through the same shared expression parser, so
+// a range or list target ("Z3-4", "z2,z3") grounds too — presence-based like every other groundsX
+// check here: the note mentioning ANY zone within the claimed expression is enough, not proof every
+// single zone in it was independently named (a full range is a plausible paraphrase of "z3 to z4").
 export function groundsZone(note: string, zone: string): boolean {
-  const target = zone.toUpperCase();
-  if (!/^Z[1-7]$/.test(target)) return false;
-  if ([...note.matchAll(ZONE_TOKEN)].some(([, number]) => `Z${number}` === target)) return true;
-  if (target === "Z5" && /\bvo2(?:\s*max)?\b/i.test(note)) return true;
-  return Object.entries(WORD_ZONES).some(([word, mapped]) => mapped === target && new RegExp(`\\b${word}\\b`, "i").test(note));
+  const zones = parseZoneExpression(zone);
+  if (zones.length === 0) return false;
+  const mentioned = new Set([...note.matchAll(ZONE_TOKEN)].map(([, number]) => `Z${number}`));
+  if (zones.some((z) => mentioned.has(z))) return true;
+  if (zones.includes("Z5") && /\bvo2(?:\s*max)?\b/i.test(note)) return true;
+  return Object.entries(WORD_ZONES).some(
+    ([word, mapped]) => zones.includes(mapped) && new RegExp(`\\b${word}\\b`, "i").test(note)
+  );
 }
 
 // Word-boundary vocabulary match, not numeric — mirrors groundsZone's WORD_ZONES approach. Conservative

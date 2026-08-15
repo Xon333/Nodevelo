@@ -36,6 +36,7 @@
 import { verifyGrounding } from "./intent-grounding";
 import { NO_TRUSTWORTHY_INTENT } from "./intent-overlay";
 import { round1 } from "./stats";
+import { formatZoneLabel, parseZoneExpression } from "./zone-expression";
 import type {
   ExecutedInterval,
   IntentInterpretation,
@@ -207,11 +208,15 @@ function roundSymmetric(value: number): number {
 // Zone helpers
 // ---------------------------------------------------------------------------
 
-// "Z2" / "z2" / "zone 2" / "2" → index 1. Anything else → null.
+// "Z2" / "z2" / "zone 2" / "2" → index 1. A multi-zone expression (a range or list — parses to more
+// than one zone) or anything unparseable → null; this function is SINGLE-zone only, for consumers
+// (zoneKey, sameZone's dedupe, matchLaps' single-lap zone match) that need exactly one index and would
+// misbehave silently if handed one of several. NV-2 (2026-08-15): delegates to the shared parser
+// (lib/zone-expression.ts) so this and `groundsZone` (lib/intent-grounding.ts) can never again silently
+// diverge on what counts as valid zone syntax — they already had, live-confirmed.
 function zoneIndex(zone: string | undefined | null): number | null {
-  if (!zone) return null;
-  const match = /^\s*(?:z|zone)?\s*([1-7])\s*$/i.exec(zone);
-  return match ? Number(match[1]) - 1 : null;
+  const zones = parseZoneExpression(zone);
+  return zones.length === 1 ? Number(zones[0][1]) - 1 : null;
 }
 
 // The canonical STRING form of a zone, for identity and merge keys. Spelling is the model's choice and
@@ -227,18 +232,21 @@ function zoneKey(zone: string | undefined | null): string {
   return index === null ? (zone ?? "-").toUpperCase() : `Z${index + 1}`;
 }
 
-function readZoneArray(
+// NV-2: generalized to sum over MULTIPLE indices, so a range/list zone target ("Z3-4", "z2,z3") reads
+// as the combined time across every zone it names — the same shape of question as a single zone, just
+// summed. A single-zone read is just this with a one-element array (see readZoneArray below).
+function readZoneArraySum(
   array: number[] | null,
-  index: number,
+  indices: number[],
   basis: "power" | "heart-rate",
   assumed: boolean
 ): ZoneReading | null {
-  // Null, too short for the requested zone, or summing to zero — all mean NO evidence, never a zero
+  // Null, too short for a requested zone, or summing to zero — all mean NO evidence, never a zero
   // reading. A ride with no zone data has not been observed to spend zero minutes in Z2.
-  if (!array || array.length < index + 1) return null;
+  if (!array || indices.some((index) => array.length < index + 1)) return null;
   const total = array.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
   if (!(total > 0)) return null;
-  const seconds = Number.isFinite(array[index]) ? array[index] : 0;
+  const seconds = indices.reduce((sum, index) => sum + (Number.isFinite(array[index]) ? array[index] : 0), 0);
   // round1(seconds / 60) — never round the seconds to whole minutes first.
   return {
     minutes: round1(seconds / 60),
@@ -256,19 +264,23 @@ function readZoneArray(
 // to power (cycling zones are power zones in this app — physiology.json stores % of FTP), with an HR
 // fallback permitted for that basis alone, and none at all indoors (ERG flattens power and HR drifts,
 // so an indoor HR-derived zone reading substitutes for nothing).
+//
+// NV-2: `zone` may now be a range or comma list ("Z3-4", "z2,z3"), not just a single zone — every zone
+// it names is summed together (readZoneArraySum). A single zone is just this with one element, so
+// existing single-zone behaviour is unchanged.
 export function zoneMinutes(
   evidence: RideEvidence,
   zone: string | undefined,
   basis: ZoneBasis
 ): ZoneReading | null {
-  const index = zoneIndex(zone);
-  if (index === null) return null;
-  if (basis === "power") return readZoneArray(evidence.powerZoneTimes, index, "power", false);
-  if (basis === "heart-rate") return readZoneArray(evidence.hrZoneTimes, index, "heart-rate", false);
-  const power = readZoneArray(evidence.powerZoneTimes, index, "power", true);
+  const indices = parseZoneExpression(zone).map((z) => Number(z[1]) - 1);
+  if (indices.length === 0) return null;
+  if (basis === "power") return readZoneArraySum(evidence.powerZoneTimes, indices, "power", false);
+  if (basis === "heart-rate") return readZoneArraySum(evidence.hrZoneTimes, indices, "heart-rate", false);
+  const power = readZoneArraySum(evidence.powerZoneTimes, indices, "power", true);
   if (power) return power;
   if (evidence.isIndoor) return null;
-  return readZoneArray(evidence.hrZoneTimes, index, "heart-rate", true);
+  return readZoneArraySum(evidence.hrZoneTimes, indices, "heart-rate", true);
 }
 
 function basisLabel(reading: ZoneReading): string {
@@ -677,7 +689,7 @@ function gradeZoneTime(objective: ScoredObjective, evidence: RideEvidence): Verd
   const reading = zoneMinutes(evidence, objective.target?.zone, objective.zoneBasis);
   if (!reading) return ungraded(missingZoneDataText(objective.zoneBasis, evidence.isIndoor));
   const pct = (reading.minutes / stated) * 100;
-  const zone = (objective.target?.zone ?? "").toUpperCase();
+  const zone = formatZoneLabel(objective.target?.zone);
   return {
     delta: complianceDelta(pct),
     scored: true,
@@ -693,7 +705,7 @@ function gradeZoneTime(objective: ScoredObjective, evidence: RideEvidence): Verd
 function gradeZoneEmphasis(objective: ScoredObjective, evidence: RideEvidence): Verdict {
   const reading = zoneMinutes(evidence, objective.target?.zone, objective.zoneBasis);
   if (!reading) return ungraded(missingZoneDataText(objective.zoneBasis, evidence.isIndoor));
-  const zone = (objective.target?.zone ?? "").toUpperCase();
+  const zone = formatZoneLabel(objective.target?.zone);
   return {
     delta: emphasisDelta(reading.sharePct),
     scored: true,
