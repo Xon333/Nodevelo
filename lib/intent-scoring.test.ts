@@ -1146,6 +1146,24 @@ describe("zone evidence: units, indices and the basis rule", () => {
     expect(zoneMinutes(ev, "zone 3", "power")?.minutes).toBe(30);
   });
 
+  // NV-2 (2026-08-15): zoneMinutes now reads a range/list target ("Z3-4", "z2,z3") as the SUM of
+  // every zone it names — the same shape of read as a single zone, just combined.
+  it("sums a range zone target across every zone it names", () => {
+    const ev = evidence({ powerZoneTimes: [600, 1200, 1800, 900, 0, 0, 0] }); // Z3=1800s=30m, Z4=900s=15m
+    expect(zoneMinutes(ev, "Z3-4", "power")?.minutes).toBe(45); // 30 + 15
+    expect(zoneMinutes(ev, "3-4", "power")?.minutes).toBe(45); // bare-digit form reads identically
+  });
+
+  it("sums a comma-list zone target the same way, de-duplicated", () => {
+    const ev = evidence({ powerZoneTimes: [600, 1200, 1800, 900, 0, 0, 0] }); // Z2=1200s=20m, Z4=900s=15m
+    expect(zoneMinutes(ev, "z2,z4", "power")?.minutes).toBe(35); // 20 + 15, Z3 excluded
+  });
+
+  it("bare-digit and Z-prefixed forms of the same zone read identically (the live grounding bug's root cause)", () => {
+    const ev = evidence({ powerZoneTimes: [600, 1200, 1800, 0, 0, 0, 0] });
+    expect(zoneMinutes(ev, "3", "power")).toEqual(zoneMinutes(ev, "Z3", "power"));
+  });
+
   it("treats a null, short or all-zero array as no evidence at all", () => {
     expect(zoneMinutes(evidence({ powerZoneTimes: null }), "Z2", "power")).toBeNull();
     expect(zoneMinutes(evidence({ powerZoneTimes: [0, 60] }), "Z5", "power")).toBeNull();
@@ -1236,6 +1254,29 @@ describe("zone evidence: units, indices and the basis rule", () => {
     expect(scoreOf(emphasis, mid)).toBe(6);
     expect(scoreOf(emphasis, flat)).toBe(5);
     expect(scoreOf(emphasis, thin)).toBe(5);
+  });
+
+  // NV-2 end-to-end regression (2026-08-15): live-confirmed on a real overlay — the model emitted
+  // target.zone: "3" (bare digit, exactly as seen in production) with grounded: true, but
+  // verifyGrounding's re-check against the note used to call groundsZone, which required the exact
+  // canonical "Z3" and rejected "3" outright — so a note that literally said "z3 block" still produced
+  // "not grounded in the note" and the whole objective went ungraded. Must now ground AND score.
+  it("scores a bare-digit zone claim the model marked grounded, re-verified against a note that says the zone in words (the live bug)", () => {
+    const I = interp({ objectives: [obj("zone-emphasis", { zone: "3", sourceText: "z3 block" })] });
+    const ev = evidence({ durationMin: 95, powerZoneTimes: [350, 1444, 2303, 1037, 269, 85, 22] });
+    const result = scoreIntentExecution(I, ev, "Main z3 block, 75 minutes, high cadence");
+    expect(result.reason).toBeNull();
+    expect(result.objectives[0].scored).toBe(true);
+    expect(result.objectives[0].evidence).toContain("Z3");
+  });
+
+  it("scores a range zone claim ('3-4') the same way", () => {
+    const I = interp({ objectives: [obj("zone-emphasis", { zone: "3-4", sourceText: "z3 low z4" })] });
+    const ev = evidence({ durationMin: 90, powerZoneTimes: [0, 900, 3600, 900, 0, 0, 0] });
+    const result = scoreIntentExecution(I, ev, "z3 low z4 average on the climbs");
+    expect(result.reason).toBeNull();
+    expect(result.objectives[0].scored).toBe(true);
+    expect(result.objectives[0].evidence).toContain("Z3-Z4");
   });
 
   it("zone BOUNDARY definitions move the score but cannot flip scoreability", () => {
