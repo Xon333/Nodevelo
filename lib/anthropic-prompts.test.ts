@@ -62,6 +62,29 @@ describe("buildRideAnalysisPrompt", () => {
     expect(p).toContain("330W (was 320W)");
   });
 
+  // NV-7/NV-5/NV-6 (2026-08-15): evidence-bound prose + descending safety, unconditional on every
+  // ride. Live-confirmed defect — with no per-segment evidence, the coach still called an
+  // athlete-reported technique ("the aero position discipline") "clearly working", the same rigor
+  // failure as asserting an inferred cause (terrain, a specific effort) as settled fact.
+  it("instructs the model to distinguish measured facts from inferred causes and athlete-reported technique", () => {
+    const p = buildRideAnalysisPrompt(rideInput());
+    expect(p).toMatch(/measured fact/i);
+    expect(p).toMatch(/inferring.*hedged.*likely.*probably/i);
+    expect(p).toMatch(/athlete-reported, not measured/i);
+    expect(p).toMatch(/never call the technique itself.*working.*confirmed/i);
+  });
+
+  it("instructs the model that a single decoupling reading is not proof of a durable adaptation", () => {
+    const p = buildRideAnalysisPrompt(rideInput());
+    expect(p).toMatch(/never proof of a lasting physiological adaptation/i);
+  });
+
+  it("instructs the model never to turn a low coasting share into blanket no-coasting advice", () => {
+    const p = buildRideAnalysisPrompt(rideInput());
+    expect(p).toMatch(/never turn a low coasting share into blanket/i);
+    expect(p).toMatch(/corners, traffic, on poor surfaces and technical descents/i);
+  });
+
   // NV-11 (2026-08-15): live-confirmed shape — classified power-zone seconds (5510) fall short of
   // moving time (5689) by 179s of coasting/no-power. The old label ("Power zones: ... Z3 42%") let 42%
   // read as 42% of the whole ride when it was actually ~40.5% — hiding the exact behaviour ("limit
