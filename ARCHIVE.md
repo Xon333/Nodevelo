@@ -117,6 +117,29 @@ production) were unparseable by either side.
   needs zone-emphasis/zone-time routed through the same terrain/phase-matched-lap machinery
   `effort`/`terrain` objectives already use, a design change, not a parsing fix.
 
+## Compound-label terrain matching narrowed — NV-3 (2026-08-15, PR #62)
+
+`hasLabelHint`'s substring check ("does the label include this terrain word") matched BOTH "climb" and
+"descent" on a lap labelled "Rolling climb/descents", so whichever terrain a target asked for first
+claimed the whole lap as pure. Live-confirmed: such a lap graded as a pure 15.9-min descent (evidence:
+`"15.9 min descent (labelled) — avg -0.6%, max 10.4%, VI 1.08"`) despite its own label naming a climb
+too — the exact overlay that surfaced this is 2026-08-14's activity `i175672010`.
+
+- **`isCompoundLabel`** (`lib/intent-scoring.ts`): a lap whose label contains both "climb" and
+  "descent" substrings. `hasLabelHint` now returns false for EITHER terrain query on a compound label;
+  `filterByTerrain` also excludes it from the gradient-fallback pool, not just label matching — the
+  athlete's own label is stronger ground truth than a single peak/net gradient reading, so guessing
+  which half applies would contradict it (mirrors P3c Gap A's "exclude from both terrains" precedent).
+- **Needed no new data**, unlike P3c's Gap A (deferred 2026-08-14 for lack of a stream-level
+  min-gradient field to detect a compound lap from gradient DATA) — the label TEXT itself already
+  states both terrains. Narrows, not closes, Gap A: an *unlabelled* compound lap is still
+  undetectable and remains open, documented in
+  [02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges).
+- **Verified the regression test actually exercises the bug** (not a tautology): reverted the fix
+  locally, confirmed the new test fails against the exact real numbers from the live overlay
+  (avg -0.6%, max 10.4%, label "Rolling climb/descents"), then restored the fix and confirmed it
+  passes. Pure deterministic scoring change, no LLM call involved — no live smoke run needed.
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or

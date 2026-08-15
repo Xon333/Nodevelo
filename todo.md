@@ -17,21 +17,13 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 **Post-2026-08-15 debrief audit (NV-1…NV-14).** External audit of the self-directed debrief path,
 ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
 an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
-NV-3 was already a tracked deferral. NV-9/NV-10/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md).
-NV-1/NV-4 shipped 2026-08-15 (PR #58) → [ARCHIVE.md](ARCHIVE.md). NV-2 shipped 2026-08-15 (PR #60) →
-[ARCHIVE.md](ARCHIVE.md); its own residual gap (zone claims aren't terrain/phase-scoped) is now a
-documented rough edge in [02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges),
-live-confirmed the same day, not yet its own ticket.
-
-- ☐ P2 `bug` **NV-3 — compound interval labels create false terrain matches.** `hasLabelHint` uses
-  substring inclusion ([intent-scoring.ts:575](lib/intent-scoring.ts:575)) and label is the primary
-  signal, bypassing the gradient floor — so `Rolling climb/descents` graded as a pure descent. Live
-  proof: stored evidence `"15.9 min descent (labelled) — avg -0.6%, max 10.4%, VI 1.08"`. Already a
-  documented deferral ([02-scoring-and-learning.md:160](docs/systems/02-scoring-and-learning.md:160),
-  P3c Gap A) because the 25-payload gate found no trough-gradient field. **New angle that needs no new
-  data:** a label matching *both* terrain vocabularies is compound by its own text — detect that
-  deterministically and exclude it, which P3c's "compound exclusion does not apply to a labelled lap"
-  decision never considered (it reasoned about a lap labelled plainly "Climb").
+NV-9/NV-10/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md). NV-1/NV-4 shipped 2026-08-15
+(PR #58) → [ARCHIVE.md](ARCHIVE.md). NV-2 shipped 2026-08-15 (PR #60) → [ARCHIVE.md](ARCHIVE.md); its
+own residual gap (zone claims aren't terrain/phase-scoped) is now a documented rough edge in
+[02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges), live-confirmed
+the same day, not yet its own ticket. NV-3 shipped 2026-08-15 (PR #62) → [ARCHIVE.md](ARCHIVE.md) —
+narrowed P3c's Gap A (label-text compound laps only); the unlabelled/data-detected half stays open,
+same doc.
 - ☐ P2 `feat` **NV-7 + NV-5 + NV-6 — evidence-bound prose and descending safety.** The prose prompt
   ([anthropic-prompts.ts:508](lib/anthropic-prompts.ts:508)) has no rule classifying a claim as
   measured / inferred / athlete-reported / not-measurable, and no safety constraint of any kind.
