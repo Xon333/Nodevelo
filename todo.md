@@ -14,28 +14,14 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
-**Post-2026-08-15 debrief audit (NV-1…NV-14).** External audit of the self-directed debrief path,
-ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
-an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
-NV-9/NV-10/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md). NV-1/NV-4 shipped 2026-08-15
-(PR #58) → [ARCHIVE.md](ARCHIVE.md). NV-2 shipped 2026-08-15 (PR #60) → [ARCHIVE.md](ARCHIVE.md); its
-own residual gap (zone claims aren't terrain/phase-scoped) is now a documented rough edge in
-[02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges), live-confirmed
-the same day, not yet its own ticket. NV-3 shipped 2026-08-15 (PR #62) → [ARCHIVE.md](ARCHIVE.md) —
-narrowed P3c's Gap A (label-text compound laps only); the unlabelled/data-detected half stays open,
-same doc. NV-7/NV-5/NV-6 shipped 2026-08-15 (PR #64) → [ARCHIVE.md](ARCHIVE.md). NV-14 shipped
-2026-08-15 (PR #66) → [ARCHIVE.md](ARCHIVE.md).
-- ☐ P3 `bug` **NV-8 — prose completion is not audited.** `analyseRide` uses a fixed `max_tokens: 280`
-  and returns only concatenated text, discarding `stop_reason`
-  ([anthropic-api.ts:147](lib/anthropic-api.ts:147)) — the code cannot tell a finished answer from a
-  token-limit cutoff. The pattern already exists next door: `GenerationResult` carries `stopReason` and
-  `truncated` for the tool path; apply it here.
-- ☐ P3 `bug` **NV-12 — off-plan tempo is stored as "Threshold".** `inferWorkoutType` maps every IF
-  from 0.75 to 0.89 into that bucket ([ride-classify.ts:13](lib/ride-classify.ts:13)); both 2026-08-14
-  (IF 0.78) and 2026-08-15 (IF 0.82) persist as `inferredType: "Threshold"` while the visible output
-  correctly calls the latter tempo. Deliberately broad — the file header already scopes it "never for
-  adherence judgement" — but the *name* can leak into trend labels and hard-session/fueling logic.
-  Rename to a neutral band, or replace with intent-derived type once interpretation succeeds.
+**Post-2026-08-15 debrief audit (NV-1…NV-14): CLOSED, 14/14 shipped same day.** External audit of the
+self-directed debrief path, ground-truthed against live code + `data/*.json` — **~93% accurate**,
+unusually high for an external review. Full detail per item, including three live-caught regressions
+(NV-9's poisoned zone denominator, NV-10's token-budget/categorization bug, and NV-8's own truncation
+it caught in NV-7's new prose the same day it shipped) → [ARCHIVE.md](ARCHIVE.md). Two documented
+residual gaps, not their own tickets yet: zone claims aren't terrain/phase-scoped
+([02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges)) and an
+unlabelled compound lap remains undetectable (same doc, P3c Gap A's narrower remaining half).
 
 **Block-generation architecture follow-ons.** Shipped work → [ARCHIVE.md](ARCHIVE.md). Known gaps →
 [docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
