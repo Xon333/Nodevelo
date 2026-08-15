@@ -5,7 +5,7 @@
 // share this module so the "qualifying ride" definition + the %Δ-vs-baseline can't drift: the off-plan
 // execution-score signal (the gap decoupling left) and the athlete-state aerobic driver.
 
-export const AEROBIC_MIN_Z2_MINS = 15; // trust a ride's Z2 Pw:HR only above this much Z2 (a few warmup mins is noise)
+const AEROBIC_MIN_Z2_MINS = 15; // trust a ride's Z2 Pw:HR only above this much Z2 (a few warmup mins is noise)
 export const AEROBIC_BASELINE_DAYS = 90; // trailing window the baseline is drawn from
 export const AEROBIC_MIN_BASELINE = 3; // need a few readings before a baseline is trustworthy
 export const AEROBIC_DEADBAND_PCT = 3; // within ±this of baseline = no signal (per-ride Pw:HR is noisy — see the decoupling demotion)
@@ -91,7 +91,7 @@ export function aerobicEffPct(ride: PwHrRide, baseline: number | null): number |
 // ---------- ride-level aerobic comparability (a DIFFERENT question from qualifyingPwHr above — see the
 // module-level note on AEROBIC_MAX_VI) ----------
 
-export const ENDURANCE_MIN_SEC = 45 * 60;
+const ENDURANCE_MIN_SEC = 45 * 60;
 
 // Structural shape, not ActivitySummary — so the predicate stays testable without a 30-field fixture.
 // ActivitySummary satisfies it structurally, so real callers pass activities directly with no cast.
