@@ -131,7 +131,21 @@ function str(value: unknown, fallback = ""): string {
 // Zone-time arrays from Intervals come in two shapes depending on endpoint/version: a raw
 // seconds array, or an array of objects ({ secs } | { time } | { seconds }). Parse both so
 // time-in-zone (polarization, trend-pulse zones) doesn't silently fall back to average power.
-function zoneSecs(value: unknown): number[] | null {
+//
+// Intervals.icu's power-zone array can carry an extra OVERLAPPING bucket appended after the
+// athlete's exclusive zones (e.g. a "Sweet Spot" range whose seconds double-count time already in
+// Z3/Z4) — live-confirmed 2026-08-15: an 8-element array whose first 7 elements alone summed to the
+// ride's moving time, with the 8th adding another 1518s on top. Any consumer that sums the whole
+// array (readZoneArray's denominator, lib/intent-scoring.ts) would read up to ~2x too much "zone
+// time" against the ride's actual duration. Validate at THIS ingestion boundary — the one place
+// every consumer reads through — rather than trusting the array's own length: try progressively
+// shorter prefixes for one that reproduces the ride's moving time within tolerance. No prefix
+// matching is not a shape we can trust, so it returns null (no evidence, per readZoneArray's own
+// "never a wrong reading" contract) rather than risk a silently inflated denominator.
+const ZONE_SUM_TOLERANCE_FRACTION = 0.05; // Intervals rounds each bucket to whole seconds; covers that drift without hiding a real shape mismatch
+const ZONE_SUM_TOLERANCE_MIN_SEC = 30;
+
+function zoneSecs(value: unknown, movingTimeSec: number): number[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   const arr = value.map((v) => {
     if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -142,7 +156,13 @@ function zoneSecs(value: unknown): number[] | null {
     }
     return 0;
   });
-  return arr.some((v) => v > 0) ? arr : null;
+  if (!arr.some((v) => v > 0)) return null;
+  const tolerance = Math.max(ZONE_SUM_TOLERANCE_MIN_SEC, movingTimeSec * ZONE_SUM_TOLERANCE_FRACTION);
+  for (let len = arr.length; len > 0; len -= 1) {
+    const sum = arr.slice(0, len).reduce((s, v) => s + v, 0);
+    if (Math.abs(sum - movingTimeSec) <= tolerance) return arr.slice(0, len);
+  }
+  return null;
 }
 
 function localDate(value: unknown): string {
@@ -222,12 +242,13 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
   return data.map((item) => {
     const a = asRecord(item);
     const joules = num(a.icu_joules);
+    const movingTimeSec = num(a.moving_time) ?? 0;
     return {
       id: String(a.id ?? ""),
       date: localDate(a.start_date_local),
       type: str(a.type, "Unknown"),
       name: str(a.name, "Untitled"),
-      movingTimeSec: num(a.moving_time) ?? 0,
+      movingTimeSec,
       avgWatts: num(a.icu_average_watts),
       // intervals.icu exposes normalized/weighted power as `icu_weighted_avg_watts` (NOT
       // `icu_normalized_power`, which it doesn't return), max power as `icu_pm_p_max`, and decoupling
@@ -261,8 +282,8 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
       avgCadence: num(a.average_cadence),
       distanceMeters: num(a.distance),
       elevationGain: num(a.total_elevation_gain),
-      powerZoneTimes: zoneSecs(a.icu_power_zone_times ?? a.icu_zone_times),
-      hrZoneTimes: zoneSecs(a.icu_hr_zone_times),
+      powerZoneTimes: zoneSecs(a.icu_power_zone_times ?? a.icu_zone_times, movingTimeSec),
+      hrZoneTimes: zoneSecs(a.icu_hr_zone_times, movingTimeSec),
       // W′ (anaerobic work capacity). Both flat numbers — live-verified against a real sync (76 rides,
       // 3 months), unlike the nested `icu_hrr` below. The ROLLING key is deliberate: `icu_rolling_w_prime`
       // repeats the same athlete-level value across a window (22.0–24.8 kJ, 30 distinct over 76 rides),

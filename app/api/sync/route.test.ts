@@ -1123,6 +1123,21 @@ describe("POST /api/sync — today-ride analysis path", () => {
     });
   });
 
+  it("refreshes today's fuel stamp on the today-patch (NV-13)", async () => {
+    seedTodayRide();
+    // A pre-existing ledger entry for TODAY with no `fuel` key — as if an earlier sync ran before
+    // carbs were logged on Intervals.icu. mergeScoreLog's "existing overrides fresh" rule
+    // (score-log.ts) would otherwise keep this stale entry forever, since only buildRideScores'
+    // fresh-but-discarded computation would have carried the fuel stamp. Only the today-patch can
+    // still mutate today's entry.
+    scoreEntries = [mkScoreEntry({ date: TODAY, planned: true, plannedType: "Threshold", activityId: "a1" })];
+    vi.mocked(api.runFullSync).mockResolvedValue(
+      mkSync({ activities: [mkActivity({ carbsIngestedG: 77, movingTimeSec: 3600 })] }) // 77g / 1h = 77 g/h
+    );
+    await postSync();
+    expect(scoreEntries.find((e) => e.date === TODAY)?.fuel).toEqual({ carbsGPerH: 77 });
+  });
+
   it("does NOT stamp `intervals` on a Z2 today even when intervalComparison is non-null (Finding 3 guard)", async () => {
     vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
     // A Z2 day whose workoutText still parses to a non-empty prescription (e.g. authored with a

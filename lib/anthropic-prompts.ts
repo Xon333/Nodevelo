@@ -344,6 +344,10 @@ export interface RideAnalysisInput {
   activityName: string;
   activityType: string;
   activityDurationMin: number;
+  // Exact moving-time seconds, distinct from the rounded-minute `activityDurationMin` above — NV-11's
+  // coasting share needs second-level precision to match the gap between moving time and classified
+  // zone time; a minute-rounded duration would introduce noise on the same order as the gap itself.
+  activityMovingTimeSec: number;
   activityAvgWatts: number | null;
   activityNormalizedPower: number | null;
   activityMaxWatts: number | null;
@@ -400,14 +404,26 @@ function fmtIntervals(c: IntervalComparison | null): string | null {
   return `Intervals: prescribed ${c.prescribedLabels.join(" + ")} → executed ${execs}. ${c.completed}/${c.total} reps held full duration; avg ${c.avgAdherencePct}% power, ${c.avgDurationPct}% duration.${mismatchNote}`;
 }
 
-function fmtZones(times: number[], prefix: string): string | null {
+// NV-11 (2026-08-15): each percentage below is a share of CLASSIFIED (powered) time, not total ride
+// time — a ride with real coasting time has classified seconds strictly less than moving time. Folding
+// coasting into the same denominator as the zones silently hides the exact behaviour an objective can
+// be about ("limit coasting" read as 42% Z3 when it was actually 40.5% of the whole ride). `coastingSec`
+// is optional and power-only: HR has no equivalent "zero effort" reading — a gap in HR seconds is a
+// sensor dropout, not a real physiological zero — so callers only pass it for the power-zone line.
+function fmtZones(times: number[], prefix: string, coastingSec?: number | null): string | null {
   const total = times.reduce((s, t) => s + t, 0);
   if (total === 0) return null;
   const parts = times
     .map((t, i) => ({ z: i + 1, pct: Math.round((t / total) * 100) }))
     .filter((z) => z.pct >= 1)
     .map((z) => `Z${z.z} ${z.pct}%`);
-  return parts.length > 0 ? `${prefix}: ${parts.join(" · ")}` : null;
+  if (parts.length === 0) return null;
+  const zoneLine = `${prefix}: ${parts.join(" · ")}`;
+  if (!coastingSec || coastingSec <= 0) return zoneLine;
+  // Same rounding floor as the per-zone filter above — don't surface a coasting clause that would
+  // itself round to 0% of ride time.
+  const coastingPct = Math.round((coastingSec / (total + coastingSec)) * 100);
+  return coastingPct >= 1 ? `${zoneLine} · Coasting/no-power ${coastingPct}% of ride time (${Math.round(coastingSec)}s)` : zoneLine;
 }
 
 // The full ride-analysis prompt from the deterministic, already-computed inputs. Pure + unit-testable;
@@ -455,7 +471,10 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
 
   // Interval adherence (the primary, power-centric comparison) + zone distributions
   const intervalLine = fmtIntervals(input.intervalComparison);
-  const powerZoneLine = input.powerZoneTimes ? fmtZones(input.powerZoneTimes, "Power zones") : null;
+  const powerCoastingSec = input.powerZoneTimes
+    ? Math.max(0, input.activityMovingTimeSec - input.powerZoneTimes.reduce((s, t) => s + t, 0))
+    : null;
+  const powerZoneLine = input.powerZoneTimes ? fmtZones(input.powerZoneTimes, "Power zones", powerCoastingSec) : null;
   const hrZoneLine = input.hrZoneTimes ? fmtZones(input.hrZoneTimes, "HR zones") : null;
   // Power PRs set during this ride — surfaced so the coach recognises the breakthrough.
   const prLine =
@@ -533,6 +552,7 @@ export function buildRideAnalysisInput(
     activityName: activity.name,
     activityType: activity.type,
     activityDurationMin: Math.round(activity.movingTimeSec / 60),
+    activityMovingTimeSec: activity.movingTimeSec,
     activityAvgWatts: activity.avgWatts,
     activityNormalizedPower: activity.normalizedPower,
     activityMaxWatts: activity.maxWatts,

@@ -12,7 +12,31 @@ exact commits.
 
 ---
 
-## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
+## Debrief-audit data-integrity fixes — NV-9, NV-11, NV-13 (2026-08-15)
+
+First slice of the 2026-08-15 debrief audit (`todo.md`'s "Post-2026-08-15 debrief audit" block; full
+14-item audit ~93% ground-truth-accurate). Sequenced ahead of the audit's own NV-10 remedy because
+NV-9's defect is masked only by the current parser failure.
+
+- **NV-9 · zone-array ingestion contract:** `zoneSecs` (`lib/intervals-api.ts`) now validates against
+  the ride's `moving_time` at ingestion — the one boundary every consumer reads through — by trying
+  progressively shorter prefixes for one that reproduces moving time within a 5%/30s tolerance. Drops
+  Intervals.icu's overlapping "Sweet Spot"-style trailing bucket (live-confirmed: an 8-element power-zone
+  array whose first 7 elements alone summed to the ride's moving time) instead of letting a downstream
+  summing consumer (the intent scorer's denominator) read up to ~2x too much "zone time." No matching
+  prefix → `null` (no evidence), never a silently wrong reading.
+- **NV-13 · fuel-stamp freshness:** the sync route's live-today ledger patch (`app/api/sync/route.ts`)
+  now also re-stamps `fuelStampFor` alongside its existing `calStampFor`/`intervals`/`easyStampFor`
+  stamps — previously `mergeScoreLog`'s "existing overrides fresh" rule froze whatever fuel reading (or
+  lack of one) the FIRST sync of the day produced, silently discarding carbs logged on Intervals.icu
+  later the same day.
+- **NV-11 · coasting-time denominator:** `fmtZones` (`lib/anthropic-prompts.ts`) now surfaces coasting/
+  no-power time as an explicit clause (e.g. "Coasting/no-power 3% of ride time (179s)") alongside the
+  power-zone line, computed from the exact moving-time seconds (`RideAnalysisInput.activityMovingTimeSec`,
+  new field) rather than folding the gap silently into the classified-time denominator — the prior
+  behaviour let "42% Z3" read as 42% of the whole ride when it was ~40.5%, hiding the exact behaviour
+  ("limit coasting") a self-directed objective can be about. HR zones are unaffected — a gap in HR
+  seconds is a sensor dropout, not a real physiological zero, so the clause is power-only.
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
   variability penalties from structurally unsuitable data.

@@ -22,6 +22,7 @@ const rideInput = (over: Partial<RideAnalysisInput> = {}): RideAnalysisInput => 
   activityName: "Threshold 3x12",
   activityType: "Ride",
   activityDurationMin: 75,
+  activityMovingTimeSec: 75 * 60,
   activityAvgWatts: 240,
   activityNormalizedPower: 250,
   activityMaxWatts: 600,
@@ -59,6 +60,31 @@ describe("buildRideAnalysisPrompt", () => {
     const p = buildRideAnalysisPrompt(rideInput({ powerPRs: [{ durationSec: 300, watts: 330, prevWatts: 320 }] }));
     expect(p).toContain("New power PRs");
     expect(p).toContain("330W (was 320W)");
+  });
+
+  // NV-11 (2026-08-15): live-confirmed shape — classified power-zone seconds (5510) fall short of
+  // moving time (5689) by 179s of coasting/no-power. The old label ("Power zones: ... Z3 42%") let 42%
+  // read as 42% of the whole ride when it was actually ~40.5% — hiding the exact behaviour ("limit
+  // coasting") the objective was about. The line must now surface the gap explicitly.
+  it("surfaces coasting/no-power time explicitly rather than folding it into the zone denominator", () => {
+    const p = buildRideAnalysisPrompt(
+      rideInput({ activityMovingTimeSec: 5689, powerZoneTimes: [350, 1444, 2303, 1037, 269, 85, 22] }) // sums to 5510
+    );
+    expect(p).toContain("Coasting/no-power 3% of ride time (179s)");
+    // Z3 = 2303/5510 = 41.8% -> 42%, unchanged math — the fix is the added coasting clause, not a
+    // different per-zone percentage.
+    expect(p).toContain("Z3 42%");
+  });
+
+  it("omits the coasting clause when classified time already accounts for the full ride", () => {
+    const p = buildRideAnalysisPrompt(rideInput({ activityMovingTimeSec: 4500, powerZoneTimes: [900, 1800, 1350, 450] }));
+    expect(p).not.toContain("Coasting");
+  });
+
+  it("omits the coasting clause when the gap would round to 0% of ride time", () => {
+    // 20s of 4500s rounds to 0%.
+    const p = buildRideAnalysisPrompt(rideInput({ activityMovingTimeSec: 4520, powerZoneTimes: [900, 1800, 1350, 450] }));
+    expect(p).not.toContain("Coasting");
   });
 
   // The HR-judged easy-ride rework's LLM surface: on a prescribed Z2/Recovery day the note must judge

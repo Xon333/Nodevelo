@@ -17,35 +17,8 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 **Post-2026-08-15 debrief audit (NV-1…NV-14).** External audit of the self-directed debrief path,
 ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
 an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
-NV-3 was already a tracked deferral.
+NV-3 was already a tracked deferral. NV-9/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md).
 
-> **Sequencing trap: NV-9 must land before NV-10.** The poisoned zone denominator is masked *only*
-> by the fact that parsing currently fails. Fix the parser first and you activate the bug.
-
-- ☐ P1 `bug` **NV-9 — Intervals' overlapping Sweet Spot bucket reaches the intent scorer.**
-  `zoneSecs` ([intervals-api.ts:134](lib/intervals-api.ts:134)) passes the raw array through
-  unfiltered; [intent-runner.ts:114](lib/intent-runner.ts:114) feeds it to the scorer, whose
-  denominator sums *every* element ([intent-scoring.ts:237](lib/intent-scoring.ts:237)). Live proof
-  2026-08-15: `[551,1504,2410,906,249,51,19,1518]` — first 7 = 5690s = the whole ride
-  (`movingTimeSec` 5689); the 8th adds 1518s more. 2026-08-14's first 7 = 7577s = its moving time
-  *exactly*. A successful parse would consume 120 min of "zone time" from a 95 min ride. The daily
-  coach path escapes it only because sync re-buckets from streams
-  ([sync/route.ts:839](app/api/sync/route.ts:839)). Fix at the Intervals boundary so both consumers
-  read one normalized array; assert exclusive totals can't materially exceed ride duration.
-- ☐ P1 `bug` **NV-13 — today's fuel stamp is never frozen into the ledger.** The live-today patch
-  re-stamps `calStampFor`/`intervals`/`durabilityDelivery`/`easyStampFor` but **not** `fuelStampFor`
-  ([sync/route.ts:970-1008](app/api/sync/route.ts:970)), and `mergeScoreLog`'s append-only rule lets
-  the earlier carbs-free entry win ([score-log.ts:349](lib/score-log.ts:349)). Live proof: 2026-08-15
-  logged 77g but its ledger entry has no `fuel` key (would be 48.7 g/h); 2026-08-14's 77g stamped
-  correctly as 36.6. Doesn't change the displayed calorie target — silently loses the ride as future
-  fueling-learning provenance. One-line fix; pure data loss every day it waits.
-- ☐ P1 `bug` **NV-11 — zone percentages silently exclude coasting.** `fmtZones`
-  ([anthropic-prompts.ts:403](lib/anthropic-prompts.ts:403)) divides by the sum of *classified* zone
-  seconds. Live proof: 2026-08-15's re-bucketed zones sum 5510s vs 5689s ride — the 179s gap is
-  no-power time, and the stored `coachNote` says "42% of time in Z3" (2303/5510 = 41.8%; against
-  ride time 40.5%). Small numerically, but the denominator hides the exact behaviour ("limit
-  coasting") the note was discussing. Decide: relabel "of powered time", or make zero-power an
-  explicit denominator category.
 - ☐ P1 `bug` **NV-10 — intent-parser failures are opaque and terminal.** `parseRideIntent` collapses
   every completed-but-invalid response to `null`, discarding `stop_reason` and the Zod issues
   ([anthropic-api.ts:95-114](lib/anthropic-api.ts:95)); the runner records only `interpreter-failed`
