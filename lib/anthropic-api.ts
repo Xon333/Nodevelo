@@ -90,6 +90,16 @@ export interface GenerationResult {
   stopReason: Anthropic.Message["stop_reason"]; // the provider's raw stop reason, so the route can tell a token-limit cutoff apart from other malformed output
 }
 
+// NV-8 (2026-08-15): the prose-completion counterpart to GenerationResult above — analyseRide used to
+// return a bare string, discarding stop_reason entirely, so a token-limit cutoff mid-sentence was
+// indistinguishable from a genuinely finished note. Scoped to analyseRide only (the audit's exact
+// finding); the other prose calls sharing textOf() (retrospective, ask-coach) are untouched.
+export interface ProseResult {
+  text: string;
+  truncated: boolean;
+  stopReason: Anthropic.Message["stop_reason"];
+}
+
 // ---------- Activity-note intent ----------
 
 // NV-10 (2026-08-15): a COMPLETED-but-unusable response is a terminal interpreter result, but "null"
@@ -192,7 +202,7 @@ export async function parseRideIntent(note: string, rideDurationMin: number): Pr
 
 // ---------- Today's ride analysis ----------
 
-export async function analyseRide(input: RideAnalysisInput): Promise<string> {
+export async function analyseRide(input: RideAnalysisInput): Promise<ProseResult> {
   if (!isAnthropicConfigured()) {
     throw new Error("Anthropic API is not configured.");
   }
@@ -204,7 +214,11 @@ export async function analyseRide(input: RideAnalysisInput): Promise<string> {
     messages: [{ role: "user", content: buildRideAnalysisPrompt(input) }],
   });
   void recordUsage(GENERATION_MODEL, response.usage); // fire-and-forget telemetry
-  return textOf(response);
+  return {
+    text: textOf(response),
+    truncated: response.stop_reason === "max_tokens",
+    stopReason: response.stop_reason,
+  };
 }
 
 // ---------- Block retrospective ----------
