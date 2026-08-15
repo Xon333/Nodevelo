@@ -18,25 +18,8 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
 an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
 NV-3 was already a tracked deferral. NV-9/NV-10/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md).
+NV-1/NV-4 shipped 2026-08-15 (PR #58) → [ARCHIVE.md](ARCHIVE.md).
 
-- ☐ P1 `bug` **NV-1 + NV-4 — split-brain debrief (the root architectural problem).** Coach prose runs
-  and completes *before* intent interpretation ([SyncProvider.tsx:143](components/SyncProvider.tsx:143)
-  awaits `/api/analyze`, then loops `/api/intent`) — live proof: prose `analysedAt 08:09:49.496Z`,
-  overlay `createdAt 08:10:01.275Z`. Result: a confident execution judgment rendered beside "the ride
-  note couldn't be parsed." **Reordering alone does not fix this** —
-  `buildRideAnalysisPrompt` passes the raw note (`activityDescription`) into the prose prompt
-  independently of any overlay ([anthropic-prompts.ts:479](lib/anthropic-prompts.ts:479)), which is
-  *how* the coach judged an intent the parser rejected. Build one evidence bundle (interpretation +
-  matched intervals + objective verdicts + aggregates) and generate prose from it. **Locked product
-  decision 2026-08-15: on parse failure, suppress all intent-execution judgment** — metric-level
-  commentary only, and the raw note is withheld from the prompt (or passed under an explicit "unparsed
-  — do not evaluate intent against this" instruction). A labelled "unverified interpretation" is
-  exactly what shipped 2026-08-15 and it failed: labels sit *next to* a confident paragraph, they don't
-  contain it. Also split the four states `assessScoreability` currently collapses into one
-  `no-measurable-objectives` string (no gradable target / target not grounded / scope too small /
-  terrain-or-phase unmatched) — it returns that reason at both
-  [1038](lib/intent-scoring.ts:1038) and [1041](lib/intent-scoring.ts:1041), rendering one message at
-  [intent-display.ts:16](lib/intent-display.ts:16).
 - ☐ P2 `bug` **NV-2 — zone syntax is represented inconsistently.** `zoneIndex` accepts `"2"`
   ([intent-scoring.ts:211](lib/intent-scoring.ts:211)) but `groundsZone` requires `/^Z[1-7]$/`
   ([intent-grounding.ts:86](lib/intent-grounding.ts:86)), so `"2"` *and* ranges like `"3-4"` are
