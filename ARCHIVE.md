@@ -172,6 +172,37 @@ neutrally (3%, no escalation) rather than attempting a "stop coasting" recommend
 constraint wasn't exercised against its actual counterfactual — no violation observed, but not a full
 test either.
 
+## Interval speed as evidence-only context — NV-14 (2026-08-15, PR #66)
+
+`fetchIntervals` retained power/HR/cadence/gradient per curated interval but mapped no speed, so a
+speed-at-power claim ("kept the speed up") couldn't be stated as measured evidence. Verified this does
+NOT reopen Phase 2c's locked decision (which bans a distance/GPS *position-locator system*, while its
+own bullet 4 admits "metrics already attached to each curated interval" — which `average_speed` is) —
+follows Task 11's own precedent exactly (`avgCadence` was dropped for lacking a consumer, then
+correctly added in P3b once one existed).
+
+- **Gated on a live payload check first**, per the locked scope: fetched real curated intervals for
+  two activities (`i175672010`, `i175980689`) before writing any code and confirmed `average_speed`
+  (m/s) is present and populated on all 13 intervals across both — not assumed, matching the discipline
+  that already caught `Maxgradient`'s odd casing.
+- **`lib/types.ts`:** `ExecutedInterval` gains `avgSpeedKph`. Deliberately NOT added to `TargetSchema`
+  (`lib/intent-schema.ts`, untouched) — no objective is ever scored on it. Speed is confounded by wind,
+  drafting, surface and tyres in a way power/HR/cadence aren't; grading it would score the athlete on
+  the weather.
+- **`lib/intervals-api.ts`:** `fetchIntervals` maps `average_speed` → `avgSpeedKph` (× 3.6) at the one
+  ingestion boundary. Unit-tested against the exact live-observed value (5.778887 m/s → 20.804 km/h).
+- **`lib/intent-scoring.ts`:** `gradeTerrain` surfaces it in the matched-lap evidence string alongside
+  gradient/VAM (both terrains, unlike VAM which is climb-only) — verified the delta/scored outcome is
+  identical with or without `avgSpeedKph` present, so it's provably evidence, never a grading input.
+- **Live-verification boundary, noted honestly:** forcing a fresh reparse of the real ride that
+  originally carried a terrain claim found its only candidate lap now correctly excluded by NV-3's
+  compound-lap fix (both of that note's real terrain mentions target the same "Rolling climb/descents"
+  interval) — so the evidence-string attachment couldn't be observed on a currently-scored real
+  objective this session. The field-mapping itself IS live-verified (13/13 real intervals, exact
+  conversion math against the real observed value); the full loop (mapping → scored evidence text) is
+  unit-tested but not yet seen end-to-end on a live overlay. Revisit once a note produces an
+  unambiguous, non-compound terrain match.
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
