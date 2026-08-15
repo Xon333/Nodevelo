@@ -87,7 +87,27 @@ export const INTENT_TOOL: Anthropic.Tool = {
   input_schema: zodToToolInputSchema(IntentToolSchema),
 };
 
-export function parseIntentToolOutput(input: unknown): IntentToolOutput | null {
+export interface IntentSchemaParseResult {
+  data: IntentToolOutput | null;
+  issues: { path: string; message: string }[]; // [] when data is non-null
+}
+
+// Zod's own messages here are static/enum-driven (see TargetSchema's/PhaseSchema's refine()s above) —
+// the "sanitize" is defensive length/whitespace hygiene for the persisted overlay record (NV-10), not a
+// content filter; an enum-mismatch message can echo back the model's own bad value, never the athlete's
+// raw note.
+function sanitizeIssueMessage(message: string): string {
+  return message.replace(/\s+/g, " ").trim().slice(0, 300);
+}
+
+export function parseIntentToolOutput(input: unknown): IntentSchemaParseResult {
   const parsed = IntentToolSchema.safeParse(input);
-  return parsed.success ? parsed.data : null;
+  if (parsed.success) return { data: parsed.data, issues: [] };
+  return {
+    data: null,
+    issues: parsed.error.issues.map((issue) => ({
+      path: issue.path.join(".") || "(root)",
+      message: sanitizeIssueMessage(issue.message),
+    })),
+  };
 }

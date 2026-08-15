@@ -1624,7 +1624,8 @@ describe("buildOverlay produces exactly the records its own consumer accepts", (
   });
 
   it("row 2 — the parse errored", () => {
-    const overlay = buildOverlay({ ...base, reason: "interpreter-failed" });
+    const failure = { category: "schema-invalid" as const, stopReason: "tool_use", issues: [] };
+    const overlay = buildOverlay({ ...base, reason: "interpreter-failed", parseFailure: failure });
     expect(overlay.origin).toBe("unspecified");
     expect(overlay.effectiveExecutionScore).toBeNull();
     expect(overlay.notScoredReason).toBe("interpreter-failed");
@@ -1632,6 +1633,13 @@ describe("buildOverlay produces exactly the records its own consumer accepts", (
     expect(overlay.scoringVersion).toBeNull();
     expect(overlay.effectiveWorkoutType).toBeNull();
     expect(isApplicable(overlay)).toBe(true);
+    // NV-10: the bounded diagnosis round-trips onto the overlay...
+    expect(overlay.parseFailure).toEqual(failure);
+  });
+
+  it("row 2 — omits parseFailure entirely (not just null) when no diagnosis was produced", () => {
+    const overlay = buildOverlay({ ...base, reason: "interpreter-failed", parseFailure: null });
+    expect(overlay).not.toHaveProperty("parseFailure");
   });
 
   it("row 3 — the intent is too unreliable to trust", () => {
@@ -1678,7 +1686,7 @@ describe("buildOverlay produces exactly the records its own consumer accepts", (
   it("sets scoringVersion exactly when a score exists", () => {
     const rows = [
       buildOverlay({ ...base, reason: "no-intent-found" }),
-      buildOverlay({ ...base, reason: "interpreter-failed" }),
+      buildOverlay({ ...base, reason: "interpreter-failed", parseFailure: null }),
       buildOverlay({ ...base, interpretation: scoredInterpretation, verdict: scoredVerdict }),
     ];
     for (const row of rows) {
@@ -1690,7 +1698,7 @@ describe("buildOverlay produces exactly the records its own consumer accepts", (
     const unreliable = interp({ confidence: "low", objectives: [], intent: scoredIntent });
     const rows = [
       buildOverlay({ ...base, reason: "no-intent-found" }),
-      buildOverlay({ ...base, reason: "interpreter-failed" }),
+      buildOverlay({ ...base, reason: "interpreter-failed", parseFailure: null }),
       buildOverlay({
         ...base,
         interpretation: unreliable,

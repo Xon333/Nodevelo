@@ -727,6 +727,25 @@ export type NotScoredReason =
   | "no-measurable-objectives" // intent understood; nothing the ride data can verify
   | "interpreter-failed"; // the parse itself errored
 
+// Bounded diagnosis for an "interpreter-failed" overlay (NV-10, 2026-08-15) — otherwise every parse
+// failure collapses to the same opaque reason with no way to tell a token-limit cutoff apart from a
+// missing tool_use block or a schema mismatch. Only covers a COMPLETED-but-unusable response: a
+// thrown SDK/network error takes a different path (lib/intent-runner.ts's catch) that never reaches
+// overlay creation at all, so it needs no diagnostic here — the natural retry on the next sync
+// already covers it (no overlay means `needsParse` stays true).
+export type IntentParseFailureCategory = "max-tokens" | "missing-tool-use" | "schema-invalid";
+
+export interface IntentParseIssue {
+  path: string; // dot-joined Zod issue path, e.g. "objectives[2].target.zone"
+  message: string; // Zod's own static/enum-driven message — never raw athlete-note text
+}
+
+export interface IntentParseFailure {
+  category: IntentParseFailureCategory;
+  stopReason: string | null; // the provider's raw stop_reason, verbatim
+  issues: IntentParseIssue[]; // populated only for "schema-invalid"; [] otherwise
+}
+
 export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative" | "terrain";
 export type ZoneBasis = "power" | "heart-rate" | "unspecified";
 
@@ -799,6 +818,10 @@ export interface IntentOverlay {
   // Distinct from "no overlay exists," which falls back to the ledger's own score.
   effectiveExecutionScore: number | null;
   notScoredReason: NotScoredReason | null; // non-null exactly when effectiveExecutionScore is null
+  // Set only when notScoredReason === "interpreter-failed"; absent (never just null) for every other
+  // reason and for records written before this field existed (truthy-check on read, per this
+  // codebase's migration-flag convention — see AGENTS.md).
+  parseFailure?: IntentParseFailure;
   interpretation: IntentInterpretation | null;
   // The DETERMINISTIC scorer version behind effectiveExecutionScore — distinct from the
   // interpretation's promptVersion (which versions the LLM parse). Design §11.3 requires both, and

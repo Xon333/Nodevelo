@@ -27,8 +27,9 @@ const valid = {
 
 describe("intent tool schema", () => {
   it("parses valid structured intent", () => {
-    expect(parseIntentToolOutput(valid)).toEqual(valid);
-    expect(parseIntentToolOutput(valid)?.objectives[0].grounded).toBe(true);
+    expect(parseIntentToolOutput(valid).data).toEqual(valid);
+    expect(parseIntentToolOutput(valid).issues).toEqual([]);
+    expect(parseIntentToolOutput(valid).data?.objectives[0].grounded).toBe(true);
   });
 
   // Responsibility boundary: `verifyGrounding` in lib/intent-grounding.ts is the ONLY place a
@@ -41,33 +42,35 @@ describe("intent tool schema", () => {
     ungrounded.objectives[0].sourceText = "just spin easy";
     ungrounded.objectives[0].grounded = true;
 
-    expect(parseIntentToolOutput(ungrounded)?.objectives[0].grounded).toBe(true);
-    expect(parseIntentToolOutput(ungrounded)?.objectives[0].target).toEqual({ watts: 999 });
+    expect(parseIntentToolOutput(ungrounded).data?.objectives[0].grounded).toBe(true);
+    expect(parseIntentToolOutput(ungrounded).data?.objectives[0].target).toEqual({ watts: 999 });
   });
 
   it.each(["score", "executionScore", "decoupling"])("rejects the unexpressible field %s", (field) => {
-    expect(parseIntentToolOutput({ ...valid, [field]: 8 })).toBeNull();
+    expect(parseIntentToolOutput({ ...valid, [field]: 8 }).data).toBeNull();
   });
 
   it("rejects invented nested fields", () => {
     const withScore = structuredClone(valid);
     Object.assign(withScore.objectives[0], { score: 8 });
-    expect(parseIntentToolOutput(withScore)).toBeNull();
+    expect(parseIntentToolOutput(withScore).data).toBeNull();
   });
 
   it.each([
     { ...valid, confidence: undefined },
     { ...valid, objectives: "not-an-array" },
     { ...valid, objectives: [{ ...valid.objectives[0], kind: "mystery" }] },
-  ])("returns null rather than throwing for malformed output", (input) => {
+  ])("returns null data (with issues) rather than throwing for malformed output", (input) => {
     expect(() => parseIntentToolOutput(input)).not.toThrow();
-    expect(parseIntentToolOutput(input)).toBeNull();
+    const result = parseIntentToolOutput(input);
+    expect(result.data).toBeNull();
+    expect(result.issues.length).toBeGreaterThan(0);
   });
 
   it("rejects watts and FTP percentage on the same objective", () => {
     const mixedUnits = structuredClone(valid);
     mixedUnits.objectives[0].target = { watts: 292, targetPctFtp: 95 } as never;
-    expect(parseIntentToolOutput(mixedUnits)).toBeNull();
+    expect(parseIntentToolOutput(mixedUnits).data).toBeNull();
   });
 });
 

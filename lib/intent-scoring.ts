@@ -39,6 +39,7 @@ import type {
   ExecutedInterval,
   IntentInterpretation,
   IntentOverlay,
+  IntentParseFailure,
   IntentTarget,
   NotScoredReason,
   ObjectiveKind,
@@ -1225,12 +1226,12 @@ interface BuildOverlayBase {
 // `low` confidence), which is what keeps the interpretation attempt on the record (design §5.3).
 export type BuildOverlayInput = BuildOverlayBase &
   (
-    | { interpretation: IntentInterpretation; verdict: IntentVerdict; reason?: never }
-    | {
-        interpretation?: null;
-        verdict?: never;
-        reason: Extract<NotScoredReason, "no-intent-found" | "interpreter-failed">;
-      }
+    | { interpretation: IntentInterpretation; verdict: IntentVerdict; reason?: never; parseFailure?: never }
+    | { interpretation?: null; verdict?: never; reason: "no-intent-found"; parseFailure?: never }
+    // NV-10: `interpreter-failed` alone is required to carry its diagnosis — enforced by the type
+    // (not a runtime check a caller could skip), matching this union's existing "producer can't
+    // build an incoherent row" discipline.
+    | { interpretation?: null; verdict?: never; reason: "interpreter-failed"; parseFailure: IntentParseFailure | null }
   );
 
 // The producer half of the contract `isApplicable` (lib/intent-overlay.ts) consumes. Every row this
@@ -1259,6 +1260,9 @@ export function buildOverlay(input: BuildOverlayInput): IntentOverlay {
     origin: selfDirected ? "self-directed" : "unspecified",
     effectiveExecutionScore: score,
     notScoredReason: reason ?? null,
+    // Spread-ready: absent (not just null) when there's no diagnosis to record — mirrors this
+    // codebase's `{}`-when-inapplicable stamp convention (lib/score-log.ts).
+    ...(input.reason === "interpreter-failed" && input.parseFailure ? { parseFailure: input.parseFailure } : {}),
     interpretation,
     scoringVersion: score === null ? null : INTENT_SCORING_VERSION,
     // Provenance only, and only where an intent was actually recovered — a type asserted alongside
