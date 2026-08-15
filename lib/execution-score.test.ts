@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aerobicDisciplineRead, AEROBIC_HR_DIALED_MAX, AEROBIC_HR_DRIFT_MAX, computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, mergedEasyRead, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
+import { aerobicDisciplineRead, AEROBIC_HR_DIALED_MAX, AEROBIC_HR_DRIFT_MAX, computeExecutionScore, executionScoreLabel, FTP_ANCHORED_IF_BANDS, resolveCompliance, timeAboveAerobicHrFraction, timeAboveZ2Fraction, type ExecutionScoreInput } from "./execution-score";
 
 const base: ExecutionScoreInput = {
   compliancePct: null,
