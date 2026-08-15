@@ -89,16 +89,16 @@ export async function runIntentParsing(
       }
 
       const laps = await fetchIntervals(item.activityId).catch(() => []);
-      let interpretation;
+      let outcome;
       try {
-        interpretation = await parseRideIntent(item.note, item.durationMin);
+        outcome = await parseRideIntent(item.note, item.durationMin);
       } catch (error) {
         warnings.push(`Intent parsing failed for ${item.activityId}: ${error instanceof Error ? error.message : String(error)}`);
         failedIds.push(item.activityId);
         continue;
       }
 
-      if (!interpretation) {
+      if (!outcome.interpretation) {
         next = buildOverlay({
           id: randomUUID(),
           activityId: item.activityId,
@@ -106,6 +106,7 @@ export async function runIntentParsing(
           noteFingerprint: item.fingerprint,
           createdAt: new Date().toISOString(),
           reason: "interpreter-failed",
+          parseFailure: outcome.failure,
         });
       } else {
         const evidence: RideEvidence = {
@@ -118,14 +119,14 @@ export async function runIntentParsing(
           wholeRideMaxHr: activity.maxHr,
           wholeRideAvgCadence: activity.avgCadence,
         };
-        const verdict = scoreIntentExecution(interpretation, evidence, item.note);
+        const verdict = scoreIntentExecution(outcome.interpretation, evidence, item.note);
         next = buildOverlay({
           id: randomUUID(),
           activityId: item.activityId,
           date: item.date,
           noteFingerprint: item.fingerprint,
           createdAt: new Date().toISOString(),
-          interpretation,
+          interpretation: outcome.interpretation,
           verdict,
         });
       }

@@ -82,8 +82,9 @@ describe("parseRideIntent", () => {
     });
 
     const result = await parseRideIntent("45m z2 then efforts", 60);
-    const phases = result?.intent.phases ?? [];
+    const phases = result.interpretation?.intent.phases ?? [];
 
+    expect(result.failure).toBeNull();
     expect(Object.keys(phases[0]).sort()).toEqual(["description", "durationMin", "kind", "targetZone"]);
     expect(phases[0]).toEqual({
       description: "45 minutes steady Z2",
@@ -94,5 +95,35 @@ describe("parseRideIntent", () => {
     // The zone must arrive under ONE name, not duplicated as both `zone` and `targetZone`.
     expect(phases[0]).not.toHaveProperty("zone");
     expect(Object.keys(phases[1]).sort()).toEqual(["description", "kind", "targetWatts"]);
+  });
+
+  // NV-10 (2026-08-15): a completed-but-unusable response used to collapse to a bare `null`, giving
+  // the persisted overlay no way to distinguish truncation from a declined tool call from a schema
+  // mismatch. These three pin the categorisation this fix depends on.
+  it("categorises a response with no tool_use block cut off by max_tokens as max-tokens", async () => {
+    h.create.mockResolvedValueOnce({ content: [], stop_reason: "max_tokens", usage: {} });
+    const result = await parseRideIntent("a note", 60);
+    expect(result.interpretation).toBeNull();
+    expect(result.failure).toEqual({ category: "max-tokens", stopReason: "max_tokens", issues: [] });
+  });
+
+  it("categorises a response with no tool_use block and a non-max_tokens stop_reason as missing-tool-use", async () => {
+    h.create.mockResolvedValueOnce({ content: [{ type: "text", text: "I decline." }], stop_reason: "end_turn", usage: {} });
+    const result = await parseRideIntent("a note", 60);
+    expect(result.interpretation).toBeNull();
+    expect(result.failure).toEqual({ category: "missing-tool-use", stopReason: "end_turn", issues: [] });
+  });
+
+  it("categorises a tool_use block that fails schema validation as schema-invalid, with sanitized Zod issues", async () => {
+    h.create.mockResolvedValueOnce({
+      content: [{ type: "tool_use", input: { primaryPurpose: "x", phases: [], objectives: [], confidence: "extreme" } }],
+      stop_reason: "tool_use",
+      usage: {},
+    });
+    const result = await parseRideIntent("a note", 60);
+    expect(result.interpretation).toBeNull();
+    expect(result.failure?.category).toBe("schema-invalid");
+    expect(result.failure?.stopReason).toBe("tool_use");
+    expect(result.failure?.issues).toEqual([{ path: "confidence", message: expect.stringContaining("high") }]);
   });
 });

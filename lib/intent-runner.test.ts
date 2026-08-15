@@ -5,7 +5,7 @@ import * as intervals from "./intervals-api";
 import { buildIntentQueue, noteFingerprint } from "./intent-queue";
 import { isApplicable } from "./intent-overlay";
 import { runIntentParsing } from "./intent-runner";
-import type { ActivitySummary, IntentInterpretation, IntentOverlay, IntentOverlayStore, RideScoreEntry } from "./types";
+import type { ActivitySummary, IntentInterpretation, IntentOverlay, IntentOverlayStore, IntentParseFailure, RideScoreEntry } from "./types";
 
 vi.mock("./anthropic-api", () => ({ isAnthropicConfigured: vi.fn(), parseRideIntent: vi.fn() }));
 vi.mock("./intervals-api", () => ({ fetchIntervals: vi.fn() }));
@@ -97,6 +97,12 @@ function interpretation(confidence: "high" | "medium" | "low" = "high"): IntentI
   };
 }
 
+// NV-10: parseRideIntent's real return shape — the mocked module returns this instead of a bare
+// IntentInterpretation now.
+function outcome(interp: IntentInterpretation | null, failure: IntentParseFailure | null = null) {
+  return { interpretation: interp, failure };
+}
+
 function prior(over: Partial<IntentOverlay> = {}): IntentOverlay {
   return {
     id: "old",
@@ -140,7 +146,7 @@ beforeEach(() => {
     return structuredClone(overlayStore);
   });
   vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
-  vi.mocked(anthropic.parseRideIntent).mockResolvedValue(interpretation());
+  vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(interpretation()));
   vi.mocked(intervals.fetchIntervals).mockResolvedValue([]);
 });
 
@@ -172,22 +178,23 @@ describe("runIntentParsing", () => {
   it("a later invocation retries and writes after a transient failure", async () => {
     vi.mocked(anthropic.parseRideIntent).mockRejectedValueOnce(new Error("503"));
     await runIntentParsing(TODAY, []);
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(interpretation());
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(outcome(interpretation()));
 
     expect((await runIntentParsing(TODAY, [])).processed).toBe(1);
     expect(overlayStore.overlays).toHaveLength(1);
   });
 
-  it("a completed call with no usable output writes interpreter-failed", async () => {
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(null);
+  it("a completed call with no usable output writes interpreter-failed, carrying the bounded diagnosis (NV-10)", async () => {
+    const failure: IntentParseFailure = { category: "schema-invalid", stopReason: "tool_use", issues: [{ path: "confidence", message: "bad enum" }] };
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(outcome(null, failure));
     const result = await runIntentParsing(TODAY, []);
 
     expect(result.processed).toBe(1);
-    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "interpreter-failed", origin: "unspecified" });
+    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "interpreter-failed", origin: "unspecified", parseFailure: failure });
   });
 
   it("a low-confidence parse writes intent-unreliable", async () => {
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(interpretation("low"));
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(outcome(interpretation("low")));
     await runIntentParsing(TODAY, []);
 
     expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable", origin: "unspecified" });
@@ -197,7 +204,7 @@ describe("runIntentParsing", () => {
     activities = [activity({ id: "a-new", date: TODAY }), activity({ id: "a-old", date: "2026-08-06" })];
     entries = [ledger({ date: TODAY }), ledger({ date: "2026-08-06" })];
     overlayStore.autoFromDate = "2026-08-06";
-    vi.mocked(anthropic.parseRideIntent).mockRejectedValueOnce(new Error("429")).mockResolvedValueOnce(interpretation());
+    vi.mocked(anthropic.parseRideIntent).mockRejectedValueOnce(new Error("429")).mockResolvedValueOnce(outcome(interpretation()));
 
     const first = await runIntentParsing(TODAY, [], { limit: 5 });
     expect(first.processed).toBe(1);
@@ -219,7 +226,7 @@ describe("runIntentParsing", () => {
     });
     vi.mocked(anthropic.parseRideIntent).mockImplementation(async () => {
       order.push("parse");
-      return interpretation();
+      return outcome(interpretation());
     });
 
     await runIntentParsing(TODAY, []);
@@ -314,13 +321,13 @@ describe("runIntentParsing", () => {
       maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null,
     });
 
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(effortInterpretation));
     vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(250)]);
     await runIntentParsing(TODAY, [], { force: true });
     const first = overlayStore.overlays.find((o) => o.supersededBy === null);
     expect(first?.interpretation?.objectives[0].evidence).toContain("at 250 W vs");
 
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(effortInterpretation);
+    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(effortInterpretation));
     vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(200)]);
     await runIntentParsing(TODAY, [], { force: true });
 

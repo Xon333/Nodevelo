@@ -5,7 +5,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 export { isAnthropicConfigured } from "./anthropic-config";
 import { isAnthropicConfigured } from "./anthropic-config";
-import type { IntentInterpretation, StructuredReflection } from "./types";
+import type { IntentInterpretation, IntentParseFailure, StructuredReflection } from "./types";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
 import { buildNarrativeCriticPrompt, NARRATIVE_CRITIC_TOOL, parseNarrativeCriticOutput, type NarrativeCriticOutput, type WeekFacts } from "./narrative-critic";
@@ -92,7 +92,17 @@ export interface GenerationResult {
 
 // ---------- Activity-note intent ----------
 
-export async function parseRideIntent(note: string, rideDurationMin: number): Promise<IntentInterpretation | null> {
+// NV-10 (2026-08-15): a COMPLETED-but-unusable response is a terminal interpreter result, but "null"
+// alone couldn't say WHY — every cause (truncation, a declined tool call, a schema mismatch) collapsed
+// to the same opaque `interpreter-failed` overlay. `failure` is non-null exactly when `interpretation`
+// is null. SDK/network errors are deliberately excluded from this shape and still just throw (the
+// caller's catch never burns the note fingerprint — see lib/intent-runner.ts).
+export interface IntentParseOutcome {
+  interpretation: IntentInterpretation | null;
+  failure: IntentParseFailure | null;
+}
+
+export async function parseRideIntent(note: string, rideDurationMin: number): Promise<IntentParseOutcome> {
   if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
   const client = getClient();
   const response = await client.messages.create({
@@ -108,37 +118,58 @@ export async function parseRideIntent(note: string, rideDurationMin: number): Pr
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
   );
-  const parsed = toolUse ? parseIntentToolOutput(toolUse.input) : null;
-  // A completed response with no usable tool output is a terminal interpreter result. SDK errors are
-  // deliberately allowed to throw so a transient network failure does not burn the note fingerprint.
-  if (!parsed) return null;
+
+  if (!toolUse) {
+    return {
+      interpretation: null,
+      failure: {
+        // tool_choice forces the tool, so a completed response with no tool_use block at all is
+        // almost always the model getting cut off before it could emit one — max_tokens is the
+        // stop_reason that actually distinguishes that from a genuinely declined/malformed call.
+        category: response.stop_reason === "max_tokens" ? "max-tokens" : "missing-tool-use",
+        stopReason: response.stop_reason,
+        issues: [],
+      },
+    };
+  }
+
+  const { data: parsed, issues } = parseIntentToolOutput(toolUse.input);
+  if (!parsed) {
+    return {
+      interpretation: null,
+      failure: { category: "schema-invalid", stopReason: response.stop_reason, issues },
+    };
+  }
 
   return {
-    intent: {
-      primaryPurpose: parsed.primaryPurpose,
-      // Field-by-field, never `...phase`: the tool schema's phase carries `zone`, `zoneBasis`,
-      // `targetPctFtp` and `reps`, none of which `StructuredIntent.phases[]` declares. A spread is
-      // exempt from excess-property checking, so TypeScript would wave those through into
-      // `IntentOverlay.interpretation` — a permanent stored record. Fields with no slot here are
-      // dropped, not smuggled in under their raw names.
-      phases: parsed.phases.map((phase) => ({
-        description: phase.description,
-        kind: phase.kind,
-        ...(phase.durationMin === undefined ? {} : { durationMin: phase.durationMin }),
-        ...(phase.zone === undefined ? {} : { targetZone: phase.zone }),
-        ...(phase.targetWatts === undefined ? {} : { targetWatts: phase.targetWatts }),
+    interpretation: {
+      intent: {
+        primaryPurpose: parsed.primaryPurpose,
+        // Field-by-field, never `...phase`: the tool schema's phase carries `zone`, `zoneBasis`,
+        // `targetPctFtp` and `reps`, none of which `StructuredIntent.phases[]` declares. A spread is
+        // exempt from excess-property checking, so TypeScript would wave those through into
+        // `IntentOverlay.interpretation` — a permanent stored record. Fields with no slot here are
+        // dropped, not smuggled in under their raw names.
+        phases: parsed.phases.map((phase) => ({
+          description: phase.description,
+          kind: phase.kind,
+          ...(phase.durationMin === undefined ? {} : { durationMin: phase.durationMin }),
+          ...(phase.zone === undefined ? {} : { targetZone: phase.zone }),
+          ...(phase.targetWatts === undefined ? {} : { targetWatts: phase.targetWatts }),
+        })),
+      },
+      confidence: parsed.confidence,
+      objectives: parsed.objectives.map((objective) => ({
+        ...objective,
+        measurable: false,
+        scored: false,
+        scopeMin: null,
+        evidence: null,
       })),
+      model: GENERATION_MODEL,
+      promptVersion: INTENT_PROMPT_VERSION,
     },
-    confidence: parsed.confidence,
-    objectives: parsed.objectives.map((objective) => ({
-      ...objective,
-      measurable: false,
-      scored: false,
-      scopeMin: null,
-      evidence: null,
-    })),
-    model: GENERATION_MODEL,
-    promptVersion: INTENT_PROMPT_VERSION,
+    failure: null,
   };
 }
 
