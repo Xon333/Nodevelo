@@ -86,6 +86,37 @@ NV-9's defect is masked only by the current parser failure.
   opposite (`unspecified`) — `buildOverlay`'s `selfDirected` derives from its negation instead of
   maintaining a second, driftable list of "which reasons count as self-directed."
 
+## Zone-expression parsing unified — NV-2 (2026-08-15, PR #60)
+
+`zoneIndex` (scoring, `lib/intent-scoring.ts`) accepted `"2"`/`"Z2"`/`"z2"`/`"zone 2"`; `groundsZone`
+(grounding, `lib/intent-grounding.ts`) required the exact canonical `"Z2"` and rejected everything
+else outright — live-confirmed on a real overlay: the model emitted `target.zone: "3"` with
+`grounded: true`, the note literally said "z3 block", and `groundsZone` still returned "not grounded
+in the note" because its input wasn't already canonical. Ranges like `"3-4"` (also seen verbatim in
+production) were unparseable by either side.
+
+- **`lib/zone-expression.ts` (new):** one shared `parseZoneExpression` — a bare digit, `"Z2"`/`"z2"`/
+  `"zone 2"`, a range (`"Z3-4"`, `"3-4"`, `"Z3–Z4"`, `"zone 3 to 4"`), or a comma list (`"z2,z3"`) — all
+  resolve to canonical `"Z<n>"` labels. `formatZoneLabel` renders a parsed set for evidence/debrief text
+  (a contiguous range as `"Z3-Z4"`, a non-contiguous list as `"Z2/Z4"` so it can never read as implying
+  the zones between). Fails closed (`[]`) on anything unparseable or a descending range.
+- **`lib/intent-scoring.ts`:** `zoneIndex` now delegates to the shared parser (byte-identical behaviour
+  for every existing single-zone input). `zoneMinutes` (and its generalized `readZoneArraySum`, replacing
+  the old single-index-only `readZoneArray`) now SUMS across every zone a range/list target names.
+- **`lib/intent-grounding.ts`:** `groundsZone` parses through the same shared parser and grounds on the
+  note mentioning ANY zone within the claimed expression — presence-based, same leniency as every other
+  `groundsX` check here.
+- **Live-verified post-merge** by forcing a reparse of the real 2026-08-15 ride: a "15 minutes of varied
+  terrain (Z2/Z3)" phase parsed to `target.zone: "Z2-Z3"`, grounded, and scored — the exact range-summing
+  path exercised on real data, previously unrepresentable by either side.
+- **Residual gap surfaced by that same live run, explicitly out of NV-2's scope:** the range scored
+  `65.2 min in Z2-Z3 vs 15 min stated (435% of target)` — the scorer sums the WHOLE ride's Z2+Z3 time
+  against a claim that only applied to the ride's final segment, because `zoneMinutes` has no notion of
+  "the last 15 minutes." Documented as a known rough edge in
+  [02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges) — fixing it
+  needs zone-emphasis/zone-time routed through the same terrain/phase-matched-lap machinery
+  `effort`/`terrain` objectives already use, a design change, not a parsing fix.
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
