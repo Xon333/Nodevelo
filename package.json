@@ -8,13 +8,14 @@
     "dev:preview": "next dev -H 127.0.0.1 -p 3100",
     "build": "next build",
     "start": "next start -H 127.0.0.1",
-    "lint": "eslint",
+    "lint": "eslint --max-warnings 0",
     "test": "vitest run",
     "test:finish-agent-task": "bash scripts/finish-agent-task.test.sh",
     "finish:agent-task": "bash scripts/finish-agent-task.sh",
     "start:agent-task": "bash scripts/start-agent-task.sh",
     "sync": "bash scripts/sync.sh",
-    "check": "tsc --noEmit && npm run lint && npm test",
+    "check-links": "node scripts/check-links.mjs",
+    "check": "tsc --noEmit && npm run lint && npm test && npm run check-links",
     "reset:today": "curl -sf -X POST http://127.0.0.1:3000/api/dev/reset-today && echo 'today-analysis.json cleared' || echo 'Dev server not running on :3000 — start it with npm run dev'"
   },
   "dependencies": {
