@@ -12,7 +12,7 @@ exact commits.
 
 ---
 
-## Debrief-audit data-integrity fixes — NV-9, NV-11, NV-13 (2026-08-15)
+## Debrief-audit data-integrity fixes — NV-9, NV-10, NV-11, NV-13 (2026-08-15)
 
 First slice of the 2026-08-15 debrief audit (`todo.md`'s "Post-2026-08-15 debrief audit" block; full
 14-item audit ~93% ground-truth-accurate). Sequenced ahead of the audit's own NV-10 remedy because
@@ -37,6 +37,26 @@ NV-9's defect is masked only by the current parser failure.
   behaviour let "42% Z3" read as 42% of the whole ride when it was ~40.5%, hiding the exact behaviour
   ("limit coasting") a self-directed objective can be about. HR zones are unaffected — a gap in HR
   seconds is a sensor dropout, not a real physiological zero, so the clause is power-only.
+- **NV-10 · parser diagnosability (PRs #55/#56):** a completed-but-unusable `parseRideIntent` response
+  now returns a bounded, persisted failure category (`max-tokens` / `missing-tool-use` /
+  `schema-invalid`, with the provider's raw `stop_reason` and sanitized Zod issue paths) instead of a
+  bare `null` — `IntentOverlay` gains an optional `parseFailure` field, set only when
+  `notScoredReason === "interpreter-failed"`. The live smoke run against 2026-08-15's actual failing
+  note (fingerprint `521dd9525775bd29`, failed twice earlier that day with zero diagnostics) found a
+  real bug in the categorisation itself: Anthropic assembles tool-input JSON in schema-field order, so
+  a `max_tokens` cutoff can still leave a syntactically valid but incomplete `tool_use` block behind
+  (`primaryPurpose`/`phases` complete, `objectives`/`confidence` never started) — the first cut of the
+  logic mis-bucketed that as `schema-invalid` because a block technically existed. Fixed so
+  `stop_reason === "max_tokens"` wins the category outright before checking whether a block parsed.
+  That same run confirmed the leading (previously unconfirmed) hypothesis that `max_tokens: 900` was
+  too tight for a multi-section note — raised to 1800, no longer a guess. Re-verified live after both
+  fixes landed: the exact failing note now parses successfully end-to-end (`origin: self-directed`,
+  `effectiveExecutionScore: 7`, grounded cadence evidence "89 rpm vs 90 rpm target, 99% adherence"),
+  and the Today debrief renders it correctly in place of "Not scored — the ride note couldn't be
+  parsed." NV-2's zone-syntax gap (`"3"`/`"2-3"` not matching the grounding regex) is now visible as
+  the next open defect in the same overlay's objectives — expected, tracked separately.
+
+## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
   variability penalties from structurally unsuitable data.
