@@ -88,7 +88,7 @@ beforeEach(() => {
   vi.mocked(store.readBlockSettings).mockResolvedValue({ ...DEFAULT_BLOCK_SETTINGS, autoPostCoachNote: true });
   vi.mocked(store.writeTodayAnalysis).mockResolvedValue(undefined as never);
   vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
-  vi.mocked(anthropic.analyseRide).mockResolvedValue("Solid session, nice work.");
+  vi.mocked(anthropic.analyseRide).mockResolvedValue({ text: "Solid session, nice work.", truncated: false, stopReason: "end_turn" });
   vi.mocked(api.createEvent).mockResolvedValue(null as never);
 });
 
@@ -166,5 +166,24 @@ describe("addCoachNote — withholds the raw note from the prose prompt on a par
     });
     await addCoachNote(TODAY, []);
     expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
+  });
+});
+
+// NV-8 (2026-08-15): analyseRide used to return a bare string, discarding stop_reason entirely, so a
+// token-limit cutoff mid-sentence was indistinguishable from a genuinely finished note.
+describe("addCoachNote — prose truncation is surfaced as a warning (NV-8)", () => {
+  it("warns when the note hits the token limit, but still writes the (partial) text", async () => {
+    vi.mocked(anthropic.analyseRide).mockResolvedValue({ text: "Solid session, cut off mid-", truncated: true, stopReason: "max_tokens" });
+    const warnings: string[] = [];
+    const result = await addCoachNote(TODAY, warnings);
+    expect(warnings).toContain("Your coach note hit the token limit and may be incomplete.");
+    expect(result?.coachNote).toBe("Solid session, cut off mid-");
+  });
+
+  it("does not warn when the note completes normally", async () => {
+    vi.mocked(anthropic.analyseRide).mockResolvedValue({ text: "Solid session, nice work.", truncated: false, stopReason: "end_turn" });
+    const warnings: string[] = [];
+    await addCoachNote(TODAY, warnings);
+    expect(warnings).toHaveLength(0);
   });
 });

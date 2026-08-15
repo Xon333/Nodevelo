@@ -93,7 +93,15 @@ export async function addCoachNote(
     // parses back with the key absent, not null.
     input.fuelPromptContext = analysis.fuelPrompt ? formatFuelPromptContext(analysis.fuelPrompt) : null;
 
-    const coachNote = await analyseRide(input);
+    // NV-8 (2026-08-15): analyseRide used to return a bare string, discarding stop_reason entirely —
+    // a token-limit cutoff mid-sentence was indistinguishable from a genuinely finished note. Mirrors
+    // the generate route's own truncated/stopReason handling (app/api/generate/route.ts): a transient
+    // warning, never a persisted field — the note is still usable (prose degrades gracefully, unlike a
+    // truncated JSON tool payload), so this doesn't block writing it.
+    const { text: coachNote, truncated } = await analyseRide(input);
+    if (truncated) {
+      warnings.push("Your coach note hit the token limit and may be incomplete.");
+    }
     const updated: TodayAnalysis = {
       ...analysis,
       coachNote,
