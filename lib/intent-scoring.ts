@@ -34,6 +34,7 @@
 // smuggle an ungrounded number through, and the rule that stops it is per-part, not per-sum.
 
 import { verifyGrounding } from "./intent-grounding";
+import { NO_TRUSTWORTHY_INTENT } from "./intent-overlay";
 import { round1 } from "./stats";
 import type {
   ExecutedInterval,
@@ -1025,21 +1026,46 @@ export function gradableObjectives(
   });
 }
 
+// NV-4: just the KIND half of gradableObjectives' filter, ignoring groundedness — lets
+// assessScoreability tell "nothing stated is even the right kind" apart from "the right kind was
+// stated, but grounding rejected it," which `gradableObjectives` alone can't distinguish (both read
+// as zero either way).
+function kindEligibleObjectives(objectives: ScoredObjective[], confidence: IntentConfidence): ScoredObjective[] {
+  const kinds = GRADABLE_KINDS_BY_CONFIDENCE[confidence];
+  return objectives.filter((objective) => kinds.includes(objective.kind));
+}
+
 // Predicate (c): at least one gradable objective, and evidence that speaks about enough of the ride.
 // Confidence is consulted FIRST only to veto — it can never promote.
+//
+// NV-4 (2026-08-15): the two `false` branches below used to both return the same
+// "no-measurable-objectives" reason, conflating four different situations into one opaque message.
+// Each branch now picks between two reasons using a signal already available at the call site —
+// `kindEligibleCount` (was anything of a gradable KIND even stated, regardless of grounding) and
+// whether `scopeMin` is exactly zero (nothing matched at all) vs merely under the floor (something
+// matched, just not enough of the ride).
 export function assessScoreability(input: {
   confidence: IntentConfidence;
   gradableCount: number;
+  kindEligibleCount: number;
   scopeMin: number;
   rideMin: number;
 }): { scoreable: boolean; reason: NotScoredReason | null; requiredScopeMin: number } {
   const requiredScopeMin = Math.max(INTENT_MIN_SCOPE_MIN, INTENT_SCOPE_MIN_FRACTION * input.rideMin);
   if (input.confidence === "low") return { scoreable: false, reason: "intent-unreliable", requiredScopeMin };
   if (input.gradableCount < 1) {
-    return { scoreable: false, reason: "no-measurable-objectives", requiredScopeMin };
+    return {
+      scoreable: false,
+      reason: input.kindEligibleCount < 1 ? "no-measurable-objectives" : "target-not-grounded",
+      requiredScopeMin,
+    };
   }
   if (input.scopeMin < requiredScopeMin) {
-    return { scoreable: false, reason: "no-measurable-objectives", requiredScopeMin };
+    return {
+      scoreable: false,
+      reason: input.scopeMin === 0 ? "target-not-matched" : "insufficient-scope",
+      requiredScopeMin,
+    };
   }
   return { scoreable: true, reason: null, requiredScopeMin };
 }
@@ -1120,13 +1146,15 @@ export function scoreIntentExecution(
   const assessed = assessScoreability({
     confidence: interpretation.confidence,
     gradableCount: gradable.length,
+    kindEligibleCount: kindEligibleObjectives(all, interpretation.confidence).length,
     scopeMin,
     rideMin: evidence.durationMin,
   });
-  // assessScoreability's "no-measurable-objectives" conflates two different situations: real objectives
-  // that simply aren't verifiable from the ride data (its documented contract — genuinely self-directed),
-  // and zero objectives extracted at all (nothing about training intent was recovered — unspecified).
-  // Only override the latter; a real-but-ungradable objective keeps self-directed exactly as before
+  // "no-measurable-objectives" (now narrowed by NV-4 to "nothing of a gradable kind was even stated")
+  // still conflates two situations at its zero-objectives edge: real objectives that simply aren't
+  // verifiable from the ride data (its documented contract — genuinely self-directed), and zero
+  // objectives extracted at all (nothing about training intent was recovered — unspecified). Only
+  // override the latter; a real-but-ungradable objective keeps self-directed exactly as before
   // (PR #35 review finding N2, 2026-08-12).
   const { scoreable, requiredScopeMin } = assessed;
   const reason =
@@ -1242,10 +1270,11 @@ export function buildOverlay(input: BuildOverlayInput): IntentOverlay {
   const score = input.verdict ? input.verdict.score : null;
   const reason = input.verdict ? input.verdict.reason : input.reason;
 
-  // Only `no-measurable-objectives` pairs with `self-directed`: there the intent WAS clear and the
-  // ride data simply could not verify it. The other three reasons all mean no trustworthy intent was
-  // recovered, which IS the definition of `unspecified`.
-  const selfDirected = score !== null || reason === "no-measurable-objectives";
+  // `no-measurable-objectives` and NV-4's three siblings all pair with `self-directed`: in each case
+  // the intent WAS clear and the ride data simply could not verify it. NO_TRUSTWORTHY_INTENT
+  // (lib/intent-overlay.ts) is the single source of truth for the reasons that mean the opposite —
+  // derived here as its negation so the two can never drift apart.
+  const selfDirected = score !== null || (reason != null && !NO_TRUSTWORTHY_INTENT.has(reason));
 
   const interpretation = input.interpretation
     ? { ...input.interpretation, objectives: input.verdict.objectives }

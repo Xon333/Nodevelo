@@ -11,9 +11,12 @@ import { originOf } from "./ride-origin";
 import type { EffectiveOutcome, IntentOverlay, NotScoredReason, ResolvedRide, RideScoreEntry } from "./types";
 
 // These three reasons all mean "no trustworthy intent was recovered" — which IS the definition of
-// `unspecified`. Only `no-measurable-objectives` is compatible with `self-directed`: there the intent
-// was clear, the ride data simply couldn't verify it (design §6's technical-descending case).
-const NO_TRUSTWORTHY_INTENT: ReadonlySet<NotScoredReason> = new Set([
+// `unspecified`. Every OTHER not-scored reason (`no-measurable-objectives` and NV-4's three siblings
+// `target-not-grounded`/`insufficient-scope`/`target-not-matched`) is compatible with `self-directed`:
+// there the intent was clear, the ride data simply couldn't verify it (design §6's
+// technical-descending case). Exported so `intent-scoring.ts`'s `buildOverlay` derives `selfDirected`
+// from this SAME set (as its negation) rather than maintaining a second, driftable list.
+export const NO_TRUSTWORTHY_INTENT: ReadonlySet<NotScoredReason> = new Set([
   "no-intent-found",
   "interpreter-failed",
   "intent-unreliable",

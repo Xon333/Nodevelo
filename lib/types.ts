@@ -721,10 +721,20 @@ export type OverlayStatus = "pending" | "active" | "disabled";
 
 // Why an outcome carries no execution score. Design §13 distinguishes these, and the debrief (Phase 2c)
 // must say which — a bare null score cannot.
+//
+// NV-4 (2026-08-15): `no-measurable-objectives` used to be the catch-all for FOUR different situations
+// `assessScoreability` (lib/intent-scoring.ts) can hit — narrowed to just the first below, with the
+// other three split out. All four remain compatible with `origin: "self-directed"`, exactly as the
+// original single reason was: in every case the intent WAS clear, the ride data just couldn't verify
+// it (design §6's technical-descending case is `no-measurable-objectives`; a stated-but-ungrounded
+// zone claim is `target-not-grounded`; etc.) — see `intent-scoring.ts`'s `selfDirected` check.
 export type NotScoredReason =
   | "no-intent-found" // no note at all — decided deterministically, no LLM call
   | "intent-unreliable" // parsed, but confidence/validation too low to trust
-  | "no-measurable-objectives" // intent understood; nothing the ride data can verify
+  | "no-measurable-objectives" // intent understood, but no stated objective is even a gradable KIND
+  | "target-not-grounded" // a gradable-kind target was stated, but grounding rejected it (NV-2's zone-syntax gap is one cause)
+  | "insufficient-scope" // some evidence was found, but it covers too little of the ride to trust
+  | "target-not-matched" // a gradable, grounded target exists, but nothing in the ride data matched it at all (e.g. terrain/phase)
   | "interpreter-failed"; // the parse itself errored
 
 // Bounded diagnosis for an "interpreter-failed" overlay (NV-10, 2026-08-15) — otherwise every parse

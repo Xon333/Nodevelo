@@ -5,10 +5,12 @@
 
 import { analyseRide, buildRideAnalysisInput, GENERATION_MODEL, isAnthropicConfigured, PROMPT_VERSION } from "./anthropic-api";
 import { createEvent } from "./intervals-api";
+import { indexOverlaysByActivity } from "./intent-overlay";
 import {
   readAthleteProfile,
   readBlockSettings,
   readCurrentBlock,
+  readIntentOverlays,
   readLastSync,
   readTodayAnalysis,
   writeTodayAnalysis,
@@ -43,10 +45,11 @@ export async function addCoachNote(
   if (!isAnthropicConfigured()) return analysis;
 
   try {
-    const [lastSync, currentBlock, profile] = await Promise.all([
+    const [lastSync, currentBlock, profile, intentOverlays] = await Promise.all([
       readLastSync(),
       readCurrentBlock(),
       readAthleteProfile(),
+      readIntentOverlays(),
     ]);
     const todayActivity = lastSync?.activities.find(
       (a) => a.date === today && (a.type === "Ride" || a.type === "VirtualRide")
@@ -62,6 +65,19 @@ export async function addCoachNote(
       profile.performance.ftp,
       profile.performance.thresholdHr
     );
+    // NV-1 (2026-08-15): the split-brain debrief. Coach prose used to read the raw note independently
+    // of the intent parser's own verdict on that same note — so a rejected/unparseable note could
+    // still produce a confident, prose-only intent-execution judgment sitting right next to the
+    // debrief card's "Not scored — the ride note couldn't be parsed." SyncProvider now runs the intent
+    // loop to completion before this ever fires, so today's overlay (if the note needed parsing) is
+    // already resolved here. Locked product decision: on a genuine parse failure, withhold the note
+    // from the prompt entirely — metric-level commentary only, same as a ride with no note at all. The
+    // athlete's raw note text stays visible elsewhere on the page (the debrief's own "Your note" card);
+    // this only gates what the PROSE prompt is allowed to read.
+    const todayOverlay = indexOverlaysByActivity(intentOverlays.overlays).get(todayActivity.id);
+    if (todayOverlay?.notScoredReason === "interpreter-failed") {
+      input.activityDescription = null;
+    }
     input.powerZoneTimes = analysis.powerZoneTimes;
     input.hrZoneTimes = analysis.hrZoneTimes;
     input.intervalComparison = analysis.intervalComparison;

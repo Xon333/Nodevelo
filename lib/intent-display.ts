@@ -9,11 +9,17 @@ export function formatIntentUsed(intent: StructuredIntent): string {
   return intent.phases.map((p) => p.description).join(" → ");
 }
 
+// NV-4 (2026-08-15): "nothing measurable to verify" used to be shown for four different situations —
+// each now gets its own message so the athlete can tell "you didn't state anything checkable" apart
+// from "you did, but the data couldn't confirm it."
 const NOT_SCORED_MESSAGES: Record<NotScoredReason, string> = {
   "no-intent-found": "Not scored — no intent found",
   "intent-unreliable": "Not scored — intent could not be determined reliably",
   "interpreter-failed": "Not scored — the ride note couldn't be parsed",
   "no-measurable-objectives": "Not scored — nothing measurable to verify",
+  "target-not-grounded": "Not scored — the stated target wasn't clearly grounded in your note",
+  "insufficient-scope": "Not scored — not enough of the ride matched the stated target",
+  "target-not-matched": "Not scored — nothing in the ride data matched the stated target",
 };
 
 export function notScoredMessage(reason: NotScoredReason): string {

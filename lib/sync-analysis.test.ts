@@ -10,7 +10,7 @@ vi.mock("./anthropic-api", async (orig) => {
 vi.mock("./intervals-api", () => ({ createEvent: vi.fn() }));
 vi.mock("./data-store", () => ({
   readAthleteProfile: vi.fn(), readBlockSettings: vi.fn(), readCurrentBlock: vi.fn(),
-  readLastSync: vi.fn(), readTodayAnalysis: vi.fn(), writeTodayAnalysis: vi.fn(),
+  readIntentOverlays: vi.fn(), readLastSync: vi.fn(), readTodayAnalysis: vi.fn(), writeTodayAnalysis: vi.fn(),
 }));
 
 import * as anthropic from "./anthropic-api";
@@ -83,6 +83,7 @@ beforeEach(() => {
   vi.mocked(store.readTodayAnalysis).mockResolvedValue(analysis());
   vi.mocked(store.readLastSync).mockResolvedValue({ activities: [activity()] } as never);
   vi.mocked(store.readCurrentBlock).mockResolvedValue(null);
+  vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
   vi.mocked(store.readAthleteProfile).mockResolvedValue(profile);
   vi.mocked(store.readBlockSettings).mockResolvedValue({ ...DEFAULT_BLOCK_SETTINGS, autoPostCoachNote: true });
   vi.mocked(store.writeTodayAnalysis).mockResolvedValue(undefined as never);
@@ -117,5 +118,53 @@ describe("addCoachNote — score-line posting (external review, 2026-08-12)", ()
     expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ plannedName: null }));
     const [call] = vi.mocked(api.createEvent).mock.calls;
     expect(call[0].description).not.toContain("Execution score:");
+  });
+});
+
+// NV-1 (2026-08-15): the split-brain debrief. Coach prose used to read the raw note independently of
+// the intent parser's own verdict on it, so a note the parser had just rejected could still drive a
+// confident intent-execution judgment in the prose — right beside the debrief card's own "Not scored"
+// message. SyncProvider now runs intent parsing to completion before this ever fires, so addCoachNote
+// can read today's resolved overlay and withhold the note when the parse genuinely failed.
+describe("addCoachNote — withholds the raw note from the prose prompt on a parse failure (NV-1)", () => {
+  const overlay = (over: Partial<import("./types").IntentOverlay> = {}): import("./types").IntentOverlay => ({
+    id: "ov1", activityId: "a1", date: TODAY, noteFingerprint: "fp1",
+    status: "active", origin: "unspecified", effectiveExecutionScore: null,
+    notScoredReason: "interpreter-failed", interpretation: null, scoringVersion: null,
+    schemaVersion: 1, createdAt: TODAY, approvedAt: null, supersededBy: null,
+    ...over,
+  });
+
+  it("passes activityDescription: null to analyseRide when today's activity's overlay is interpreter-failed", async () => {
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [overlay()], updatedAt: "" });
+    await addCoachNote(TODAY, []);
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: null }));
+  });
+
+  it("still passes the raw note through when there is no overlay for today's activity", async () => {
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [], updatedAt: "" });
+    await addCoachNote(TODAY, []);
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
+  });
+
+  it("still passes the raw note through when the overlay resolved successfully (not interpreter-failed)", async () => {
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [overlay({ notScoredReason: null, effectiveExecutionScore: 7, scoringVersion: 1, origin: "self-directed" })],
+      updatedAt: "",
+    });
+    await addCoachNote(TODAY, []);
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
+  });
+
+  it("ignores a superseded overlay (not the applicable one) and still withholds correctly for the CURRENT overlay", async () => {
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({
+      overlays: [
+        overlay({ id: "stale", supersededBy: "ov1" }), // stale record, must be ignored
+        overlay({ id: "ov1", notScoredReason: null, effectiveExecutionScore: 7, scoringVersion: 1, origin: "self-directed" }),
+      ],
+      updatedAt: "",
+    });
+    await addCoachNote(TODAY, []);
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
   });
 });
