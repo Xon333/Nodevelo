@@ -13,6 +13,7 @@ import {
   type ScoringCalibration,
 } from "./execution-score";
 import { aerobicEffPct, z2PwHrBaselineBefore } from "./aerobic";
+import { utcToday } from "./date";
 import { EXPECTS_EMBEDDED_EFFORTS } from "./durability-score";
 import { inferWorkoutType } from "./ride-classify";
 import { countsAsDrift } from "./ride-origin";
@@ -148,7 +149,10 @@ export function buildRideScores(
   block: CurrentBlock | null,
   activities: ActivitySummary[],
   ftpForDate: (date: string) => number,
-  today: string = new Date().toISOString().slice(0, 10),
+  // HR-61: named helper, not an inline literal, so this UTC-fallback default is greppable
+  // against AGENTS.md's "today must be local" bug class. Every real caller (app/api/sync/route.ts)
+  // already passes the athlete's local today explicitly; this only fires if a future caller omits it.
+  today: string = utcToday(),
   // Marks where structured training begins (the first block's start). Off-plan rides BEFORE
   // it are still stored as history, but flagged `legacy` so they're excluded from the
   // execution-quality metric and the drift signal — there was no plan for them to be "off."

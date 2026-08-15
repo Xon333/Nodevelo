@@ -2345,7 +2345,7 @@ clean. Design/build record:
   `fuel.fuelingState` (low/adequate/ample band) + `fuel.intakeVsNeed` (kcal/kg) slots, renders on both LLM
   paths (`formatCoachSnapshot` + `formatFormFuelLine`, framed as a body-weight proxy) and the athlete-facing
   `CoachSnapshotCard`. Null until ≥3 complete logged days. The coach can finally reason about under-fueling.
-  _[coach-snapshot.ts](lib/coach-snapshot.ts) · [nutrition.ts](lib/nutrition.ts) · [CoachSnapshotCard.tsx](components/CoachSnapshotCard.tsx)._
+  _[coach-snapshot.ts](lib/coach-snapshot.ts) · [nutrition.ts](lib/nutrition.ts) · [AthleteStateCard.tsx](components/AthleteStateCard.tsx)._
 - **EA reads low/adequate/ample.** New pure `eaLevel()` — soft, non-clinical bands shifted to a body-weight
   basis (the FFM 30/45 cutoffs don't map), framed as a rough reference. _[nutrition.ts](lib/nutrition.ts) · [dashboard/today.tsx](components/dashboard/today.tsx)._
 - **RPE dropped as an athlete-state driver (revisit later).** Over-swung the state against a ~0 baseline (no

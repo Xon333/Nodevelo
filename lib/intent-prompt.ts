@@ -1,6 +1,6 @@
 export const INTENT_PROMPT_VERSION = 2;
 export const INTENT_NOTE_MAX_CHARS = 2000;
-export const INTENT_REFUSAL_RULE = "Extract only what the athlete explicitly stated; never invent specificity.";
+const INTENT_REFUSAL_RULE = "Extract only what the athlete explicitly stated; never invent specificity.";
 
 export function buildIntentPrompt(note: string, rideDurationMin: number): string {
   const clipped =

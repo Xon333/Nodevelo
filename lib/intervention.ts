@@ -14,6 +14,7 @@ import type {
   SyncData,
   ValidationSummary,
 } from "./types";
+import { utcToday } from "./date";
 import { WORKOUT_TYPES } from "./types";
 
 const HORIZON_DAYS = 28; // evaluate a block's interventions after ~4 weeks
@@ -126,7 +127,8 @@ export function validateInterventions(
   log: InterventionLog,
   model: AthleteModel,
   sync: SyncData | null,
-  today: string = new Date().toISOString().slice(0, 10)
+  // HR-61: named helper, not an inline literal — see lib/score-log.ts's buildRideScores for why.
+  today: string = utcToday()
 ): { log: InterventionLog; changed: boolean } {
   let changed = false;
   const records = log.records.map((r) => {

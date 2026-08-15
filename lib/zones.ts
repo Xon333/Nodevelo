@@ -13,7 +13,7 @@ export interface Zone {
 // tracks their zone definitions and any FTP/zone change, rather than a hardcoded table. Malformed/absent
 // zones fall back to the population defaults below, which match the execution scorer's zone model
 // (execution-score.ts: Z2 = IF 0.60–0.74, recovery < 0.60) so the label can't contradict the score.
-export const DEFAULT_IF_BAND_TOPS = [0.6, 0.76, 0.91, 1.05, 1.15] as const; // recovery|endurance|tempo|threshold|VO2max|(>)anaerobic
+const DEFAULT_IF_BAND_TOPS = [0.6, 0.76, 0.91, 1.05, 1.15] as const; // recovery|endurance|tempo|threshold|VO2max|(>)anaerobic
 const IF_BAND_LABELS = ["recovery", "endurance", "tempo", "threshold", "VO2max", "anaerobic"] as const;
 
 export function ifBandLabel(intensityFactor: number, zoneTopsPct?: number[] | null): string {

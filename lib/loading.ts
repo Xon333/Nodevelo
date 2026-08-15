@@ -9,7 +9,7 @@ import type { CurrentBlock, CurrentBlockDay, RideScoreEntry } from "./types";
 // Day-before loading target: 7 g/kg — midpoint of the KB's 6–8 g/kg high-fueling-day band for a hard
 // training day (NOT the 10–12 g/kg race carb-load; that's 6a's territory). Population default; a
 // per-athlete derivation is a later Track C leg once actual grams (not just loaded/skipped) accrue.
-export const PRELOAD_G_PER_KG = 7;
+const PRELOAD_G_PER_KG = 7;
 
 export function preLoadTargetG(weightKg: number): number {
   return Math.round((PRELOAD_G_PER_KG * weightKg) / 10) * 10;

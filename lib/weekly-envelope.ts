@@ -42,7 +42,7 @@ export function classifyWeekTolerance(input: {
 // resolveWeeklyEnvelope — anchor, role, range, Monday recompute vs. every-sync reduction
 // ---------------------------------------------------------------------------
 
-export const WEEKLY_ENVELOPE_CALCULATION_VERSION = 1;
+const WEEKLY_ENVELOPE_CALCULATION_VERSION = 1;
 const RANGE_BAND_PCT = 0.075; // ±7.5%, within design §8.2's "roughly ±7-8%"
 const RECENT_WEEKS_FOR_ANCHOR = 8;
 

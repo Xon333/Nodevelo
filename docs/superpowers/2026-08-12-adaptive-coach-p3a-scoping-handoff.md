@@ -1,7 +1,7 @@
 # Adaptive self-directed coach — Phase 3a scoping handoff
 
 **Superseded 2026-08-13 — Phase 3a shipped.** This briefing did its job (the design/plan/implementation
-it kicked off are in [ARCHIVE.md](../../ARCHIVE.md#adaptive-self-directed-coach--phases-13a-2026-08-0613));
+it kicked off are in [ARCHIVE.md](../../ARCHIVE.md#adaptive-self-directed-coach--phases-13c-2026-08-0614));
 kept as a historical record, not a live pointer. For what Phase 3a actually built, read the design
 (`docs/superpowers/specs/2026-08-12-adaptive-coach-p3a-no-block-today-design.md`) and plan
 (`docs/superpowers/plans/2026-08-13-adaptive-coach-p3a-no-block-today.md`) directly.
