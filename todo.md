@@ -14,6 +14,129 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
+**Post-2026-08-15 debrief audit (NV-1…NV-14).** External audit of the self-directed debrief path,
+ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
+an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
+NV-3 was already a tracked deferral.
+
+> **Sequencing trap: NV-9 must land before NV-10.** The poisoned zone denominator is masked *only*
+> by the fact that parsing currently fails. Fix the parser first and you activate the bug.
+
+- ☐ P1 `bug` **NV-9 — Intervals' overlapping Sweet Spot bucket reaches the intent scorer.**
+  `zoneSecs` ([intervals-api.ts:134](lib/intervals-api.ts:134)) passes the raw array through
+  unfiltered; [intent-runner.ts:114](lib/intent-runner.ts:114) feeds it to the scorer, whose
+  denominator sums *every* element ([intent-scoring.ts:237](lib/intent-scoring.ts:237)). Live proof
+  2026-08-15: `[551,1504,2410,906,249,51,19,1518]` — first 7 = 5690s = the whole ride
+  (`movingTimeSec` 5689); the 8th adds 1518s more. 2026-08-14's first 7 = 7577s = its moving time
+  *exactly*. A successful parse would consume 120 min of "zone time" from a 95 min ride. The daily
+  coach path escapes it only because sync re-buckets from streams
+  ([sync/route.ts:839](app/api/sync/route.ts:839)). Fix at the Intervals boundary so both consumers
+  read one normalized array; assert exclusive totals can't materially exceed ride duration.
+- ☐ P1 `bug` **NV-13 — today's fuel stamp is never frozen into the ledger.** The live-today patch
+  re-stamps `calStampFor`/`intervals`/`durabilityDelivery`/`easyStampFor` but **not** `fuelStampFor`
+  ([sync/route.ts:970-1008](app/api/sync/route.ts:970)), and `mergeScoreLog`'s append-only rule lets
+  the earlier carbs-free entry win ([score-log.ts:349](lib/score-log.ts:349)). Live proof: 2026-08-15
+  logged 77g but its ledger entry has no `fuel` key (would be 48.7 g/h); 2026-08-14's 77g stamped
+  correctly as 36.6. Doesn't change the displayed calorie target — silently loses the ride as future
+  fueling-learning provenance. One-line fix; pure data loss every day it waits.
+- ☐ P1 `bug` **NV-11 — zone percentages silently exclude coasting.** `fmtZones`
+  ([anthropic-prompts.ts:403](lib/anthropic-prompts.ts:403)) divides by the sum of *classified* zone
+  seconds. Live proof: 2026-08-15's re-bucketed zones sum 5510s vs 5689s ride — the 179s gap is
+  no-power time, and the stored `coachNote` says "42% of time in Z3" (2303/5510 = 41.8%; against
+  ride time 40.5%). Small numerically, but the denominator hides the exact behaviour ("limit
+  coasting") the note was discussing. Decide: relabel "of powered time", or make zero-power an
+  explicit denominator category.
+- ☐ P1 `bug` **NV-10 — intent-parser failures are opaque and terminal.** `parseRideIntent` collapses
+  every completed-but-invalid response to `null`, discarding `stop_reason` and the Zod issues
+  ([anthropic-api.ts:95-114](lib/anthropic-api.ts:95)); the runner records only `interpreter-failed`
+  ([intent-runner.ts:101](lib/intent-runner.ts:101)); `needsParse` then treats the stored overlay as
+  decided, so only a forced reanalysis retries ([intent-queue.ts:101](lib/intent-queue.ts:101)). Live
+  proof: 2026-08-15 failed twice on the same fingerprint `521dd9525775bd29` (`08:08:43.245Z`, forced
+  retry `08:10:01.275Z`), both with `interpretation: null` and zero diagnostics. Return + persist a
+  bounded failure category (`max-tokens` / `missing-tool-use` / `schema-invalid` with sanitized issue
+  paths / provider-failure) retaining `stop_reason`. **Do not raise `max_tokens` as a guess** — the
+  leading untested hypothesis is that the 3-item note fans out past `max_tokens: 900`, but observe the
+  real failure first. Add that note as a regression fixture, then one live smoke run (AGENTS.md's
+  LLM-path contract).
+- ☐ P1 `bug` **NV-1 + NV-4 — split-brain debrief (the root architectural problem).** Coach prose runs
+  and completes *before* intent interpretation ([SyncProvider.tsx:143](components/SyncProvider.tsx:143)
+  awaits `/api/analyze`, then loops `/api/intent`) — live proof: prose `analysedAt 08:09:49.496Z`,
+  overlay `createdAt 08:10:01.275Z`. Result: a confident execution judgment rendered beside "the ride
+  note couldn't be parsed." **Reordering alone does not fix this** —
+  `buildRideAnalysisPrompt` passes the raw note (`activityDescription`) into the prose prompt
+  independently of any overlay ([anthropic-prompts.ts:479](lib/anthropic-prompts.ts:479)), which is
+  *how* the coach judged an intent the parser rejected. Build one evidence bundle (interpretation +
+  matched intervals + objective verdicts + aggregates) and generate prose from it. **Locked product
+  decision 2026-08-15: on parse failure, suppress all intent-execution judgment** — metric-level
+  commentary only, and the raw note is withheld from the prompt (or passed under an explicit "unparsed
+  — do not evaluate intent against this" instruction). A labelled "unverified interpretation" is
+  exactly what shipped 2026-08-15 and it failed: labels sit *next to* a confident paragraph, they don't
+  contain it. Also split the four states `assessScoreability` currently collapses into one
+  `no-measurable-objectives` string (no gradable target / target not grounded / scope too small /
+  terrain-or-phase unmatched) — it returns that reason at both
+  [1038](lib/intent-scoring.ts:1038) and [1041](lib/intent-scoring.ts:1041), rendering one message at
+  [intent-display.ts:16](lib/intent-display.ts:16).
+- ☐ P2 `bug` **NV-2 — zone syntax is represented inconsistently.** `zoneIndex` accepts `"2"`
+  ([intent-scoring.ts:211](lib/intent-scoring.ts:211)) but `groundsZone` requires `/^Z[1-7]$/`
+  ([intent-grounding.ts:86](lib/intent-grounding.ts:86)), so `"2"` *and* ranges like `"3-4"` are
+  unrepresentable and get reported as not-grounded. Live proof: 2026-08-13/14 overlays carry zones
+  `"2"` and `"3-4"` with `evidence: "not grounded in the note"` despite the athlete stating them
+  explicitly. Needs one shared zone-expression parser (`2`, `Z2`, `zone 2`, `Z3–Z4`, `z2,z3`).
+  **Normalization alone is insufficient** — "Z2 on flats" and "Z3/Z4 on climbs" also need their
+  terrain/phase scope preserved, or a correctly-normalized zone is compared against the wrong part of
+  the ride.
+- ☐ P2 `bug` **NV-3 — compound interval labels create false terrain matches.** `hasLabelHint` uses
+  substring inclusion ([intent-scoring.ts:575](lib/intent-scoring.ts:575)) and label is the primary
+  signal, bypassing the gradient floor — so `Rolling climb/descents` graded as a pure descent. Live
+  proof: stored evidence `"15.9 min descent (labelled) — avg -0.6%, max 10.4%, VI 1.08"`. Already a
+  documented deferral ([02-scoring-and-learning.md:160](docs/systems/02-scoring-and-learning.md:160),
+  P3c Gap A) because the 25-payload gate found no trough-gradient field. **New angle that needs no new
+  data:** a label matching *both* terrain vocabularies is compound by its own text — detect that
+  deterministically and exclude it, which P3c's "compound exclusion does not apply to a labelled lap"
+  decision never considered (it reasoned about a lap labelled plainly "Climb").
+- ☐ P2 `feat` **NV-7 + NV-5 + NV-6 — evidence-bound prose and descending safety.** The prose prompt
+  ([anthropic-prompts.ts:508](lib/anthropic-prompts.ts:508)) has no rule classifying a claim as
+  measured / inferred / athlete-reported / not-measurable, and no safety constraint of any kind.
+  Live proof 2026-08-15: `intervalComparison: null`, prompt carried only aggregate zones + whole-ride
+  cadence + the raw note, yet the note asserted "the aero position discipline and constant-pressure
+  approach are **clearly working** as a durability tool" — an athlete-reported *method* stated as a
+  measured cause. (The audit's own cited example, "likely the puncher and some terrain", is actually
+  hedged in the stored note — the aero sentence is the real defect.) Terrain/phase causality stays
+  *inferred* unless timestamped segment evidence exists; posture and skill quality can never become
+  *measured*. **NV-5 narrowed:** today's −2.9% decoupling was legitimately supplied (237/288 = 0.82,
+  VI 1.058 → passes [aerobic.ts:116](lib/aerobic.ts:116)); the only gap is claim strength — one
+  negative-decoupling result is a good on-the-day durability read, not proof of durable adaptation.
+  **NV-6:** descending advice needs an explicit safety constraint — coasting and braking are correct
+  in corners, traffic, poor surfaces and technical descents
+  ([British Cycling descending guidance](https://www.britishcycling.org.uk/knowledge/training/article/izn20180117-Get-Started-Descending---Top-10-tips-0)),
+  so a low coasting figure must never become unconditional "no coasting" advice.
+- ☐ P2 `feat` **NV-14 — interval speed as evidence (never as a graded target).** `fetchIntervals`
+  retains power/HR/cadence/gradient but maps no speed
+  ([intervals-api.ts:192](lib/intervals-api.ts:192)), so a speed-at-power outcome can't be stated.
+  **Verified 2026-08-15 that this does NOT reopen Phase 2c's locked decision**
+  ([p2c plan:2079-2086](docs/superpowers/plans/2026-08-12-adaptive-coach-p2c-debrief-ui.md:2079)):
+  that decision bans a distance/GPS *position-locator system*, while its bullet 4 admits "metrics
+  already attached to each curated interval" — which `average_speed` is. Follows Task 11's own
+  precedent exactly (`avgCadence` was dropped for having no consumer, then correctly added in P3b when
+  one existed). **Locked scope 2026-08-15 (athlete's call): evidence-only.** Add `avgSpeedKph` to
+  `ExecutedInterval` and attach it to the matched-lap evidence string alongside gradient/VAM; do
+  **not** add speed to `TargetSchema`, so no objective is ever scored on it — speed is confounded by
+  wind, drafting, surface and tyres, and grading it would score the athlete on weather. Aero-position
+  claims stay `qualitative` ("no sensor can establish skill quality"), which is already correct.
+  **Gate it on a live payload check first** — `average_speed`'s presence is an assumption, and
+  `Maxgradient`'s casing surprise proves this payload can't be assumed. Absent → don't invent it.
+- ☐ P3 `bug` **NV-8 — prose completion is not audited.** `analyseRide` uses a fixed `max_tokens: 280`
+  and returns only concatenated text, discarding `stop_reason`
+  ([anthropic-api.ts:147](lib/anthropic-api.ts:147)) — the code cannot tell a finished answer from a
+  token-limit cutoff. The pattern already exists next door: `GenerationResult` carries `stopReason` and
+  `truncated` for the tool path; apply it here.
+- ☐ P3 `bug` **NV-12 — off-plan tempo is stored as "Threshold".** `inferWorkoutType` maps every IF
+  from 0.75 to 0.89 into that bucket ([ride-classify.ts:13](lib/ride-classify.ts:13)); both 2026-08-14
+  (IF 0.78) and 2026-08-15 (IF 0.82) persist as `inferredType: "Threshold"` while the visible output
+  correctly calls the latter tempo. Deliberately broad — the file header already scopes it "never for
+  adherence judgement" — but the *name* can leak into trend labels and hard-session/fueling logic.
+  Rename to a neutral band, or replace with intent-derived type once interpretation succeeds.
+
 **Block-generation architecture follow-ons.** Shipped work → [ARCHIVE.md](ARCHIVE.md). Known gaps →
 [docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
 
