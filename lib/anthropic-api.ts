@@ -202,6 +202,14 @@ export async function parseRideIntent(note: string, rideDurationMin: number): Pr
 
 // ---------- Today's ride analysis ----------
 
+// Live-confirmed 2026-08-15, the same day NV-8's truncation-audit shipped: 280 was sized before NV-7's
+// evidence-bound-prose instructions (measured/inferred/athlete-reported discipline, the decoupling
+// claim-strength clause, descending safety) lengthened what the model needs to write to satisfy them —
+// a real note cut off mid-sentence ("For next session, the") the very first time NV-8's new stopReason
+// check ran against production. No longer a guess: raised with direct evidence, same as NV-10's
+// intent-parsing budget.
+const RIDE_ANALYSIS_MAX_TOKENS = 450;
+
 export async function analyseRide(input: RideAnalysisInput): Promise<ProseResult> {
   if (!isAnthropicConfigured()) {
     throw new Error("Anthropic API is not configured.");
@@ -209,7 +217,7 @@ export async function analyseRide(input: RideAnalysisInput): Promise<ProseResult
   const client = getClient();
   const response = await client.messages.create({
     model: GENERATION_MODEL,
-    max_tokens: 280,
+    max_tokens: RIDE_ANALYSIS_MAX_TOKENS,
     temperature: 0.3,
     messages: [{ role: "user", content: buildRideAnalysisPrompt(input) }],
   });
