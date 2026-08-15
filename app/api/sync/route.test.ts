@@ -1107,9 +1107,9 @@ describe("POST /api/sync — today-ride analysis path", () => {
     // `executed` is a separate guard (re-review fix): it now short-circuits to a null comparison
     // instead of freezing a fabricated 0%-adherence stamp onto the immutable ledger.
     vi.mocked(api.fetchIntervals).mockResolvedValue([
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
     ]);
     await postSync();
     // Proves the today-patch freezes a real comparison's stamp rather than silently dropping it (the
@@ -1182,7 +1182,7 @@ describe("POST /api/sync — today-ride analysis path", () => {
     // makes intervalComparison genuinely non-null too (Finding 3 guard was previously unexercised: the
     // default empty fetchIntervals mock left intervalComparison null regardless of the guard clause).
     vi.mocked(api.fetchIntervals).mockResolvedValue([
-      { type: "WORK", durationSec: 240, avgWatts: 230, npWatts: 230, avgHr: 165, startIndex: 600, endIndex: 700, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
+      { type: "WORK", durationSec: 240, avgWatts: 230, npWatts: 230, avgHr: 165, startIndex: 600, endIndex: 700, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
     ]);
     await postSync();
     expect(scoreEntries.find((e) => e.date === TODAY)?.intervals).toBeUndefined();
@@ -1346,9 +1346,9 @@ describe("POST /api/sync — birth-time interval-adherence fetch (late-sync gap)
   it("fetches intervals exactly once for a fresh past planned Threshold date and stamps the merged entry", async () => {
     seedPastCandidate();
     vi.mocked(api.fetchIntervals).mockResolvedValue([
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
     ]);
     const res = await postSync();
     expect(res.status).toBe(200);
@@ -1375,9 +1375,9 @@ describe("POST /api/sync — birth-time interval-adherence fetch (late-sync gap)
       mkSync({ activities: [mkActivity({ id: "past1", date: PAST_DATE })] })
     );
     vi.mocked(api.fetchIntervals).mockResolvedValue([
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
-      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 0, endIndex: 100, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 200, endIndex: 300, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
+      { type: "WORK", durationSec: 720, avgWatts: 190, npWatts: 192, avgHr: 155, startIndex: 400, endIndex: 500, avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null, avgSpeedKph: null },
     ]);
     const res = await postSync();
     expect(res.status).toBe(200);

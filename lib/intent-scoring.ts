@@ -947,6 +947,10 @@ function gradeTerrain(objective: ScoredObjective, pool: ExecutedInterval[]): Ver
       ? `VAM ${Math.round(vam(primary.elevationGainM, primary.durationSec))} m/h`
       : null,
     viEvidenceText(matched), // R11 fix — climb AND descent both get VI, unlike VAM above
+    // NV-14: evidence only, never a grading input — surfaced alongside gradient/VAM so a
+    // speed-at-power claim ("kept the speed up") reads as measured context, same as this lap's
+    // gradient already does. Both terrains get it (unlike VAM, climb-only by physical meaning).
+    primary.avgSpeedKph != null ? `${primary.avgSpeedKph.toFixed(1)} km/h` : null,
   ].filter((part): part is string => part !== null);
   const context = contextParts.length > 0 ? ` — ${contextParts.join(", ")}` : "";
   const source = labelled ? "labelled" : "matched by gradient";

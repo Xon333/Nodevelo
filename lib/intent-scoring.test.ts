@@ -93,6 +93,7 @@ function lap(durationSec: number, avgWatts: number | null, startIndex: number | 
     maxGradientPct: null,
     elevationGainM: null,
     label: null,
+    avgSpeedKph: null,
   };
 }
 
@@ -923,6 +924,23 @@ describe("gradeTerrain (via gradeObjective)", () => {
     expect(result.delta).toBeGreaterThanOrEqual(1);
     expect(result.objective.evidence).toMatch(/climb/i);
     expect(result.objective.evidence).toMatch(/labelled/i);
+  });
+
+  // NV-14 (2026-08-15): evidence-only, live-confirmed present on the real Intervals.icu payload
+  // (`average_speed`, m/s) before adding — surfaced alongside gradient/VAM, never a scoring input.
+  it("surfaces speed as evidence context alongside gradient/VAM, never as a grading input", () => {
+    const o = obj("terrain", { terrain: "climb", durationMin: 8 });
+    const climbLap = { ...lap(480, 220, 0), label: "Climb 1", maxGradientPct: 9.2, elevationGainM: 120, avgSpeedKph: 18.4 };
+    const withoutSpeed = { ...climbLap, avgSpeedKph: null };
+    const ev = evidence({ laps: [climbLap] });
+    const evNoSpeed = evidence({ laps: [withoutSpeed] });
+    const result = gradeObjective(o, ev, { laps: ev.laps });
+    const resultNoSpeed = gradeObjective(o, evNoSpeed, { laps: evNoSpeed.laps });
+    expect(result.objective.evidence).toContain("18.4 km/h");
+    expect(resultNoSpeed.objective.evidence).not.toContain("km/h");
+    // Same delta/score with or without speed present — it never moves the grade.
+    expect(result.delta).toBe(resultNoSpeed.delta);
+    expect(result.objective.scored).toBe(resultNoSpeed.objective.scored);
   });
 
   it("falls back to gradient when no label matches, and says so in evidence", () => {

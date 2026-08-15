@@ -18,6 +18,7 @@ const work = (startIndex: number, endIndex: number): ExecutedInterval => ({
   maxGradientPct: null,
   elevationGainM: null,
   label: null,
+  avgSpeedKph: null,
 });
 
 describe("buildRideTrace", () => {
