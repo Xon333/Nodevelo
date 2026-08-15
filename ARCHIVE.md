@@ -56,6 +56,36 @@ NV-9's defect is masked only by the current parser failure.
   parsed." NV-2's zone-syntax gap (`"3"`/`"2-3"` not matching the grounding regex) is now visible as
   the next open defect in the same overlay's objectives — expected, tracked separately.
 
+## Split-brain debrief + not-scored-reason granularity — NV-1, NV-4 (2026-08-15, PR #58)
+
+- **NV-1 · sequencing + evidence gating:** coach prose used to read the raw ride note independently of
+  the intent parser's own verdict on that note, and ran BEFORE intent parsing completed
+  (`components/SyncProvider.tsx` awaited `/api/analyze` first, then looped `/api/intent`) — so a note
+  the parser was about to reject could still drive a confident, prose-only intent-execution judgment
+  sitting right next to the debrief card's own "Not scored" state. Fixed on two levels, per the locked
+  product decision: the intent-parsing loop now runs to completion before `/api/analyze` fires (order
+  live-confirmed via network trace: `POST /api/intent` completes before `POST /api/analyze` starts),
+  and `addCoachNote` (`lib/sync-analysis.ts`) reads today's now-guaranteed-resolved overlay and
+  withholds the raw note from the prose prompt entirely when the parse genuinely failed
+  (`notScoredReason === "interpreter-failed"`) — metric-level commentary only, same as a no-note ride.
+  The raw note stays visible elsewhere on the page (the debrief's own "Your note" card); only the
+  PROSE prompt is gated. Live-verified the reordering and the unaffected note-passthrough path against
+  a real sync; the withhold branch itself is unit-tested (4 cases: interpreter-failed → withheld, no
+  overlay → passed through, resolved overlay → passed through, superseded overlay ignored) but could
+  not be live-fired the same day, since NV-10's fix (above) had already resolved the one real failure
+  in play — noted as a live-verification gap, not a defect.
+- **NV-4 · not-scored-reason granularity:** `assessScoreability`'s single `no-measurable-objectives`
+  reason conflated four situations. Split using signals already available at the call site
+  (`lib/intent-scoring.ts`): `gradableCount < 1` now distinguishes `no-measurable-objectives` (nothing
+  of a gradable KIND was even stated) from `target-not-grounded` (a gradable-kind target was stated,
+  but grounding rejected it); `scopeMin < required` now distinguishes `insufficient-scope` (something
+  matched, just not enough of the ride) from `target-not-matched` (`scopeMin` exactly 0 despite a
+  gradable, grounded target — nothing in the ride data matched it at all). All four remain compatible
+  with `origin: "self-directed"`, exactly as the original single reason was. `NO_TRUSTWORTHY_INTENT`
+  (`lib/intent-overlay.ts`) is now exported as the single source of truth for the reasons meaning the
+  opposite (`unspecified`) — `buildOverlay`'s `selfDirected` derives from its negation instead of
+  maintaining a second, driftable list of "which reasons count as self-directed."
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
