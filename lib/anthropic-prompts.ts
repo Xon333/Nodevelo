@@ -523,8 +523,25 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
     ? " This was a prescribed easy day: judge \"was it actually easy\" ONLY by the HR-judged discipline line — do not judge easy-ride discipline from the power-zone distribution or call power spread \"zone creep\": outdoor watts spike on descents, rollers, restarts and corners even on a perfectly ridden easy ride, and the execution score already accounts for this."
     : "";
 
+  // NV-5/NV-7/NV-6 (2026-08-15): evidence-bound prose + descending safety. Live-confirmed defect —
+  // with intervalComparison null and no per-segment evidence, the coach still wrote "the aero position
+  // discipline and constant-pressure approach are clearly working as a durability tool": an
+  // athlete-REPORTED method (was the aero position actually held?) stated as a measured, confirmed
+  // outcome. No sensor in this prompt can confirm posture or technique — only the numbers above can be
+  // "measured"; a cause the model constructs (terrain, a specific effort) is INFERRED and must stay
+  // hedged unless timestamped per-segment evidence is given (this prompt never gives any); and a
+  // technique/position the athlete reports may be connected to a measured outcome but its own
+  // effectiveness is never itself measured.
+  const evidenceDiscipline =
+    " Match every claim to its evidence tier: a number given above (power, HR, cadence, decoupling, zone-time) may be stated as measured fact; a cause you're inferring — terrain, a specific effort, fatigue — must stay hedged as \"likely\"/\"probably\" unless timestamped per-segment evidence is given, never asserted outright; and a technique or position the athlete reports using (aero tuck, cadence focus, pacing) is athlete-reported, not measured — you may connect it to a measured outcome, but never call the technique itself \"working\" or confirmed, since no sensor here establishes posture or skill quality. Treat a single ride's Pw:HR drift reading the same way: a good or poor on-the-day durability signal, never proof of a lasting physiological adaptation.";
+  // NV-6: coasting/braking is the SAFE, correct choice in corners, traffic, poor surfaces and technical
+  // descents (British Cycling's own descending guidance leads with observation, braking and line choice,
+  // not uninterrupted pedalling) — a low coasting share must never become blanket "eliminate coasting".
+  const descendingSafety =
+    " Never turn a low coasting share into blanket \"stop coasting\" advice — braking and coasting are the correct, safer choice in corners, traffic, on poor surfaces and technical descents, so frame any coasting note around sustained-effort sections, not descents in general.";
+
   return [
-    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days." + disciplineInstruction + " Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
+    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days." + evidenceDiscipline + descendingSafety + disciplineInstruction + " Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
     "",
     planned,
     header,
