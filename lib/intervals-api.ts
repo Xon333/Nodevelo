@@ -12,6 +12,7 @@ import type {
   SyncData,
   WellnessEntry,
 } from "./types";
+import { utcToday } from "./date";
 import { parseSportSettings } from "./physiology";
 
 const BASE_URL = "https://intervals.icu/api/v1";
@@ -312,7 +313,8 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
 // truth for physiology. Best-effort: null on any failure so a missing endpoint never breaks
 // sync. The Ride setting is selected and mapped to a snapshot in parseSportSettings.
 export async function fetchSportSettings(
-  today: string = new Date().toISOString().slice(0, 10)
+  // HR-61: named helper, not an inline literal — see lib/score-log.ts's buildRideScores for why.
+  today: string = utcToday()
 ): Promise<PhysiologySnapshot | null> {
   try {
     const data = await icuFetch(athletePath(`/sport-settings`));
@@ -400,13 +402,13 @@ async function fetchCurve(spec: string): Promise<PowerCurvePoint[]> {
 }
 
 // Best efforts over the last 84 days — the recent-form curve (intervention markers, generation).
-export function fetchPowerCurve(): Promise<PowerCurvePoint[]> {
+function fetchPowerCurve(): Promise<PowerCurvePoint[]> {
   return fetchCurve("84d");
 }
 
 // All-time best efforts — the athlete's true PRs. Monotonic (only rises), so it's the stable
 // baseline for PR detection + the Profile "all-time PRs" display.
-export function fetchPowerCurveAllTime(): Promise<PowerCurvePoint[]> {
+function fetchPowerCurveAllTime(): Promise<PowerCurvePoint[]> {
   return fetchCurve("all");
 }
 
@@ -492,7 +494,7 @@ export function isSuspectEmptySync(prev: SyncData | null, fresh: SyncData): bool
 // Delete one calendar event by id (DELETE /athlete/{id}/events/{eventId}). Used to roll back a
 // partially-written block and to clear a block's planned-workout events when it's discarded/replaced
 // (RV-9). Throws IntervalsApiError on failure so the bulk wrapper can report which ids didn't delete.
-export async function deleteEvent(eventId: number): Promise<void> {
+async function deleteEvent(eventId: number): Promise<void> {
   await icuFetch(athletePath(`/events/${encodeURIComponent(String(eventId))}`), { method: "DELETE" });
 }
 
