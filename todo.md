@@ -40,13 +40,11 @@ unlabelled compound lap remains undetectable (same doc, P3c Gap A's narrower rem
   freed minutes actually land. If a week still misses, read the `SKELETON:` warnings first — they name
   the exact day and slot.
 
-**Post-2026-08-03: hybrid Claude + Codex workflow — shipped but not exercised live yet.** Sequential
-handoff is proven (3 Codex PRs landed 2026-08-03, zero regressions); the concurrency half of the
-design has not been exercised.
-
-- ☐ `audit` Two-agent concurrency dry run — deliberately run Claude and Codex at the same time on
-  disjoint files, and separately exercise the same-file writer/reviewer fallback once, before relying
-  on either under real time pressure.
+**Post-2026-08-03: hybrid Claude + Codex workflow.** Sequential handoff proven 2026-08-03 (3 Codex PRs,
+zero regressions); mechanical concurrency dry-run done 2026-08-15 (PRs #72–#74) →
+[ARCHIVE.md](ARCHIVE.md) and [WORKFLOW.md § Two agents at once](WORKFLOW.md#two-agents-at-once).
+Genuine two-human/two-session concurrency (as opposed to one Claude session orchestrating both agents)
+remains untested — revisit only if that distinction starts to matter in practice.
 
 ---
 

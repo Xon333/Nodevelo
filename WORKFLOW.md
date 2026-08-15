@@ -91,9 +91,15 @@ merges.
   session owns a task branch.
 - T3 Code is an optional control surface. It follows the same branch and finish-command contract; the
   repository does not depend on T3 Code.
-- **Not yet exercised live:** every Codex PR so far landed sequentially, not concurrently with Claude.
-  Treat true concurrency and the same-file writer/reviewer fallback as unproven until deliberately
-  dry-run once — tracked in [todo.md](todo.md).
+- **Dry-run exercised 2026-08-15 (PRs #72–#74, detail in [ARCHIVE.md](ARCHIVE.md)).** The mechanical
+  half held under real simultaneous access: `codex/*` and `claude/*` worktrees created off the same
+  `origin/main` at once, a real `codex` process running independently while a genuine Claude task ran
+  concurrently in a separate worktree, and `finish:agent-task`'s per-prefix behavior (`claude/*`
+  auto-merges, `codex/*` opens a PR and stops) both fired correctly. The same-file writer/reviewer
+  fallback held too — Codex was the sole writer on one file, Claude never opened a competing branch on
+  it, only reviewed the finished PR. **Still not proven:** genuine two-human/two-session concurrency —
+  this run was single-orchestrator (one Claude session drove both agents via headless `codex exec`),
+  so races a live human-driven Codex Desktop/T3 Code session might introduce weren't exercised.
 
 ### When automation stops
 

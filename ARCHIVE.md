@@ -241,6 +241,37 @@ along the way (NV-9's poisoned zone denominator, NV-10's own truncation-categori
 900→1800 token-budget fix, and this section's NV-8-catches-NV-7 truncation) — the live-smoke-run
 discipline (AGENTS.md) earned its keep multiple times over, not just as a checkbox.
 
+## Two-agent concurrency dry run — mechanical half proven (2026-08-15, PRs #72–#74)
+
+`WORKFLOW.md`'s "Two agents at once" section had flagged true concurrency and the same-file
+writer/reviewer fallback as unproven — every Codex PR to date had landed sequentially. Dry-run before
+relying on either under real time pressure.
+
+- **Concurrency (disjoint files):** started `codex/nv-eslint-unused-vars-config` and
+  `claude/nv-execution-score-test-cleanup` off the same `origin/main` at once, then ran `codex exec`
+  as a genuine independent background process (confirmed alive via `ps`, not just a launched-and-idle
+  shell) while implementing and finishing the Claude side concurrently in its own worktree. Codex fixed
+  `eslint.config.mjs` (added a `^_` ignore pattern for this repo's established
+  "intentionally-unused-variable" convention, which it root-caused correctly on its own); Claude
+  removed an unused test import. Both `finish:agent-task` runs completed correctly under real
+  simultaneous access — `claude/*` auto-merged (PR #72), `codex/*` opened a PR and stopped short of
+  merging (PR #73), exactly the documented per-prefix behavior.
+- **Same-file writer/reviewer fallback:** assigned Codex sole ownership of
+  `prototypes/impeccable-audit/detect.mjs`'s one remaining lint fix; Claude deliberately never opened
+  a competing branch touching that file, only reviewed the finished PR (PR #74) per `WORKFLOW.md`'s
+  "Reviewing a codex PR" procedure (`gh pr diff`, checked against AGENTS.md's bug classes and
+  `docs/INVARIANTS.md`, squash-merged).
+- **Result:** repo-wide lint warnings dropped from the 14 that had held steady all session to 3 (one
+  genuine remaining case — `lib/nutrition.ts`'s `legacyBuffer`, an unused function parameter with
+  4 real call sites, deliberately left alone as bigger blast radius than this dry run's scope). PR #73
+  also surfaced 2 new, harmless "unused eslint-disable directive" warnings (stale suppression comments
+  the fixed rule no longer needs) — a minor, un-chased follow-up, not a regression.
+- **What this does NOT prove:** genuine two-human/two-session concurrency. This run was
+  single-orchestrator — one Claude session drove both agents, including invoking `codex exec`
+  headlessly via Bash rather than the user separately driving Codex Desktop/T3 Code. The mechanical
+  worktree/branch/finish-command isolation is now proven under real simultaneous filesystem access;
+  whether a genuinely independent, human-paced Codex session introduces different races remains open.
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
