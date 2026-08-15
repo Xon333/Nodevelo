@@ -5,6 +5,7 @@
 // fetch-and-lay-out shell.
 import type { RollingBaselines, WorkoutType } from "@/lib/types";
 import { TYPE_STYLES } from "@/lib/workout-types";
+import { inferredTypeLabel } from "@/lib/ride-classify";
 import { Card } from "../ui";
 import { useState } from "react";
 import type { Point, ScoreEntry, TrendBlock, TrendsData } from "./types";
@@ -125,7 +126,7 @@ export function ScoreBars({ scores }: { scores: ScoreEntry[] }) {
         {recent.map((e, i) => (
           <div
             key={i}
-            title={`${e.date} · ${e.plannedType ?? e.inferredType}${e.planned ? "" : " (off-plan)"} · ${e.executionScore}/10`}
+            title={`${e.date} · ${e.plannedType ?? inferredTypeLabel(e.inferredType, e.planned)}${e.planned ? "" : " (off-plan)"} · ${e.executionScore}/10`}
             className={`min-w-[2px] flex-1 rounded-sm transition-opacity hover:opacity-70 ${barColor(e.executionScore)}`}
             style={{ height: `${(e.executionScore / 10) * 100}%` }}
           />
