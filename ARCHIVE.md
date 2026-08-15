@@ -140,6 +140,38 @@ too — the exact overlay that surfaced this is 2026-08-14's activity `i17567201
   (avg -0.6%, max 10.4%, label "Rolling climb/descents"), then restored the fix and confirmed it
   passes. Pure deterministic scoring change, no LLM call involved — no live smoke run needed.
 
+## Evidence-bound prose + descending safety — NV-7, NV-5, NV-6 (2026-08-15, PR #64)
+
+Live-confirmed defect: with `intervalComparison: null` and no per-segment evidence, the coach note
+asserted "the aero position discipline and constant-pressure approach are **clearly working** as a
+durability tool" — an athlete-REPORTED method (was the position actually held?) stated as a confirmed,
+measured outcome. No sensor in this prompt can establish posture or skill quality.
+
+Three unconditional instruction clauses added to `buildRideAnalysisPrompt`
+(`lib/anthropic-prompts.ts`):
+
+- **NV-7:** every claim must match its evidence tier — a number given in the prompt (power, HR,
+  cadence, decoupling, zone-time) may be stated as measured fact; an inferred cause (terrain, a
+  specific effort, fatigue) must stay hedged as likely/probably unless timestamped per-segment evidence
+  is given (this prompt never gives any); a technique/position the athlete reports using may be
+  connected to a measured outcome, but its own effectiveness is never itself measured.
+- **NV-5 (narrowed):** a single ride's Pw:HR drift reading is a good/poor on-the-day durability signal
+  only, never proof of a lasting physiological adaptation.
+- **NV-6:** a low coasting share must never become blanket "stop coasting" advice — coasting and
+  braking are the correct, safer choice in corners, traffic, on poor surfaces and technical descents.
+
+**Live-verified post-merge** by forcing a real coach-note regeneration on the exact ride that surfaced
+the defect (today's aero-position note, still no interval comparison). The new note: *"The Pw:HR drift
+of -2.9% is a strong **on-the-day** aerobic durability signal"* (NV-5); *"The athlete-reported intent to
+hold aero position... aligns with the measured outcome of 89 rpm... though **posture and technique
+quality cannot be confirmed from the data alone**"* (NV-7 — the exact sentence the audit cited, now
+correctly separating reported method from measured outcome); *"the Z4 spike **likely reflects** the
+athlete-reported puncher effort"* (NV-7, hedged causality). `data/ai-usage.json`'s `updatedAt` matches
+the call timestamp, confirming a real Anthropic call. **NV-6 caveat:** this note reported coasting
+neutrally (3%, no escalation) rather than attempting a "stop coasting" recommendation, so the
+constraint wasn't exercised against its actual counterfactual — no violation observed, but not a full
+test either.
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or

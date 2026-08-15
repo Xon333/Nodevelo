@@ -23,23 +23,7 @@ own residual gap (zone claims aren't terrain/phase-scoped) is now a documented r
 [02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges), live-confirmed
 the same day, not yet its own ticket. NV-3 shipped 2026-08-15 (PR #62) → [ARCHIVE.md](ARCHIVE.md) —
 narrowed P3c's Gap A (label-text compound laps only); the unlabelled/data-detected half stays open,
-same doc.
-- ☐ P2 `feat` **NV-7 + NV-5 + NV-6 — evidence-bound prose and descending safety.** The prose prompt
-  ([anthropic-prompts.ts:508](lib/anthropic-prompts.ts:508)) has no rule classifying a claim as
-  measured / inferred / athlete-reported / not-measurable, and no safety constraint of any kind.
-  Live proof 2026-08-15: `intervalComparison: null`, prompt carried only aggregate zones + whole-ride
-  cadence + the raw note, yet the note asserted "the aero position discipline and constant-pressure
-  approach are **clearly working** as a durability tool" — an athlete-reported *method* stated as a
-  measured cause. (The audit's own cited example, "likely the puncher and some terrain", is actually
-  hedged in the stored note — the aero sentence is the real defect.) Terrain/phase causality stays
-  *inferred* unless timestamped segment evidence exists; posture and skill quality can never become
-  *measured*. **NV-5 narrowed:** today's −2.9% decoupling was legitimately supplied (237/288 = 0.82,
-  VI 1.058 → passes [aerobic.ts:116](lib/aerobic.ts:116)); the only gap is claim strength — one
-  negative-decoupling result is a good on-the-day durability read, not proof of durable adaptation.
-  **NV-6:** descending advice needs an explicit safety constraint — coasting and braking are correct
-  in corners, traffic, poor surfaces and technical descents
-  ([British Cycling descending guidance](https://www.britishcycling.org.uk/knowledge/training/article/izn20180117-Get-Started-Descending---Top-10-tips-0)),
-  so a low coasting figure must never become unconditional "no coasting" advice.
+same doc. NV-7/NV-5/NV-6 shipped 2026-08-15 (PR #64) → [ARCHIVE.md](ARCHIVE.md).
 - ☐ P2 `feat` **NV-14 — interval speed as evidence (never as a graded target).** `fetchIntervals`
   retains power/HR/cadence/gradient but maps no speed
   ([intervals-api.ts:192](lib/intervals-api.ts:192)), so a speed-at-power outcome can't be stated.
