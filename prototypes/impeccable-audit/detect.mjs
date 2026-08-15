@@ -117,7 +117,7 @@ for (const file of process.argv.slice(2)) {
 
   console.log(`\n${file}`);
   for (const f of findings) {
-    const [cat, sev] = RULES[f.id];
+    const [, sev] = RULES[f.id];
     counts[f.id] = (counts[f.id] || 0) + 1;
     total++;
     console.log(`  ${sev.padEnd(8)} ${f.id.padEnd(20)} L${f.line}  ${f.snippet}`);
