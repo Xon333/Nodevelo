@@ -229,6 +229,10 @@ export async function fetchIntervals(activityId: string): Promise<ExecutedInterv
         maxGradientPct: num(iv.Maxgradient),
         elevationGainM: num(iv.total_elevation_gain),
         label: typeof iv.label === "string" && iv.label.trim() ? iv.label : null,
+        // NV-14: live-confirmed present on the real payload as `average_speed`, in m/s (2026-08-15,
+        // activities i175672010 and i175980689, 13/13 curated intervals populated) — convert to km/h
+        // at this one boundary, same pattern as avgGradientPct's fraction-to-percent conversion above.
+        avgSpeedKph: (() => { const s = num(iv.average_speed); return s === null ? null : s * 3.6; })(),
       };
     });
   } catch {

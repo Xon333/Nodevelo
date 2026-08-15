@@ -25,6 +25,7 @@ const ex = (type: string, np: number, durationSec = 1200): ExecutedInterval => (
   maxGradientPct: null,
   elevationGainM: null,
   label: null,
+  avgSpeedKph: null,
 });
 
 describe("matchPrescription", () => {

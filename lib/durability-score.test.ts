@@ -8,6 +8,7 @@ const iv = (over: Partial<ExecutedInterval>): ExecutedInterval => ({
   type: "WORK", durationSec: 0, avgWatts: null, npWatts: null, avgHr: null, startIndex: null, endIndex: null,
   avgGradientPct: null, groupId: null, zone: null,
   maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null,
+  avgSpeedKph: null,
   ...over,
 });
 // Ride-end marker: a Z2 cool-down whose end_index reaches the last sample (intervals span warm-up → cool-down

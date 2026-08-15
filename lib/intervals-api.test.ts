@@ -159,6 +159,25 @@ describe("intervals-api network failure handling (CR-B)", () => {
     expect(interval.label).toBeNull();
   });
 
+  // NV-14 (2026-08-15): evidence-only field, live-confirmed present on real payloads
+  // (activities i175672010, i175980689 — 13/13 curated intervals populated) before adding this
+  // mapping. `average_speed` arrives in m/s; converted to km/h at this one boundary.
+  it("maps average_speed (m/s) to avgSpeedKph, converted at the boundary", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 480, average_watts: 210, average_speed: 5.778887, // live-observed value
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.avgSpeedKph).toBeCloseTo(20.804, 2); // 5.778887 * 3.6
+  });
+
+  it("maps avgSpeedKph to null when the raw payload omits average_speed", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
+      type: "WORK", moving_time: 480, average_watts: 210,
+    }]), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    const [interval] = await fetchIntervals("act-1");
+    expect(interval.avgSpeedKph).toBeNull();
+  });
+
   it("treats an empty-string label as null, not an empty match target", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
       type: "WORK", moving_time: 480, average_watts: 210, label: "",

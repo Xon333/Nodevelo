@@ -422,6 +422,13 @@ export interface ExecutedInterval {
   // as `iv.label`; empty string is normalised to null at the mapping boundary (Step 4), never an
   // empty-but-present match target.
   label: string | null;
+  // NV-14 (2026-08-15): evidence-only, per the locked scope — surfaced in matched-lap evidence text so
+  // a speed-at-power claim ("kept the speed up") reads as measured, but NEVER a TargetSchema field, so
+  // no objective is ever scored on it. Speed is confounded by wind, drafting, surface and tyres in a
+  // way power/HR/cadence aren't; grading it would score the athlete on the weather. Live-confirmed
+  // present on the raw payload (`average_speed`, m/s) before adding this — not assumed, matching the
+  // discipline that already caught `Maxgradient`'s odd casing.
+  avgSpeedKph: number | null;
 }
 
 // Prescription vs execution, rep-by-rep, with a roll-up — the "second brain" comparison.
