@@ -18,17 +18,11 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
 an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
 NV-3 was already a tracked deferral. NV-9/NV-10/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md).
-NV-1/NV-4 shipped 2026-08-15 (PR #58) → [ARCHIVE.md](ARCHIVE.md).
+NV-1/NV-4 shipped 2026-08-15 (PR #58) → [ARCHIVE.md](ARCHIVE.md). NV-2 shipped 2026-08-15 (PR #60) →
+[ARCHIVE.md](ARCHIVE.md); its own residual gap (zone claims aren't terrain/phase-scoped) is now a
+documented rough edge in [02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges),
+live-confirmed the same day, not yet its own ticket.
 
-- ☐ P2 `bug` **NV-2 — zone syntax is represented inconsistently.** `zoneIndex` accepts `"2"`
-  ([intent-scoring.ts:211](lib/intent-scoring.ts:211)) but `groundsZone` requires `/^Z[1-7]$/`
-  ([intent-grounding.ts:86](lib/intent-grounding.ts:86)), so `"2"` *and* ranges like `"3-4"` are
-  unrepresentable and get reported as not-grounded. Live proof: 2026-08-13/14 overlays carry zones
-  `"2"` and `"3-4"` with `evidence: "not grounded in the note"` despite the athlete stating them
-  explicitly. Needs one shared zone-expression parser (`2`, `Z2`, `zone 2`, `Z3–Z4`, `z2,z3`).
-  **Normalization alone is insufficient** — "Z2 on flats" and "Z3/Z4 on climbs" also need their
-  terrain/phase scope preserved, or a correctly-normalized zone is compared against the wrong part of
-  the ride.
 - ☐ P2 `bug` **NV-3 — compound interval labels create false terrain matches.** `hasLabelHint` uses
   substring inclusion ([intent-scoring.ts:575](lib/intent-scoring.ts:575)) and label is the primary
   signal, bypassing the gradient floor — so `Rolling climb/descents` graded as a pure descent. Live

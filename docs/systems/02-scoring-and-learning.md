@@ -164,6 +164,19 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   stream- or elevation-derived substitute. Gradient fallback can therefore still read such a lap's
   peak-positive pitch as a climb while dropping its descent. Curate one lap per climb and another per
   descent as the interim workaround; a future fix needs a newly verified data source and design review.
+- **Zone-emphasis/zone-time claims are graded against the WHOLE ride's zone-time array, never a
+  phase-scoped slice, even after NV-2 (2026-08-15) fixed zone-string parsing itself.** `zoneMinutes`
+  (`lib/intent-scoring.ts`) has no notion of "the last 15 minutes" or "on the climbs" — it can only read
+  `evidence.powerZoneTimes`/`hrZoneTimes` in full. Live-confirmed the same day NV-2 shipped: a
+  15-minute "varied terrain (Z2/Z3)" cooldown phase, correctly parsed and grounded as `zone: "Z2-Z3"`,
+  scored `65.2 min in Z2-Z3 vs 15 min stated (435% of target)` — the scorer summed the WHOLE ride's Z2+Z3
+  time (most of a Z3-block ride) against a claim that only applied to its final segment. Not a
+  regression from NV-2 — the same whole-ride read applied before, on the (rarer) unparseable range
+  strings that failed grounding instead. Fixing this needs the zone-emphasis/zone-time path to route
+  through the same terrain/phase-matched-lap machinery `effort`/`terrain` objectives already use, rather
+  than reading the aggregate array directly — a real design change, not a parsing fix, and out of NV-2's
+  scope. `complianceDelta`'s reward-only shape absorbs the overshoot without a nonsensical SCORE, but
+  the evidence text itself still misleads about what was actually measured.
 - **Phase 3b (2026-08-12) added HR-ceiling, cadence and terrain claims to self-directed intent-scoring.**
   `ExecutedInterval` gained `maxHr`/`avgCadenceRpm`/`maxGradientPct`/`elevationGainM`/`label`; `matchLaps`
   now ranks by whichever target field an objective stated (never a blend — `TargetSchema` enforces at
