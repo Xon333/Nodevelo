@@ -206,14 +206,14 @@ export const BUFFER_MAX_KCAL = 600;
 export const GOAL_DEADBAND_KG = 0.7;
 // Protective rate caps: loss faster than ~0.5 kg/week costs lean mass and performance; gain is capped to
 // limit fat accrual.
-export const MAX_LOSS_KG_PER_WEEK = 0.5;
-export const MAX_GAIN_KG_PER_WEEK = 0.35;
+const MAX_LOSS_KG_PER_WEEK = 0.5;
+const MAX_GAIN_KG_PER_WEEK = 0.35;
 
 // Proportional response: a trend error of e kg/week is e × 7700 ÷ 7 kcal/day of imbalance. Damped to
 // avoid oscillating against a noisy trend, and clamped per adjustment. The previous mechanism applied a
 // flat ±150 kcal to a 0.3 kg/7d threshold worth ≈330 kcal/day — a ~2× under-correction.
-export const KCAL_PER_KG_TISSUE = 7700;
-export const CORRECTION_DAMPING = 0.5;
+const KCAL_PER_KG_TISSUE = 7700;
+const CORRECTION_DAMPING = 0.5;
 export const MAX_ADJUSTMENT_STEP_KCAL = 250;
 
 // ASYMMETRY, the deliberate clinical choice. Losing faster than intended is the failure mode that hurts
@@ -221,7 +221,7 @@ export const MAX_ADJUSTMENT_STEP_KCAL = 250;
 // very often glycogen + bound water from finally eating enough (~3 g water per g glycogen, so 1.5-2 kg
 // within days at zero fat gain), so a cut is damped harder AND requires the long trend to confirm it.
 // Never respond to the first week of successful refuelling by taking food away.
-export const GAIN_SIDE_EXTRA_DAMPING = 0.5;
+const GAIN_SIDE_EXTRA_DAMPING = 0.5;
 
 const HARD_TYPES: ReadonlySet<WorkoutType> = new Set(["Threshold", "VO2max", "SIT", "RaceSim"]);
 const NON_RIDE_TYPES: ReadonlySet<WorkoutType> = new Set(["Rest", "Strength"]);
@@ -393,7 +393,7 @@ export function resolveBuffer(
   configuredRate: number | null,
   trendShort: number | null,
   trendLong: number | null,
-  legacyBuffer: number
+  _legacyBuffer: number
 ): ResolvedBuffer {
   const desiredRate = desiredWeightTrend(currentKg, targetKg, configuredRate);
   const goalSurplusKcal = goalSurplusKcalPerDay(desiredRate);
@@ -737,7 +737,7 @@ export function smoothedCurrentWeightKg(
 export const NEAT_PLAUSIBLE_MIN = 1.15;
 export const NEAT_PLAUSIBLE_MAX = 1.55;
 
-export const CALIBRATION_MIN_WINDOW_DAYS = 28;
+const CALIBRATION_MIN_WINDOW_DAYS = 28;
 export const CALIBRATION_PREFERRED_WINDOW_DAYS = 42;
 export const CALIBRATION_MIN_LOGGED_FRACTION = 0.65;
 export const CALIBRATION_MIN_WEIGH_INS = 12;
@@ -1070,7 +1070,7 @@ export const DAY_TYPE_WINDOW_DAYS = 90;
 
 // Reused, not invented: the same "how much of the athlete's own signal before it should dominate the
 // population/pooled prior" constant the pooled calibration's own confidence floor uses.
-export const DAY_TYPE_SHRINKAGE_K = CALIBRATION_MIN_WEIGH_INS;
+const DAY_TYPE_SHRINKAGE_K = CALIBRATION_MIN_WEIGH_INS;
 
 // Below this, shrinkageWeight is forced to 0 — avoids a near-divide-by-zero mean from 1-2 points
 // dominating a subset's own solve before it's blended away anyway.
@@ -1436,8 +1436,8 @@ export function planEaKcalPerKg(model: NutritionModel, bufferApplied: number): n
 // daily-target formula — so 1.0 means "ate what the coach's formula advised" (which already embeds the
 // weight-goal buffer), not raw thermodynamic balance. Bands deliberately coarse; the personalised
 // adequate line is Track C calibration.
-export const BALANCE_LOW_BELOW = 0.9;
-export const BALANCE_AMPLE_ABOVE = 1.05;
+const BALANCE_LOW_BELOW = 0.9;
+const BALANCE_AMPLE_ABOVE = 1.05;
 export function balanceLevel(ratio: number): EaLevel {
   if (ratio < BALANCE_LOW_BELOW) return "low";
   if (ratio > BALANCE_AMPLE_ABOVE) return "ample";

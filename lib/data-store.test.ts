@@ -63,7 +63,7 @@ describe("applyGoalsMigration", () => {
     // predating this field yields `undefined` here, not `null` — a strict `!== null` guard would wrongly
     // treat that as "already migrated" and skip it forever.
     const legacy = baseProfile();
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructuring the field away is the point (simulates a legacy on-disk profile missing the key entirely)
+    // Destructuring the field away is the point — simulates a legacy on-disk profile missing the key entirely.
     const { goalsMigratedAt: _drop, ...withoutFlag } = legacy;
     const parseMd = async () => ({
       goals: [{ goal: "FTP", target: "300W", focus: "general" as const }],
