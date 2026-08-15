@@ -23,22 +23,8 @@ own residual gap (zone claims aren't terrain/phase-scoped) is now a documented r
 [02-scoring-and-learning.md](docs/systems/02-scoring-and-learning.md#known-rough-edges), live-confirmed
 the same day, not yet its own ticket. NV-3 shipped 2026-08-15 (PR #62) → [ARCHIVE.md](ARCHIVE.md) —
 narrowed P3c's Gap A (label-text compound laps only); the unlabelled/data-detected half stays open,
-same doc. NV-7/NV-5/NV-6 shipped 2026-08-15 (PR #64) → [ARCHIVE.md](ARCHIVE.md).
-- ☐ P2 `feat` **NV-14 — interval speed as evidence (never as a graded target).** `fetchIntervals`
-  retains power/HR/cadence/gradient but maps no speed
-  ([intervals-api.ts:192](lib/intervals-api.ts:192)), so a speed-at-power outcome can't be stated.
-  **Verified 2026-08-15 that this does NOT reopen Phase 2c's locked decision**
-  ([p2c plan:2079-2086](docs/superpowers/plans/2026-08-12-adaptive-coach-p2c-debrief-ui.md:2079)):
-  that decision bans a distance/GPS *position-locator system*, while its bullet 4 admits "metrics
-  already attached to each curated interval" — which `average_speed` is. Follows Task 11's own
-  precedent exactly (`avgCadence` was dropped for having no consumer, then correctly added in P3b when
-  one existed). **Locked scope 2026-08-15 (athlete's call): evidence-only.** Add `avgSpeedKph` to
-  `ExecutedInterval` and attach it to the matched-lap evidence string alongside gradient/VAM; do
-  **not** add speed to `TargetSchema`, so no objective is ever scored on it — speed is confounded by
-  wind, drafting, surface and tyres, and grading it would score the athlete on weather. Aero-position
-  claims stay `qualitative` ("no sensor can establish skill quality"), which is already correct.
-  **Gate it on a live payload check first** — `average_speed`'s presence is an assumption, and
-  `Maxgradient`'s casing surprise proves this payload can't be assumed. Absent → don't invent it.
+same doc. NV-7/NV-5/NV-6 shipped 2026-08-15 (PR #64) → [ARCHIVE.md](ARCHIVE.md). NV-14 shipped
+2026-08-15 (PR #66) → [ARCHIVE.md](ARCHIVE.md).
 - ☐ P3 `bug` **NV-8 — prose completion is not audited.** `analyseRide` uses a fixed `max_tokens: 280`
   and returns only concatenated text, discarding `stop_reason`
   ([anthropic-api.ts:147](lib/anthropic-api.ts:147)) — the code cannot tell a finished answer from a
