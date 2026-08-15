@@ -272,10 +272,13 @@ export async function POST(req: Request) {
   // Record the insights that drove this block as interventions, with a baseline snapshot,
   // to be validated after a horizon (the learning loop). Best-effort.
   try {
-    const firedAt = new Date().toISOString().slice(0, 10);
+    // HR-60: was utcToday() here while `today` above is already the athlete's local date —
+    // validateInterventions (lib/intervention.ts) compares firedAt against sync's local `today`
+    // to judge horizon maturity, so a UTC/local mismatch near midnight could mature a directive a
+    // day early or late.
     const [scoreLog, intentStore, sync] = await Promise.all([readScoreLog(), readIntentOverlays(), readLastSync()]);
     const model = buildAthleteModel(scoreLog.entries, intentStore.overlays);
-    const fresh = buildInterventions(deriveInsights(model), model, sync, currentBlock.startDate, firedAt);
+    const fresh = buildInterventions(deriveInsights(model), model, sync, currentBlock.startDate, today);
     if (fresh.length > 0) {
       // HR-36: read-modify-write inside one locked critical section — a concurrent sync's
       // outcome-validation pass (app/api/sync/route.ts) can no longer read the same stale base and
