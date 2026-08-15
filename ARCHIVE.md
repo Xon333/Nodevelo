@@ -203,6 +203,44 @@ correctly added in P3b once one existed).
   unit-tested but not yet seen end-to-end on a live overlay. Revisit once a note produces an
   unambiguous, non-compound terrain match.
 
+## Prose truncation audit + off-plan label fix — NV-8, NV-12 (2026-08-15, PRs #68/#70/#69)
+
+**NV-8:** `analyseRide` returned a bare string, discarding `stop_reason` entirely — a token-limit
+cutoff mid-sentence was indistinguishable from a genuinely finished note. New `ProseResult` return
+type (`{ text, truncated, stopReason }`, `lib/anthropic-api.ts`) mirrors `GenerationResult`'s existing
+pattern; `addCoachNote` (`lib/sync-analysis.ts`) pushes a transient warning on truncation, never a
+persisted field, and never blocks writing the note.
+
+**Live-caught regression, same day, first run:** smoke-testing NV-8 against real production data
+caught an actual truncation immediately — today's coach note cut off mid-sentence (*"For next session,
+the"*). NV-7's evidence-bound-prose clauses (PR #64, shipped earlier the same day) lengthened what the
+model needs to write to comply with them, and the `max_tokens: 280` ceiling — sized before NV-7 —
+hadn't been revisited. Raised to 450 (PR #70), no longer a guess (same pattern as NV-10's intent-parsing
+budget). Re-verified live against the exact same ride: the note now completes cleanly, and — a bonus
+confirmation — its text explicitly declines to blame coasting outright (*"it's impossible to separate
+intentional cornering/safety coasting from pedalling lapses"*), the first live exercise of NV-6's
+descending-safety clause's actual counterfactual.
+
+**NV-12:** `inferWorkoutType`'s broad 0.75–0.9 IF band (tempo/sweet-spot/threshold combined) reuses the
+exact name of the real, narrower PRESCRIBED "Threshold" type — live-confirmed misleading on the Trends
+hover title (both an IF 0.78 and IF 0.82 off-plan ride showed "Threshold (off-plan)" while the coach
+note correctly called the latter "tempo"). **Investigated and ruled out adding a new `WorkoutType`
+value**: `WORKOUT_TYPES` gates what block generation may legally prescribe
+(`lib/plan-schema.ts`'s LLM tool schema, `app/api/write/route.ts`'s validation) — a new value would
+silently expand the model's prescribable vocabulary with no KB protocol backing it. Also confirmed
+per-type calibration (`lib/athlete-model.ts`'s `byTypeMap`) already excludes off-plan rides entirely
+(INVARIANT 40), narrowing the audit's "leaks into trend labels/fueling logic" framing to a display-only
+issue, not a corrupted-aggregate one. Fixed with a display-layer-only `inferredTypeLabel(type, planned)`
+(`lib/ride-classify.ts`) — "Tempo/Threshold" for an off-plan Threshold inference, the raw name
+everywhere else (prescribed Threshold included); the stored `WorkoutType`/`inferredType` value is
+unchanged. Live-verified on the running Trends page: both bars now read "Tempo/Threshold (off-plan)".
+
+**The 2026-08-15 debrief audit closes here — 14/14 findings shipped the same day**, ~93%
+ground-truth-accurate against the real codebase and live data throughout. Three live-caught regressions
+along the way (NV-9's poisoned zone denominator, NV-10's own truncation-categorization bug plus its
+900→1800 token-budget fix, and this section's NV-8-catches-NV-7 truncation) — the live-smoke-run
+discipline (AGENTS.md) earned its keep multiple times over, not just as a checkbox.
+
 ## Adaptive self-directed coach — Phases 1–3c (2026-08-06–14)
 
 - **Phase 1 · aerobic eligibility (PR #28):** mixed/off-plan rides no longer manufacture aerobic or
