@@ -144,17 +144,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
     setAnalyzing(true);
-    try {
-      const a = await api<{ todayAnalysis: TodayAnalysis | null; warnings: string[] }>(
-        "/api/analyze",
-        { method: "POST", body: JSON.stringify({ today: localToday(), force }) }
-      );
-      if (a.todayAnalysis) setState((s) => (s ? { ...s, todayAnalysis: a.todayAnalysis } : s));
-      if (a.warnings?.length) setSyncWarnings((w) => [...w, ...a.warnings]);
-    } catch (e) {
-      setSyncWarnings((w) => [...w, `Coach analysis failed: ${e instanceof Error ? e.message : "error"}`]);
-    }
 
+    // NV-1 (2026-08-15): intent parsing runs to completion BEFORE coach-note generation, not after.
+    // The note prompt (lib/sync-analysis.ts's addCoachNote) reads today's resolved overlay to decide
+    // whether the raw note may reach the model at all — if /api/analyze ran first, that overlay
+    // wouldn't exist yet, and the coach note could assert a confident intent-execution judgment on the
+    // very note the intent parser goes on to reject a moment later (the exact split-brain this fixes).
     try {
       const failed = new Set<string>();
       for (let round = 0; round < 6; round += 1) {
@@ -174,8 +169,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       setSyncWarnings((w) => [...w, `Intent analysis failed: ${e instanceof Error ? e.message : "error"}`]);
+    }
+
+    try {
+      const a = await api<{ todayAnalysis: TodayAnalysis | null; warnings: string[] }>(
+        "/api/analyze",
+        { method: "POST", body: JSON.stringify({ today: localToday(), force }) }
+      );
+      if (a.todayAnalysis) setState((s) => (s ? { ...s, todayAnalysis: a.todayAnalysis } : s));
+      if (a.warnings?.length) setSyncWarnings((w) => [...w, ...a.warnings]);
+    } catch (e) {
+      setSyncWarnings((w) => [...w, `Coach analysis failed: ${e instanceof Error ? e.message : "error"}`]);
     } finally {
-      // Phase 2c: an overlay this loop just wrote is invisible to the UI until /api/sync is
+      // Phase 2c: an overlay the intent loop just wrote is invisible to the UI until /api/sync is
       // re-fetched — todayOutcome was resolved from whatever the store held BEFORE this loop ran.
       // Invalidating (not just marking stale) forces the refetch even if the athlete isn't looking at
       // a component that would otherwise trigger one on its own.

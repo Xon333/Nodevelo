@@ -190,20 +190,24 @@ describe("the one-way confidence rule", () => {
 
   it("`high` cannot rescue a ride the scope gate rejects", () => {
     // 9-min effort, 118-min ride → scope 9 < max(20, 39). The lap IS present, so this exercises the
-    // scope arithmetic rather than a missing-data short circuit.
+    // scope arithmetic rather than a missing-data short circuit. NV-4: real matched evidence, just
+    // short of the floor → insufficient-scope, not the generic no-measurable-objectives.
     const nineMinEffort = obj("effort", { durationMin: 9, watts: 292 });
     const ev = evidence({ durationMin: 118, laps: [lap(540, 291)] });
     expect(scoreIntentExecution(interp({ confidence: "high", objectives: [nineMinEffort] }), ev).reason).toBe(
-      "no-measurable-objectives"
+      "insufficient-scope"
     );
     expect(scoreIntentExecution(interp({ confidence: "high", objectives: [nineMinEffort] }), ev).scopeMin).toBe(9);
   });
 
   it("`high` cannot rescue an objective the note does not ground", () => {
+    // NV-4: "duration" IS a gradable kind at high confidence — grounded:false is what disqualifies it,
+    // so this is target-not-grounded (a real, in-principle-measurable target the note didn't support),
+    // not the generic "nothing of a gradable kind was stated".
     const ungrounded = obj("duration", { durationMin: 180, grounded: false });
     const ev = evidence({ durationMin: 118 });
     expect(scoreIntentExecution(interp({ confidence: "high", objectives: [ungrounded] }), ev).reason).toBe(
-      "no-measurable-objectives"
+      "target-not-grounded"
     );
   });
 
@@ -256,7 +260,9 @@ describe("evidence scope is what the evidence speaks about, never how much went 
       evidence({ durationMin: 15 })
     );
     expect(INTENT_MIN_SCOPE_MIN).toBe(20);
-    expect(r.reason).toBe("no-measurable-objectives");
+    // NV-4: real evidence was found (the duration claim spans the whole 15-min ride) — it's just
+    // short of the floor, not unmatched, so this is insufficient-scope, not no-measurable-objectives.
+    expect(r.reason).toBe("insufficient-scope");
   });
 
   it("an effort-only note on a long ride does not clear the gate", () => {
@@ -265,7 +271,8 @@ describe("evidence scope is what the evidence speaks about, never how much went 
       evidence({ durationMin: 118, laps: [lap(540, 291)] })
     );
     expect(r.scopeMin).toBe(9);
-    expect(r.reason).toBe("no-measurable-objectives");
+    // NV-4: the lap DID match (scopeMin 9 > 0) — real evidence, just too little of a 118-min ride.
+    expect(r.reason).toBe("insufficient-scope");
     expect(r.score).toBeNull();
   });
 
@@ -1247,7 +1254,9 @@ describe("zone evidence: units, indices and the basis rule", () => {
     const present = evidence({ durationMin: 90, zone: [1200, 3000, 1200, 0, 0, 0, 0] });
     const absent = evidence({ durationMin: 90, powerZoneTimes: null, hrZoneTimes: null });
     expect(scoreIntentExecution(I, present).reason).toBeNull();
-    expect(scoreIntentExecution(I, absent).reason).toBe("no-measurable-objectives");
+    // NV-4: the objective is a gradable, grounded kind — the ride's own zone data being absent means
+    // nothing matched (scopeMin 0), which is target-not-matched, not the generic "nothing stated".
+    expect(scoreIntentExecution(I, absent).reason).toBe("target-not-matched");
   });
 });
 
@@ -1321,7 +1330,9 @@ describe("qualitative and structure objectives", () => {
       evidence({ durationMin: 90 })
     );
     expect(r.scopeMin).toBe(0);
-    expect(r.reason).toBe("no-measurable-objectives");
+    // NV-4: structure IS a gradable kind at high confidence, so this is scopeMin === 0 on an otherwise
+    // gradable objective — target-not-matched, same bucket as any other zero-evidence match failure.
+    expect(r.reason).toBe("target-not-matched");
   });
 });
 
@@ -1768,23 +1779,29 @@ describe("the score model", () => {
     expect(Object.is(score, -0)).toBe(false);
   });
 
-  it("assessScoreability applies the three predicates in order", () => {
-    expect(assessScoreability({ confidence: "low", gradableCount: 3, scopeMin: 90, rideMin: 90 })).toMatchObject({
-      scoreable: false,
-      reason: "intent-unreliable",
-    });
-    expect(assessScoreability({ confidence: "high", gradableCount: 0, scopeMin: 90, rideMin: 90 })).toMatchObject({
-      scoreable: false,
-      reason: "no-measurable-objectives",
-    });
-    expect(assessScoreability({ confidence: "high", gradableCount: 1, scopeMin: 9, rideMin: 118 })).toMatchObject({
-      scoreable: false,
-      reason: "no-measurable-objectives",
-    });
-    expect(assessScoreability({ confidence: "medium", gradableCount: 1, scopeMin: 90, rideMin: 90 })).toMatchObject({
-      scoreable: true,
-      reason: null,
-    });
+  it("assessScoreability applies the three predicates in order, splitting each false branch by NV-4's new signals", () => {
+    expect(
+      assessScoreability({ confidence: "low", gradableCount: 3, kindEligibleCount: 3, scopeMin: 90, rideMin: 90 })
+    ).toMatchObject({ scoreable: false, reason: "intent-unreliable" });
+    // gradableCount < 1, kindEligibleCount also 0 -> nothing of a gradable KIND was even stated.
+    expect(
+      assessScoreability({ confidence: "high", gradableCount: 0, kindEligibleCount: 0, scopeMin: 0, rideMin: 90 })
+    ).toMatchObject({ scoreable: false, reason: "no-measurable-objectives" });
+    // gradableCount < 1, but kindEligibleCount > 0 -> a gradable-kind target was stated, grounding rejected it.
+    expect(
+      assessScoreability({ confidence: "high", gradableCount: 0, kindEligibleCount: 1, scopeMin: 0, rideMin: 90 })
+    ).toMatchObject({ scoreable: false, reason: "target-not-grounded" });
+    // scopeMin under the floor but > 0 -> something matched, just not enough of the ride.
+    expect(
+      assessScoreability({ confidence: "high", gradableCount: 1, kindEligibleCount: 1, scopeMin: 9, rideMin: 118 })
+    ).toMatchObject({ scoreable: false, reason: "insufficient-scope" });
+    // scopeMin exactly 0 despite a gradable, grounded target -> nothing in the ride data matched it at all.
+    expect(
+      assessScoreability({ confidence: "high", gradableCount: 1, kindEligibleCount: 1, scopeMin: 0, rideMin: 118 })
+    ).toMatchObject({ scoreable: false, reason: "target-not-matched" });
+    expect(
+      assessScoreability({ confidence: "medium", gradableCount: 1, kindEligibleCount: 1, scopeMin: 90, rideMin: 90 })
+    ).toMatchObject({ scoreable: true, reason: null });
   });
 });
 
