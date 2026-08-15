@@ -157,13 +157,19 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
   observation on a future sync (the rolling 90-day window ages it out with no replacement) would freeze
   the value in place with a refreshed timestamp — indistinguishable from a live one on the Model panel.
   Worth a periodic check, not an immediate fix.
-- **A compound climb+descent lap remains a terrain-matching limitation after Phase 3c (2026-08-14).**
-  The Phase 3c data gate inspected 25 live non-empty Intervals.icu interval payloads and found only
-  `average_gradient` and `Maxgradient`, with no minimum/trough-gradient field. Without that source, the
-  matcher cannot honestly distinguish a lap containing both terrains, and this phase did not invent a
-  stream- or elevation-derived substitute. Gradient fallback can therefore still read such a lap's
-  peak-positive pitch as a climb while dropping its descent. Curate one lap per climb and another per
-  descent as the interim workaround; a future fix needs a newly verified data source and design review.
+- **A compound climb+descent lap is narrower after NV-2's audit fix (NV-3, 2026-08-15) than it was
+  after Phase 3c.** Phase 3c's Gap A (2026-08-14) stayed open for lack of a stream-level min-gradient
+  field to detect a compound lap from the DATA side (25 live payloads inspected, only
+  `average_gradient`/`Maxgradient` found — no way to invent a trustworthy substitute). NV-3 closed the
+  narrower LABEL-TEXT half instead, which needed no new data: a lap whose own label names both terrains
+  ("Rolling climb/descents") is now excluded from label matching AND the gradient fallback for either
+  terrain (`isCompoundLabel`, `lib/intent-scoring.ts`) — live-confirmed against the exact overlay that
+  originally surfaced this (2026-08-14, activity `i175672010`: a lap labelled "Rolling climb/descents",
+  avg -0.6%/max 10.4%, previously graded as a pure 15.9-min descent). **Still open:** an UNLABELLED
+  compound lap — gradient fallback can still read its peak-positive pitch as a climb while dropping the
+  descent, because no min-gradient field exists to detect that case from data alone. Curate one lap per
+  climb and another per descent as the interim workaround for that remaining case; a future fix still
+  needs a newly verified data source and design review.
 - **Zone-emphasis/zone-time claims are graded against the WHOLE ride's zone-time array, never a
   phase-scoped slice, even after NV-2 (2026-08-15) fixed zone-string parsing itself.** `zoneMinutes`
   (`lib/intent-scoring.ts`) has no notion of "the last 15 minutes" or "on the climbs" — it can only read
