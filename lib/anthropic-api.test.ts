@@ -126,4 +126,29 @@ describe("parseRideIntent", () => {
     expect(result.failure?.stopReason).toBe("tool_use");
     expect(result.failure?.issues).toEqual([{ path: "confidence", message: expect.stringContaining("high") }]);
   });
+
+  // Live-confirmed 2026-08-15: Anthropic's tool-input JSON is assembled in schema-field order, so a
+  // max_tokens cutoff can still leave a syntactically valid (but incomplete) tool_use block behind —
+  // primaryPurpose/phases complete, objectives/confidence never started. That must be judged by
+  // stop_reason, not by "did a tool_use block exist" — otherwise a genuine truncation is mis-bucketed
+  // as schema-invalid, which is exactly the bug this fixture reproduces from the real failure.
+  it("categorises a PARTIAL tool_use block cut off mid-call as max-tokens, not schema-invalid", async () => {
+    h.create.mockResolvedValueOnce({
+      content: [{ type: "tool_use", input: { primaryPurpose: "endurance ride", phases: [{ description: "steady", kind: "duration" }] } }],
+      stop_reason: "max_tokens",
+      usage: {},
+    });
+    const result = await parseRideIntent("a long multi-section note", 95);
+    expect(result.interpretation).toBeNull();
+    expect(result.failure?.category).toBe("max-tokens");
+    expect(result.failure?.stopReason).toBe("max_tokens");
+    // The missing trailing fields still show up as free diagnostic detail, they just don't steer the category.
+    expect(result.failure?.issues.map((i) => i.path)).toEqual(expect.arrayContaining(["objectives", "confidence"]));
+  });
+
+  it("sends the raised token budget for intent parsing (900 was too tight for a multi-section note)", async () => {
+    h.create.mockResolvedValueOnce({ content: [], stop_reason: "max_tokens", usage: {} });
+    await parseRideIntent("a note", 60);
+    expect(h.create).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 1800 }));
+  });
 });

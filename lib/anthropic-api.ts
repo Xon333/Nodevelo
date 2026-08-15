@@ -102,12 +102,20 @@ export interface IntentParseOutcome {
   failure: IntentParseFailure | null;
 }
 
+// Live-confirmed 2026-08-15 (the smoke run this fix was verified with): a max_tokens cutoff does not
+// always mean "no tool_use block at all". Anthropic's tool-input JSON is assembled incrementally in
+// schema-field order, so a cutoff partway through can still leave a syntactically valid object behind
+// (e.g. `primaryPurpose` and `phases` complete, `objectives`/`confidence` never started) — that parses
+// as a tool_use block, then fails Zod on the missing trailing fields, which would mis-bucket a genuine
+// truncation as "schema-invalid" if stop_reason weren't checked FIRST, before whether a block exists.
+const INTENT_MAX_TOKENS = 1800; // was 900 — too tight for a multi-section note; see the failure above
+
 export async function parseRideIntent(note: string, rideDurationMin: number): Promise<IntentParseOutcome> {
   if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
   const client = getClient();
   const response = await client.messages.create({
     model: GENERATION_MODEL,
-    max_tokens: 900,
+    max_tokens: INTENT_MAX_TOKENS,
     temperature: TEMPERATURE,
     tools: [INTENT_TOOL],
     tool_choice: { type: "tool", name: INTENT_TOOL.name },
@@ -119,17 +127,26 @@ export async function parseRideIntent(note: string, rideDurationMin: number): Pr
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
   );
 
-  if (!toolUse) {
+  if (response.stop_reason === "max_tokens") {
     return {
       interpretation: null,
       failure: {
-        // tool_choice forces the tool, so a completed response with no tool_use block at all is
-        // almost always the model getting cut off before it could emit one — max_tokens is the
-        // stop_reason that actually distinguishes that from a genuinely declined/malformed call.
-        category: response.stop_reason === "max_tokens" ? "max-tokens" : "missing-tool-use",
-        stopReason: response.stop_reason,
-        issues: [],
+        category: "max-tokens",
+        stopReason: "max_tokens",
+        // Attach whatever schema issues a partial (but parseable) tool_use block produces — free
+        // extra diagnostic showing exactly which fields never arrived — without letting them steer
+        // the category away from the true cause.
+        issues: toolUse ? parseIntentToolOutput(toolUse.input).issues : [],
       },
+    };
+  }
+
+  if (!toolUse) {
+    // tool_choice forces the tool, so a completed, non-max_tokens response with no tool_use block at
+    // all means the model declined/malformed the call outright, not a truncation.
+    return {
+      interpretation: null,
+      failure: { category: "missing-tool-use", stopReason: response.stop_reason, issues: [] },
     };
   }
 
