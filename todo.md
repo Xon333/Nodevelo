@@ -17,20 +17,8 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 **Post-2026-08-15 debrief audit (NV-1…NV-14).** External audit of the self-directed debrief path,
 ground-truthed against live code + `data/*.json` on 2026-08-15 — **~93% accurate**, unusually high for
 an external review. Every item below is code-confirmed; NV-5/NV-7 were routed narrower than claimed,
-NV-3 was already a tracked deferral. NV-9/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md).
+NV-3 was already a tracked deferral. NV-9/NV-10/NV-11/NV-13 shipped 2026-08-15 → [ARCHIVE.md](ARCHIVE.md).
 
-- ☐ P1 `bug` **NV-10 — intent-parser failures are opaque and terminal.** `parseRideIntent` collapses
-  every completed-but-invalid response to `null`, discarding `stop_reason` and the Zod issues
-  ([anthropic-api.ts:95-114](lib/anthropic-api.ts:95)); the runner records only `interpreter-failed`
-  ([intent-runner.ts:101](lib/intent-runner.ts:101)); `needsParse` then treats the stored overlay as
-  decided, so only a forced reanalysis retries ([intent-queue.ts:101](lib/intent-queue.ts:101)). Live
-  proof: 2026-08-15 failed twice on the same fingerprint `521dd9525775bd29` (`08:08:43.245Z`, forced
-  retry `08:10:01.275Z`), both with `interpretation: null` and zero diagnostics. Return + persist a
-  bounded failure category (`max-tokens` / `missing-tool-use` / `schema-invalid` with sanitized issue
-  paths / provider-failure) retaining `stop_reason`. **Do not raise `max_tokens` as a guess** — the
-  leading untested hypothesis is that the 3-item note fans out past `max_tokens: 900`, but observe the
-  real failure first. Add that note as a regression fixture, then one live smoke run (AGENTS.md's
-  LLM-path contract).
 - ☐ P1 `bug` **NV-1 + NV-4 — split-brain debrief (the root architectural problem).** Coach prose runs
   and completes *before* intent interpretation ([SyncProvider.tsx:143](components/SyncProvider.tsx:143)
   awaits `/api/analyze`, then loops `/api/intent`) — live proof: prose `analysedAt 08:09:49.496Z`,
