@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchActivities, fetchIntervals, fetchWellness, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
+import { createLibraryWorkout, fetchActivities, fetchIntervals, fetchWellness, findOrCreateWorkoutFolder, findRemoteLibraryWorkout, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
 import type { PowerCurvePoint, SyncData } from "./types";
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
 
 const mkSync = (over: Partial<SyncData> = {}): SyncData => ({
   syncedAt: "2026-06-22T00:00:00.000Z",
@@ -424,5 +428,100 @@ describe("fetchWellness — subjective self-report mapping", () => {
     expect(w.ctl).toBeNull();
     expect(w.kcalConsumed).toBeNull();
     expect(w.weightKg).toBe(62.2);
+  });
+});
+
+// Workout Library response shape isn't confirmed live (docs don't spell out whether workouts nest per
+// folder or arrive flat with folder_id) — these fixtures exercise the parser against BOTH plausible
+// shapes so it's correct whichever one the real API turns out to use (design §8, §11 confirms live).
+describe("Workout Library (findOrCreateWorkoutFolder / findRemoteLibraryWorkout / createLibraryWorkout)", () => {
+  beforeEach(() => {
+    process.env.INTERVALS_API_KEY = "test-key";
+    process.env.INTERVALS_ATHLETE_ID = "i1";
+  });
+  afterEach(() => {
+    delete process.env.INTERVALS_API_KEY;
+    delete process.env.INTERVALS_ATHLETE_ID;
+  });
+
+  const nestedTree = [
+    { id: 10, name: "NodeVelo — Threshold", workouts: [{ id: 55, name: "Threshold — 70 min — abcd1234" }] },
+    { id: 11, name: "Other Folder" },
+  ];
+  const flatTree = [
+    { id: 10, name: "NodeVelo — Threshold", type: "FOLDER" },
+    { id: 55, name: "Threshold — 70 min — abcd1234", folder_id: 10, type: "WORKOUT" },
+    { id: 11, name: "Other Folder", type: "FOLDER" },
+  ];
+
+  it.each([["nested", nestedTree], ["flat", flatTree]] as const)(
+    "findOrCreateWorkoutFolder reuses an existing folder by name (%s shape)",
+    async (_label, tree) => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(tree));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const id = await findOrCreateWorkoutFolder("NodeVelo — Threshold");
+      expect(id).toBe(10);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // no POST — reused, never created
+    }
+  );
+
+  it("findOrCreateWorkoutFolder creates a new folder when no name matches", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(nestedTree)) // GET — no match
+      .mockResolvedValueOnce(jsonResponse({ id: 99, name: "NodeVelo — VO2max" })); // POST create
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const id = await findOrCreateWorkoutFolder("NodeVelo — VO2max");
+    expect(id).toBe(99);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const postCall = fetchMock.mock.calls[1];
+    expect(postCall[1]?.method).toBe("POST");
+    expect(JSON.parse(postCall[1]?.body as string)).toEqual({ name: "NodeVelo — VO2max" });
+  });
+
+  it("findOrCreateWorkoutFolder throws when the create response has no id", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ name: "no id here" })) as unknown as typeof fetch;
+    await expect(findOrCreateWorkoutFolder("New Folder")).rejects.toThrow(IntervalsApiError);
+  });
+
+  it.each([["nested", nestedTree], ["flat", flatTree]] as const)(
+    "findRemoteLibraryWorkout finds an existing workout scoped to its folder (%s shape)",
+    async (_label, tree) => {
+      // mockImplementation (not mockResolvedValue) — a fresh Response per call, since this test reads
+      // the mocked fetch three times and a Response body can only be consumed once.
+      globalThis.fetch = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(tree))) as unknown as typeof fetch;
+      expect(await findRemoteLibraryWorkout(10, "Threshold — 70 min — abcd1234")).toBe(55);
+      expect(await findRemoteLibraryWorkout(11, "Threshold — 70 min — abcd1234")).toBeNull(); // wrong folder
+      expect(await findRemoteLibraryWorkout(10, "Nonexistent")).toBeNull();
+    }
+  );
+
+  it("createLibraryWorkout posts folder_id/name/description/type and returns the new id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 321 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const id = await createLibraryWorkout({
+      folderId: 10,
+      name: "Threshold — 70 min — abcd1234",
+      description: "Warmup\n- 10m 60%\n\nMain Set 2x\n- 20m 95%\n- 8m 50%",
+      type: "Ride",
+    });
+    expect(id).toBe(321);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe("POST");
+    // Verbatim description — no re-encoding/conversion of the plain-text %FTP step syntax.
+    expect(JSON.parse(init.body)).toEqual({
+      folder_id: 10,
+      name: "Threshold — 70 min — abcd1234",
+      description: "Warmup\n- 10m 60%\n\nMain Set 2x\n- 20m 95%\n- 8m 50%",
+      type: "Ride",
+    });
+  });
+
+  it("createLibraryWorkout throws when the response has no id", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse({})) as unknown as typeof fetch;
+    await expect(
+      createLibraryWorkout({ folderId: 10, name: "x", description: "y", type: "Ride" })
+    ).rejects.toThrow(IntervalsApiError);
   });
 });

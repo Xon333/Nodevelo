@@ -570,3 +570,82 @@ export async function fetchEvents(oldestDate: string, newestDate: string): Promi
   );
   return parseCalendarEvents(data);
 }
+
+// ---------- Workout Library (proven-workout-library-generation design §8) ----------
+// Distinct from the calendar-event API above: this is the athlete's reusable Workout Library
+// (folders + drag-in workouts), not the calendar. Confirmed against the live API (2026-08-16 forum
+// research), not assumed: this endpoint has no external_id/upsert parameter — that mechanism exists
+// only on /events/bulk above. `GET /folders`'s exact response shape (workouts nested per-folder, vs. a
+// flat list correlated by folder_id) isn't documented; parsed defensively for either — confirm and
+// simplify once a live call proves which one is real (design §8, §11).
+
+interface IntervalsFolderItem {
+  id: number;
+  name: string;
+  folderId: number | null; // null for a folder itself; the parent folder's id for a workout
+}
+
+function parseFolderTree(raw: unknown): { folders: IntervalsFolderItem[]; workouts: IntervalsFolderItem[] } {
+  const folders: IntervalsFolderItem[] = [];
+  const workouts: IntervalsFolderItem[] = [];
+  if (!Array.isArray(raw)) return { folders, workouts };
+
+  const visit = (item: unknown, parentFolderId: number | null) => {
+    const r = asRecord(item);
+    const id = num(r.id);
+    const name = str(r.name);
+    if (id === null || !name) return;
+    const nested = r.workouts ?? r.items ?? r.children;
+    const isFolder = Array.isArray(nested) || str(r.type).toUpperCase() === "FOLDER";
+    if (isFolder) {
+      folders.push({ id, name, folderId: null });
+      if (Array.isArray(nested)) for (const child of nested) visit(child, id);
+    } else {
+      workouts.push({ id, name, folderId: num(r.folder_id) ?? parentFolderId });
+    }
+  };
+  for (const item of raw) visit(item, null);
+  return { folders, workouts };
+}
+
+// GET /athlete/{id}/folders — the whole folders+workouts tree, per docs; no by-name search exists, so
+// finding an existing folder means listing and filtering client-side.
+async function fetchFolderTree(): Promise<{ folders: IntervalsFolderItem[]; workouts: IntervalsFolderItem[] }> {
+  return parseFolderTree(await icuFetch(athletePath("/folders")));
+}
+
+export async function findOrCreateWorkoutFolder(name: string): Promise<number> {
+  const { folders } = await fetchFolderTree();
+  const existing = folders.find((f) => f.name === name);
+  if (existing) return existing.id;
+  const created = asRecord(
+    await icuFetch(athletePath("/folders"), { method: "POST", body: JSON.stringify({ name }) })
+  );
+  const id = num(created.id);
+  if (id === null) throw new IntervalsApiError(`Intervals.icu did not return an id when creating folder "${name}".`);
+  return id;
+}
+
+export async function findRemoteLibraryWorkout(folderId: number, name: string): Promise<number | null> {
+  const { workouts } = await fetchFolderTree();
+  return workouts.find((w) => w.folderId === folderId && w.name === name)?.id ?? null;
+}
+
+// description must be the plain-text %FTP step syntax (workoutText verbatim) — confirmed live by
+// another developer that posting structured JSON steps directly is silently ignored by this endpoint.
+export async function createLibraryWorkout(params: {
+  folderId: number;
+  name: string;
+  description: string;
+  type: string;
+}): Promise<number> {
+  const created = asRecord(
+    await icuFetch(athletePath("/workouts"), {
+      method: "POST",
+      body: JSON.stringify({ folder_id: params.folderId, name: params.name, description: params.description, type: params.type }),
+    })
+  );
+  const id = num(created.id);
+  if (id === null) throw new IntervalsApiError(`Intervals.icu did not return an id when creating workout "${params.name}".`);
+  return id;
+}
