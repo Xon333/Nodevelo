@@ -104,9 +104,9 @@ One line per file that matters. The authoritative per-file table — README keep
 | `narrative-critic.ts` | Overview-vs-facts critic (haiku, overview-only rewrites) |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
 | `workout-validate.ts` | KB-grounded protocol validator (violations vs advisories) |
-| `workout-library.ts` | Proven-workout selection/evidence/promotion domain model (pure, no I/O). **Not yet wired in** — no caller in `app/api/generate`, no UI. Remaining scope → [ROADMAP.md](../ROADMAP.md) "Later" |
-| `workout-library-service.ts` | I/O layer over `workout-library.ts`: `promoteWorkoutManually`, `setWorkoutLibraryStatus`, `recordAcceptedLibraryUses`. `workout-library.json` is in `json-store.ts`'s `CRITICAL` set. **Not yet wired in** — no API route, no `app/api/generate`/`app/api/write` integration, no UI |
-| `workout-library-export.ts` | `exportWorkoutLibraryEntry`: per-entry single-flight + remote-lookup-before-create idempotency against Intervals.icu's Workout Library API (no native upsert on that endpoint). Primitives (`findOrCreateWorkoutFolder`, `createLibraryWorkout`, `findRemoteLibraryWorkout`) live in `intervals-api.ts`. **Not yet wired in** — no caller (Task 4's promotion route will call it) |
+| `workout-library.ts` | Proven-workout selection/evidence/promotion domain model (pure, no I/O). `selectLibraryWorkout` still has no caller — no `app/api/generate` integration yet. Remaining scope → [ROADMAP.md](../ROADMAP.md) "Later" |
+| `workout-library-service.ts` | I/O layer over `workout-library.ts`: `promoteWorkoutManually`, `setWorkoutLibraryStatus`, `recordAcceptedLibraryUses`. `workout-library.json` is in `json-store.ts`'s `CRITICAL` set. Called by `app/api/workout-library` (Task 4). `recordAcceptedLibraryUses` still has no caller (Task 8) |
+| `workout-library-export.ts` | `exportWorkoutLibraryEntry`: per-entry single-flight + remote-lookup-before-create idempotency against Intervals.icu's Workout Library API (no native upsert on that endpoint). Primitives (`findOrCreateWorkoutFolder`, `createLibraryWorkout`, `findRemoteLibraryWorkout`) live in `intervals-api.ts`. Called by `app/api/workout-library` (Task 4) |
 | `schedule-validate.ts` | Placement validators: spacing, quality budget, taper, sequencing, recovery density, skeleton conformance. Each owns one fact only — check no existing validator already warns about it before adding another |
 | `nutrition-validate.ts` | Kcal check + the ONLY auto-repairing validator |
 | `generate-cache.ts` | 60s in-flight dedupe |
@@ -141,6 +141,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `note` | POST | Manual coach-note post to Intervals.icu | — |
 | `export` / `import` | GET / POST | Backup bundle down/up | — |
 | `dev/reset-today` | POST | Dev-only: clear today's analysis (`npm run reset:today`) | — |
+| `workout-library` / `workout-library/[id]` | GET/POST / PATCH | Manual promotion + retire/restore/retry-export (app's first dynamic route segment). No management UI yet | — |
 
 ## `data/` files
 
