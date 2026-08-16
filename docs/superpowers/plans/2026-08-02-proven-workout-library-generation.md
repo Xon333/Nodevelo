@@ -139,12 +139,17 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 
 **Interfaces:** Produce `findOrCreateWorkoutFolder`, `createLibraryWorkout`, `findRemoteLibraryWorkout`, and `exportWorkoutLibraryEntry`.
 
-- [ ] Write failing mocked tests for folder reuse/create, verbatim `workoutText` as `description`, `type: "Ride"`, remote ID persistence, failed state, retry (no second POST after a stored remote ID), **two concurrent `exportWorkoutLibraryEntry` calls for the same entry producing exactly one remote workout** (single-flight), and **a simulated crash-after-POST** (a retry after the process "died" between the successful create and the local persist must find the prior remote workout via `findRemoteLibraryWorkout` — matched on the deterministic `<type> — <duration> min — <id-prefix>` name — rather than creating a duplicate).
-- [ ] Run `npx vitest run lib/workout-library-export.test.ts`; expect failures.
-- [ ] Add thin Intervals primitives using existing athlete URL, `icuFetch`, and `IntervalsApiError`. Folder is `NodeVelo — <type>`; workout name is `<type> — <duration> min — <id-prefix>` — deterministic and unique enough to look up by.
-- [ ] Implement export by reading state, returning if synced, then — inside a per-entry-ID in-process single-flight (a `Map<string, Promise<...>>` keyed by entry ID, mirroring `json-store.ts`'s own per-file lock pattern) — first calling `findRemoteLibraryWorkout` in the target folder by the deterministic name, using it if found instead of creating; otherwise doing the remote create outside the JSON lock, then atomically persisting `synced` or `failed`. Never deactivate on export failure. The single-flight closes the concurrent-request case; the remote lookup-before-create closes the crash-after-POST case that no local lock can catch.
-- [ ] Run `npx vitest run lib/workout-library-export.test.ts`; expect PASS.
-- [ ] Commit with `git add lib/intervals-api.ts lib/workout-library-export.ts lib/workout-library-export.test.ts && git commit -m "feat: mirror promoted workouts to Intervals"`.
+- [x] Write failing mocked tests for folder reuse/create, verbatim `workoutText` as `description`, `type: "Ride"`, remote ID persistence, failed state, retry (no second POST after a stored remote ID), **two concurrent `exportWorkoutLibraryEntry` calls for the same entry producing exactly one remote workout** (single-flight), and **a simulated crash-after-POST** (a retry after the process "died" between the successful create and the local persist must find the prior remote workout via `findRemoteLibraryWorkout` — matched on the deterministic `<type> — <duration> min — <id-prefix>` name — rather than creating a duplicate).
+- [x] Run `npx vitest run lib/workout-library-export.test.ts`; expect failures.
+- [x] Add thin Intervals primitives using existing athlete URL, `icuFetch`, and `IntervalsApiError`. Folder is `NodeVelo — <type>`; workout name is `<type> — <duration> min — <id-prefix>` — deterministic and unique enough to look up by.
+  Forum research (2026-08-16) confirmed no `external_id`/`upsert` exists on this endpoint (unlike
+  `/events/bulk`) and that `GET /folders`'s exact nesting (workouts per-folder vs. flat + `folder_id`)
+  isn't documented — `parseFolderTree` in `lib/intervals-api.ts` handles either shape defensively; also
+  added 42 low-level tests to `lib/intervals-api.test.ts` (not originally in this task's file list, but
+  the natural existing home for intervals-api primitive tests) exercising both shapes.
+- [x] Implement export by reading state, returning if synced, then — inside a per-entry-ID in-process single-flight (a `Map<string, Promise<...>>` keyed by entry ID, mirroring `json-store.ts`'s own per-file lock pattern) — first calling `findRemoteLibraryWorkout` in the target folder by the deterministic name, using it if found instead of creating; otherwise doing the remote create outside the JSON lock, then atomically persisting `synced` or `failed`. Never deactivate on export failure. The single-flight closes the concurrent-request case; the remote lookup-before-create closes the crash-after-POST case that no local lock can catch.
+- [x] Run `npx vitest run lib/workout-library-export.test.ts`; expect PASS. (7/7, plus 42/42 in `lib/intervals-api.test.ts`; 2253/2253 full suite, typecheck + lint clean.)
+- [x] Commit with `git add lib/intervals-api.ts lib/workout-library-export.ts lib/workout-library-export.test.ts && git commit -m "feat: mirror promoted workouts to Intervals"`.
 
 ### Task 4: Library API
 

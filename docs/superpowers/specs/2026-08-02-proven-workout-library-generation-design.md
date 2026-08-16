@@ -279,6 +279,19 @@ This replaces the earlier sync design's manual-only export trigger for this feat
 reuse of `workoutText` as Intervals.icu's structured `description`, folder convention, and dedicated
 export plumbing remain applicable.
 
+**Confirmed against the live API (2026-08-16 forum research), not assumed:** `POST /athlete/{id}/workouts`
+has no `external_id`/`upsert` parameter — that mechanism exists only on the unrelated `/events/bulk`
+calendar endpoint this app already uses elsewhere (`lib/intervals-api.ts`'s `createEvent`, keyed on a
+deterministic `external_id`). The custom single-flight + remote-lookup design above is therefore load-bearing,
+not a defensive belt-and-braces addition over a simpler native flag that doesn't exist for this endpoint.
+`description` must be the plain-text step syntax — posting structured JSON steps directly is silently
+ignored by the API (confirmed by another developer's forum report), matching `workoutText`'s existing
+format with no conversion needed. Neither `GET /athlete/{id}/folders`'s exact response shape (whether
+workouts nest inside each folder object, or arrive as a separate flat list correlated by `folder_id`) nor
+`POST /athlete/{id}/workouts`'s exact response field names could be confirmed from documentation alone —
+the implementation parses defensively for either shape; §11's live smoke run must confirm which one is
+real and simplify the parser once it does.
+
 ## 9. UI
 
 The first release adds a Workout Library view with active, candidate, and retired sections — kept in
@@ -355,6 +368,14 @@ manually-curated library shows real usage.
 
 ## 13. Known rough edges
 
+- **Intervals.icu itself has a documented, unresolved workout-creation caching bug** — an athlete can
+  occasionally see a *stale structure from a previously deleted workout* rendered in their UI for a
+  workout NodeVelo just created via `POST /athlete/{id}/workouts`, even though the API's own response
+  correctly echoes what was sent. Confirmed live by another developer on the Intervals.icu forum
+  ([bug report](https://forum.intervals.icu/t/api-created-library-workout-shows-wrong-workout-structure-cached-from-old-workout/118187)),
+  intermittent, no root cause or fix from staff, self-resolved on retry in that report. This is external
+  to NodeVelo — nothing in §8's export logic can detect or correct it — but worth knowing before treating
+  an athlete-reported "wrong structure in Intervals.icu" as a bug in our own export code.
 - **The library starts and stays empty until the athlete acts.** v1 has no automatic path in (§5a is
   deferred), so library growth is bounded entirely by how often the athlete clicks "Add to library" on a
   completed quality day. This is expected, not a bug — don't read a quiet library as the feature failing.
