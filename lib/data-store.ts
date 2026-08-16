@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis, WeeklyEnvelope } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis, WeeklyEnvelope, WorkoutLibraryStore } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
@@ -415,6 +415,20 @@ export async function updateDispositions(
     entries: mutate(log.entries),
     updatedAt: new Date().toISOString(),
   }));
+}
+
+const DEFAULT_WORKOUT_LIBRARY: WorkoutLibraryStore = { entries: [] };
+
+export function readWorkoutLibrary(): Promise<WorkoutLibraryStore> {
+  return readJson<WorkoutLibraryStore>("workout-library.json", DEFAULT_WORKOUT_LIBRARY);
+}
+
+// workout-library.json is in json-store.ts's CRITICAL set — a double-corrupt read refuses to persist
+// the empty fallback as truth (throws) rather than silently wiping a promoted library.
+export function updateWorkoutLibrary(
+  mutate: (store: WorkoutLibraryStore) => WorkoutLibraryStore | Promise<WorkoutLibraryStore>
+): Promise<WorkoutLibraryStore> {
+  return updateJson<WorkoutLibraryStore>("workout-library.json", DEFAULT_WORKOUT_LIBRARY, mutate);
 }
 
 const DEFAULT_MORNING_CHECKS: MorningCheckLog = { entries: [], updatedAt: new Date(0).toISOString() };
