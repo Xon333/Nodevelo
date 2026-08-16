@@ -110,19 +110,13 @@ omission. Detail + the reopen trigger for taking it further:
   once a wearable is in the loop.
 - **In-app proven-workout library (generation-time reuse + Intervals.icu export)** — NodeVelo builds a
   local library of athlete-curated well-executed sessions and selects from it during generation instead
-  of always asking Claude to author from scratch; every promotion also exports to Intervals.icu's own library,
-  absorbing the older manual-push-only idea (`docs/superpowers/specs/2026-07-18-workout-library-sync-design.md`,
-  retired 2026-08-05 — do not implement that doc). **v1 is manual-promotion-only** (athlete decision,
-  2026-08-05) — automatic evidence-based promotion + historical bootstrap are designed (§5a) but
-  deferred until the manual path shows real usage. 4 of 10 planned tasks shipped: `lib/workout-library.ts`
-  (2026-08-03; fingerprinting, promotion rules, slot-matched selection), `lib/workout-library-service.ts`
-  (2026-08-11; persistence + `promoteWorkoutManually`, `workout-library.json` in `json-store.ts`'s
-  `CRITICAL` set), `lib/workout-library-export.ts` + `lib/intervals-api.ts` additions (2026-08-16;
-  single-flight + remote-lookup-before-create export, since the live API has no native upsert on this
-  endpoint — confirmed via forum research, not assumed), and `app/api/workout-library` (2026-08-16;
-  `GET`/`POST` + `[id]` `PATCH` for retire/restore/retry-export — the app's first dynamic route segment)
-  + tests, tracked at [FILE_INDEX.md](docs/FILE_INDEX.md). **Not wired in** — no `app/api/generate`
-  integration, no `app/api/write` use-count accounting, no management UI. Remaining 6 tasks + full
+  of always asking Claude to author from scratch; every promotion also exports to Intervals.icu's own
+  library, absorbing the older manual-push-only idea (retired 2026-08-05). **v1 is manual-promotion-only**
+  (athlete decision, 2026-08-05) — automatic evidence-based promotion + historical bootstrap are designed
+  but deferred until the manual path shows real usage. **5 of 10 planned tasks shipped** (domain model,
+  persistence, Intervals.icu export, API routes, deterministic templates) — file-by-file detail tracked
+  at [FILE_INDEX.md](docs/FILE_INDEX.md), not duplicated here. **Not wired in** — no `app/api/generate`
+  integration, no `app/api/write` use-count accounting, no management UI. Remaining 5 tasks + full
   design: `docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md`.
 - **Mobile density polish** — desktop-first was a deliberate scope call (UX-MASTERPLAN §3); revisit
   only if it causes real confusion, not urgent on its own.
