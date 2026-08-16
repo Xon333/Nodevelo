@@ -189,14 +189,26 @@ losing the durability stimulus. Design §3 has the full rationale.
 
 **Files:** Create `lib/workout-templates.ts`, `lib/workout-templates.test.ts`.
 
-**Interfaces:** Produce `buildTemplateDay(slot, durabilityTemplateId, isRecoveryWeek, nutrition): (PlannedDay & { source: WorkoutSource }) | null` for Z2, Recovery, Rest, and Strength — `null` return means "not template-eligible, Task 7 must send this date to AI."
+**Interfaces:** Produce `buildTemplateDay(type, slot, durabilityTemplateId, isRecoveryWeek, nutrition): (PlannedDay & { source: WorkoutSource }) | null` for Z2, Recovery, Rest, and Strength — `null` return means "not template-eligible, Task 7 must send this date to AI."
+**Deviation (implementation-time):** added an explicit `type` parameter, not in the original 4-argument
+signature. `slot.allowedTypes` for an `"easy"`-kind slot is `["Z2", "Recovery"]` (block-skeleton.ts) —
+two elements, and nothing else in the 4-argument signature disambiguates which one the caller wants.
+Task 7 already has to decide, per slot, which type it's filling when it assembles a block; that's the
+natural (and only available) place for that decision to live, so it's now passed in rather than guessed.
 
-- [ ] Write failing tests asserting: the parameterized Z2 template produces the exact requested duration (via `totalPrescribedMinutes`) at both the 60 min and 480 min extremes and at an arbitrary non-round point (e.g. 150 min) inside the slot envelope, not just the four old fixed points; Z2 returns `null` when `durabilityTemplateId` is `"B"`–`"E"` and `isRecoveryWeek` is `false`; Z2 returns the deterministic template (not `null`) when `durabilityTemplateId` is `"A"` OR `isRecoveryWeek` is `true` regardless of `durabilityTemplateId`; Recovery template's exact `totalPrescribedMinutes`; Rest has empty text; Strength has the configured duration; all cycling templates pass protocol validation.
-- [ ] Run `npx vitest run lib/workout-templates.test.ts`; expect missing export.
-- [ ] Implement one parameterized Z2 template: fixed-length warmup and cooldown, steady segment sized to exactly fill the remainder of the slot's requested duration — covering the full legal range with no coverage gap, so `TemplateCoverageError` (kept as a defensive invariant check, not the primary duration-mismatch path it was before) should no longer be reachable via duration alone.
-- [ ] Add one static KB-backed Strength prescription and deterministic Recovery/Rest copy. Copy caller-supplied nutrition numbers; do not calculate them here.
-- [ ] Run tests; expect PASS.
-- [ ] Commit with `git add lib/workout-templates.ts lib/workout-templates.test.ts && git commit -m "feat: add deterministic routine workout templates"`.
+- [x] Write failing tests asserting: the parameterized Z2 template produces the exact requested duration (via `totalPrescribedMinutes`) at both the 60 min and 480 min extremes and at an arbitrary non-round point (e.g. 150 min) inside the slot envelope, not just the four old fixed points; Z2 returns `null` when `durabilityTemplateId` is `"B"`–`"E"` and `isRecoveryWeek` is `false`; Z2 returns the deterministic template (not `null`) when `durabilityTemplateId` is `"A"` OR `isRecoveryWeek` is `true` regardless of `durabilityTemplateId`; Recovery template's exact `totalPrescribedMinutes`; Rest has empty text; Strength has the configured duration; all cycling templates pass protocol validation.
+- [x] Run `npx vitest run lib/workout-templates.test.ts`; expect missing export.
+- [x] Implement one parameterized Z2 template: fixed-length warmup and cooldown, steady segment sized to exactly fill the remainder of the slot's requested duration — covering the full legal range with no coverage gap, so `TemplateCoverageError` (kept as a defensive invariant check, not the primary duration-mismatch path it was before) should no longer be reachable via duration alone.
+  Warmup/cooldown fixed at 10 min each at 55%/50% FTP; steady at 68% FTP (under the 75% easy ceiling and
+  88% durability-insert floor, so `validateWorkoutProtocol` finds nothing to flag by construction).
+  Recovery is one flat block at 50% FTP (KB cycling_database.md: "under 60% FTP throughout").
+- [x] Add one static KB-backed Strength prescription and deterministic Recovery/Rest copy. Copy caller-supplied nutrition numbers; do not calculate them here.
+  Strength text is the KB's "Core Programme — Heavy Compound Lifts" table verbatim (cycling_database.md
+  §4, the 7-exercise year-round programme). `nutrition: WorkoutNutritionPlan` (`lib/nutrition.ts`) is
+  formatted into `description`, not calculated — no nutrition math added here.
+- [x] Run tests; expect PASS. (16/16 new tests, including protocol-validation coverage across every
+  cycling template + duration combination; 2286/2286 full suite, typecheck + lint clean.)
+- [x] Commit with `git add lib/workout-templates.ts lib/workout-templates.test.ts && git commit -m "feat: add deterministic routine workout templates"`.
 
 ### Task 6: Missing-slot AI contract
 
