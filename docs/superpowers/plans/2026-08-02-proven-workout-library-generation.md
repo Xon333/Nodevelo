@@ -157,12 +157,21 @@ sweep) is cut; re-add it alongside §5a's bootstrap when that ships.
 
 **Interfaces:** `GET /api/workout-library -> { entries }`; `POST` body `{ date } -> { entry }`; `PATCH /api/workout-library/:id` body `{ action: "retire" | "restore" | "retry-export" } -> { entry }`.
 
-- [ ] Write failing route tests for malformed bodies, unknown dates/IDs, blocked protocols, completion requirement, successful manual promotion, retire/restore, and export failure returning an active local entry with failed export state.
-- [ ] Run `npx vitest run app/api/workout-library/route.test.ts`; expect missing-route failures.
-- [ ] Implement Zod parsing and thin service calls. Keep central CSRF authoritative. Map not-found to 404, invalid promotion to 400, and local-store failure to 500.
-- [ ] After activation call `exportWorkoutLibraryEntry` for that one entry; if remote export fails, return the freshly read active entry because the exporter has persisted failure state.
-- [ ] Run route/service/export tests; expect PASS.
-- [ ] Commit with `git add app/api/workout-library app/api/workout-library/route.test.ts && git commit -m "feat: expose workout library API"`.
+- [x] Write failing route tests for malformed bodies, unknown dates/IDs, blocked protocols, completion requirement, successful manual promotion, retire/restore, and export failure returning an active local entry with failed export state.
+- [x] Run `npx vitest run app/api/workout-library/route.test.ts`; expect missing-route failures.
+- [x] Implement Zod parsing and thin service calls. Keep central CSRF authoritative. Map not-found to 404, invalid promotion to 400, and local-store failure to 500.
+  **Deviation:** used the same manual `typeof`/regex body validation every other route in the app uses
+  (`app/api/disposition/route.ts` etc.) instead of Zod — grepped the whole `app/api` tree first: zero
+  existing routes parse request bodies with Zod (it's only used for Anthropic tool-call schemas,
+  `lib/*-schema.ts`), so introducing it here would be a first-of-its-kind pattern for one route rather
+  than matching the other ~20. CSRF confirmed centrally enforced via `proxy.ts` (matcher `/api/:path*`)
+  — no per-route code needed, as the plan says. `[id]/route.ts` is the app's first dynamic route segment;
+  Next.js 16's `params` is `Promise<{id}>` (checked `node_modules/next/dist/docs` per AGENTS.md — this is
+  exactly the kind of breaking change it warns about) and a full `npm run build` confirms both routes are
+  recognized correctly (`/api/workout-library`, `/api/workout-library/[id]` both listed as dynamic).
+- [x] After activation call `exportWorkoutLibraryEntry` for that one entry; if remote export fails, return the freshly read active entry because the exporter has persisted failure state.
+- [x] Run route/service/export tests; expect PASS. (17/17 new route tests; 2270/2270 full suite, typecheck + lint + build clean.)
+- [x] Commit with `git add app/api/workout-library app/api/workout-library/route.test.ts && git commit -m "feat: expose workout library API"`.
 
 ### Task 5: Deterministic routine templates
 
