@@ -33,10 +33,11 @@ fixes. Full rationale in design doc §3, §5, §6, §7, §8, §10.
 
 - NodeVelo's local JSON library is authoritative; Intervals.icu is export-only.
 - Learned types are exactly Threshold, VO2max, SIT, and RaceSim; prescriptions are immutable.
-- v1 activation is manual only: requires a ride whose disposition (`data/dispositions.json`) is exactly
-  `"completed"`, and cannot override structural/protocol safety. (Automatic activation — one uncompromised
-  score ≥8 or two distinct uncompromised scores ≥6 — is designed in §5a but deferred; do not wire it up in
-  this pass.)
+- v1 activation is manual only: requires a ride with no explicit `data/dispositions.json` entry tagged
+  `"partial"`, `"missed"`, or `"compromised"` for that date (absence of an entry, or an explicit
+  `"completed"` one, both qualify — disposition tagging is athlete-optional, and most rides never get one),
+  and cannot override structural/protocol safety. (Automatic activation — one uncompromised score ≥8 or
+  two distinct uncompromised scores ≥6 — is designed in §5a but deferred; do not wire it up in this pass.)
 - Z2 is one parameterized template scaled to any duration in the athlete's configured 60–480 min
   long-ride range — not four fixed points. It's selected only when the week's long ride is supposed to be
   unbroken Z2 (durability template A, or any recovery week); Recovery, Rest, and Strength are
@@ -89,18 +90,20 @@ cut from this plan entirely; re-add them as their own task when §5a is picked b
 
 **Interfaces:** Produce `readWorkoutLibrary`, `updateWorkoutLibrary`, `promoteWorkoutManually`, `setWorkoutLibraryStatus`, and `recordAcceptedLibraryUses`.
 
-- [ ] Write failing scratch-store tests covering: promotion looks up the day's prescription in the live
+- [x] Write failing scratch-store tests covering: promotion looks up the day's prescription in the live
   block first, then archived `BlockHistoryEntry.days` (SUB-1's "could be live or archived" lookup shape);
-  a new fingerprint creates an entry, a repeat fingerprint updates the existing one; a ride whose
-  `data/dispositions.json` entry is `"partial"` or `"missed"` is rejected even if it carries a real score;
-  compromised/unsupported-type/protocol-invalid rides are rejected with the concrete reason; already-active
-  entries are a no-op, not a duplicate; retirement and restore persistence; accepted-use counting; and a
-  simulated double corruption (live file + `.bak` both unreadable) refuses to persist the empty fallback.
-- [ ] Run `npx vitest run lib/workout-library-service.test.ts`; expect missing-export failures.
-- [ ] Add `"workout-library.json"` to the `CRITICAL` set in `lib/json-store.ts` (alongside `score-log.json`,
+  a new fingerprint creates an entry, a repeat fingerprint updates the existing one; a ride with **no**
+  `data/dispositions.json` entry at all is eligible (most rides never get tagged — absence is not a
+  rejection); a ride whose entry is explicitly `"partial"` or `"missed"` is rejected even if it carries a
+  real score; compromised/unsupported-type/protocol-invalid rides are rejected with the concrete reason;
+  already-active entries are a no-op, not a duplicate; retirement and restore persistence; accepted-use
+  counting; and a simulated double corruption (live file + `.bak` both unreadable) refuses to persist the
+  empty fallback.
+- [x] Run `npx vitest run lib/workout-library-service.test.ts`; expect missing-export failures.
+- [x] Add `"workout-library.json"` to the `CRITICAL` set in `lib/json-store.ts` (alongside `score-log.json`,
   `current-block.json`, etc.) — this gets `.bak` rotation and `updateJsonFile`'s existing refusal to
   persist a corrupt-fallback as truth for free; no other code change needed for this protection.
-- [ ] Add the store through the existing aliases:
+- [x] Add the store through the existing aliases:
 
 ```ts
 const DEFAULT_WORKOUT_LIBRARY: WorkoutLibraryStore = { entries: [] };
@@ -109,16 +112,21 @@ export const updateWorkoutLibrary = (mutate: (s: WorkoutLibraryStore) => Workout
   updateJson("workout-library.json", DEFAULT_WORKOUT_LIBRARY, mutate);
 ```
 
-- [ ] Implement `promoteWorkoutManually(date)`: find the day's record (live block, else block history),
-  compute its fingerprint, fetch the matching score-log entry AND its `data/dispositions.json` entry —
-  require `disposition === "completed"` exactly (not `"partial"`, which can still carry a real score, and
-  not `"missed"`) — run `canManuallyPromote` (Task 1), and on success either create a new entry
-  (`status: "active"`, `promotedBy: "manual"`, one evidence item) or fold the evidence into an existing
-  entry at that fingerprint. Never write `score-log.json`.
-- [ ] Perform every state re-check and mutation inside `updateWorkoutLibrary`. Set export `pending` only
+- [x] Implement `promoteWorkoutManually(date)`: find the day's record (live block, else block history),
+  compute its fingerprint, fetch the matching score-log entry AND look up that date in
+  `data/dispositions.json` — reject only when an entry exists AND its `disposition` is `"partial"`,
+  `"missed"`, or `"compromised"` (no entry, or an explicit `"completed"` one, both pass — disposition
+  tagging is athlete-optional, so absence must not read as rejection) — run `canManuallyPromote` (Task 1),
+  and on success either create a new entry (`status: "active"`, `promotedBy: "manual"`, one evidence item)
+  or fold the evidence into an existing entry at that fingerprint. Never write `score-log.json`.
+  Implemented as `PromoteWorkoutResult` (`{ok:true, entry}` or `{ok:false, reason}`) with reasons
+  `day-not-found | not-scored | not-completed | unsupported-type | retired | protocol-invalid` — a
+  `PromotionRejectedError` thrown inside the lock and caught at the boundary keeps the re-check atomic
+  (design §10) while still returning a clean, typed result instead of an unhandled rejection.
+- [x] Perform every state re-check and mutation inside `updateWorkoutLibrary`. Set export `pending` only
   on first activation. Cap `recentUses` at 10 accepted dates.
-- [ ] Run Tasks 1-2 tests; expect PASS.
-- [ ] Commit with `git add lib/data-store.ts lib/json-store.ts lib/workout-library-service.ts lib/workout-library-service.test.ts && git commit -m "feat: persist workout library evidence"`.
+- [x] Run Tasks 1-2 tests; expect PASS. (19/19 new tests, 2238/2238 full suite, typecheck + lint clean.)
+- [x] Commit with `git add lib/data-store.ts lib/json-store.ts lib/workout-library-service.ts lib/workout-library-service.test.ts && git commit -m "feat: persist workout library evidence"`.
 
 ### Task 3: Intervals.icu export
 

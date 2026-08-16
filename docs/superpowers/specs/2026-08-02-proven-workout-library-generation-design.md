@@ -134,16 +134,23 @@ in v1, since nothing else creates entries.
 "Completed" is not prose shorthand for "has a score" — the app already models this precisely as
 `SessionDisposition` (`data/dispositions.json`, read via `readDispositions()`): `"completed" | "partial" |
 "missed" | "compromised"`. A partial (cut-short) ride can still receive a real `executionScore` for what
-was ridden, so promotion must check the stored disposition is exactly `"completed"`, not merely that a
-score exists — otherwise a cut-short ride could be promoted as if it were the full prescribed session.
+was ridden, so promotion must not accept a `"partial"`-tagged ride just because a score exists.
+
+Disposition tagging is athlete-optional, not a required step on every ride — `SessionDisposition.tsx`'s
+own comment frames it as "the fact the system can't infer," and the rest of the codebase already treats
+an absent entry as no negative signal (`lib/reschedule.ts`'s eligibility check, `compromisedDates()`).
+Most fully-ridden sessions never get an explicit tag at all, so requiring a literal `"completed"` entry
+would reject nearly every real ride. The correct check is the same shape used elsewhere: reject only on
+an **explicit** `"partial"`, `"missed"`, or `"compromised"` entry for that date; no entry, or an explicit
+`"completed"` one, is eligible.
 
 A promotion (manual, in v1) requires:
 
 - a supported quality workout type;
 - non-empty structured workout steps;
 - no severe protocol violation under current validation rules; and
-- a ride whose disposition (`data/dispositions.json`) is exactly `"completed"` — not `"partial"`,
-  `"missed"`, or `"compromised"`.
+- no explicit `data/dispositions.json` entry for that date tagged `"partial"`, `"missed"`, or
+  `"compromised"` — absence of an entry, or an explicit `"completed"` one, both qualify.
 
 Retirement prevents future selection but preserves the prescription, evidence, usage, and export
 history. New evidence never restores a retired entry automatically. Restore is an explicit athlete

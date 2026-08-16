@@ -4,7 +4,7 @@ import { parsePrescription, walkWorkoutSteps } from "./prescription";
 import type { PlannedDay, QualityLibraryType, WorkoutLibraryEntry, WorkoutLibraryEvidence } from "./types";
 import { validateWorkoutProtocol } from "./workout-validate";
 
-const QUALITY_TYPES = new Set<QualityLibraryType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
+export const QUALITY_TYPES = new Set<QualityLibraryType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
 
 // Reuses prescription.ts's own step-grammar walker (repeat-block expansion, multi-clause lines,
 // ramp-to-upper-bound normalization) instead of a second hand-rolled parser, so a future grammar fix

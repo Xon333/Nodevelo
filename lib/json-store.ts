@@ -34,6 +34,9 @@ const CRITICAL = new Set([
   // An approved overlay carries a human review decision (Phase 4) that a fresh sync cannot re-derive —
   // exactly this set's criterion. Losing one would silently revert a correction to its original score.
   "intent-overlays.json",
+  // An athlete-promoted workout library entry (evidence, provenance, export state) is exactly as
+  // irreplaceable as the ledgers above — nothing re-derives it from a fresh sync.
+  "workout-library.json",
 ]);
 
 // HR-42: like readJsonFile, but also signals WHY the fallback fired — specifically, whether at least
