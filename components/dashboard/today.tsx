@@ -189,7 +189,8 @@ export function TodayRideCard({
   // Once an overlay APPLIES, its effective score (or Not-scored reason) is authoritative — the old
   // intrinsic scorer's analysis.executionScore must not leak through. A non-null outcome alone means
   // only that a ledger row was found; prescribed/no-overlay rides keep the analysis score.
-  const displayScore = outcome?.overlay != null ? outcome.effectiveExecutionScore : analysis.executionScore;
+  const intentPending = Boolean(analyzing && outcome?.overlay == null && analysis.activityDescription);
+  const displayScore = intentPending ? null : outcome?.overlay != null ? outcome.effectiveExecutionScore : analysis.executionScore;
 
   // Compliance % removed — execution (the duration/completion-aware 1–10 shown above) is the
   // single completion-anchored index; a separate macro % only duplicated the same story.
@@ -234,8 +235,9 @@ export function TodayRideCard({
     <>
       {/* The debrief verdict first (M2): execution is the answer to "how did it go?". */}
       <RideIntentBlock outcome={outcome ?? null} activityDecoupling={analysis.activityDecoupling} />
-      {(displayScore != null || (onPostNote && analysis.coachNote)) && (
+      {(displayScore != null || intentPending || (onPostNote && analysis.coachNote)) && (
         <div className="flex items-center gap-3">
+          {intentPending && <span className="text-sm text-zinc-400">Evaluating your intent…</span>}
           {displayScore != null && (
             <>
               <span className="font-mono text-3xl font-bold leading-none text-zinc-800 dark:text-[#ff49c8]">

@@ -2,12 +2,16 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { zodToToolInputSchema } from "./tool-schema";
 
-const ObjectiveKindSchema = z.enum(["duration", "zone-time", "zone-emphasis", "effort", "structure", "qualitative", "terrain"]);
+const ObjectiveKindSchema = z.enum(["duration", "zone-time", "zone-emphasis", "effort", "structure", "qualitative", "terrain", "segment"]);
 const ZoneBasisSchema = z.enum(["power", "heart-rate", "unspecified"]);
 
 const TargetSchema = z
   .object({
     durationMin: z.number().positive().optional(),
+    durationMaxMin: z.number().positive().optional(),
+    segmentLabel: z.string().min(1).optional(),
+    avgPowerZone: z.string().optional(),
+    normalizedPowerZone: z.string().optional(),
     watts: z.number().min(30).max(2000).optional(),
     targetPctFtp: z.number().min(30).max(200).optional(),
     zone: z.string().optional(),
@@ -42,7 +46,11 @@ const PhaseSchema = z
     description: z.string(),
     kind: ObjectiveKindSchema,
     durationMin: z.number().positive().optional(),
+    durationMaxMin: z.number().positive().optional(),
     zone: z.string().optional(),
+    segmentLabel: z.string().min(1).optional(),
+    avgPowerZone: z.string().optional(),
+    normalizedPowerZone: z.string().optional(),
     zoneBasis: ZoneBasisSchema.optional(),
     targetWatts: z.number().min(30).max(2000).optional(),
     targetPctFtp: z.number().min(30).max(200).optional(),
@@ -68,11 +76,27 @@ const ObjectiveSchema = z
   })
   .strict();
 
+const SegmentObjectiveSchema = ObjectiveSchema.refine(
+  (objective) =>
+    objective.kind !== "segment" ||
+    (objective.target !== null &&
+      typeof objective.target.segmentLabel === "string" &&
+      (objective.target.durationMin !== undefined ||
+        objective.target.avgPowerZone !== undefined ||
+        objective.target.normalizedPowerZone !== undefined)),
+  { message: "segment objectives require a label and at least one measurable target" }
+).refine(
+  (objective) =>
+    objective.target?.durationMaxMin === undefined ||
+    (objective.target.durationMin !== undefined && objective.target.durationMaxMin >= objective.target.durationMin),
+  { message: "durationMaxMin requires durationMin and must not be smaller" }
+);
+
 export const IntentToolSchema = z
   .object({
     primaryPurpose: z.string(),
     phases: z.array(PhaseSchema),
-    objectives: z.array(ObjectiveSchema),
+    objectives: z.array(SegmentObjectiveSchema),
     confidence: z.enum(["high", "medium", "low"]),
   })
   .strict();

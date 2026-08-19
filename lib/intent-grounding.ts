@@ -41,6 +41,16 @@ export function groundsDuration(note: string, min: number): boolean {
   );
 }
 
+export function groundsDurationRange(note: string, min: number, max: number): boolean {
+  const masked = maskZoneTokens(note);
+  const minuteUnit = "(?:(?:minutes?|mins?|min|m(?!\\s*/))\\b|')";
+  const hourUnit = "(?:hours?|hrs?|hr|h)\\b";
+  return (
+    inRanges(masked, min, minuteUnit) && inRanges(masked, max, minuteUnit) ||
+    inRanges(masked, min, hourUnit, 60) && inRanges(masked, max, hourUnit, 60)
+  );
+}
+
 export function groundsWatts(note: string, watts: number): boolean {
   const masked = maskZoneTokens(note);
   const unit = "(?:watts?|w)\\b";
@@ -99,6 +109,19 @@ export function groundsZone(note: string, zone: string): boolean {
   );
 }
 
+function groundsQualifiedZone(note: string, zone: string, qualifier: "avg" | "np"): boolean {
+  const zones = parseZoneExpression(zone);
+  if (zones.length === 0) return false;
+  const zoneText = `(?:z|zone\\s*)${zones.map((value) => value.slice(1)).join("|")}`;
+  const word = qualifier === "avg" ? "(?:avg|average)" : "(?:np|normalized\\s+power)";
+  return new RegExp(`${zoneText}[^\\n]{0,24}${word}|${word}[^\\n]{0,24}${zoneText}`, "i").test(note);
+}
+
+export function groundsSegmentLabel(note: string, label: string): boolean {
+  const words = label.trim().split(/\s+/).filter((word) => word.toLowerCase() !== "segment");
+  return words.length > 0 && words.every((word) => new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(note));
+}
+
 // Word-boundary vocabulary match, not numeric — mirrors groundsZone's WORD_ZONES approach. Conservative
 // on purpose (design doc §5's "no fuzzy NLP matching" discipline, same rule Task 6's label matching uses).
 const TERRAIN_WORDS: Record<"climb" | "descent", string[]> = {
@@ -111,16 +134,21 @@ export function groundsTerrain(note: string, terrain: "climb" | "descent"): bool
 }
 
 // The model may decline grounding, but may never promote unsupported numeric specificity.
-export function verifyGrounding(objective: Pick<ScoredObjective, "grounded" | "target">, note: string): boolean {
+export function verifyGrounding(objective: Pick<ScoredObjective, "grounded" | "target"> & Partial<Pick<ScoredObjective, "sourceText">>, note: string): boolean {
   if (!objective.grounded || !objective.target) return false;
-  const { durationMin, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain } = objective.target;
-  const targets = [durationMin, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain];
+  const { durationMin, durationMaxMin, segmentLabel, avgPowerZone, normalizedPowerZone, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain } = objective.target;
+  const targetNote = segmentLabel && objective.sourceText ? objective.sourceText : note;
+  const targets = [durationMin, durationMaxMin, segmentLabel, avgPowerZone, normalizedPowerZone, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain];
   const fields = [
-    durationMin === undefined || groundsDuration(note, durationMin),
+    durationMin === undefined || groundsDuration(targetNote, durationMin),
+    durationMaxMin === undefined || (durationMin !== undefined && groundsDurationRange(targetNote, durationMin, durationMaxMin)),
+    segmentLabel === undefined || groundsSegmentLabel(targetNote, segmentLabel),
+    avgPowerZone === undefined || groundsQualifiedZone(targetNote, avgPowerZone, "avg"),
+    normalizedPowerZone === undefined || groundsQualifiedZone(targetNote, normalizedPowerZone, "np"),
     watts === undefined || groundsWatts(note, watts),
     targetPctFtp === undefined || groundsPctFtp(note, targetPctFtp),
     reps === undefined || groundsReps(note, reps),
-    zone === undefined || groundsZone(note, zone),
+    zone === undefined || groundsZone(targetNote, zone),
     targetHrBpm === undefined || groundsHrBpm(note, targetHrBpm),
     targetCadenceRpm === undefined || groundsCadenceRpm(note, targetCadenceRpm),
     terrain === undefined || groundsTerrain(note, terrain),

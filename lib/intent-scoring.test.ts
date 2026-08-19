@@ -14,8 +14,10 @@ import {
   identityKey,
   intentWorkoutType,
   matchLaps,
+  matchSegment,
   resolveTargetWatts,
   scoreIntentExecution,
+  segmentLabelKey,
   vam,
   zoneMinutes,
   type RideEvidence,
@@ -42,6 +44,65 @@ describe("vam", () => {
     // ~800 m gained over a 1-hour climb is within the ~700-900 m/h club-cyclist VAM range
     // (Cycling Weekly / TrainingPeaks reference points cited in the design doc).
     expect(vam(800, 3600)).toBe(800);
+  });
+});
+
+describe("segment intent", () => {
+  it("matches exact labels and one unique numeric suffix only", () => {
+    const first = { ...lap(1200, 220, 10), label: "Flat 1" };
+    expect(segmentLabelKey("Rolling Terrain segment")).toBe("rollingterrain");
+    expect(matchSegment({ segmentLabel: "Flat 1" }, [first])).toHaveLength(1);
+    expect(matchSegment({ segmentLabel: "Rolling Terrain" }, [{ ...first, label: "Rolling Terrain 1" }])).toHaveLength(1);
+    expect(matchSegment({ segmentLabel: "Rolling Terrain" }, [{ ...first, label: "Rolling Terrain 1" }, { ...first, label: "Rolling Terrain 2" }])).toEqual([]);
+  });
+
+  it("grades the August 19-style labelled lap from local watts", () => {
+    const result = scoreIntentExecution(
+      interp({ objectives: [obj("segment", { segmentLabel: "Flat 1", durationMin: 45, durationMaxMin: 60, avgPowerZone: "Z3", normalizedPowerZone: "Z3" })] }),
+      evidence({ durationMin: 109, powerZoneTopsPct: [55, 75, 90, 105, 120, 150, 999], laps: [{ ...lap(54 * 60, 220, 100), npWatts: 232, label: "Flat 1" }] }),
+      "Flat 1 segment (Steady Z3 avg, Z3 NP 45-60m)"
+    );
+    expect(result.score).toBeGreaterThan(5);
+    expect(result.objectives[0].evidence).toContain("Flat 1");
+  });
+
+  it("leaves a required power-zone metric ungraded when its evidence is missing", () => {
+    const result = gradeObjective(
+      obj("segment", { segmentLabel: "Flat 1", durationMin: 45, avgPowerZone: "Z3" }),
+      evidence({ laps: [{ ...lap(45 * 60, 220, 100), label: "Flat 1" }], powerZoneTopsPct: null })
+    );
+    expect(result.objective.scored).toBe(false);
+    expect(result.delta).toBeNull();
+  });
+
+  it("keeps the August 19 four-segment acceptance ride at 9/10", () => {
+    const note = "Rolling Terrain segment (Z3 avg, Z4 NP, 20m) Flat 1 segment (Steady Z3 45-60m) Flat 2 segment (20m z2 recovery) Short Effort segment (Z4 avg, Z5 NP, 6m)";
+    const segment = (segmentLabel: string, sourceText: string, target: Partial<IntentTarget>) =>
+      obj("segment", { segmentLabel, sourceText, ...target });
+    const objectives = [
+      segment("Rolling Terrain", "Rolling Terrain segment (Z3 avg, Z4 NP, 20m)", { durationMin: 20, avgPowerZone: "Z3", normalizedPowerZone: "Z4" }),
+      segment("Flat 1", "Flat 1 segment (Steady Z3 45-60m)", { durationMin: 45, durationMaxMin: 60, zone: "Z3" }),
+      segment("Flat 2", "Flat 2 segment (20m z2 recovery)", { durationMin: 20, zone: "Z2" }),
+      segment("Short Effort", "Short Effort segment (Z4 avg, Z5 NP, 6m)", { durationMin: 6, avgPowerZone: "Z4", normalizedPowerZone: "Z5" }),
+    ];
+    const named = (label: string, seconds: number, avg: number, np: number, start: number) =>
+      ({ ...lap(seconds, avg, start), label, npWatts: np });
+    const result = scoreIntentExecution(
+      interp({ objectives }),
+      evidence({
+        durationMin: 109,
+        powerZoneTopsPct: [55, 75, 90, 105, 120, 150, 999],
+        laps: [
+          named("Rolling Terrain 1", 1312, 238, 263, 100),
+          named("Flat 1", 3249, 220, 232, 1412),
+          named("Flat 2", 1156, 190, 214, 4661),
+          named("Short Effort", 411, 285, 309, 5817),
+        ],
+      }),
+      note
+    );
+    expect(result.score).toBe(9);
+    expect(result.objectives.filter((objective) => objective.kind === "segment")).toHaveLength(4);
   });
 });
 
@@ -316,6 +377,12 @@ describe("canonicalisation: the model cannot move the score by how it splits an 
   const ev = evidence({ durationMin: 90, z2Min: 44, laps: [lap(540, 291), lap(540, 289)] });
 
   describe("identityKey — Phase 3b collision guard", () => {
+    it("keeps distinct segment targets from colliding before merge", () => {
+      const rolling = obj("segment", { segmentLabel: "Rolling Terrain", durationMin: 20, avgPowerZone: "Z3", normalizedPowerZone: "Z4" });
+      const short = obj("segment", { segmentLabel: "Short Effort", durationMin: 20, avgPowerZone: "Z4", normalizedPowerZone: "Z5" });
+      expect(identityKey(rolling)).not.toBe(identityKey(short));
+      expect(canonicalise([rolling, short])).toHaveLength(2);
+    });
     it("a power-targeted effort and an HR-targeted effort with the same duration do NOT collide", () => {
       const power = obj("effort", { durationMin: 9, watts: 250 });
       const hr = obj("effort", { durationMin: 9, targetHrBpm: 154 });

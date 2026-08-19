@@ -763,11 +763,15 @@ export interface IntentParseFailure {
   issues: IntentParseIssue[]; // populated only for "schema-invalid"; [] otherwise
 }
 
-export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative" | "terrain";
+export type ObjectiveKind = "duration" | "zone-time" | "zone-emphasis" | "effort" | "structure" | "qualitative" | "terrain" | "segment";
 export type ZoneBasis = "power" | "heart-rate" | "unspecified";
 
 export interface IntentTarget {
   durationMin?: number;
+  durationMaxMin?: number;
+  segmentLabel?: string;
+  avgPowerZone?: string;
+  normalizedPowerZone?: string;
   watts?: number;
   targetPctFtp?: number;
   zone?: string;
@@ -784,7 +788,17 @@ export interface IntentTarget {
 // authority on validity; duplicating those constraints here would create two definitions to drift.
 export interface StructuredIntent {
   primaryPurpose: string;
-  phases: Array<{ description: string; kind: ObjectiveKind; durationMin?: number; targetZone?: string; targetWatts?: number }>;
+  phases: Array<{
+    description: string;
+    kind: ObjectiveKind;
+    durationMin?: number;
+    durationMaxMin?: number;
+    targetZone?: string;
+    avgPowerZone?: string;
+    normalizedPowerZone?: string;
+    segmentLabel?: string;
+    targetWatts?: number;
+  }>;
 }
 
 // One stated objective and what the ride data could say about it. `scored: false` with

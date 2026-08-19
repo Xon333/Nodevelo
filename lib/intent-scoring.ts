@@ -59,7 +59,7 @@ import type {
 // The DETERMINISTIC scorer version, distinct from the interpretation's `promptVersion` (which versions
 // the LLM parse). Design §11.2 requires retro scoring to use "the same deterministic scorer" as future
 // rides, which is unverifiable without recording which one ran.
-export const INTENT_SCORING_VERSION = 1;
+export const INTENT_SCORING_VERSION = 2;
 
 // The evidence-scope gate. A whole-ride 1-10 verdict must not rest only on LOCAL evidence: a 9-minute
 // lap says nothing about the other 109 minutes.
@@ -71,10 +71,10 @@ export type IntentConfidence = IntentInterpretation["confidence"];
 // `qualitative` is in no list — it is acknowledged (`measurable: false, scored: false`) and never
 // graded: speed, braking and GPS cannot establish that cornering was good (design §6/§12.2).
 export const GRADABLE_KINDS_BY_CONFIDENCE: Record<IntentConfidence, readonly ObjectiveKind[]> = {
-  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure", "terrain"],
+  high: ["duration", "zone-time", "zone-emphasis", "effort", "structure", "terrain", "segment"],
   // structure dropped at medium (ordinal/reward-only); terrain KEPT — it is a falsifiable existence
   // claim from lap data, the same rigor class as `effort`, not an ordinal claim like `structure`.
-  medium: ["duration", "zone-time", "zone-emphasis", "effort", "terrain"],
+  medium: ["duration", "zone-time", "zone-emphasis", "effort", "terrain", "segment"],
   low: [],
 };
 
@@ -82,7 +82,7 @@ export const GRADABLE_KINDS_BY_CONFIDENCE: Record<IntentConfidence, readonly Obj
 // target's.
 const LAP_DURATION_TOLERANCE = 0.2;
 
-const OVERLAY_SCHEMA_VERSION = 1;
+const OVERLAY_SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -100,6 +100,7 @@ export interface RideEvidence {
   ftpUsed: number; // the FTP that applied on the RIDE's date, from the ledger row
   wholeRideMaxHr: number | null;
   wholeRideAvgCadence: number | null;
+  powerZoneTopsPct?: number[] | null;
 }
 
 // One zone reading, plus which array it came from and whether that array was the athlete's stated
@@ -192,6 +193,7 @@ const KIND_BAND: Record<ObjectiveKind, { min: number; max: number }> = {
   effort: { min: -2, max: 2 },
   structure: { min: 0, max: 1 },
   terrain: { min: -2, max: 2 },
+  segment: { min: -3, max: 3 },
   qualitative: { min: 0, max: 0 },
 };
 
@@ -346,6 +348,10 @@ export function identityKey(objective: ScoredObjective): string {
     roundOr(target.targetHrBpm, 1),
     roundOr(target.targetCadenceRpm, 1),
     target.terrain ?? "-",
+    target.segmentLabel ? segmentLabelKey(target.segmentLabel) : "-",
+    roundOr(target.durationMaxMin, 1),
+    zoneKey(target.avgPowerZone),
+    zoneKey(target.normalizedPowerZone),
   ];
   if (objective.kind === "qualitative") parts.push(objective.description);
   return parts.join("|");
@@ -410,6 +416,8 @@ function mergeKey(objective: ScoredObjective): string {
       )}|${zoneKey(target.zone)}|${roundOr(target.targetHrBpm, 1)}|${roundOr(target.targetCadenceRpm, 1)}`;
     case "terrain":
       return `terrain|${target.terrain ?? "-"}|${roundOr(target.durationMin, 1)}`;
+    case "segment":
+      return `segment|${target.segmentLabel ?? "-"}|${roundOr(target.durationMin, 1)}|${roundOr(target.durationMaxMin, 1)}|${target.avgPowerZone ?? "-"}|${target.normalizedPowerZone ?? "-"}`;
     case "qualitative":
       return `qualitative|${objective.description}`;
   }
@@ -490,7 +498,13 @@ const compatibleBasis = (a: ZoneBasis, b: ZoneBasis): boolean =>
 // — a note that happened to phrase its total as a zone would outscore an identical one that did not.
 function applySubsumption(objectives: ScoredObjective[]): ScoredObjective[] {
   const zoneTimes = objectives.filter((o) => o.kind === "zone-time");
+  const segments = objectives.filter((o) => o.kind === "segment");
   const dropped = new Set<ScoredObjective>();
+
+  for (const objective of objectives) {
+    if (objective.kind === "segment" || objective.sourceText === null) continue;
+    if (segments.some((segment) => segment.sourceText !== null && segment.sourceText === objective.sourceText)) dropped.add(objective);
+  }
 
   // 3a. `zone-time` subsumes `zone-emphasis` for the same zone — the numbered claim is strictly
   // stronger.
@@ -977,6 +991,54 @@ function gradeTerrain(objective: ScoredObjective, pool: ExecutedInterval[]): Ver
   };
 }
 
+export function segmentLabelKey(label: string): string {
+  return label.toLowerCase().replace(/\bsegment\b/g, "").replace(/[^a-z0-9]+/g, "");
+}
+
+export function matchSegment(target: IntentTarget, laps: ExecutedInterval[]): ExecutedInterval[] {
+  const wanted = segmentLabelKey(target.segmentLabel ?? "");
+  if (!wanted) return [];
+  const exact = laps.filter((lap) => lap.label && segmentLabelKey(lap.label) === wanted);
+  if (exact.length === 1) return exact;
+  if (exact.length > 1 || /\d$/.test(wanted)) return [];
+  const suffix = laps.filter((lap) => lap.label && new RegExp(`^${wanted}\\d+$`).test(segmentLabelKey(lap.label)));
+  return suffix.length === 1 ? suffix : [];
+}
+
+function powerZoneForWatts(watts: number | null, ftp: number, tops: number[] | null): number | null {
+  if (watts == null || !Number.isFinite(watts) || ftp <= 0 || !tops?.length) return null;
+  const pct = (watts / ftp) * 100;
+  return tops.findIndex((top) => pct <= top) + 1 || tops.length + 1;
+}
+
+function zoneMatch(actual: number | null, expected: string | undefined): boolean | null {
+  if (!expected) return true;
+  const wanted = zoneIndex(expected);
+  return wanted === null || actual === null ? null : actual === wanted + 1;
+}
+
+function gradeSegment(objective: ScoredObjective, evidence: RideEvidence, pool: ExecutedInterval[]): Verdict {
+  const target = objective.target ?? {};
+  const matched = matchSegment(target, pool);
+  if (matched.length !== 1) return { ...ungraded(matched.length === 0 ? "segment label not found" : "segment label ambiguous"), matchedLaps: matched };
+  const lap = matched[0];
+  const actualMin = lap.durationSec / 60;
+  const min = numeric(target.durationMin);
+  const max = numeric(target.durationMaxMin) ?? min;
+  const durationScore = min === null ? 1 : max !== null && actualMin >= min && actualMin <= max ? 2 : actualMin >= min * 0.85 && actualMin <= (max ?? min) * 1.15 ? 1 : 0;
+  const avgZone = powerZoneForWatts(lap.avgWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null);
+  const npZone = powerZoneForWatts(lap.npWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null);
+  const avg = zoneMatch(avgZone, target.avgPowerZone ?? target.zone);
+  const np = zoneMatch(npZone, target.normalizedPowerZone);
+  if (avg === null) return ungraded("no average-power zone evidence for the matched segment");
+  if (np === null) return ungraded("no normalized-power zone evidence for the matched segment");
+  const components = [durationScore, avg === null ? 0 : avg ? 2 : 0, np === null ? 0 : np ? 2 : 0];
+  const mean = components.reduce((sum, value) => sum + value, 0) / components.length;
+  const precise = durationScore === 2 && components.slice(1).every((value) => value === 2);
+  const delta = mean >= 1.5 ? 3 : mean >= 1 ? 2 : mean >= 0.5 ? 0 : -3;
+  return { delta, scored: true, measurable: true, scopeMin: actualMin, evidence: `${lap.label ?? target.segmentLabel} ${actualMin.toFixed(1)} min; avg ${lap.avgWatts ?? "?"} W; NP ${lap.npWatts ?? "?"} W${precise ? "; precise" : ""}`, matchedLaps: matched };
+}
+
 export function gradeObjective(
   objective: ScoredObjective,
   evidence: RideEvidence,
@@ -1002,6 +1064,9 @@ export function gradeObjective(
       break;
     case "terrain":
       verdict = gradeTerrain(objective, pool);
+      break;
+    case "segment":
+      verdict = gradeSegment(objective, evidence, pool);
       break;
     case "qualitative":
       verdict = {
@@ -1207,6 +1272,12 @@ export function scoreIntentExecution(
     const band = KIND_BAND[kind];
     total += clamp(roundSymmetric(mean), band.min, band.max);
   }
+  const segmentResults = results.filter((result) => result.objective.kind === "segment" && result.delta !== null);
+  if (segmentResults.length >= 2) {
+    const starts = segmentResults.map((result) => result.matchedLaps[0]?.startIndex).filter((index): index is number => index != null);
+    if (starts.length === segmentResults.length && starts.every((index, i) => i === 0 || index > starts[i - 1])) total += 1;
+  }
+  if (segmentResults.length > 0 && segmentResults.every((result) => result.objective.evidence?.includes("precise"))) total += 1;
 
   // Every objective that never reached grading is still returned, so 2c can show it was acknowledged.
   const canonicalSet = new Set(gradable);
@@ -1259,13 +1330,15 @@ const ZONE_TYPES: Record<number, WorkoutType> = { 1: "Recovery", 2: "Z2", 3: "Z2
 export function intentWorkoutType(intent: StructuredIntent): WorkoutType | null {
   const purpose = intent.primaryPurpose ?? "";
   for (const { pattern, type } of PURPOSE_PATTERNS) {
+    if (type === "Rest") continue;
     if (pattern.test(purpose)) return type;
   }
   const zones = (intent.phases ?? [])
-    .map((phase) => zoneIndex(phase.targetZone))
+    .flatMap((phase) => [phase.targetZone, phase.avgPowerZone, phase.normalizedPowerZone])
+    .map((zone) => zoneIndex(zone))
     .filter((index): index is number => index !== null)
     .map((index) => index + 1);
-  if (zones.length === 0) return null;
+  if (zones.length === 0) return /\brest\b/i.test(purpose) ? "Rest" : null;
   return ZONE_TYPES[Math.max(...zones)] ?? null;
 }
 
