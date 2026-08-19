@@ -14,8 +14,10 @@ import {
   identityKey,
   intentWorkoutType,
   matchLaps,
+  matchSegment,
   resolveTargetWatts,
   scoreIntentExecution,
+  segmentLabelKey,
   vam,
   zoneMinutes,
   type RideEvidence,
@@ -42,6 +44,26 @@ describe("vam", () => {
     // ~800 m gained over a 1-hour climb is within the ~700-900 m/h club-cyclist VAM range
     // (Cycling Weekly / TrainingPeaks reference points cited in the design doc).
     expect(vam(800, 3600)).toBe(800);
+  });
+});
+
+describe("segment intent", () => {
+  it("matches exact labels and one unique numeric suffix only", () => {
+    const first = { ...lap(1200, 220, 10), label: "Flat 1" };
+    expect(segmentLabelKey("Rolling Terrain segment")).toBe("rollingterrain");
+    expect(matchSegment({ segmentLabel: "Flat 1" }, [first])).toHaveLength(1);
+    expect(matchSegment({ segmentLabel: "Rolling Terrain" }, [{ ...first, label: "Rolling Terrain 1" }])).toHaveLength(1);
+    expect(matchSegment({ segmentLabel: "Rolling Terrain" }, [{ ...first, label: "Rolling Terrain 1" }, { ...first, label: "Rolling Terrain 2" }])).toEqual([]);
+  });
+
+  it("grades the August 19-style labelled lap from local watts", () => {
+    const result = scoreIntentExecution(
+      interp({ objectives: [obj("segment", { segmentLabel: "Flat 1", durationMin: 45, durationMaxMin: 60, avgPowerZone: "Z3", normalizedPowerZone: "Z3" })] }),
+      evidence({ durationMin: 109, powerZoneTopsPct: [55, 75, 90, 105, 120, 150, 999], laps: [{ ...lap(54 * 60, 220, 100), npWatts: 232, label: "Flat 1" }] }),
+      "Flat 1 segment (Steady Z3 avg, Z3 NP 45-60m)"
+    );
+    expect(result.score).toBeGreaterThan(5);
+    expect(result.objectives[0].evidence).toContain("Flat 1");
   });
 });
 

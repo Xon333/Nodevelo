@@ -183,3 +183,7 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     labels remain the primary signal and are exempt. Phase 3c checked 25 live non-empty interval payloads
     and found no minimum/trough-gradient field, so the separate compound climb+descent-lap exclusion was
     not built and remains a documented rough edge rather than a guessed signal.
+58. **Named segment intent is label-bound and local.** A `segment` objective may only grade one unique
+    Intervals.icu-curated label match; average power and normalized power use that lap plus the ride-date
+    FTP zone tops, never whole-ride zone seconds or guessed boundaries. Missing or ambiguous labels stay
+    ungraded, and segment-backed objectives subsume duplicate whole-ride claims from the same source span.

@@ -8,6 +8,7 @@ import {
   updateIntentOverlayStore,
 } from "./data-store";
 import { fetchIntervals } from "./intervals-api";
+import { physiologyAsOf, readPhysiology } from "./physiology";
 import { buildIntentQueue, INTENT_MAX_PER_RUN, normalizeNote, primaryRideOfDate } from "./intent-queue";
 import { buildOverlay, scoreIntentExecution, type RideEvidence } from "./intent-scoring";
 import type { IntentOverlay, RideScoreEntry } from "./types";
@@ -43,10 +44,11 @@ export async function runIntentParsing(
   warnings: string[],
   opts: RunIntentOptions = {}
 ): Promise<RunIntentResult> {
-  const [lastSync, scoreLog, initialStore] = await Promise.all([
+  const [lastSync, scoreLog, initialStore, physiology] = await Promise.all([
     readLastSync(),
     readScoreLog(),
     readIntentOverlays(),
+    readPhysiology(),
   ]);
 
   const intentStore = initialStore.autoFromDate
@@ -118,6 +120,7 @@ export async function runIntentParsing(
           ftpUsed: entry.ftpUsed,
           wholeRideMaxHr: activity.maxHr,
           wholeRideAvgCadence: activity.avgCadence,
+          powerZoneTopsPct: physiologyAsOf(physiology, item.date)?.powerZonePct ?? null,
         };
         const verdict = scoreIntentExecution(outcome.interpretation, evidence, item.note);
         next = buildOverlay({
