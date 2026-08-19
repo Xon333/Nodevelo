@@ -129,6 +129,16 @@ describe("semantic intent grounding", () => {
     const honest = { ...claimed, grounded: false, target: { durationMin: 9, watts: 292 } };
     expect(verifyGrounding(honest, "9 min around 292 W")).toBe(false);
   });
+
+  it("does not ground one segment's metric from another segment's source span", () => {
+    const objective = {
+      grounded: true,
+      target: { segmentLabel: "Rolling Terrain", normalizedPowerZone: "Z5" },
+      sourceText: "Rolling Terrain segment (Z3 avg, Z4 NP, 20m)",
+    };
+    const note = `${objective.sourceText} Short Effort segment (Z4 avg, Z5 NP, 6m)`;
+    expect(verifyGrounding(objective, note)).toBe(false);
+  });
 });
 
 describe("Phase 3b grounding — HR, cadence, terrain", () => {

@@ -348,6 +348,10 @@ export function identityKey(objective: ScoredObjective): string {
     roundOr(target.targetHrBpm, 1),
     roundOr(target.targetCadenceRpm, 1),
     target.terrain ?? "-",
+    target.segmentLabel ? segmentLabelKey(target.segmentLabel) : "-",
+    roundOr(target.durationMaxMin, 1),
+    zoneKey(target.avgPowerZone),
+    zoneKey(target.normalizedPowerZone),
   ];
   if (objective.kind === "qualitative") parts.push(objective.description);
   return parts.join("|");
@@ -1026,6 +1030,8 @@ function gradeSegment(objective: ScoredObjective, evidence: RideEvidence, pool: 
   const npZone = powerZoneForWatts(lap.npWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null);
   const avg = zoneMatch(avgZone, target.avgPowerZone ?? target.zone);
   const np = zoneMatch(npZone, target.normalizedPowerZone);
+  if (avg === null) return ungraded("no average-power zone evidence for the matched segment");
+  if (np === null) return ungraded("no normalized-power zone evidence for the matched segment");
   const components = [durationScore, avg === null ? 0 : avg ? 2 : 0, np === null ? 0 : np ? 2 : 0];
   const mean = components.reduce((sum, value) => sum + value, 0) / components.length;
   const precise = durationScore === 2 && components.slice(1).every((value) => value === 2);

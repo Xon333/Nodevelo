@@ -134,20 +134,21 @@ export function groundsTerrain(note: string, terrain: "climb" | "descent"): bool
 }
 
 // The model may decline grounding, but may never promote unsupported numeric specificity.
-export function verifyGrounding(objective: Pick<ScoredObjective, "grounded" | "target">, note: string): boolean {
+export function verifyGrounding(objective: Pick<ScoredObjective, "grounded" | "target"> & Partial<Pick<ScoredObjective, "sourceText">>, note: string): boolean {
   if (!objective.grounded || !objective.target) return false;
   const { durationMin, durationMaxMin, segmentLabel, avgPowerZone, normalizedPowerZone, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain } = objective.target;
+  const targetNote = segmentLabel && objective.sourceText ? objective.sourceText : note;
   const targets = [durationMin, durationMaxMin, segmentLabel, avgPowerZone, normalizedPowerZone, watts, targetPctFtp, reps, zone, targetHrBpm, targetCadenceRpm, terrain];
   const fields = [
-    durationMin === undefined || groundsDuration(note, durationMin),
-    durationMaxMin === undefined || (durationMin !== undefined && groundsDurationRange(note, durationMin, durationMaxMin)),
-    segmentLabel === undefined || groundsSegmentLabel(note, segmentLabel),
-    avgPowerZone === undefined || groundsQualifiedZone(note, avgPowerZone, "avg"),
-    normalizedPowerZone === undefined || groundsQualifiedZone(note, normalizedPowerZone, "np"),
+    durationMin === undefined || groundsDuration(targetNote, durationMin),
+    durationMaxMin === undefined || (durationMin !== undefined && groundsDurationRange(targetNote, durationMin, durationMaxMin)),
+    segmentLabel === undefined || groundsSegmentLabel(targetNote, segmentLabel),
+    avgPowerZone === undefined || groundsQualifiedZone(targetNote, avgPowerZone, "avg"),
+    normalizedPowerZone === undefined || groundsQualifiedZone(targetNote, normalizedPowerZone, "np"),
     watts === undefined || groundsWatts(note, watts),
     targetPctFtp === undefined || groundsPctFtp(note, targetPctFtp),
     reps === undefined || groundsReps(note, reps),
-    zone === undefined || groundsZone(note, zone),
+    zone === undefined || groundsZone(targetNote, zone),
     targetHrBpm === undefined || groundsHrBpm(note, targetHrBpm),
     targetCadenceRpm === undefined || groundsCadenceRpm(note, targetCadenceRpm),
     terrain === undefined || groundsTerrain(note, terrain),
