@@ -30,38 +30,43 @@ when a real A-event exists.
 ### Phase 1 · Repair trust contracts
 
 - Commit local calendar state before best-effort Intervals.icu mirroring.
-- Replace duration-led retrospective progression with a deterministic closeout using execution and
-  meaningful compliance evidence; keep facts, optional AI narrative, and athlete-approved future
-  seeds separate.
+- After normal block completion or an explicit early-end decision, replace duration-led progression
+  with a deterministic closeout using execution and meaningful compliance evidence; keep facts,
+  optional AI narrative, and athlete-approved future seeds separate.
 - Make named-segment scoring fail closed on missing, ambiguous, or unstated evidence and distinguish
-  those states from API/interpreter failure.
+  those states from API/interpreter failure. Exact curated Intervals labels plus constrained syntax
+  are the authoritative scoreable lane.
 - Block publication on malformed structure and clear protocol, spacing, or load-envelope hazards;
   allow only lower-confidence coaching preferences through an explicit informed override.
 - Show physiology freshness; warn through temporary sync failure, but block missing, inconsistent,
   or explicitly obsolete physiology.
-- Remove causal accuracy language, automatic reuse of AI-authored root causes, and Ask Coach from
-  the active UI during the freeze.
+- Remove causal accuracy language, unqualified individualized injury-risk language, claims that
+  every plan constraint is hard, automatic reuse of AI-authored root causes, and Ask Coach from the
+  active UI during the freeze. Replace AI criticism with deterministic prose wherever facts suffice.
+- Disclose local persistence and remote Anthropic processing separately.
 - Make restore behavior and critical-state coverage honest about partial recovery risk. Off-machine
   backup remains deliberately deferred to Phase 9.
 
 Optional within this phase: **Adaptive self-directed coach — Phase 4**, a one-time, human-reviewed,
-provenance-bearing historical repair. It may improve current state but never counts as prospective
-effectiveness evidence.
+provenance-bearing historical repair through overlays. The original ledger remains untouched; the
+repair may improve current state but never counts as prospective effectiveness evidence.
 
 ### Phase 2 · Make the core journey excellent
 
 Make Today → Plan → ride → deterministic closeout → adaptive week reliable without lost plans,
 developer intervention, unexplained figures, avoidable prose, or confusing information placement.
-Judge changes through repeated task completion. Keep all seven pages until Phase 7's task-based
-audit. **P9 · Stream `/api/generate`** belongs here only if it removes measured core-journey latency;
-it is not a prerequisite for conversational refinement.
+Show provenance and confidence clearly throughout the UI. Judge changes through repeated task
+completion. Keep all seven pages until Phase 7's task-based audit. **P9 · Stream `/api/generate`**
+belongs here only if it removes measured core-journey latency; it is not a prerequisite for
+conversational refinement.
 
 ### Phase 3 · Reduce Claude's generation authority
 
 Move workout syntax, arithmetic, protocol templates, progression, and enforceable safety constraints
 into deterministic code. Claude may interpret genuinely free-form language and phrase concise,
-grounded suggestions inside those limits. Validate five consecutive structurally valid test
-generations across varied inputs before advancing.
+grounded suggestions inside those limits. Audit every AI call and keep the deterministic core useful
+when Anthropic is unavailable. Validate five consecutive structurally valid test generations across
+varied inputs before advancing.
 
 ### Phase 4 · Complete the narrow workout-library loop
 
@@ -69,7 +74,8 @@ Finish explicit manual curation, deterministic selection, generation-time reuse,
 accepted-use recording. Existing domain, persistence, export, API, and deterministic-template work
 is recorded in [ARCHIVE.md](ARCHIVE.md#proven-workout-library--foundation-tasks-15-2026-08-031120).
 Automatic promotion and broad historical bootstrapping remain deferred until the manual lane proves
-useful. The immutable execution record remains
+useful. Any curated older workout used to bootstrap the lane is labeled as a manual import. The
+immutable execution record remains
 [the existing plan](docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md).
 
 ### Phase 5 · Validate nutrition prospectively
@@ -83,8 +89,8 @@ cannot discriminate outcomes.
 
 ### Phase 6 · Run four real block cycles
 
-Each block must close cleanly, pass through the adaptive bridge, and record usefulness, trust, edits,
-retained prescriptions, and adaptations. Repaired history and test generations do not count.
+Each block closes cleanly through the adaptive bridge and records usefulness, trust, edits, retained
+prescriptions, and adaptations. Repaired history, manually seeded workouts, and test generations do not count.
 
 The feature freeze ends only when the [charter's evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate)
 is fully met:
@@ -116,7 +122,9 @@ event text, P4/P5 event-week overstack, and dormant event validators remain unsc
 
 Schedule off-machine backup and any convenience work only after the earlier evidence sequence or in
 response to an accepted risk change. Hosting, authentication, accounts, multi-athlete support,
-wearables, and productization remain out of scope.
+wearables, and productization remain out of scope. After stabilization, maintenance is capped at
+roughly two Codex sessions or four hours monthly; simplify, freeze, or remove a subsystem that
+repeatedly exceeds it.
 
 ## Stable handles now deferred or evidence-gated
 
@@ -133,7 +141,10 @@ wearables, and productization remain out of scope.
 | **SUB-2 · legacy backfill importer** | Paused; revisit only if manual relabeling proves painful. |
 | **§6 · nutrition remainder** | Phase 5 only. |
 | **§7 · calendar flexibility remainder** | Deferred; Phase 1 fixes integrity at the existing boundary only. |
+| **P3d / P3e / P6** | Deliberately not built; no evidence yet justifies new code. |
+| **P7 · urgency before app history** | Documented limitation; reopen only if goal-driven blocks stop masking it in real use. |
+| **Event-date validator exclusion** | Accepted priority-blind limitation; remains dormant with event mode. |
+| **Compound climb+descent matching** | Blocked on a trustworthy gradient data source and design review. |
+| **Subjective-wellness follow-ons** | Form retirement needs measured Phase 2 friction; strain derivation needs motivation provenance and discriminating evidence. |
 
-Compound climb+descent-lap matching remains blocked on a trustworthy gradient data source and design
-review. Mobile density polish remains evidence-gated. Rejected alternatives stay in
-[ADR-0012](docs/DECISIONS.md#adr-0012--rejected-alternatives-a-running-log).
+Mobile density polish remains evidence-gated. Rejected alternatives stay in [ADR-0012](docs/DECISIONS.md#adr-0012--rejected-alternatives-a-running-log).

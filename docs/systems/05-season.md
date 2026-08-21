@@ -41,7 +41,7 @@
 
 ## Known rough edges
 
-Open action items live in [ROADMAP.md](../../ROADMAP.md) ("Then"/"Watch" sections) — this section
+Open action items live in [ROADMAP.md](../../ROADMAP.md) (Phase 8 and stable handles) — this section
 is the *why* behind them. `SEASON_SHAPES_GENERATION` rollout decision record:
 `docs/superpowers/specs/2026-07-17-season-architecture-redesign-design.md`.
 
