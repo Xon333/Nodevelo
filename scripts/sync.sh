@@ -12,9 +12,9 @@ fi
 
 git worktree prune
 
-# Remove worktrees whose branch has been fully merged into origin/main and has no
-# uncommitted changes. `git worktree prune` above only drops entries whose directory is
-# already gone -- it does nothing for a worktree that's still on disk after its PR merged.
+# Remove worktrees whose branch changes are already represented in origin/main and have no
+# uncommitted changes. Patch equivalence handles squash merges, where the original branch
+# commit is not an ancestor of the rewritten merge commit.
 removed=0
 here="$(pwd -P)"
 if [[ -d .worktrees ]]; then
@@ -24,9 +24,10 @@ if [[ -d .worktrees ]]; then
     branch="$(git -C "$wt_path" branch --show-current 2>/dev/null || true)"
     [[ -z "$branch" ]] && continue
     [[ -n "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]] && continue
-    if git merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
+    cherry_output="$(git cherry origin/main "$branch" 2>/dev/null)" || continue
+    if ! grep -q '^+' <<<"$cherry_output"; then
       git worktree remove "$wt_path"
-      git branch -d "$branch" 2>/dev/null || true
+      git branch -D "$branch" 2>/dev/null || true
       removed=$((removed + 1))
     fi
   done < <(git worktree list --porcelain | awk '/^worktree /{print $2}' | grep '/\.worktrees/')
