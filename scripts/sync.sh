@@ -30,7 +30,7 @@ if [[ -d .worktrees ]]; then
       git branch -D "$branch" 2>/dev/null || true
       removed=$((removed + 1))
     fi
-  done < <(git worktree list --porcelain | awk '/^worktree /{print $2}' | grep '/\.worktrees/')
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p' | grep '/\.worktrees/')
 fi
 
 echo "sync: main up to date with origin, stale worktrees pruned ($removed merged worktree(s) removed)"

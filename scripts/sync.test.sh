@@ -5,7 +5,7 @@ sync_script=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sync.sh
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
-repo="$tmp_dir/repo"
+repo="$tmp_dir/repo with spaces"
 remote="$tmp_dir/origin.git"
 mkdir -p "$repo"
 git init --bare "$remote" >/dev/null
