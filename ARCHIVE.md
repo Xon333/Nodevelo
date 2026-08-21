@@ -12,6 +12,21 @@ exact commits.
 
 ---
 
+## Whole-repo hostile review closeout — HR-60…HR-72 (2026-08-15; workflow closeout 2026-08-21)
+
+- **HR-60/61:** corrected local-date handling in the learning loop and made UTC defaults explicit.
+- **HR-62:** made `npm run sync` remove clean worktrees whose branches have merged.
+- **HR-63/64:** repaired broken documentation pointers and added link checking to `npm run check`.
+- **HR-65:** made `.agents/skills/` the canonical skill home and replaced duplicate Claude skill
+  directories with compatibility symlinks.
+- **HR-67/68/70:** cleared lint warnings, removed a dead todo entry, and narrowed 18 unnecessary exports.
+- **HR-71/72:** recorded as already-routed work: narrow workout-library integration and the existing
+  AI-route cost-guard backlog item. They require no duplicate todo entries.
+
+HR-66 and HR-69 still require human decisions and remain in [todo.md](todo.md).
+
+---
+
 ## Debrief-audit data-integrity fixes — NV-9, NV-10, NV-11, NV-13 (2026-08-15)
 
 First slice of the 2026-08-15 debrief audit (`todo.md`'s "Post-2026-08-15 debrief audit" block; full

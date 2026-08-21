@@ -1,7 +1,7 @@
 # Workflow cheat sheet
 
-Personal quick-reference. Full conventions live in [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md);
-this is just the daily-use summary.
+Personal quick-reference. Full conventions live in [AGENTS.md](AGENTS.md); [CLAUDE.md](CLAUDE.md)
+only imports them.
 
 ## Daily loop
 
@@ -124,10 +124,14 @@ instantly (bit us once, 2026-08-05 — see `AGENTS.md` § Parallel agent integra
 | Skill | Use when |
 |---|---|
 | `/whats-next` | "What should we work on?" — reads ROADMAP + todo, ranks by leverage, can split across two sessions |
+| `/diagnosing-bugs` | A bug is broken, failing, or slow — establish a tight reproduction before theorising |
+| `/tdd` | Implement a feature or bug fix in red → green vertical slices |
+| `/code-review` | Review a branch or PR against both repository standards and its originating spec |
 | `/hostile-review` | The "senior dev who hates this implementation" review → assigns IDs → routes into todo.md |
 | `/docs-sweep` | README/ROADMAP/ARCHIVE/todo have drifted or need restructuring |
 | `/triage-audit` | You pasted a big external AI review/audit and want it ground-truthed before acting on it |
 | `/handoff` | Wrapping up, or the session's getting long — hand off cleanly instead of losing state to a limit |
+| `/verification-before-completion` | Before claiming a task is fixed, complete, or passing |
 
 ## Standing rules worth remembering
 
@@ -135,7 +139,7 @@ instantly (bit us once, 2026-08-05 — see `AGENTS.md` § Parallel agent integra
 - **ROADMAP IDs** (`#1–4`, `§5–7`, `Track A–C`) — append new ones, never renumber; other docs link to them.
 - **Concurrent sessions**: `main` is integration-only. Claude and Codex work in disposable native
   worktrees; full operating guide: [Hybrid Claude + Codex workflow](#hybrid-claude--codex-workflow).
-- **Migration flags / "today" dates / LLM-path smoke tests** — the 3 recurring bug classes, now in
+- **Migration flags / "today" dates / LLM-path smoke tests / stale pointers** — the 4 recurring bug classes in
   AGENTS.md. Check them on relevant changes.
 
 ## Block-turnover runbook

@@ -10,6 +10,19 @@ Read [docs/COMPASS.md](docs/COMPASS.md) before exploring the codebase — it is 
 hub (mental model, task router, file index pointers, traps) and replaces most exploratory file
 reads. Hard contracts: [docs/INVARIANTS.md](docs/INVARIANTS.md).
 
+# Agent skills and repository vocabulary
+
+- `.agents/skills/` is the canonical shared skill directory. `.claude/skills/` contains compatibility
+  symlinks only; edit the canonical copy.
+- Use the matching installed skill for the task. Core routes: bugs → `diagnosing-bugs`; feature or
+  bug implementation → `tdd`; branch/PR review → `code-review`; documentation drift →
+  `docs-sweep`; before declaring completion → `verification-before-completion`.
+- Generic skill references to `CONTEXT.md` and `docs/adr/` map to NodeVelo's existing
+  [glossary](docs/GLOSSARY.md) and consolidated [decision log](docs/DECISIONS.md). Keep those as the
+  canonical domain sources; do not create parallel context or ADR stores.
+- Skill configuration: [issue tracker](docs/agents/issue-tracker.md),
+  [triage labels](docs/agents/triage-labels.md), and [domain docs](docs/agents/domain.md).
+
 # Recurring bug classes — check before shipping
 
 Four defect shapes have shipped more than once. Check for them explicitly on relevant changes:
