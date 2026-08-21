@@ -79,7 +79,7 @@ merges.
    PR's own plan doc (if any, under `docs/superpowers/plans/`) promised actually landed — or whether
    the gap is now recorded in `ROADMAP.md`/`todo.md` rather than silently missing. (This exact check
    caught the workout-library module shipping unwired and untracked, 2026-08-04 — see
-   [ROADMAP.md](ROADMAP.md) "Later.")
+   [ROADMAP.md](ROADMAP.md) Phase 4.)
 3. Approve + merge: `gh pr merge --squash <n>`. Send back: `gh pr review <n> --request-changes -b
    "..."` — Codex reads the review comments next session.
 

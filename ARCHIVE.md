@@ -328,7 +328,7 @@ relying on either under real time pressure.
   (`TERRAIN_OVERMATCH_RATIO`) the stated duration, leaving the objective ungraded instead;
   label-matched laps and the no-stated-duration path are unaffected. A compound climb+descent-in-one-
   lap gap remains — Phase 3c's 25-payload data gate found no minimum/trough-gradient field to detect
-  it — tracked in [ROADMAP.md](ROADMAP.md)'s Blocked/dormant section. Design/plan:
+  it — tracked in [ROADMAP.md](ROADMAP.md)'s stable handles. Design/plan:
   [docs/superpowers/specs/2026-08-14-adaptive-coach-p3c-terrain-fixes-design.md](docs/superpowers/specs/2026-08-14-adaptive-coach-p3c-terrain-fixes-design.md),
   [docs/superpowers/plans/2026-08-14-adaptive-coach-p3c-terrain-fixes.md](docs/superpowers/plans/2026-08-14-adaptive-coach-p3c-terrain-fixes.md).
 
@@ -337,17 +337,20 @@ relying on either under real time pressure.
 - **Accounting + calibration (PRs #11–#15, #19, #22):** active burn is net of its resting cost;
   day-type solves are confidence-gated, reset safely, shrink toward a same-window pooled solve, and use
   window-mean weight for RMR.
+- **Closed follow-ups:** derived route coverage, coach-snapshot local-date fallback, and conditional
+  RMR-floor transparency.
 - **Safety + validation (PRs #18/#20):** carb-reference validation covers pre/in-ride lines, and Today
   warns when the prescription itself falls in the app's low-EA band without changing calories.
 - **Honest presentation (PRs #21/#25–#27):** target arithmetic is whole-kcal consistent; imbalance
   warnings bind to the active record; gross-vs-net burn is explained; mechanical kJ is no longer labelled
   as kcal.
 
-## Proven-workout library — domain substrate only (2026-08-03/11)
+## Proven-workout library — foundation tasks 1–5 (2026-08-03/11–20)
 
-`lib/workout-library.ts` now owns fingerprints, manual-promotion eligibility, evidence updates, and
-slot-matched selection (PRs #3/#32). It is intentionally not wired to persistence, generation, export,
-or UI; the remaining product work stays in [ROADMAP.md](ROADMAP.md).
+The domain model and selection rules (PRs #3/#32), JSON persistence and manual promotion (PR #77),
+Intervals.icu export (PR #78), API routes (PR #79), and deterministic routine templates (PR #80)
+shipped. Generation integration, accepted-use accounting, and management UI remain in
+[ROADMAP.md](ROADMAP.md#phase-4--complete-the-narrow-workout-library-loop).
 
 ---
 
@@ -548,8 +551,7 @@ backward-from-event planner as the *primary* generative move (makes a mostly-emp
 event calendar the highest-authority input for no real gain over P4's lightweight tier).
 
 All `tsc`/lint clean throughout. Remaining open gaps (P3d/e, P6, the P4/P5 event-week overstack, P7's
-urgency-signal gap) and full file/line-level scoping → [ROADMAP.md](ROADMAP.md) "Season engine —
-known debt."
+urgency-signal gap) and full file/line-level scoping → [ROADMAP.md](ROADMAP.md) stable handles.
 
 ---
 
@@ -858,7 +860,7 @@ state?). Design: `docs/superpowers/specs/2026-07-17-season-architecture-redesign
   and wired in, but the flag — which gates the phase-derived prompt text and validator warnings out of
   actual generation — hasn't been flipped back on yet. That flip (plus the live Anthropic smoke run it
   requires per AGENTS.md) is the one remaining task in the roadmap-preview-and-rollout plan; tracked in
-  [ROADMAP.md](ROADMAP.md) "Season engine — known debt."
+  [ROADMAP.md](ROADMAP.md) Phase 8.
 - **Hardened by a 2026-07-17 hostile review** (15 findings, all fixed) — see the next entry below. That
   review's fixes predate/underlie this redesign's own final shape (e.g. HR-22's deload-cadence
   persistence fix informed `realWeeksSinceLastRecovery`'s design).
@@ -1820,7 +1822,7 @@ v2 started from a blank page rather than fixing findings against the existing la
   hint honesty, Profile rider-read empty-state + weight-tile gating + double-label removal.
 
 **Two small open items surfaced by the Wave 5 closing review, not actioned (out of that wave's
-scope, tracked in [ROADMAP.md](ROADMAP.md) "UI refinements"):** `components/trends/verdict.tsx`'s
+scope, tracked in [ROADMAP.md](ROADMAP.md) Phase 7):** `components/trends/verdict.tsx`'s
 `VerdictStrip` still colors its "down" axis chip amber where every other declining signal in the app
 uses red (the same fix already applied to `StateDriversCard`'s bars); `lib/trends-verdict.ts`'s
 score-to-word mapping can label the verdict "Mixed" even when no two axes actually disagree (a
@@ -1974,8 +1976,8 @@ re-fetch.
 **Deliberate exclusion, not an oversight:** Z2/Recovery days and any day carrying a Track B durability
 template are never looked up on this axis — they're graded by their own systems
 (`gradeDurabilityDelivery` for durability; steady duration-compliance for Z2/Recovery) and this stamp
-would be meaningless for them. Closes the "Ledger scoring lacks interval-level adherence for
-non-durability interval types" item that was tracked in [ROADMAP.md](ROADMAP.md) "Scoring-core gaps."
+would be meaningless for them. Closes the former ROADMAP item "Ledger scoring lacks interval-level
+adherence for non-durability interval types."
 Plan: `docs/superpowers/plans/2026-07-03-ledger-interval-adherence.md`.
 
 ---
@@ -1995,8 +1997,8 @@ directly and correctly. +3 tests (`lib/execution-score.test.ts`) lock the regres
 ledger entry (frozen at the buggy 2) needed a one-off manual correction — re-derived via the actual fixed
 functions with the ride's real stored inputs, not hand math — because a normal sync never touches an
 already-scored ledger date (`mergeScoreLog`: existing wins, immutable per date); this surfaced the
-broader **ledger scoring lacks interval-level adherence for non-durability interval types** gap now
-tracked in [ROADMAP.md](ROADMAP.md) (Scoring-core gaps).
+broader **ledger scoring lacks interval-level adherence for non-durability interval types** gap,
+closed by the entry above.
 
 Also fixed same session, unrelated: prescription **display** labels could show a stale duration
 (`"6×1m"` for a `durationSec: 30` session) on blocks generated before an earlier label-rounding fix —
@@ -2008,7 +2010,7 @@ can never surface again.
 
 ## SUB-2 · Legacy backfill importer — investigated & paused (2026-07-02)
 
-Investigation record (decision + stub live in [ROADMAP.md](ROADMAP.md) "Data substrate"). The prior
+Investigation record (decision + stub live in [ROADMAP.md](ROADMAP.md) stable handles). The prior
 ~6 months (100 legacy rides) followed real structure but have no app prescription to grade against,
 so they're excluded from execution learning. A live-API check against Intervals.icu's actual
 `/events` endpoint falsified the "whole window recoverable" assumption: of the 100 legacy dates only
@@ -2249,7 +2251,7 @@ Design/build records: [design](docs/superpowers/specs/2026-07-02-block-history-d
   timeline) — guarded to skip archiving when nothing was lived. The design spec's claims about pruning,
   discard "costing nothing," and "nothing here is athlete-visible" were corrected in place as dated notes
   once the review falsified them.
-- **Sibling item paused, not shipped:** SUB-2 (legacy backfill importer) → see ROADMAP.md "Data substrate"
+- **Sibling item paused, not shipped:** SUB-2 (legacy backfill importer) → see ROADMAP.md stable handles
   for why (a live Intervals.icu API check found only 22–28% of the pre-app legacy corpus has calendar
   backing, not the whole window as originally assumed).
 
@@ -2300,7 +2302,7 @@ and passed a final whole-branch review clean on first pass. Suite grew 597 → 6
   it explicitly (the gap every prior review layer missed, since in-memory fixtures always set the field).
   Ran the real migration and verified end to end in-browser (8 goals + 9 weakpoints now render on
   `/profile` and the `/plan` Goals card). `lib/data-store.ts`.
-- **Known debt (accept-as-tracked)** → [ROADMAP.md](ROADMAP.md) "Season engine — known debt":
+- **Known debt (accept-as-tracked)** → [ROADMAP.md](ROADMAP.md) stable handles:
   Focus dropdown omits `sharpen`; a narrow goal-textarea race between the profile/season fetches;
   `stripGoalsWeakpointsSections`'s case-sensitive regex doesn't match the *default* KB template's
   differently-worded headings (real KB unaffected — it already uses the matching uppercase form).
@@ -2346,7 +2348,7 @@ clean. Design/build record:
   visually verified end-to-end against a seeded season plan.
 - **`GET`/`PUT /api/season`** — read the plan / update `objective`+`events` (periods are engine-managed,
   not directly editable); `validateSeasonPlanInput` guards the PUT.
-- **Known debt** → [ROADMAP.md](ROADMAP.md) "Season engine — known debt": event-mode peak/taper
+- **Known debt** → [ROADMAP.md](ROADMAP.md) Phase 8: event-mode peak/taper
   share one `sharpen` focus value (cosmetic, same roadmap color); `CurrentBlock.seasonFocus`/
   `seasonPhase` stamped from "today" not the block's actual start date (no readers yet); `anaerobic` is
   a valid build focus but unreachable via the default rotation fallback (intentional per KB).
@@ -2613,8 +2615,7 @@ signal stamped against it. Two commits; tests grew to 474.
   read is sourced from the **Intervals.icu wellness sync** (the athlete already logs it there next to
   weight/kcal), not a NodeVelo form. `fetchWellness` now maps soreness/fatigue/stress/mood/motivation/injury
   into `WellnessEntry` (raw 1–4, higher = worse). The strain-edge derivation + form retirement (Inc 2–3) and
-  the open strain-scale decision are tracked in [ROADMAP.md](ROADMAP.md) → *Subjective wellness from
-  Intervals.icu*.
+  the open strain-scale decision are tracked in [ROADMAP.md](ROADMAP.md)'s stable handles.
 
 ### One-time ledger rebuild after the mapping fix (SYNC-2, 2026-06-23 triage)
 
