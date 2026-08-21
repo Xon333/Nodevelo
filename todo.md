@@ -24,7 +24,7 @@ HR-67, HR-68, HR-70…HR-72 are recorded in [ARCHIVE.md](ARCHIVE.md).
   brain' spec work" while the repo is well past that (adaptive-coach P3c, NV-1…14 closed).
   INVARIANT #28: only `/handoff` may write this file — **run `/handoff` or ask to clear it.**
 
-**Block-generation live verification.** Phases A + B shipped → [ARCHIVE.md](ARCHIVE.md). One check remains:
+**Block-generation live verification.** One check remains:
 
 - ☐ P2 `bug` **Confirm loading weeks now hit their hour target.** Phase B took them from 1/4 inside
   the 30-min tolerance to 3/4 (measured −20/−34/−10 min vs 12h; recovery week −4). The residual cause
@@ -48,20 +48,15 @@ data/hardware in the sweep that shipped them. Try when convenient, then check of
 - ☐ `audit` The 9 newly-`<form>`-wrapped forms (UXA-21) — Enter-to-submit, with real values.
 - ☐ `audit` Nutrition range hints (UXA-51) — confirm the Profile "Edit" disclosure numbers read
   sensibly against your own real values.
-- ☐ `ux` P3 Nutrition input bounds (UXA-51) — narrowed: `baseCalories`/`restDayTarget` are deprecated
-  and no longer athlete-editable, and `buffer` was retired entirely, so only `targetWeightKg` still has
-  a floor of 0 and no ceiling. `targetRateKgPerWeek` is already bounded (±1.5).
+- ☐ `ux` P3 Nutrition input bounds (UXA-51) — `targetWeightKg` still has a floor of 0 and no
+  ceiling.
 
 ---
 
 - ☐ `audit` Nutrition follow-ups — none blocking; magnitudes in
   [09-nutrition § known rough edges](docs/systems/09-nutrition.md#known-rough-edges). `weeklyEnergy`
   remains approximate because NodeVelo does not yet persist the final prescription for every calendar
-  day; do not reconstruct old buffers or stamp rides only (rest days would be absent). Derived route
-  coverage, coach-snapshot local-date fallback, and conditional RMR-floor transparency are closed.
-- ☐ P3 `feat` Nutrition Phase 4 — daily carbohydrate target (spec §9). Protein deliberately out (the
-  athlete already covers it); within-day timing out (needs meal-level logging they've declined);
-  wearables out.
+  day; do not reconstruct old buffers or stamp rides only (rest days would be absent).
 - ☐ `ux` Phase 3a no-block Today layout — revisit whether the fused `AthleteStateCard` (Zone 1,
   `lib/athlete-state.ts`) should eventually be replaced/merged with design §10's three-stream
   Load/Recovery/Execution read for the no-block case, rather than keeping the fused score permanent and

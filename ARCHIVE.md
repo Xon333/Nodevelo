@@ -343,11 +343,12 @@ relying on either under real time pressure.
   warnings bind to the active record; gross-vs-net burn is explained; mechanical kJ is no longer labelled
   as kcal.
 
-## Proven-workout library — domain substrate only (2026-08-03/11)
+## Proven-workout library — foundation tasks 1–5 (2026-08-03/11–20)
 
-`lib/workout-library.ts` now owns fingerprints, manual-promotion eligibility, evidence updates, and
-slot-matched selection (PRs #3/#32). It is intentionally not wired to persistence, generation, export,
-or UI; the remaining product work stays in [ROADMAP.md](ROADMAP.md).
+The domain model and selection rules (PRs #3/#32), JSON persistence and manual promotion (PR #77),
+Intervals.icu export (PR #78), API routes (PR #79), and deterministic routine templates (PR #80)
+shipped. Generation integration, accepted-use accounting, and management UI remain in
+[ROADMAP.md](ROADMAP.md#phase-4--complete-the-narrow-workout-library-loop).
 
 ---
 

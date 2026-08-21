@@ -1,133 +1,139 @@
 # NodeVelo roadmap
 
-*Last verified 2026-08-15.* The forward backlog — open work only. Mission: be a coaching **layer**
-that fuses signals into one coherent, self-correcting athlete model — not a re-skin of Intervals.icu.
+*Last reconciled 2026-08-21.* The forward backlog — open work only.
 
-Companion docs: live bugs → [todo.md](todo.md) · shipped detail → [ARCHIVE.md](ARCHIVE.md) · why
-it's built this way / rejected alternatives → [docs/DECISIONS.md](docs/DECISIONS.md) · exploratory
-spikes → [research.md](research.md) · full architecture → [docs/COMPASS.md](docs/COMPASS.md).
+Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
+The review is an immutable point-in-time decision record; this file is its living operating backlog.
+Live bugs → [todo.md](todo.md) · shipped detail → [ARCHIVE.md](ARCHIVE.md) · decisions →
+[docs/DECISIONS.md](docs/DECISIONS.md) · architecture → [docs/COMPASS.md](docs/COMPASS.md).
 
-Only open work appears here — anything shipped moves to ARCHIVE.md. IDs (`#1–4`, `§5–7`,
-`Track A–C`) are stable cross-ref handles — append new ones, never renumber. `← X` = depends on /
-derives from.
+IDs (`#1–4`, `§5–7`, `Track A–C`) are stable cross-reference handles. Never renumber them.
 
 ---
 
-## ⚑ State of the app
+## State of the app
 
-**Engineering is ahead of data.** The deterministic core and the "calibrated honesty" UX both hold.
-The one thing not yet proven is the *self-correcting loop* — it has turned over exactly once.
+NodeVelo remains a personal, localhost-only cycling decision-support system for one informed
+athlete. It is under a feature freeze while it repairs trust contracts and earns prospective
+evidence. It is not a proven self-correcting coach and is not being productized.
 
-- First in-app block: 2026-06-15. Rides before that are `legacy` — real training, excluded from
-  learning by design (no plan to score against).
-- First loop turnover fired 2026-07-15 (SUB-5 → ARCHIVE.md): all 6 directives in
-  `intervention-log.json` matured over their 28-day horizons 2026-08-12–14 — **4 validated, 2
-  inconclusive, 0 refuted** (100% hit-rate on decisive outcomes). `synthesis.ts`'s demotion path
-  (≤34% hit-rate over ≥3 decisive blocks) has real verdicts to run on now but hasn't fired — nothing
-  has been this poor yet. Most other calibrated parameters still return population defaults or
-  thin-sample derivations (n=1–8 per type, below the trend/discrimination gates) — expected, not a bug.
+The mechanical rides → score → model → generation → approval loop is real, but only one complete
+turnover has occurred. Six intervention outcomes cover two repeated hypothesis families: four
+validated, two inconclusive, none refuted. That is thin, correlated evidence—not a causal accuracy
+rate. Trust, safety, integrity, and evidence outrank feature work.
 
-**Standing focus: data over features.** Every learning mechanism is code-complete and dormant. The
-loop pays out as generate→ride→score→learn cycles accrue, not as more code ships.
+## Active order
 
-## 🎯 Do this — #2 · Per-athlete calibration (the keystone)
+Do these phases in order. The only permitted overlap is Phase 7 after Phase 5; Phase 8 starts only
+when a real A-event exists.
 
-The only unblocked, standalone, high-leverage build available right now — everything in "Then"
-below either derives from this or is waiting on data maturity.
+### Phase 1 · Repair trust contracts
 
-Extend the shipped `parameterise → derive-with-fallback → stamp` machinery to more parameters.
-**Pattern per param:** default = today's literal value → derive with a confidence-gated fallback →
-stamp on every ledger entry it scores → test that a fresh athlete scores identically.
+- Commit local calendar state before best-effort Intervals.icu mirroring.
+- Replace duration-led retrospective progression with a deterministic closeout using execution and
+  meaningful compliance evidence; keep facts, optional AI narrative, and athlete-approved future
+  seeds separate.
+- Make named-segment scoring fail closed on missing, ambiguous, or unstated evidence and distinguish
+  those states from API/interpreter failure.
+- Block publication on malformed structure and clear protocol, spacing, or load-envelope hazards;
+  allow only lower-confidence coaching preferences through an explicit informed override.
+- Show physiology freshness; warn through temporary sync failure, but block missing, inconsistent,
+  or explicitly obsolete physiology.
+- Remove causal accuracy language, automatic reuse of AI-authored root causes, and Ask Coach from
+  the active UI during the freeze.
+- Make restore behavior and critical-state coverage honest about partial recovery risk. Off-machine
+  backup remains deliberately deferred to Phase 9.
 
-- Only add a derivation where an **honest** execution outcome separates failures from successes —
-  the `productiveOverload`/`balanced` edges and the #3 reschedule thresholds still lack that signal.
-- Per-type IF cutoffs have two low-priority slivers: RaceSim stays intentionally unanchored
-  (surgy/mixed, no single zone edge); `/model` offsets are derived-live, not persisted in
-  `CalibrationStore` (fine unless a manual override is ever wanted).
-- Carbs g/h optimum is owned by **Track C**, not this item.
-- **Explainability follow-on:** the build-focus selector already computes a decomposed score
-  (`parts: {goal, urgency, trainability, execution, limiter}`, `lib/season.ts:187-230`) but never
-  persists or surfaces it. Stamp it onto the ledger entry alongside this item's other stamps —
-  turns "why Threshold not VO2" into inspectable evidence instead of a black box, for free.
+Optional within this phase: **Adaptive self-directed coach — Phase 4**, a one-time, human-reviewed,
+provenance-bearing historical repair. It may improve current state but never counts as prospective
+effectiveness evidence.
 
-## Then — unblocked, ranked
+### Phase 2 · Make the core journey excellent
 
-| | Why it's next | |
-|---|---|---|
-| **P9 · Stream `/api/generate`** | Generation blocks the UI 1–2 min today — the other real, unblocked lever this session. **Scope it as refine-loop phase 1**, not a progress bar: streaming is the prerequisite for `#10` below | — |
-| **#10 · Conversational refine on a generated block** ⭐ | Regeneration is free but *stateless* — an objection to week 2 means editing the goal text and re-rolling. Take the prior plan + an NL delta, mutate the shipped skeleton, re-validate. Athlete-initiated, so ADR-0004 holds | [skeleton](docs/systems/06-generation.md#the-week-skeleton-composition-authority) |
-| **Track A · W′-derived power anchors** | `wPrimeRollingJ` syncs as of 2026-07-30 and governs the 1-/5-min anchors — the one Track A slice not waiting on `#2`. `wBalDepletionJ` is an unused per-ride anaerobic-strain signal | `power-profile.ts` |
-| **§5 · Athlete-state slivers** | Derive fusion weights `← #2`; tune score→band thresholds against real use | [spec](docs/specs/athlete-state.md) |
-| **#3 · Proactive reschedule slivers** | Decision thresholds `← #2`; possible auto-downgrade on `fatigueAlert` before a miss | — |
-| **Scoring-core gaps** | Recovery-specific aerobic HR cap (only if the shared band proves too soft in real use); zones source-of-truth decision (lean strict-consistency) | `execution-score.ts` |
-| **Track A · Power-curve reference multiples (remainder)** | The 5s/20min anchors W′ can't explain — still local magic-numbers in `power-profile.ts` `← #2`. The 1-/5-min half moved up to the W′ row above | — |
-| **Track B · RaceSim cadence** | Tighten per-loading-week only if real use shows under-delivery | — |
-| **Track C · Fueling** | Per-ride-type optimums + richer outcome signals once the endurance read proves out; `/model` verdict surfacing | — |
-| **P8 · AI-route cost guard** | In-memory token-bucket on `/api/generate` + `/api/ask`, plus a soft warning at 75% off the cost `ai-usage.ts` already tracks — a meter, not a 429; at the cap AI goes dark and the deterministic app stays whole (ADR-0005) | `ai-usage.ts` |
-| **Adaptive self-directed coach — Phase 4** | One-time historical three-week repair (report → human approval → overlay write → derived-state rebuild), human-reviewed. Not started. | [design](docs/superpowers/specs/2026-08-06-adaptive-self-directed-coach-design.md) |
+Make Today → Plan → ride → deterministic closeout → adaptive week reliable without lost plans,
+developer intervention, unexplained figures, avoidable prose, or confusing information placement.
+Judge changes through repeated task completion. Keep all seven pages until Phase 7's task-based
+audit. **P9 · Stream `/api/generate`** belongs here only if it removes measured core-journey latency;
+it is not a prerequisite for conversational refinement.
 
-## Blocked / dormant
+### Phase 3 · Reduce Claude's generation authority
 
-| | Waiting on |
+Move workout syntax, arithmetic, protocol templates, progression, and enforceable safety constraints
+into deterministic code. Claude may interpret genuinely free-form language and phrase concise,
+grounded suggestions inside those limits. Validate five consecutive structurally valid test
+generations across varied inputs before advancing.
+
+### Phase 4 · Complete the narrow workout-library loop
+
+Finish explicit manual curation, deterministic selection, generation-time reuse, management UI, and
+accepted-use recording. Existing domain, persistence, export, API, and deterministic-template work
+is recorded in [ARCHIVE.md](ARCHIVE.md#proven-workout-library--foundation-tasks-15-2026-08-031120).
+Automatic promotion and broad historical bootstrapping remain deferred until the manual lane proves
+useful. The immutable execution record remains
+[the existing plan](docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md).
+
+### Phase 5 · Validate nutrition prospectively
+
+Judge personalized energy-balance guidance against the athlete's existing acceptable monthly weight
+range. Track energy, recovery, adherence, and workout quality separately. Automatic changes require
+long-window evidence, capped movement, visible reasoning, immediate pause/override, and the RMR
+floor. **Track C** and **§6** work is allowed only where it supports this validation; the daily
+carbohydrate target is the remaining narrow product slice. Do not add calibration dimensions that
+cannot discriminate outcomes.
+
+### Phase 6 · Run four real block cycles
+
+Each block must close cleanly, pass through the adaptive bridge, and record usefulness, trust, edits,
+retained prescriptions, and adaptations. Repaired history and test generations do not count.
+
+The feature freeze ends only when the [charter's evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate)
+is fully met:
+
+- five consecutive structurally valid varied-input test generations;
+- four completed real blocks without manual structural repair;
+- at least 80% of prescribed sessions retained substantially as generated;
+- at least three independent athlete-specific adaptations reaching later decisions;
+- at least one genuine refutation handled honestly;
+- no unresolved calendar, data-integrity, or serious safety failures; and
+- usefulness and trust feedback recorded after every block.
+
+A serious safety or integrity failure resets the clean-cycle count. After six clean prospective
+cycles, apply the charter's [falsification criteria](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#falsification-criteria)
+instead of adding another subsystem.
+
+### Phase 7 · Consolidate secondary-page UX
+
+After Phase 5, audit the real tasks on Trends, Profile, Model, Settings, and Knowledge; then merge,
+move, or remove only what the evidence supports. This phase may run while Phase 6 accumulates cycles.
+
+### Phase 8 · Activate event work from reality
+
+When a real A-event exists, build and live-test the smallest deterministic taper, event scoring
+exceptions, and race-fueling support required. Until then, **6a**, event-anchored season mode, P1
+event text, P4/P5 event-week overstack, and dormant event validators remain unscheduled.
+
+### Phase 9 · Deliberately scheduled recovery and conveniences
+
+Schedule off-machine backup and any convenience work only after the earlier evidence sequence or in
+response to an accepted risk change. Hosting, authentication, accounts, multi-athlete support,
+wearables, and productization remain out of scope.
+
+## Stable handles now deferred or evidence-gated
+
+| Handle | Current disposition |
 |---|---|
-| **SUB-2 · Legacy backfill importer** | Paused — Intervals.icu recovers only ~25% of legacy rides, doesn't justify an importer. Revisit only if manual relabeling proves painful. |
-| **Event-anchored season mode** | `SEASON_SHAPES_GENERATION=false` — an athlete decision (2026-07-16); reopen when event-mode planning is wanted |
-| **P1 · Event phase text** | Gated by the flag above; also needs a future A-event to matter |
-| **Compound climb+descent-lap terrain matching** | Needs a new gradient data source + design review — Phase 3c's 25-payload sample found no minimum/trough-gradient field to split one lap into both terrains. Interim: curate one lap per climb, another per descent. [rough edges](docs/systems/02-scoring-and-learning.md#known-rough-edges) |
+| **#2 · Per-athlete calibration** | No longer the keystone. Add a derivation only after discriminating prospective evidence exists. |
+| **#10 · Conversational refinement** | Frozen until repeated, localized plan-rejection evidence exists. |
+| **Track A · power anchors/references** | Deferred; no current evidence justifies expanding calibration depth. |
+| **Track B · RaceSim cadence** | Deferred until real use demonstrates under-delivery. |
+| **Track C · fueling** | Phase 5 only; nutrition validation owns its priority. |
+| **§5 · athlete-state slivers** | Phase 2 only when a measured core-journey problem requires them. |
+| **#3 · proactive reschedule slivers** | Frozen unless required to repair a demonstrated safety or core-journey failure. |
+| **P8 · AI-route cost guard** | Phase 9 convenience unless actual cost becomes a trust or availability problem. |
+| **SUB-2 · legacy backfill importer** | Paused; revisit only if manual relabeling proves painful. |
+| **§6 · nutrition remainder** | Phase 5 only. |
+| **§7 · calendar flexibility remainder** | Deferred; Phase 1 fixes integrity at the existing boundary only. |
 
-## Watch — known, dormant, not scheduled
-
-Live-confirmed or suspected rough edges in the season/generation engine, worth knowing before you
-touch that code. Full rationale: [docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
-
-| | State |
-|---|---|
-| **P4/P5 · event-week overstack** | Live-confirmed; dormant until event mode is active |
-| **P3c · narrative critic reliability** | Inconsistent — caught a bad overview once, missed one once |
-| **P2 · hour-target precision** | Much improved, not closed. Phase B's per-day skeleton took loading weeks from 1/4 inside the 30-min tolerance to 3/4 (measured 2026-07-29: −20/−34/−10 min vs 12h; recovery week −4). The residual mis-sized-slot cause was fixed after that measurement, so the next live run should read better — unverified. |
-| **P7 · urgency signal blind to pre-app fitness** | Masked by goal-driven blocks in practice; not structurally closed |
-| **P3d / P3e / P6** | Deliberately not built — need new code, no evidence yet justifies the investment |
-| **Event-date exclusion is unconditional & priority-blind (3 validators)** | Accepted 2026-07-29 — `isQuality` tightening false-positives on a real Threshold-typed test day; see `lib/schedule-validate.ts`'s `validateEventTaper` `eventDates` comment |
-
-**Tripwire:** if a future block reproduces a structural defect (a missed hour target, a missing
-limiter session, an escalation the critic misses), that's real evidence the LLM shouldn't author
-structure at all — next step is a deterministic skeleton with parameterized protocol templates.
-**Fired 2026-07-29, and answered** — a recovery week kept all three quality types, merely trimmed;
-root causes fixed in Phase A, and Phase B shipped the deterministic skeleton, which now owns
-composition. The LLM still authors interval *content* inside each slot — deliberately, not by
-omission. Detail + the reopen trigger for taking it further:
-[docs/systems/05-season.md § Known rough edges](docs/systems/05-season.md#known-rough-edges).
-
-## Later — scoped, not started
-
-- **6a · Event-aware race planning** ⭐ — event date/priority/type → taper + carb-load + race-day
-  timeline. KB already holds the protocol; LLM only phrases it, never invents grams.
-- **§6 · Nutrition energy-balance (remainder)** — precise fluid/sodium/carb targets pre/intra/post
-  by IF + duration. (The weekly intake-vs-need ratio half already shipped.)
-- **§7 · Calendar flexibility (remainder)** — condition-driven auto-swaps (react to fatigue/load
-  automatically, not athlete-initiated); content-edit inbound sync; calendar-side swap-pairing.
-- **Wearable morning-readiness** — objective HRV/sleep/resting-HR replacing the manual fatigue flag,
-  once a wearable is in the loop.
-- **In-app proven-workout library (generation-time reuse + Intervals.icu export)** — NodeVelo builds a
-  local library of athlete-curated well-executed sessions and selects from it during generation instead
-  of always asking Claude to author from scratch; every promotion also exports to Intervals.icu's own
-  library, absorbing the older manual-push-only idea (retired 2026-08-05). **v1 is manual-promotion-only**
-  (athlete decision, 2026-08-05) — automatic evidence-based promotion + historical bootstrap are designed
-  but deferred until the manual path shows real usage. **5 of 10 planned tasks shipped** (domain model,
-  persistence, Intervals.icu export, API routes, deterministic templates) — file-by-file detail tracked
-  at [FILE_INDEX.md](docs/FILE_INDEX.md), not duplicated here. **Not wired in** — no `app/api/generate`
-  integration, no `app/api/write` use-count accounting, no management UI. Remaining 5 tasks + full
-  design: `docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md`.
-- **Mobile density polish** — desktop-first was a deliberate scope call (UX-MASTERPLAN §3); revisit
-  only if it causes real confusion, not urgent on its own.
-
-## Won't do
-
-Rejected tech and UX alternatives, with reasoning →
-[docs/DECISIONS.md § ADR-0012](docs/DECISIONS.md#adr-0012--rejected-alternatives-a-running-log).
-Don't re-propose without new evidence.
-
-## Exploratory → [research.md](research.md)
-
-The "Second Brain" spike (LangGraph / Mem0 / GraphRAG / HRV) — findings, not commitments. Lean
-spin-offs worth pursuing: knowledge-connections, HRV-readiness.
+Compound climb+descent-lap matching remains blocked on a trustworthy gradient data source and design
+review. Mobile density polish remains evidence-gated. Rejected alternatives stay in
+[ADR-0012](docs/DECISIONS.md#adr-0012--rejected-alternatives-a-running-log).
