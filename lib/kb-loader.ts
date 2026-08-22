@@ -303,7 +303,8 @@ export async function loadKnowledgeBaseContext(): Promise<string> {
 // Stored under knowledge-base/block-retrospectives/. They are NOT pulled into
 // loadKnowledgeBaseContext() (listKnowledgeFiles only matches flat .md files),
 // so they never bloat the generation prompt. Instead the *latest* file's
-// next_block_seeds — editable by the athlete — are injected at generation time.
+// next_block_seeds are injected at generation time — gated on the athlete's
+// `seeds_approved: true` stamp (see parseRetroSeeds below).
 
 const RETRO_DIR = path.join(KB_DIR, "block-retrospectives");
 

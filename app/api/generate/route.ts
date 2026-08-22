@@ -155,7 +155,8 @@ export async function POST(req: Request) {
     const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);
 
     // Seeds from the latest block retrospective markdown (athlete-editable in the
-    // Knowledge Base). Edits to next_block_seeds flow directly into this block.
+    // Knowledge Base). Edits to next_block_seeds flow into this block only once
+    // the file carries `seeds_approved: true` (set via adoption on Plan).
     const seedsContext = retroSeeds.length
       ? `\nPREVIOUS BLOCK PRIORITIES (carry forward into planning)\n${retroSeeds.map((s) => `- ${s}`).join("\n")}`
       : "";
