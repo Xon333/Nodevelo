@@ -360,8 +360,8 @@ Claude Desktop, Codex Desktop, and optional T3 Code sessions now share one low-f
 implementation runs in disposable `claude/<task>` / `codex/<task>` worktrees, while protected `main`
 is integration-only. `npm run finish:agent-task` verifies, pushes, opens a PR, and enables squash
 auto-merge; GitHub repeats the full check before merging. Concurrent agents own disjoint files, or one
-writes while the other reviews. Full runbook: [WORKFLOW.md § Hybrid Claude + Codex
-workflow](WORKFLOW.md#hybrid-claude--codex-workflow). Shipped and live-verified in
+writes while the other reviews. Full runbook: [WORKFLOW.md § Codex + opencode
+workflow](WORKFLOW.md#codex--opencode-workflow). Shipped and live-verified in
 [PR #2](https://github.com/Xon333/Nodevelo/pull/2); the legacy mixed Claude/Codex branch followed the
 new path successfully in [PR #3](https://github.com/Xon333/Nodevelo/pull/3).
 

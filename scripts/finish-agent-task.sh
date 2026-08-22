@@ -15,10 +15,10 @@ validate_branch() {
   esac
 }
 
-# Codex and Claude don't share a live session — the PR itself is the only handoff surface between
-# them. A codex/* branch can't safely auto-merge itself unreviewed (see ROADMAP.md's workout-library
+# A codex/* branch can't safely auto-merge itself unreviewed (see ROADMAP.md's workout-library
 # entry, 2026-08-04: an unreviewed Codex PR shipped 1/10 of its own plan with the other 9 silently
-# untracked). claude/* keeps auto-merging: Claude reviews inline as it writes, in the same session.
+# untracked). Legacy claude/* behavior remains available for compatibility, but Claude work is deferred
+# in the active workflow.
 requires_review() {
   [[ "$1" == "codex" ]]
 }
@@ -42,9 +42,9 @@ main() {
   pr_body=$(gh pr view --json body --jq .body)
 
   if requires_review "$agent"; then
-    gh pr edit "$pr_number" --body "$(printf '%s\n\nAgent: %s\n\nNeeds a Claude review before merge (WORKFLOW.md § Reviewing a codex PR) — not auto-merged.\n' "$pr_body" "$agent")"
-    echo "PR opened, NOT auto-merged (codex branches need a Claude review first): $pr_url"
-    echo "Ask a Claude session to review PR #$pr_number, then 'gh pr merge --squash $pr_number' to approve, or 'gh pr review $pr_number --request-changes' to send it back."
+    gh pr edit "$pr_number" --body "$(printf '%s\n\nAgent: %s\n\nNeeds an opencode ox alpha review before merge (WORKFLOW.md § Reviewing a codex PR) — not auto-merged.\n' "$pr_body" "$agent")"
+    echo "PR opened, NOT auto-merged (codex branches need an opencode ox alpha review first): $pr_url"
+    echo "Ask opencode ox alpha to review PR #$pr_number, then 'gh pr merge --squash $pr_number' to approve, or 'gh pr review $pr_number --request-changes' to send it back."
   else
     gh pr merge --auto --squash --body "$(printf '%s\n\nAgent: %s\n' "$pr_body" "$agent")"
     echo "Auto-merge enabled: $pr_url"
