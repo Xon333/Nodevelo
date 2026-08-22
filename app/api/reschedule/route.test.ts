@@ -149,8 +149,8 @@ describe("version guard (UXA-24) — shared across POST/PUT/PATCH", () => {
 
   it("HR-35: PUT surfaces 409 when persistMirroredMove detects a version conflict at the actual write (not just the up-front guard)", async () => {
     // The up-front guard here passes (expectedBlockCreatedAt matches the block read at request start),
-    // but a concurrent write can still land during persistMirroredMove's own network round-trip —
-    // its CAS re-check is what actually catches this, surfaced here as versionConflict: true.
+    // but a concurrent write can still land before persistMirroredMove's lock-held local commit — its
+    // CAS re-check catches this before any mirror work, surfaced here as versionConflict: true.
     vi.mocked(mirror.persistMirroredMove).mockResolvedValue({ updatedBlock: block(), mirrored: [], failed: [], versionConflict: true });
     const res = await PUT(putReq({ from: "2026-06-23", to: "2026-06-21", today: TODAY, expectedBlockCreatedAt: block().createdAt }));
     expect(res.status).toBe(409);

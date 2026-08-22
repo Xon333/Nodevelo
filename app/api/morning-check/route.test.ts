@@ -279,6 +279,21 @@ describe("PUT /api/morning-check — mirrors the applied swap/downgrade to Inter
     expect(json.mirrorFailed.length).toBeGreaterThan(0);
     expect(store.writeCurrentBlock).toHaveBeenCalled(); // local move still persists
   });
+
+  it("does not mark the morning check applied when the local block disappeared before commit", async () => {
+    vi.mocked(store.readMorningChecks).mockResolvedValue({ entries: [check("downgrade")], updatedAt: "" });
+    vi.mocked(mirror.persistMirroredMove).mockResolvedValue({
+      updatedBlock: block(),
+      mirrored: [],
+      failed: [],
+      versionConflict: true,
+    });
+
+    const res = await PUT(req("PUT", { today: TODAY }));
+
+    expect(res.status).toBe(409);
+    expect(store.writeMorningChecks).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/morning-check", () => {

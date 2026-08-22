@@ -8,6 +8,7 @@ vi.mock("./intervals-api", () => ({
 }));
 vi.mock("./data-store", () => ({
   mergeCurrentBlockDays: vi.fn(),
+  updateCurrentBlock: vi.fn(),
 }));
 
 import { buildMovePayloads, dayToEventPayload, persistMirroredMove, reconcileInboundMoves } from "./calendar-mirror";
@@ -213,6 +214,7 @@ describe("persistMirroredMove", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockMergeOnto(blk); // on-disk state equals `blk` at merge time (HR-4's read-inside-the-lock)
+    vi.mocked(dataStore.updateCurrentBlock).mockImplementation(async (mutate) => mutate(blk));
   });
 
   it("not configured → writes the local move straight through, no mirror calls", async () => {
@@ -238,6 +240,36 @@ describe("persistMirroredMove", () => {
     expect(res.failed).toEqual([]);
     expect(res.updatedBlock.days.find((d) => d.date === "2026-07-14")!.eventId).toBe(777);
     expect(dataStore.mergeCurrentBlockDays).toHaveBeenCalled();
+  });
+
+  it("stamps a fresh eventId without overwriting a concurrent edit to the local day", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
+    vi.mocked(intervalsApi.fetchEvents).mockResolvedValue([]);
+    let onDisk = blk;
+    vi.mocked(dataStore.mergeCurrentBlockDays).mockImplementation(async (touchedDays) => {
+      const touchedContent = new Map(touchedDays.map((d) => [d.date, d]));
+      onDisk = { ...onDisk, days: onDisk.days.map((d) => touchedContent.get(d.date) ?? d) };
+      return onDisk;
+    });
+    vi.mocked(dataStore.updateCurrentBlock).mockImplementation(async (mutate) => {
+      const next = mutate(onDisk);
+      if (next !== null) onDisk = next;
+      return next;
+    });
+    vi.mocked(intervalsApi.createEvent).mockImplementation(async () => {
+      onDisk = {
+        ...onDisk,
+        days: onDisk.days.map((d) => (d.date === "2026-07-14" ? { ...d, workoutText: "Concurrent edit" } : d)),
+      };
+      return 777;
+    });
+
+    const res = await persistMirroredMove(blk, blk.days, [{ from: "2026-07-14", to: null }], "2026-07-13");
+
+    expect(res.updatedBlock.days.find((d) => d.date === "2026-07-14")).toMatchObject({
+      eventId: 777,
+      workoutText: "Concurrent edit",
+    });
   });
 
   it("a post-commit mirror failure reports the failed date without undoing the authoritative local move", async () => {
@@ -295,6 +327,16 @@ describe("persistMirroredMove", () => {
     expect(intervalsApi.createEvent).not.toHaveBeenCalled();
     expect(res.versionConflict).toBe(true);
     expect(res.updatedBlock).toEqual(differentReplaced); // the real current block, not our stale merge
+  });
+
+  it("a concurrently deleted local block aborts the mirror even without a version token", async () => {
+    vi.mocked(intervalsApi.isIntervalsConfigured).mockReturnValue(true);
+    vi.mocked(dataStore.mergeCurrentBlockDays).mockResolvedValue(null);
+
+    const res = await persistMirroredMove(blk, blk.days, [{ from: "2026-07-14", to: null }], "2026-07-13");
+
+    expect(intervalsApi.createEvent).not.toHaveBeenCalled();
+    expect(res.versionConflict).toBe(true);
   });
 
   it("does not report versionConflict when expectedCreatedAt matches the current on-disk block", async () => {

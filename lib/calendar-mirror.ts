@@ -6,7 +6,7 @@
 // move carries the source event's description wholesale instead of rebuilding-and-losing it.
 
 import { createEvent, fetchEvents, isIntervalsConfigured } from "./intervals-api";
-import { mergeCurrentBlockDays } from "./data-store";
+import { mergeCurrentBlockDays, updateCurrentBlock } from "./data-store";
 import { eventPayloadShape } from "./plan-parser";
 import type { CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, IntervalsEventPayload } from "./types";
 
@@ -211,7 +211,7 @@ export async function persistMirroredMove(
   // Only merge the dates this move owns, preserving unrelated same-block edits (HR-4).
   const touchedDates = new Set(moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])));
   const persisted = await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)), expectedCreatedAt);
-  const versionConflict = expectedCreatedAt !== undefined && persisted?.createdAt !== expectedCreatedAt;
+  const versionConflict = persisted === null || (expectedCreatedAt !== undefined && persisted.createdAt !== expectedCreatedAt);
   updated = persisted ?? updated;
   if (persisted === null || versionConflict) {
     return { updatedBlock: updated, mirrored: [], failed: [], versionConflict };
@@ -219,11 +219,16 @@ export async function persistMirroredMove(
 
   let mirrored: string[] = [];
   let failed: string[] = [];
-  let hasFreshEventIds = false;
+  const freshEventIds = new Map<string, number>();
   if (isIntervalsConfigured()) {
     try {
+      const previousEventIds = new Map(updated.days.map((d) => [d.date, d.eventId]));
       const res = await applyCalendarMirror(updated, moves, today, preMoveDays);
-      hasFreshEventIds = res.updatedBlock !== updated;
+      for (const day of res.updatedBlock.days) {
+        if (typeof day.eventId === "number" && day.eventId !== previousEventIds.get(day.date)) {
+          freshEventIds.set(day.date, day.eventId);
+        }
+      }
       updated = res.updatedBlock;
       mirrored = res.mirrored;
       failed = res.failed;
@@ -231,10 +236,19 @@ export async function persistMirroredMove(
       failed = moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from]));
     }
   }
-  // Successful upserts may have fresh event ids. Persist only those touched dates; a mirror failure
-  // needs no second write and cannot undo the local move committed above.
-  if (hasFreshEventIds) {
-    updated = (await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)), expectedCreatedAt)) ?? updated;
+  // Successful upserts may have fresh event ids. Overlay only those ids onto a fresh lock-held read;
+  // a mirror failure needs no second write and cannot undo the local move committed above.
+  if (freshEventIds.size > 0) {
+    updated =
+      (await updateCurrentBlock((cur) => {
+        if (!cur) return null;
+        return {
+          ...cur,
+          days: cur.days.map((day) =>
+            freshEventIds.has(day.date) ? { ...day, eventId: freshEventIds.get(day.date)! } : day
+          ),
+        };
+      }, expectedCreatedAt)) ?? updated;
   }
   return { updatedBlock: updated, mirrored, failed, versionConflict };
 }
