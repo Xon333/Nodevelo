@@ -144,10 +144,10 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 
 ## ADR-0014 · Reciprocal agent review gates integration
 
-**Status.** Accepted design; implementation pending.
+**Status.** Implemented 2026-08-22.
 
 **Context.** Codex and opencode ox alpha can both plan and implement NodeVelo work, but self-review weakens the integration gate and the repository currently identifies only `codex/*` implementation branches. Joint planning is sometimes valuable, but making it mandatory would add ceremony to small, already-clear tasks. The existing docs also disagree about whether `finish:agent-task` is the only integration path or ox should merge directly with `gh`.
 
 **Decision.** Implementation uses isolated `codex/*` or `ox/*` branches. The non-writing agent reviews the current PR head against repository standards/invariants, the originating issue or spec, and verification evidence; approval is a structured PR comment tied to that head SHA, so a new commit requires fresh review. One sanctioned merge helper accepts either that reciprocal approval or an explicit, PR-scoped user merge override recorded on the PR, requires green checks, and squash-merges. Joint planning remains optional: when the user requests it, the receiving agent drafts one GitHub issue/spec, the other agent edits or comments there, and unresolved product or architecture choices return to the user. Independent tickets may run concurrently only when their files are disjoint and neither blocks the other.
 
-**Consequences.** Either agent may plan or write, but never approve its own implementation. Review evidence is auditable and cannot silently survive later commits; the user retains an explicit fast path. Implementing this decision requires `ox/*` support, the review-comment contract, the merge helper, and aligned `AGENTS.md`/`WORKFLOW.md` instructions. Until those changes ship, the current Codex-writes/ox-reviews procedure remains in force.
+**Consequences.** Either agent may plan or write, but never approve its own implementation. Review evidence is auditable and cannot silently survive later commits; the user retains an explicit fast path. `start-agent-task` supports `ox/*`, `finish-agent-task` records the writer and stops, and `merge-agent-task` owns review/override recording, required-check validation, and squash merge.

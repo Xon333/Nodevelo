@@ -37,8 +37,8 @@ Four defect shapes have shipped more than once. Check for them explicitly on rel
 - On `main`, run `npm run sync` first (fetch + fast-forward + prune stale worktrees) — a stale local
   `main` reads as wrong state, not just outdated.
 - `main` is integration-only. Start implementation work with
-  `npm run start:agent-task -- <claude|codex> <task-name>`, which creates a disposable worktree on a
-  guaranteed-correct `claude/<task>` or `codex/<task>` branch off current `origin/main`.
+  `npm run start:agent-task -- <codex|ox> <task-name>`, which creates a disposable worktree on a
+  guaranteed-correct `codex/<task>` or `ox/<task>` branch off current `origin/main`.
 - **Never `git checkout`/`git branch -b` directly in the primary checkout to "start" a task.** It is not
   isolated — the primary checkout is the one shared directory every session for this project opens, and
   git tracks only one working-tree state per directory, so a manual branch switch there changes what
@@ -46,16 +46,22 @@ Four defect shapes have shipped more than once. Check for them explicitly on rel
   Confirmed live 2026-08-05: a Claude session moved uncommitted work onto a task branch by hand-running
   `git checkout -b claude/<task>` in the primary checkout instead of an isolated worktree, and that
   branch's files surfaced in the user's other open sessions. Always start an isolated worktree instead —
-  `npm run start:agent-task`, or Claude's own `EnterWorktree` tool.
+  `npm run start:agent-task`.
 - Parallel tasks must own disjoint files. If tasks overlap, use one writer and the other agent as
   reviewer.
+- Joint planning is optional and user-invoked. The receiving agent drafts one GitHub issue/spec, the
+  other agent edits or comments there, and unresolved product or architecture choices go back to the
+  user. It is never an implementation gate.
 - Stage only files touched by the active task; never `git add -A` or `git add .`.
-- Finish committed work with `npm run finish:agent-task`. GitHub owns verification and integration;
-  the user does not manually merge normal tasks. It is the *only* sanctioned integration path — a
-  manual `git push` + `gh pr create`/`gh pr merge` skips both the branch-naming and check gates and
-  must not be used, regardless of which agent is running.
-- `codex/*` branches don't auto-merge — Codex and Claude have no live connection, so
-  `finish:agent-task` opens the PR and stops. A Claude review is required before merge
-  (`WORKFLOW.md § Reviewing a codex PR`); `claude/*` branches keep auto-merging (reviewed in-session
-  as they're written).
+- Finish committed work with `npm run finish:agent-task`; it verifies, pushes, opens the PR, records
+  the writer from the branch prefix, and stops for both `codex/*` and `ox/*`.
+- The non-writing agent reviews the current PR head: ox reviews `codex/*`, Codex reviews `ox/*`.
+  Approval must be recorded against that exact head with
+  `npm run merge:agent-task -- <pr> --approve-as <codex|ox>`; a new commit requires fresh review.
+- An explicit, PR-scoped user instruction may bypass reciprocal review with
+  `npm run merge:agent-task -- <pr> --user-override`. Never infer an override from a general request
+  to merge when done.
+- `finish:agent-task` and `merge:agent-task` are the only sanctioned integration path. Manual
+  `git push`, `gh pr create`, or `gh pr merge` skips the branch, check, or review gates and must not be
+  used.
 - Never bypass checks, force-push `main`, or automatically choose a side in a merge conflict.
