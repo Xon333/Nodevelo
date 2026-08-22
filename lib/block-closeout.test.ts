@@ -96,6 +96,18 @@ describe("buildCloseoutEvidence", () => {
     expect(ev.overallMeanCompliancePct).toBeNull();
     expect(ev.missedSessions).toBe(2);
   });
+
+  it("counts a pre-field ledger row (undefined score/compliance) as missed — no NaN leaks", () => {
+    const ev = buildCloseoutEvidence(
+      block([day("2026-06-02", "Z2", 60)]),
+      [{ date: "2026-06-02", planned: true }] as unknown as RideScoreEntry,
+      [],
+      "2026-06-14"
+    );
+    expect(ev.missedSessions).toBe(1);
+    expect(ev.overallMeanExecution).toBeNull();
+    expect(ev.overallMeanCompliancePct).toBeNull();
+  });
 });
 
 // ---- deriveCloseoutSeeds --------------------------------------------------

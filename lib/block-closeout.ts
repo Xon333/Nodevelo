@@ -37,9 +37,9 @@ export function buildCloseoutEvidence(
     const t = acc.get(d.type) ?? { type: d.type, planned: 0, scores: [], compliances: [], missed: 0, overshootDays: [] };
     t.planned += 1;
     const row = entries.find((e) => e.planned && e.date === d.date);
-    if (row && row.executionScore !== null) {
+    if (row && typeof row.executionScore === "number") {
       t.scores.push(row.executionScore);
-      if (row.compliancePct !== null) t.compliances.push(row.compliancePct);
+      if (typeof row.compliancePct === "number") t.compliances.push(row.compliancePct);
       // INVARIANT 52: judge the ride the ledger actually scored.
       const scoredActivity = row.activityId
         ? activities.find((a) => a.id === row.activityId)
