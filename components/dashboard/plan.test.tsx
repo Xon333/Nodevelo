@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CurrentBlockSection } from "./plan";
+import { CurrentBlockSection, RetroSection } from "./plan";
 import type { CurrentBlock } from "@/lib/types";
 
 // DayAction's own api()/useQueryClient() calls are mocked at the module boundary — this proves
@@ -65,5 +65,26 @@ describe("CurrentBlockSection / BlockCalendar — HR-47 (mirror-failure note sur
     fireEvent.click(screen.getByText("Move"));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
+const retroResult = (retrospective: string | null) => ({
+  retrospective,
+  narrativeDegraded: retrospective === null,
+  seeds: ["Threshold executed well — evidence supports progressing Threshold load"],
+  complianceByType: { Threshold: 95 },
+  fileId: "2026-06-01_build-ftp",
+});
+
+describe("RetroSection — degraded (Claude-free) closeouts", () => {
+  it("renders the deterministic fallback copy when retrospective is null", () => {
+    render(<RetroSection block={null} generating={false} result={retroResult(null)} error={null} onGenerate={() => {}} />);
+    expect(screen.getByText(/Closed deterministically/i)).toBeTruthy();
+    expect(screen.getByText(/evidence supports progressing/i)).toBeTruthy();
+  });
+
+  it("still renders the narrative when one exists", () => {
+    render(<RetroSection block={null} generating={false} result={retroResult("Solid block overall.")} error={null} onGenerate={() => {}} />);
+    expect(screen.getByText("Solid block overall.")).toBeTruthy();
   });
 });

@@ -58,7 +58,13 @@ export function RetroSection({
 }: {
   block: CurrentBlock | null;
   generating: boolean;
-  result: { retrospective: string; seeds: string[]; complianceByType: Record<string, number> } | null;
+  result: {
+    retrospective: string | null;
+    narrativeDegraded?: boolean;
+    seeds: string[];
+    complianceByType: Record<string, number>;
+    fileId: string;
+  } | null;
   error: string | null;
   onGenerate: () => void;
 }) {
@@ -78,7 +84,10 @@ export function RetroSection({
           </span>
         }
       >
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">{result.retrospective}</p>
+        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+          {result.retrospective ??
+            "Closed deterministically — no AI narrative was produced for this block. The execution facts and proposed seeds below were still recorded."}
+        </p>
         {result.seeds.length > 0 && (
           <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">

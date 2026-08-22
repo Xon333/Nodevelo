@@ -64,9 +64,11 @@ export default function PlanView() {
 
   const [retroGenerating, setRetroGenerating] = useState(false);
   const [retroResult, setRetroResult] = useState<{
-    retrospective: string;
+    retrospective: string | null;
+    narrativeDegraded?: boolean;
     seeds: string[];
     complianceByType: Record<string, number>;
+    fileId: string;
   } | null>(null);
   const [retroError, setRetroError] = useState<string | null>(null);
 
@@ -327,7 +329,13 @@ export default function PlanView() {
       // HR-32/HR-33: was a bare POST with no body — the route fell back to UTC "today" for its
       // archive truncation (could silently drop or skip archiving a day ridden this morning local
       // time but not yet "today" in UTC), and had no version guard at all, unlike write/delete.
-      const result = await api<{ retrospective: string; seeds: string[]; complianceByType: Record<string, number> }>(
+      const result = await api<{
+        retrospective: string | null;
+        narrativeDegraded?: boolean;
+        seeds: string[];
+        complianceByType: Record<string, number>;
+        fileId: string;
+      }>(
         "/api/retrospective",
         {
           method: "POST",
