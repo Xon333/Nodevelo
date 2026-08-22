@@ -71,6 +71,11 @@ export default function PlanView() {
     fileId: string;
   } | null>(null);
   const [retroError, setRetroError] = useState<string | null>(null);
+  // Explicit early-end closeout: an ACTIVE block has no amber "Wrap up block" nudge to click through,
+  // so the athlete opts in via CurrentBlockSection's quiet header control; RetroSection then shows the
+  // confirm panel that collects the required reason before generateRetro may fire.
+  const [endEarlyOpen, setEndEarlyOpen] = useState(false);
+  const [endReason, setEndReason] = useState("");
 
   // When a block is already active the generator collapses to a thin bar so it stops
   // cutting the Plan page in half; it expands on demand (and is always open with no block).
@@ -339,7 +344,15 @@ export default function PlanView() {
         "/api/retrospective",
         {
           method: "POST",
-          body: JSON.stringify({ today: localToday(), expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null }),
+          // Only an unfinished block sends the explicit early-end decision; a finished block wraps up
+          // normally and sends neither field.
+          body: JSON.stringify({
+            today: localToday(),
+            expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null,
+            ...(state.currentBlock && state.currentBlock.endDate >= localToday()
+              ? { endedEarly: true, endReason: endReason.trim() }
+              : {}),
+          }),
         }
       );
       setRetroResult(result);
@@ -371,9 +384,16 @@ export default function PlanView() {
         result={retroResult}
         error={retroError}
         onGenerate={generateRetro}
+        endEarlyOpen={endEarlyOpen}
+        endReason={endReason}
+        onEndReasonChange={setEndReason}
+        onCancelEndEarly={() => {
+          setEndEarlyOpen(false);
+          setEndReason("");
+        }}
       />
 
-      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} completedDates={state.completedDates} sync={state.lastSync ?? null} />}
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} onEndEarly={() => setEndEarlyOpen(true)} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} completedDates={state.completedDates} sync={state.lastSync ?? null} />}
       {/* HR-56: eventsFailed previously never reached the UI — a partially-failed calendar cleanup
           was invisible. Block is already gone from state.currentBlock by the time this shows, so it
           lives here rather than inside CurrentBlockSection's own (now-unmounted) confirm bar. */}
