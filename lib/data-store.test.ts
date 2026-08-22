@@ -201,6 +201,16 @@ describe("appendBlockHistory", () => {
     const history = await readBlockHistory();
     expect(history.find((h) => h.id === "shared-id")?.retrospective).toBe("Now complete.");
   });
+
+  it("Phase 1: an entry written before closeout/approval fields existed reads back with them undefined", async () => {
+    const legacy = entry("legacy-id", {}); // entry() helper builds a pre-Phase-1-shaped record
+    delete (legacy as Partial<BlockHistoryEntry>).closeout;
+    await appendBlockHistory(legacy);
+    const out = await readBlockHistory();
+    expect(out.find((e) => e.id === "legacy-id")?.closeout).toBeUndefined();
+    expect(out.find((e) => e.id === "legacy-id")?.reflectionsApprovedAt).toBeUndefined();
+    expect(out.find((e) => e.id === "legacy-id")?.endedEarlyAt).toBeUndefined();
+  });
 });
 
 describe("mergeCurrentBlockDays", () => {

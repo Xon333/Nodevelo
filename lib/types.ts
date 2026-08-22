@@ -649,6 +649,30 @@ export interface StructuredReflection {
   adjusted_strategy: string;
 }
 
+// ---------- Block closeout (Phase 1 trust contract) ----------
+// Deterministic facts computed by lib/block-closeout.ts from the FROZEN score ledger. Compliance
+// figures are resolveCompliance-capped; overshoot counts sessions whose scored ride ran past
+// CLOSEOUT_OVERSHOOT_RATIO of prescription. Stored verbatim on BlockHistoryEntry.closeout.
+export interface CloseoutTypeEvidence {
+  type: WorkoutType;
+  planned: number;                  // days with durationMin > 0 on/before the closeout date
+  scored: number;                   // with a matching frozen ledger row
+  missed: number;                   // planned but with no frozen score
+  meanExecution: number | null;     // null when scored === 0
+  meanCompliancePct: number | null; // ledger values only — never raw duration ratios
+  overshootDays: string[];          // ISO dates whose SCORED ride overshot prescription
+}
+
+export interface CloseoutEvidence {
+  perType: CloseoutTypeEvidence[];
+  plannedSessions: number;
+  scoredSessions: number;
+  missedSessions: number;
+  overshootSessions: number;
+  overallMeanExecution: number | null;
+  overallMeanCompliancePct: number | null;
+}
+
 export interface BlockHistoryEntry {
   id: string;
   goal: string;
@@ -665,6 +689,12 @@ export interface BlockHistoryEntry {
   nextBlockSeeds?: string[];
   retrospective?: string; // Claude narrative
   structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome notes, fed into the next block's prompt
+  // Phase 1 trust contract — all three absent on entries written before this shipped; read sites
+  // MUST truthy-check, never compare against null/undefined (INVARIANT 3).
+  closeout?: CloseoutEvidence;        // deterministic facts (shape above), frozen at closeout
+  reflectionsApprovedAt?: string;     // ISO instant; set ONLY by POST /api/history adoption action
+  endedEarlyAt?: string;              // ISO instant when closeout was an explicit early end
+  endedEarlyReason?: string;          // the athlete-typed reason recorded with the early end
   // Provenance of the block this entry archives (see GeneratedPlan).
   model?: string;
   promptVersion?: number;
