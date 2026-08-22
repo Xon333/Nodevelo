@@ -49,15 +49,17 @@ vi.mock("@/lib/data-store", () => ({
 import * as store from "@/lib/data-store";
 import { POST } from "@/app/api/retrospective/route";
 
-// A bare Request with no body — tolerated (today falls back to UTC), matching every existing test's
-// expectations below; the dedicated `today`-threading tests further down send a real body.
-// Object bodies lacking `today` get a fixed post-endDate date merged in, so legacy tests never
-// depend on the real system clock being past the fixture's endDate.
+// post() sends { today: "2026-06-29" }; post(obj) without `today` merges that fixed date in, so
+// no call site depends on the real system clock. Objects already carrying `today` pass through
+// untouched. post(null) is the escape hatch: it sends a truly empty body, exercising the route's
+// UTC-fallback semantics (used by the fake-timer HR-32 test below).
 const post = (body?: unknown) => {
   const payload =
-    typeof body === "object" && body !== null && !("today" in body)
-      ? { ...(body as Record<string, unknown>), today: "2026-06-29" }
-      : body;
+    body === null
+      ? null
+      : typeof body === "object" && !("today" in body)
+        ? { ...(body as Record<string, unknown>), today: "2026-06-29" }
+        : (body ?? { today: "2026-06-29" });
   return POST(
     new Request("http://localhost/api/retrospective", {
       method: "POST",
@@ -303,7 +305,7 @@ describe("/api/retrospective POST", () => {
         endDate: "2026-06-27",
         days: [...block.days, day("2026-06-29", "Z2", 60)],
       });
-      await post(); // no body at all
+      await post(null); // truly empty body → UTC fallback
       const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(entry.days.map((d: { date: string }) => d.date)).not.toContain("2026-06-29");
     });

@@ -224,7 +224,7 @@ export async function POST(req: Request) {
     ...(endedEarly
       ? [
           `ended_early: true`,
-          `ended_early_reason: "${endReason.replace(/\\/g, "\\\\").replace(/"/g, "'").replace(/\r?\n/g, " ")}"`,
+          `ended_early_reason: "${endReason.replace(/\\/g, "\\\\").replace(/"/g, "'").replace(/[\r\n]+/g, " ")}"`,
         ]
       : []),
     `execution_scored: ${evidence.scoredSessions}/${evidence.plannedSessions}`,
