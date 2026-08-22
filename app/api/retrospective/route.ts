@@ -232,6 +232,8 @@ export async function POST(req: Request) {
     `execution_overshoot_days: ${evidence.overshootSessions}`,
     `execution_mean_score: ${evidence.overallMeanExecution ?? "n/a"}`,
     `seeds_approved: false`,
+    "next_block_seeds:",
+    ...seeds.map((s) => `  - "${s.replace(/\\/g, "\\\\").replace(/"/g, "'")}"`),
     `generated_at: "${new Date().toISOString()}"`,
     "---",
     "",

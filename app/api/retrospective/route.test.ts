@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReflectionInterventionInput, RetrospectiveInput } from "@/lib/anthropic-api";
+import { approveSeedsInMarkdown, parseRetroSeeds } from "@/lib/kb-loader";
 import type { StructuredReflection } from "@/lib/types";
 
 // Route test for /api/retrospective — this route runs for the first time ever around 2026-07-12,
@@ -388,8 +389,26 @@ describe("/api/retrospective POST", () => {
     // retroFileId(): lowercase, non [a-z0-9] runs -> '-', trim leading/trailing '-', cap at 40 chars.
     expect(filename).toBe("2026-06-15_build-ftp.md");
     expect(content).toContain('id: "2026-06-15_build-ftp"');
+    expect(content).toContain("next_block_seeds:");
     expect(content).toContain("execution_scored: 2/5");
     expect(content).toContain("seeds_approved: false");
+  });
+
+  it("round-trips seeds through the markdown channel: written gated, parseable once adopted", async () => {
+    // The whole seeds contract end to end: the route writes next_block_seeds into frontmatter,
+    // parseRetroSeeds returns [] while unapproved, and after approveSeedsInMarkdown flips the
+    // stamp the exact response seeds come back out of the file.
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(h.writeRetrospective).toHaveBeenCalledTimes(1);
+    const md = h.writeRetrospective.mock.calls[0][1] as string;
+    expect(md).toContain("next_block_seeds:");
+    expect(parseRetroSeeds(md)).toEqual([]); // gated while unapproved
+    const adopted = approveSeedsInMarkdown(md);
+    const seeds = parseRetroSeeds(adopted);
+    expect(seeds.length).toBeGreaterThan(0); // flows once adopted
+    expect(body.seeds).toEqual(seeds); // file list == response seeds
   });
 
   describe("live Anthropic call failure (HR-57, Phase 1 trust contract)", () => {
