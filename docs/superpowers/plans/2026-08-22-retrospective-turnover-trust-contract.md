@@ -56,6 +56,10 @@ decisions #49–51) plus repo law. Every task implicitly inherits them.
   newer unapproved one exists; no silent fallback). Seeds: `next_block_seeds` steer only once the
   markdown carries `seeds_approved: true`; hand edits to the list remain live (the file stays the
   single source of truth for seeds).
+- **Adoption itself is failure-safe.** `/api/history`'s POST derives the retro filename from the
+  history entry, flips the markdown BEFORE stamping, and both steps are idempotent — a failure at
+  any point leaves a state a plain retry completes; it can never strand "stamped but never
+  seed-approved" behind a 409.
 - **The score ledger stays frozen (INVARIANT 1).** Closeout only READS `score-log.json`.
 - **Existing JSON/markdown without new fields remains readable (INVARIANT 3).** All new
   `BlockHistoryEntry` fields are optional; every read site uses truthy checks. Old retro files
@@ -1582,8 +1586,12 @@ git commit -m "feat(plan): explicit early-end closeout flow with required reason
 
 ## Task 9: `/api/history` — the adoption action
 
-One endpoint stamps reflection approval AND flips the retro file's `seeds_approved` flag. GET stays
-byte-identical.
+One endpoint adopts a closed block's lessons: it flips the retro markdown's `seeds_approved` flag
+AND stamps `reflectionsApprovedAt`. **Failure-safe by construction:** the retro filename is DERIVED
+from the entry itself (the client cannot omit it, so neither channel can be silently skipped); the
+flip runs BEFORE the stamp; both steps are idempotent, so any interrupted attempt converges on
+retry — a markdown failure leaves nothing stamped (clean retry), a stamp failure after the flip is
+healed by the next attempt rather than dead-ending on 409. GET stays byte-identical.
 
 **Files:**
 - Modify: `app/api/history/route.ts`
@@ -1593,12 +1601,13 @@ byte-identical.
   pattern):
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BlockHistoryEntry } from "@/lib/types";
 
 const h = vi.hoisted(() => ({
-  readBlockHistory: vi.fn(async () => []),
-  updateBlockHistory: vi.fn(async (mutate: (e: unknown[]) => unknown[]) => mutate([{ id: "b1", reflectionsApprovedAt: "STAMPED" }])),
-  markRetroSeedsApproved: vi.fn(async () => {}),
+  readBlockHistory: vi.fn(),
+  updateBlockHistory: vi.fn(),
+  markRetroSeedsApproved: vi.fn(),
 }));
 vi.mock("@/lib/data-store", () => ({ readBlockHistory: h.readBlockHistory, updateBlockHistory: h.updateBlockHistory }));
 vi.mock("@/lib/kb-loader", () => ({ markRetroSeedsApproved: h.markRetroSeedsApproved }));
@@ -1608,31 +1617,68 @@ import { POST } from "@/app/api/history/route";
 const post = (body: unknown) =>
   POST(new Request("http://localhost/api/history", { method: "POST", body: JSON.stringify(body) }));
 
-describe("POST /api/history — adoption", () => {
-  beforeEach(() => vi.clearAllMocks());
+const entry = (): BlockHistoryEntry =>
+  ({
+    id: "b1", goal: "Build FTP", startDate: "2026-06-01", endDate: "2026-06-14",
+    lengthWeeks: 2, overview: "", createdAt: "2026-06-01T00:00:00.000Z",
+  }) as BlockHistoryEntry;
 
-  it("stamps reflectionsApprovedAt and marks the retro file approved", async () => {
-    const res = await post({ id: "b1", fileId: "2026-06-01_build-ftp" });
+describe("POST /api/history — adoption", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.markRetroSeedsApproved.mockResolvedValue(undefined);
+    h.readBlockHistory.mockResolvedValue([entry()]);
+    h.updateBlockHistory.mockImplementation(async (mutate: (e: BlockHistoryEntry[]) => BlockHistoryEntry[]) =>
+      mutate([entry()])
+    );
+  });
+
+  it("DERIVES the retro filename from the entry — the client sends only { id }", async () => {
+    const res = await post({ id: "b1" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(h.updateBlockHistory).toHaveBeenCalledTimes(1);
     expect(h.markRetroSeedsApproved).toHaveBeenCalledWith("2026-06-01_build-ftp.md");
+    expect(h.updateBlockHistory).toHaveBeenCalledTimes(1);
   });
 
-  it("409s a second approval of the same entry", async () => {
-    // mutate above returns the STAMPED entry; emulate "already approved" by having the mutator see it
-    h.updateBlockHistory.mockImplementationOnce(async (mutate: (e: unknown[]) => unknown[]) =>
-      mutate([{ id: "b1", reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" }])
-    );
+  it("502s WITHOUT stamping when the markdown write fails — nothing partial persists", async () => {
+    h.markRetroSeedsApproved.mockRejectedValueOnce(new Error("EACCES"));
     const res = await post({ id: "b1" });
-    expect(res.status).toBe(409);
-    expect(h.markRetroSeedsApproved).not.toHaveBeenCalled();
+    expect(res.status).toBe(502);
+    expect(h.updateBlockHistory).not.toHaveBeenCalled(); // no orphaned reflectionsApprovedAt
   });
 
-  it("404s an unknown id", async () => {
-    h.updateBlockHistory.mockImplementationOnce(async (mutate: (e: unknown[]) => unknown[]) => mutate([]));
+  it("a retry after that failure completes end-to-end", async () => {
+    h.markRetroSeedsApproved.mockRejectedValueOnce(new Error("EACCES")); // attempt 1 dies on the flip
+    expect((await post({ id: "b1" })).status).toBe(502);
+
+    const res = await post({ id: "b1" });                                // attempt 2
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("converges when a prior attempt flipped the file but failed before stamping", async () => {
+    h.updateBlockHistory.mockRejectedValueOnce(new Error("lock poisoned")); // attempt 1: stamp dies AFTER flip
+    expect((await post({ id: "b1" })).status).toBe(502);
+
+    const res = await post({ id: "b1" });                                   // attempt 2: flip no-ops, stamp lands
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("is idempotent once fully adopted — 200 with alreadyAdopted, never a 409 dead-end", async () => {
+    h.readBlockHistory.mockResolvedValue([{ ...entry(), reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" }]);
+    const res = await post({ id: "b1" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, alreadyAdopted: true });
+  });
+
+  it("404s an unknown id before any write", async () => {
+    h.readBlockHistory.mockResolvedValue([]);
     const res = await post({ id: "nope" });
     expect(res.status).toBe(404);
+    expect(h.markRetroSeedsApproved).not.toHaveBeenCalled();
+    expect(h.updateBlockHistory).not.toHaveBeenCalled();
   });
 
   it("400s a missing id", async () => {
@@ -1664,11 +1710,16 @@ Expected: FAIL — no POST export.
 ```ts
 import { logError } from "@/lib/log";
 import { readBlockHistory, updateBlockHistory } from "@/lib/data-store"; // extends existing import
-import { markRetroSeedsApproved } from "@/lib/kb-loader";
+import { markRetroSeedsApproved, retroFileId } from "@/lib/kb-loader";
 
 // Phase 1 adoption: the ONE explicit action that lets a closed block's proposed lessons influence
-// another block — stamps reflectionsApprovedAt on the entry and flips seeds_approved on its retro
-// markdown. Idempotent-unfriendly by design: re-approval is a 409, not a silent no-op.
+// another block — flips `seeds_approved:` on the retro markdown and stamps reflectionsApprovedAt
+// on the entry. FAILURE-SAFE by construction:
+//   * the retro filename is DERIVED from the entry itself — a caller cannot omit it, so neither
+//     adoption channel can be silently skipped;
+//   * the flip runs BEFORE the stamp and both steps are idempotent: a crash between them leaves at
+//     most "flipped but unstamped", which a retry CONVERGES out of (no 409 dead-end);
+//   * a flip failure means NOTHING was stamped, so the athlete's retry starts clean.
 export async function POST(req: Request) {
   try {
     const body: unknown = await req.json();
@@ -1676,25 +1727,27 @@ export async function POST(req: Request) {
     const id = typeof b.id === "string" ? b.id : "";
     if (!id) return NextResponse.json({ error: "History entry id required." }, { status: 400 });
 
-    let found = false;
-    let alreadyApproved = false;
-    await updateBlockHistory((entries) =>
+    const target = (await readBlockHistory()).find((e) => e.id === id);
+    if (!target) return NextResponse.json({ error: "No such history entry." }, { status: 404 });
+
+    await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
+
+    let alreadyAdopted = false;
+    const updated = await updateBlockHistory((entries) =>
       entries.map((e) => {
         if (e.id !== id) return e;
-        found = true;
         if (e.reflectionsApprovedAt) {
-          alreadyApproved = true;
+          alreadyAdopted = true;
           return e;
         }
         return { ...e, reflectionsApprovedAt: new Date().toISOString() };
       })
     );
-    if (!found) return NextResponse.json({ error: "No such history entry." }, { status: 404 });
-    if (alreadyApproved) return NextResponse.json({ error: "Already adopted." }, { status: 409 });
-
-    const fileId = typeof b.fileId === "string" && b.fileId ? b.fileId : undefined;
-    if (fileId) await markRetroSeedsApproved(`${fileId}.md`);
-    return NextResponse.json({ ok: true });
+    if (!updated.some((e) => e.id === id)) {
+      // The entry vanished between the read and the lock — nothing was adopted.
+      return NextResponse.json({ error: "No such history entry." }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true, ...(alreadyAdopted ? { alreadyAdopted: true } : {}) });
   } catch (err) {
     logError("/api/history", "adopt", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Couldn't record the adoption." }, { status: 502 });
@@ -1735,14 +1788,14 @@ const histEntry = (over: Partial<BlockHistoryEntry>): BlockHistoryEntry =>
 const refl = [{ dimension: "Overall", hypothesis: "h", observation: "o", root_cause: "r", adjusted_strategy: "a" }];
 
 describe("BlockHistory — reflection adoption", () => {
-  it("offers Review & adopt for unapproved reflections and posts id + fileId", async () => {
+  it("offers Review & adopt for unapproved reflections and posts the entry id", async () => {
     h.api.mockResolvedValue({ ok: true });
     render(<BlockHistory history={[histEntry({ structuredReflections: refl })]} />);
     fireEvent.click(await screen.findByRole("button", { name: /review & adopt/i }));
     await waitFor(() =>
       expect(h.api).toHaveBeenCalledWith("/api/history", {
         method: "POST",
-        body: JSON.stringify({ id: "h1", fileId: "2026-06-01_build-ftp" }),
+        body: JSON.stringify({ id: "h1" }), // filename derived server-side — client sends only the id
       })
     );
   });
@@ -1773,7 +1826,7 @@ describe("BlockHistory — reflection adoption", () => {
       Adopted {new Date(entry.reflectionsApprovedAt).toLocaleDateString()} — these notes reach the next block
     </p>
   ) : (
-    <ReflectionAdopt id={entry.id} goal={entry.goal} startDate={entry.startDate} />
+    <ReflectionAdopt id={entry.id} />
   )
 ) : null}
 ```
@@ -1781,7 +1834,7 @@ describe("BlockHistory — reflection adoption", () => {
 With the worker component (module scope, same file):
 
 ```tsx
-function ReflectionAdopt({ id, goal, startDate }: { id: string; goal: string; startDate: string }) {
+function ReflectionAdopt({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -1791,7 +1844,7 @@ function ReflectionAdopt({ id, goal, startDate }: { id: string; goal: string; st
           setBusy(true);
           setError(null);
           try {
-            await api("/api/history", { method: "POST", body: JSON.stringify({ id, fileId: retroFileId(startDate, goal) }) });
+            await api("/api/history", { method: "POST", body: JSON.stringify({ id }) });
           } catch (err) {
             setError(err instanceof Error ? err.message : "Couldn't adopt.");
           } finally {
@@ -1810,10 +1863,10 @@ function ReflectionAdopt({ id, goal, startDate }: { id: string; goal: string; st
 }
 ```
 
-Imports to add in `plan.tsx`: `useState` (likely present), `retroFileId` from `@/lib/kb-loader`.
-After a successful adopt the stamp won't appear until reload — acceptable (matches the view's
-existing load-on-mount pattern); optionally bubble a refresh callback if `BlockHistory` already
-receives one.
+Imports to add in `plan.tsx`: `useState` (likely present). No `retroFileId` import — the endpoint
+derives the filename server-side. After a successful adopt the stamp won't appear until reload —
+acceptable (matches the view's existing load-on-mount pattern); optionally bubble a refresh
+callback if `BlockHistory` already receives one.
 
 - [ ] **Step 10.4: Run, verify green; commit**
 
@@ -1997,6 +2050,7 @@ block; markdown without narrative section.
 | Early end excludes future sessions | Task 2 cutoff test; Task 6 early-end evidence test |
 | Facts/narrative/seeds separate | Distinct `closeout`/`retrospective`/`nextBlockSeeds` fields; markdown section split |
 | Nothing steers the next block without adoption | Task 4 seeds gate + tests; Task 5 newest-only approval tests; Task 9 endpoint; Tasks 7/10 UI |
+| Adoption is failure-safe and retryable | Task 9: markdown-failure stamps nothing, retry completes, flip-then-die converges, filename derived server-side |
 | Degraded closeout survives bare archives | Task 3 collision tests |
 | Ledger stays frozen | Task 9 freeze assertion; zero score-log writes across the diff |
 | Old JSON/markdown readable | Task 1 back-compat; Task 4 absent-flag parsing |
