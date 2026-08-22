@@ -37,12 +37,16 @@ future turnover, attended or not.
 
 1. **Backup first:** `GET /api/export` → save the bundle off-machine. The retro clears `current-block.json` — this is the undo.
 2. Sync (`POST /api/sync`) so the final rides are scored into the ledger.
-3. `POST /api/retrospective` — **read the generated retro** (live LLM smoke run per AGENTS.md; judge the narrative + seeds for sanity).
-4. Verify: `data/block-history.json` has a new entry, `days` non-empty, `nextBlockSeeds` non-empty.
-5. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` land on the NEW
+3. **Wrap up on `/plan`:** a finished block proceeds straight to closeout; an unfinished one requires
+   typing an explicit early-end reason first (the reason is stamped on the retro frontmatter and the
+   history entry, and not-yet-lived days are cut from the archive). Closeout is deterministic-first —
+   Claude's narrative + structured reflections are best-effort enrichment, never a gate.
+4. Verify: `data/block-history.json` has a new entry, its newest entry carries a `closeout` evidence object, `days` non-empty, `nextBlockSeeds` non-empty.
+5. **Review & adopt on `/plan` before generating the next block.** Nothing AI-written reaches generation until adoption (`POST /api/history`) flips `seeds_approved: true` on the retro markdown and stamps `reflectionsApprovedAt` on the history entry — unadopted seeds/reflections inject as empty. Degraded mode (Anthropic key unset or the narrative call fails): the facts + deterministic seeds still land; only the prose narrative is absent.
+6. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` land on the NEW
    block's `current-block.json` here, not on the retrospective's `block-history.json` entry.
-6. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.
-7. Confirm `/today` shows the new block's first session; the block-completion nudge is gone.
+7. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.
+8. Confirm `/today` shows the new block's first session; the block-completion nudge is gone.
    - **If any step fails:** stop, `POST /api/import` the backup, report — do not improvise against live data.
 
 ## Add or change a validator

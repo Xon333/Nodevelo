@@ -138,7 +138,7 @@ export default function KnowledgeBaseEditor() {
       </p>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {isRetro
-          ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block."
+          ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block once you adopt it on the Plan page."
           : "Edits apply immediately to the next generation."}
       </p>
       {pendingSwitch && (

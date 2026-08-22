@@ -64,6 +64,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `intent-scoring.ts` | Objective canonicalisation, scoreability gate, deterministic grading, and overlay construction |
 | `intent-runner.ts` | Store/LLM orchestrator: boundary initialization, retry semantics, and atomic supersession |
 | `score-log.ts` | Ledger builder + append-only/rebuild merges (LEDGER-1/2) + provenance stamps. Change when adding ledger fields — needs an idempotent backfill in `sync-ledger.ts` ([RECIPES § scoring](RECIPES.md#change-scoring)) |
+| `block-closeout.ts` | Deterministic closeout evidence + seed derivation from the frozen ledger read-only (overshoot bar 1.25×, capped compliance); consumed by `POST /api/retrospective` |
 | `athlete-model.ts` | Ledger → EWMA per-type model → ranked `Insight[]` |
 | `athlete-state.ts` | 0–100 fused "right now" score with lived-signal override |
 | `readiness.ts` | Build/Hold/Recover, ACWR, ramp/fatigue alerts, rolling baselines |
@@ -134,7 +135,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `disposition` | GET/POST | Session self-report; re-stamps score log | — |
 | `loading` | GET/POST | Carb-loading prompt + attribution | — |
 | `trends` | GET | Trends payload assembly (read-only) | — |
-| `history` | GET | Block-history list | — |
+| `history` | GET/POST | Block-history list; POST = the adoption action (flips `seeds_approved:` on the retro, stamps `reflectionsApprovedAt` on the entry) | — |
 | `profile` | GET/PUT | Athlete profile (physiology overlaid at read) | — |
 | `settings` | GET/PUT | Block settings + calibration-band overrides | — |
 | `calibration` | GET/POST | Read/override calibrated parameters | — |
