@@ -34,6 +34,15 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 | **Limiter / easy win** | The athlete's weakest energy system, auto-derived from the FTP-normalized power curve (`lib/power-profile.ts`); biases (never overrides) focus selection. |
 | **Week character** | Presentational load/build/peak/taper label derived client-side from relative volume (`lib/plan-week-character.ts`) — there is no per-week phase in the data model. |
 
+## Agent workflow terms
+
+| Term | Meaning here |
+|---|---|
+| **Writer** | The agent that owns a task's implementation branch: Codex on `codex/*` or opencode ox alpha on `ox/*`. The writer fixes review findings and never approves its own PR. |
+| **Reciprocal review** | Review of the writer's current PR head by the other agent, covering repository standards/invariants, the originating issue or spec, and verification evidence. A new commit makes the prior approval stale. |
+| **Joint planning** | An optional, user-invoked ordered pass in which both agents edit or comment on one GitHub issue/spec. It is not a prerequisite for implementation. |
+| **User merge override** | An explicit, PR-scoped instruction from the user to merge without reciprocal review. The instruction is recorded on that PR; a general request to merge when done is not an override. |
+
 ## Scoring & learning terms
 
 | Term | Meaning here |
