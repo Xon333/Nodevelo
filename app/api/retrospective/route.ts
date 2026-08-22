@@ -7,15 +7,17 @@ import {
   readCurrentBlock,
   readInterventionLog,
   readLastSync,
+  readScoreLog,
   updateCurrentBlock,
 } from "@/lib/data-store";
 import { analyzePowerProfile, formatPowerProfileForPrompt, powerProfileSeed } from "@/lib/power-profile";
-import { writeRetrospective } from "@/lib/kb-loader";
+import { retroFileId, writeRetrospective } from "@/lib/kb-loader";
 import { blockChangedResponse } from "@/lib/block-version";
-import { resolveToday } from "@/lib/date";
+import { isBlockFinished, resolveToday } from "@/lib/date";
 import { truncateBlockDays } from "@/lib/score-log";
 import { isSeasonFocus } from "@/lib/season";
 import { isSteadyEnduranceRide } from "@/lib/aerobic";
+import { buildCloseoutEvidence, deriveCloseoutSeeds } from "@/lib/block-closeout";
 import {
   generateRetrospective,
   generateStructuredRetrospective,
@@ -24,9 +26,7 @@ import {
 } from "@/lib/anthropic-api";
 import type { BlockHistoryEntry, StructuredReflection, WorkoutType } from "@/lib/types";
 
-function slugify(str: string): string {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-}
+// slugify deleted — kb-loader.retroFileId owns filename derivation (single owner).
 
 function closestCtl(
   wellness: Array<{ date: string; ctl: number | null }>,
@@ -40,10 +40,6 @@ function closestCtl(
 
 // POST — generate retrospective for current block (or most recent history entry without one)
 export async function POST(req: Request) {
-  if (!isAnthropicConfigured()) {
-    return NextResponse.json({ error: "Anthropic API is not configured." }, { status: 400 });
-  }
-
   // No body was previously ever sent here — tolerate one missing/empty entirely, since `today` is
   // optional (falls back to UTC) and this keeps the route accepting the same bare POST it always has.
   let body: unknown = {};
@@ -57,24 +53,34 @@ export async function POST(req: Request) {
   // /api/sync's DELETE and /api/write's POST.
   const today = resolveToday(b.today);
 
-  const [block, sync, interventionLog, athleteProfile] = await Promise.all([
+  const [block, sync, interventionLog, athleteProfile, scoreLog] = await Promise.all([
     readCurrentBlock(),
     readLastSync(),
     readInterventionLog(),
     readAthleteProfile(),
+    readScoreLog(),
   ]);
 
   if (!block) {
     return NextResponse.json({ error: "No active block found." }, { status: 404 });
   }
-  // HR-33: was the only block-mutating route with no version guard — write and DELETE both got the
-  // UXA-24 check, this one didn't. Checked before the live LLM call below (tens of seconds) so a
-  // stale tab can't archive-and-clear a block another tab already replaced in the meantime.
+  // HR-33: checked before any live LLM call below (tens of seconds) so a stale tab can't
+  // archive-and-clear a block another tab already replaced in the meantime.
   const expectedCreatedAt = "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined;
   const versionError = blockChangedResponse(block, expectedCreatedAt);
   if (versionError) return versionError;
   if (!sync) {
     return NextResponse.json({ error: "No sync data — sync first." }, { status: 400 });
+  }
+
+  // Phase 1 gate: a normal completion or an EXPLICIT early-end decision precedes closeout.
+  const endReason = typeof b.endReason === "string" ? b.endReason.trim() : "";
+  const endedEarly = b.endedEarly === true && endReason.length > 0;
+  if (!isBlockFinished(block, today) && !endedEarly) {
+    return NextResponse.json(
+      { error: "This block hasn't finished yet. Wait for its end date, or record why it's ending early." },
+      { status: 409 }
+    );
   }
 
   // Match actual activities to planned days within the block range.
@@ -85,36 +91,13 @@ export async function POST(req: Request) {
   const actualHours = blockActivities.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
   const plannedHours = block.days.reduce((s, d) => s + d.durationMin, 0) / 60;
 
-  // Compliance by type
-  const complianceByType: Partial<Record<WorkoutType, { planned: number; actual: number; totalCompliance: number }>> = {};
-  for (const day of block.days) {
-    if (day.durationMin === 0) continue;
-    const type = day.type as WorkoutType;
-    const actual = blockActivities.find((a) => a.date === day.date);
-    const actualMin = actual ? Math.round(actual.movingTimeSec / 60) : 0;
-    const compPct = Math.round((actualMin / day.durationMin) * 100);
-    const entry = complianceByType[type] ?? { planned: 0, actual: 0, totalCompliance: 0 };
-    complianceByType[type] = {
-      planned: entry.planned + 1,
-      actual: entry.actual + (actual ? 1 : 0),
-      totalCompliance: entry.totalCompliance + compPct,
-    };
-  }
-
-  const complianceMap: Record<string, number> = {};
-  for (const [type, stats] of Object.entries(complianceByType)) {
-    if (stats && stats.planned > 0) {
-      complianceMap[type] = Math.round(stats.totalCompliance / stats.planned);
-    }
-  }
-
-  const totalPlannedDays = block.days.filter((d) => d.durationMin > 0).length;
-  const overallCompliancePct =
-    totalPlannedDays > 0
-      ? Math.round(
-          Object.values(complianceByType).reduce((s, e) => s + (e?.totalCompliance ?? 0), 0) / totalPlannedDays
-        )
-      : 0;
+  // Deterministic FIRST (works with Claude fully unavailable). Evidence covers only lived days.
+  const evidence = buildCloseoutEvidence(
+    block,
+    scoreLog.entries,
+    blockActivities,
+    today < block.endDate ? today : block.endDate
+  );
 
   const ctlStart = closestCtl(sync.wellness, block.startDate);
   const ctlEnd = closestCtl(sync.wellness, block.endDate);
@@ -145,31 +128,40 @@ export async function POST(req: Request) {
   const powerProfile = analyzePowerProfile(sync.powerCurve, athleteProfile.performance.ftp, latestWeight, "84-day");
   const powerProfileText = formatPowerProfileForPrompt(powerProfile);
 
-  // HR-57: every other AI-backed route either wraps its live call in a try/catch (generate,
-  // addCoachNote) or catches inside its stream (ask) — this one didn't, so a network blip or a
-  // 429/overload here surfaced as an unhandled rejection and a bare framework 500 with no {error}
-  // body, instead of the coach-voice error every other route gives.
-  let retrospective: string;
-  try {
-    retrospective = await generateRetrospective({
-      goal: block.goal,
-      lengthWeeks: block.lengthWeeks,
-      startDate: block.startDate,
-      endDate: block.endDate,
-      plannedHours,
-      actualHours,
-      overallCompliancePct,
-      ctlStart,
-      ctlEnd,
-      complianceByType: complianceMap,
-      topSessions,
-      avgDecoupling,
-      powerProfile: powerProfileText,
-    });
-  } catch (err) {
-    logError("/api/retrospective", "generate", err);
-    const message = err instanceof Error ? err.message : "Retrospective generation failed.";
-    return NextResponse.json({ error: message }, { status: 502 });
+  // Model-input compliance switches to the CAPPED ledger figure (same RetrospectiveInput shape).
+  const overallCompliancePct = evidence.overallMeanCompliancePct ?? 0;
+  const complianceMap: Record<string, number> = {};
+  for (const t of evidence.perType) {
+    if (t.scored > 0 && t.meanCompliancePct !== null) complianceMap[t.type] = t.meanCompliancePct;
+  }
+
+  // Best-effort narrative: skip unconfigured, survive failure — closeout never depends on Claude.
+  let retrospective: string | undefined;
+  let narrativeDegraded = false;
+  if (!isAnthropicConfigured()) {
+    narrativeDegraded = true;
+    logWarn("/api/retrospective", "narrative", "skipped — Anthropic not configured; closing out deterministically");
+  } else {
+    try {
+      retrospective = await generateRetrospective({
+        goal: block.goal,
+        lengthWeeks: block.lengthWeeks,
+        startDate: block.startDate,
+        endDate: block.endDate,
+        plannedHours,
+        actualHours,
+        overallCompliancePct,
+        ctlStart,
+        ctlEnd,
+        complianceByType: complianceMap,
+        topSessions,
+        avgDecoupling,
+        powerProfile: powerProfileText,
+      });
+    } catch (err) {
+      narrativeDegraded = true;
+      logWarn("/api/retrospective", "generate", err instanceof Error ? err.message : String(err));
+    }
   }
 
   // Track D: structured reflections. Feed the model the hypotheses this block acted on (the matured
@@ -218,23 +210,9 @@ export async function POST(req: Request) {
     }
   }
 
-  // Build deterministic next-block seeds from compliance data.
-  const seeds: string[] = [];
-  for (const [type, pct] of Object.entries(complianceMap)) {
-    if (pct < 75) seeds.push(`Reduce ${type} frequency or shorten sessions — ${pct}% avg compliance suggests consistent over-reach`);
-    else if (pct >= 95) seeds.push(`${type} sessions execute well — safe to progress load`);
-  }
-  if (ctlStart !== null && ctlEnd !== null) {
-    const gain = ctlEnd - ctlStart;
-    if (gain >= 10) seeds.push("Strong CTL gain — consider progressing training load in next block");
-    else if (gain <= 2) seeds.push("Minimal CTL gain — review session quality or increase effective volume");
-  }
-  // Track A: a curve-shape seed (rider type / easy-win) so the next-block read isn't compliance-only.
-  const curveSeed = powerProfileSeed(powerProfile);
-  if (curveSeed) seeds.push(curveSeed);
+  const seeds = deriveCloseoutSeeds(evidence, ctlStart, ctlEnd, powerProfileSeed(powerProfile));
 
-  // Write markdown file.
-  const fileId = `${block.startDate}_${slugify(block.goal)}`;
+  const fileId = retroFileId(block.startDate, block.goal);
   const frontmatter = [
     "---",
     `id: "${fileId}"`,
@@ -243,38 +221,30 @@ export async function POST(req: Request) {
     `end_date: "${block.endDate}"`,
     `length_weeks: ${block.lengthWeeks}`,
     `status: completed`,
-    `planned_hours: ${plannedHours.toFixed(1)}`,
-    `actual_hours: ${actualHours.toFixed(1)}`,
-    `compliance_pct: ${overallCompliancePct}`,
-    ...(ctlStart !== null ? [`ctl_start: ${ctlStart}`] : []),
-    ...(ctlEnd !== null ? [`ctl_end: ${ctlEnd}`] : []),
-    "compliance_by_type:",
-    ...Object.entries(complianceMap).map(([t, pct]) => `  ${t}: ${pct}`),
-    "next_block_seeds:",
-    ...seeds.map((s) => `  - "${s}"`),
+    ...(endedEarly ? [`ended_early: true`, `ended_early_reason: "${endReason.replace(/"/g, "'")}"`] : []),
+    `execution_scored: ${evidence.scoredSessions}/${evidence.plannedSessions}`,
+    `execution_missed_sessions: ${evidence.missedSessions}`,
+    `execution_overshoot_days: ${evidence.overshootSessions}`,
+    `execution_mean_score: ${evidence.overallMeanExecution ?? "n/a"}`,
+    `seeds_approved: false`,
     `generated_at: "${new Date().toISOString()}"`,
     "---",
     "",
-    "## Retrospective",
-    "",
-    retrospective,
+    ...(retrospective ? ["## Retrospective", "", retrospective, ""] : []),
     ...(structuredReflections.length
       ? [
-          "",
-          "## Coach reflections",
+          "## Coach reflections (UNAPPROVED — adopt on Plan before they reach the next block)",
           "",
           ...structuredReflections.map(
             (r) =>
               `- **${r.dimension}** — _hypothesis:_ ${r.hypothesis} _observed:_ ${r.observation} ` +
               `_root cause:_ ${r.root_cause} _next:_ ${r.adjusted_strategy}`
           ),
+          "",
         ]
       : []),
   ].join("\n");
 
-  await writeRetrospective(`${fileId}.md`, frontmatter);
-
-  // Persist retrospective into block history and move block out of current.
   const historyEntry: BlockHistoryEntry = {
     id: block.createdAt,
     goal: block.goal,
@@ -288,39 +258,61 @@ export async function POST(req: Request) {
     plannedHours: Math.round(plannedHours * 10) / 10,
     ctlGain: ctlStart !== null && ctlEnd !== null ? Math.round((ctlEnd - ctlStart) * 10) / 10 : null,
     nextBlockSeeds: seeds,
-    retrospective,
+    closeout: evidence,
+    ...(retrospective ? { retrospective } : {}),
     structuredReflections,
     model: block.model,
     promptVersion: block.promptVersion,
     ...(block.seasonFocus && isSeasonFocus(block.seasonFocus) ? { seasonFocus: block.seasonFocus } : {}),
-    // SUB-1: truncation is a no-op here in practice — a retrospective only runs on a finished block
-    // (isBlockFinished), so every day is already in the past — but applying it uniformly keeps one code
-    // path instead of special-casing this call site.
+    ...(endedEarly ? { endedEarlyAt: new Date().toISOString(), endedEarlyReason: endReason } : {}),
+    // SUB-1: truncation keeps one code path instead of special-casing this call site — for an early
+    // end it is what actually cuts the not-yet-lived days out of the archived entry.
     days: truncateBlockDays(block.days, today),
   };
-  await appendBlockHistory(historyEntry);
+
+  // Persist phase: markdown → history → CAS-clear, each strictly ordered. A failure here must leave
+  // the later steps untouched — same coach-voice {error} contract as every other route's failures.
+  try {
+    await writeRetrospective(`${fileId}.md`, frontmatter);
+    await appendBlockHistory(historyEntry);
+  } catch (err) {
+    logError("/api/retrospective", "persist", err);
+    const message = err instanceof Error ? err.message : "Failed to save the retrospective.";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
+
   // HR-35: re-check createdAt INSIDE the lock, right before this write — the guard above ran once,
   // before the live LLM call(s) above (tens of seconds, the widest window of any block-mutating route).
   // A second mutation (another tab's write/delete/reschedule) landing in that window previously still
   // got silently clobbered by this stale clear. On mismatch, the retrospective is still real and
   // already saved to Plan history above — only the active-block clear is rejected, so the client isn't
   // told a block was cleared when it wasn't.
-  const written = await updateCurrentBlock(() => null, expectedCreatedAt);
+  const written = await updateCurrentBlock(() => null, expectedCreatedAt); // ALWAYS last (HR-35)
   if (written !== null) {
     return NextResponse.json(
       {
         error: "This plan changed in another tab while generating the retrospective — it was saved to Plan history, but the active block wasn't cleared. Reload to see the latest.",
-        retrospective,
+        retrospective: retrospective ?? null,
+        narrativeDegraded,
         seeds,
         structuredReflections,
         fileId,
         complianceByType: complianceMap,
+        closeout: evidence,
       },
       { status: 409 }
     );
   }
 
-  return NextResponse.json({ retrospective, seeds, structuredReflections, fileId, complianceByType: complianceMap });
+  return NextResponse.json({
+    retrospective: retrospective ?? null,
+    narrativeDegraded,
+    seeds,
+    structuredReflections,
+    fileId,
+    complianceByType: complianceMap,
+    closeout: evidence,
+  });
 }
 
 // GET — return the most recent completed block retrospective (from history).
