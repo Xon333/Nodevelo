@@ -689,7 +689,7 @@ export interface BlockHistoryEntry {
   nextBlockSeeds?: string[];
   retrospective?: string; // Claude narrative
   structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome notes, fed into the next block's prompt
-  // Phase 1 trust contract — all three absent on entries written before this shipped; read sites
+  // Phase 1 trust contract — all four absent on entries written before this shipped; read sites
   // MUST truthy-check, never compare against null/undefined (INVARIANT 3).
   closeout?: CloseoutEvidence;        // deterministic facts (shape above), frozen at closeout
   reflectionsApprovedAt?: string;     // ISO instant; set ONLY by POST /api/history adoption action
