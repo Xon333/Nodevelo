@@ -51,8 +51,20 @@ import { POST } from "@/app/api/retrospective/route";
 
 // A bare Request with no body — tolerated (today falls back to UTC), matching every existing test's
 // expectations below; the dedicated `today`-threading tests further down send a real body.
-const post = (body?: unknown) =>
-  POST(new Request("http://localhost/api/retrospective", { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) }));
+// Object bodies lacking `today` get a fixed post-endDate date merged in, so legacy tests never
+// depend on the real system clock being past the fixture's endDate.
+const post = (body?: unknown) => {
+  const payload =
+    typeof body === "object" && body !== null && !("today" in body)
+      ? { ...(body as Record<string, unknown>), today: "2026-06-29" }
+      : body;
+  return POST(
+    new Request("http://localhost/api/retrospective", {
+      method: "POST",
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    })
+  );
+};
 
 const day = (date: string, type: string, durationMin: number) => ({
   date,
@@ -457,6 +469,20 @@ describe("Phase 1 trust contract", () => {
     const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(arg.endedEarlyAt).toBeTruthy();
     expect(arg.endedEarlyReason).toBe("Race prep pivot");
+  });
+
+  it("escapes quotes and flattens newlines in ended_early_reason frontmatter without corrupting the history entry", async () => {
+    h.readCurrentBlock.mockResolvedValue(unfinished);
+    const reason = 'Pivot: rider said "stop"\nmid-block';
+    const res = await post({ endedEarly: true, endReason: reason });
+    expect(res.status).toBe(200);
+    const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.endedEarlyReason).toBe(reason); // history entry round-trips the original verbatim
+    const content = h.writeRetrospective.mock.calls[0][1] as string;
+    const reasonLine = content.split("\n").find((line) => line.startsWith("ended_early_reason:"));
+    // Exactly one single-line frontmatter value: quote flattened to ', newline collapsed — so no
+    // raw newline can sit between the quotes and break the YAML.
+    expect(reasonLine).toBe(`ended_early_reason: "Pivot: rider said 'stop' mid-block"`);
   });
 
   it("409s an early-end decision with a blank reason", async () => {

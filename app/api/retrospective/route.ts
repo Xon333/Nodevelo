@@ -221,7 +221,12 @@ export async function POST(req: Request) {
     `end_date: "${block.endDate}"`,
     `length_weeks: ${block.lengthWeeks}`,
     `status: completed`,
-    ...(endedEarly ? [`ended_early: true`, `ended_early_reason: "${endReason.replace(/"/g, "'")}"`] : []),
+    ...(endedEarly
+      ? [
+          `ended_early: true`,
+          `ended_early_reason: "${endReason.replace(/\\/g, "\\\\").replace(/"/g, "'").replace(/\r?\n/g, " ")}"`,
+        ]
+      : []),
     `execution_scored: ${evidence.scoredSessions}/${evidence.plannedSessions}`,
     `execution_missed_sessions: ${evidence.missedSessions}`,
     `execution_overshoot_days: ${evidence.overshootSessions}`,
@@ -272,11 +277,13 @@ export async function POST(req: Request) {
 
   // Persist phase: markdown → history → CAS-clear, each strictly ordered. A failure here must leave
   // the later steps untouched — same coach-voice {error} contract as every other route's failures.
+  let persistStage = "markdown";
   try {
     await writeRetrospective(`${fileId}.md`, frontmatter);
+    persistStage = "history";
     await appendBlockHistory(historyEntry);
   } catch (err) {
-    logError("/api/retrospective", "persist", err);
+    logError("/api/retrospective", persistStage, err);
     const message = err instanceof Error ? err.message : "Failed to save the retrospective.";
     return NextResponse.json({ error: message }, { status: 502 });
   }
