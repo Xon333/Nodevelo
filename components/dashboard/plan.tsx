@@ -4,6 +4,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
+import { api } from "@/lib/client-api";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, HeroSurface, InfoDot } from "../ui";
@@ -183,6 +184,36 @@ export function RetroSection({
 // newest-first) block-history.json — capped to the most recent 20 here too.
 const MAX_HISTORY_SHOWN = 20;
 
+// Trust contract (retro trust): AI-authored reflections stay inert until the athlete explicitly
+// adopts them. POST /api/history takes only the entry id — the server derives the retro filename.
+function ReflectionAdopt({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <button
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await api("/api/history", { method: "POST", body: JSON.stringify({ id }) });
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Couldn't adopt.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        disabled={busy}
+        className="rounded-md border border-amber-400 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-[#ff49c8]/40 dark:text-[#ff49c8]"
+      >
+        {busy ? "Adopting…" : "Review & adopt"}
+      </button>
+      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">lets these notes steer the next block</span>
+      {error && <span className="text-[10px] text-red-600">{error}</span>}
+    </div>
+  );
+}
+
 export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
   if (!history.length) return null;
   const shown = history.slice(0, MAX_HISTORY_SHOWN);
@@ -210,6 +241,15 @@ export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
                 {entry.overview}
               </p>
             )}
+            {entry.structuredReflections?.length ? (
+              entry.reflectionsApprovedAt ? (
+                <p className="mt-2 text-[10px] font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  Adopted {new Date(entry.reflectionsApprovedAt).toLocaleDateString()} — these notes reach the next block
+                </p>
+              ) : (
+                <ReflectionAdopt id={entry.id} />
+              )
+            ) : null}
           </div>
         ))}
       </div>

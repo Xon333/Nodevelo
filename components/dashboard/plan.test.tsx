@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CurrentBlockSection, RetroSection } from "./plan";
-import type { CurrentBlock } from "@/lib/types";
+import { BlockHistory, CurrentBlockSection, RetroSection } from "./plan";
+import type { BlockHistoryEntry, CurrentBlock } from "@/lib/types";
 
 // DayAction's own api()/useQueryClient() calls are mocked at the module boundary — this proves
 // BlockCalendar/CurrentBlockSection's OWN reaction to DayAction's onMoved callback (HR-47), not
@@ -86,5 +86,38 @@ describe("RetroSection — degraded (Claude-free) closeouts", () => {
   it("still renders the narrative when one exists", () => {
     render(<RetroSection block={null} generating={false} result={retroResult("Solid block overall.")} error={null} onGenerate={() => {}} />);
     expect(screen.getByText("Solid block overall.")).toBeTruthy();
+  });
+});
+
+const histEntry = (over: Partial<BlockHistoryEntry>): BlockHistoryEntry =>
+  ({
+    id: "h1", goal: "Build FTP", startDate: "2026-06-01", endDate: "2026-06-14",
+    lengthWeeks: 2, overview: "", createdAt: "2026-06-01T00:00:00.000Z", ...over,
+  }) as BlockHistoryEntry;
+
+const refl = [{ dimension: "Overall", hypothesis: "h", observation: "o", root_cause: "r", adjusted_strategy: "a" }];
+
+describe("BlockHistory — reflection adoption", () => {
+  it("offers Review & adopt for unapproved reflections and posts the entry id", async () => {
+    h.api.mockResolvedValue({ ok: true });
+    render(<BlockHistory history={[histEntry({ structuredReflections: refl })]} />);
+    fireEvent.click(await screen.findByRole("button", { name: /review & adopt/i }));
+    await waitFor(() =>
+      expect(h.api).toHaveBeenCalledWith("/api/history", {
+        method: "POST",
+        body: JSON.stringify({ id: "h1" }), // filename derived server-side — client sends only the id
+      })
+    );
+  });
+
+  it("shows the adopted stamp and no button once approved", () => {
+    render(<BlockHistory history={[histEntry({ structuredReflections: refl, reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" })]} />);
+    expect(screen.queryByRole("button", { name: /review & adopt/i })).toBeNull();
+    expect(screen.getByText(/adopted/i)).toBeTruthy();
+  });
+
+  it("entries without reflections render no adoption control", () => {
+    render(<BlockHistory history={[histEntry({})]} />);
+    expect(screen.queryByRole("button", { name: /review & adopt/i })).toBeNull();
   });
 });
