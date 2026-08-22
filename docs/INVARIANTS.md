@@ -13,7 +13,7 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 
 ## Concurrency
 
-7. **Block mutations are CAS-guarded** on `createdAt` (`block-version.ts` → 409). Accepted exception: morning-check PUT. New block-mutating routes must adopt the guard.
+7. **Block mutations are CAS-guarded** on `createdAt` (`block-version.ts` → 409). Accepted exception: morning-check PUT — it passes no version token, but a concurrent block *deletion* mid-apply still aborts with 409 (`persistMirroredMove` reports a deleted block as `versionConflict`). New block-mutating routes must adopt the guard.
 8. **Local commit before calendar mirror** (`persistMirroredMove`): the local move always lands; a mirror failure is surfaced, never rolled back.
 9. **Calendar events are keyed `nodevelo-<date>`** — one owned event per block date; upserts are idempotent by design.
 

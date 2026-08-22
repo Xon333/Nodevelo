@@ -133,8 +133,10 @@ export default function MorningCheckIn() {
       const fresh = await api<AppState>("/api/sync"); // refresh so the block calendar reflects the move
       setState(fresh);
       setAppliedNote(r.note); // what actually happened — may differ from the pre-apply preview
-    } catch {
-      setActionError("Couldn't apply the change — try again.");
+    } catch (err) {
+      // Surface the server's own message (e.g. a 409's "reload to see the latest" when the block
+      // changed mid-apply); only a non-Error failure falls back to the generic retry line.
+      setActionError(err instanceof Error && err.message ? err.message : "Couldn't apply the change — try again.");
     } finally {
       setBusy(false);
     }
