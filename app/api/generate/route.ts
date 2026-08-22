@@ -15,7 +15,7 @@ import {
 import { extractBlockFacts } from "@/lib/narrative-critic";
 import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readIntentOverlays, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
-import { formatReflectionsForPrompt } from "@/lib/retrospective-schema";
+import { formatReflectionsForPrompt, latestApprovedReflections } from "@/lib/retrospective-schema";
 import { formatQuirksForPrompt } from "@/lib/quirks";
 import { analyzePowerProfile, formatPowerProfileForPrompt } from "@/lib/power-profile";
 import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
@@ -163,12 +163,8 @@ export async function POST(req: Request) {
     // Track D: the last block's structured reflections (the coach's own hypothesis→outcome notes,
     // typed on block-history) + recurring quirks mined from ride notes. Both are language-only hints;
     // the math/decisions stay deterministic above.
-    // SUB-1: blockHistory is newest-first (appendBlockHistory prepends), but [0] can now be a discarded
-    // or superseded block with no reflections — find the most recent entry that actually has them,
-    // matching the robust pattern already used for the retrospective GET (app/api/retrospective/route.ts).
-    const reflectionsContext = formatReflectionsForPrompt(
-      blockHistory.find((h) => h.structuredReflections?.length)?.structuredReflections ?? []
-    );
+    // latestApprovedReflections requires blockHistory in readBlockHistory's newest-first order.
+    const reflectionsContext = formatReflectionsForPrompt(latestApprovedReflections(blockHistory));
     const quirkContext = formatQuirksForPrompt(quirks.entries);
 
     // Track A: classify the power-curve shape into a rider type + auto-derived weak point ("easy win"),
