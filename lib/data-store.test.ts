@@ -118,6 +118,18 @@ describe("updateBlockHistory", () => {
     const out = await updateBlockHistory((entries) => entries);
     expect(out).toEqual([]);
   });
+
+  it("Phase 1: approving reflections never touches the score ledger", async () => {
+    await fs.writeFile(
+      p("score-log.json"),
+      JSON.stringify({ entries: [{ id: "r1", tss: 90 }], updatedAt: "2026-06-01T00:00:00.000Z" }),
+      "utf-8"
+    );
+    const before = JSON.parse(await fs.readFile(p("score-log.json"), "utf-8"));
+    await updateBlockHistory((entries) => entries.map((e) => (e.id === "a" ? { ...e, reflectionsApprovedAt: "X" } : e)));
+    const after = JSON.parse(await fs.readFile(p("score-log.json"), "utf-8"));
+    expect(after).toEqual(before);
+  });
 });
 
 describe("appendBlockHistory", () => {
