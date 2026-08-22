@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  CLOSEOUT_OVERSHOOT_RATIO,
   buildCloseoutEvidence,
   deriveCloseoutSeeds,
 } from "./block-closeout";
@@ -100,7 +99,7 @@ describe("buildCloseoutEvidence", () => {
   it("counts a pre-field ledger row (undefined score/compliance) as missed — no NaN leaks", () => {
     const ev = buildCloseoutEvidence(
       block([day("2026-06-02", "Z2", 60)]),
-      [{ date: "2026-06-02", planned: true }] as unknown as RideScoreEntry,
+      [{ date: "2026-06-02", planned: true }] as unknown as RideScoreEntry[],
       [],
       "2026-06-14"
     );

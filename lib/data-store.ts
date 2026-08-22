@@ -284,7 +284,7 @@ export async function appendBlockHistory(entry: BlockHistoryEntry): Promise<void
     // lacking BOTH `retrospective` and `closeout` may never displace one that has either — a
     // DEGRADED closeout (deterministic, Claude-free) carries closeout but no retrospective and is
     // exactly as irreplaceable. Keep the richer entry's content, still bumped to the front.
-    const isRich = (e: BlockHistoryEntry | undefined): boolean => Boolean(e && (e.retrospective || e.closeout));
+    const isRich = (e: BlockHistoryEntry | undefined): e is BlockHistoryEntry => Boolean(e && (e.retrospective || e.closeout));
     const winner = isRich(existing) && !isRich(entry) ? existing : entry;
     // Deduplicate by id to avoid duplicates on retry.
     const filtered = history.filter((h) => h.id !== entry.id);
