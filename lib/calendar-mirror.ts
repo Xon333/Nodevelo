@@ -6,7 +6,7 @@
 // move carries the source event's description wholesale instead of rebuilding-and-losing it.
 
 import { createEvent, fetchEvents, isIntervalsConfigured } from "./intervals-api";
-import { mergeCurrentBlockDays } from "./data-store";
+import { mergeCurrentBlockDays, updateCurrentBlock } from "./data-store";
 import { eventPayloadShape } from "./plan-parser";
 import type { CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, IntervalsEventPayload } from "./types";
 
@@ -195,10 +195,9 @@ export async function applyCalendarMirror(
 // must override it explicitly (its `updated.days` loses the swap sources' eventIds — see
 // applyCalendarMirror's comment).
 // `expectedCreatedAt` (HR-35): forwarded to mergeCurrentBlockDays so the version check a caller ran up
-// front (UXA-24) gets re-applied INSIDE the lock, right before this write — the `applyCalendarMirror`
-// call above is a network round-trip that opens a window for a second mutation (another tab's
-// write/delete/reschedule) to land. `undefined` (no caller passes one, e.g. morning-check, which never
-// had a version guard to begin with) skips the check entirely, same as blockChangedResponse itself.
+// front (UXA-24) gets re-applied INSIDE the lock as the authoritative local write, before any mirror
+// network work begins. `undefined` (e.g. morning-check, which never had a version guard) skips the
+// check entirely, same as blockChangedResponse itself.
 export async function persistMirroredMove(
   block: CurrentBlock,
   days: CurrentBlockDay[],
@@ -208,11 +207,28 @@ export async function persistMirroredMove(
   expectedCreatedAt?: string | null
 ): Promise<{ updatedBlock: CurrentBlock; mirrored: string[]; failed: string[]; versionConflict: boolean }> {
   let updated: CurrentBlock = { ...block, days };
+  // Commit the authoritative local move under the current-block lock before touching Intervals.icu.
+  // Only merge the dates this move owns, preserving unrelated same-block edits (HR-4).
+  const touchedDates = new Set(moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])));
+  const persisted = await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)), expectedCreatedAt);
+  const versionConflict = persisted === null || (expectedCreatedAt !== undefined && persisted.createdAt !== expectedCreatedAt);
+  updated = persisted ?? updated;
+  if (persisted === null || versionConflict) {
+    return { updatedBlock: updated, mirrored: [], failed: [], versionConflict };
+  }
+
   let mirrored: string[] = [];
   let failed: string[] = [];
+  const freshEventIds = new Map<string, number>();
   if (isIntervalsConfigured()) {
     try {
+      const previousEventIds = new Map(updated.days.map((d) => [d.date, d.eventId]));
       const res = await applyCalendarMirror(updated, moves, today, preMoveDays);
+      for (const day of res.updatedBlock.days) {
+        if (typeof day.eventId === "number" && day.eventId !== previousEventIds.get(day.date)) {
+          freshEventIds.set(day.date, day.eventId);
+        }
+      }
       updated = res.updatedBlock;
       mirrored = res.mirrored;
       failed = res.failed;
@@ -220,17 +236,19 @@ export async function persistMirroredMove(
       failed = moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from]));
     }
   }
-  // Merge onto a fresh lock-held read (HR-4): `block` may already be stale here — a network round-trip
-  // to Intervals.icu just happened above — so only write the dates THIS move actually touches, instead
-  // of blindly overwriting the whole array and losing a concurrent writer's change to some other day.
-  const touchedDates = new Set(moves.flatMap((m) => (m.to ? [m.from, m.to] : [m.from])));
-  const persisted = await mergeCurrentBlockDays(updated.days.filter((d) => touchedDates.has(d.date)), expectedCreatedAt);
-  // HR-35: a real version conflict is a non-null persisted block whose createdAt isn't the one we
-  // asked for — mergeCurrentBlockDays' CAS returned the (different) block that's actually current
-  // instead of applying our stale merge. (A null `persisted` means the block was deleted outright — an
-  // existing, separate case this function already treats as a no-op by falling back to `updated` below;
-  // that's unrelated to the version thread introduced here and stays as-is.)
-  const versionConflict = expectedCreatedAt !== undefined && persisted !== null && persisted.createdAt !== expectedCreatedAt;
-  updated = persisted ?? updated;
+  // Successful upserts may have fresh event ids. Overlay only those ids onto a fresh lock-held read;
+  // a mirror failure needs no second write and cannot undo the local move committed above.
+  if (freshEventIds.size > 0) {
+    updated =
+      (await updateCurrentBlock((cur) => {
+        if (!cur) return null;
+        return {
+          ...cur,
+          days: cur.days.map((day) =>
+            freshEventIds.has(day.date) ? { ...day, eventId: freshEventIds.get(day.date)! } : day
+          ),
+        };
+      }, expectedCreatedAt)) ?? updated;
+  }
   return { updatedBlock: updated, mirrored, failed, versionConflict };
 }

@@ -106,7 +106,13 @@ export async function PUT(req: Request) {
   // builds each destination from {name, type, durationMin, workoutText?, prescription?} only, so it
   // drops eventId from BOTH swapped days. The original pre-move `block` (still in scope, untouched)
   // still carries them, which is what the description-carry lookup inside persistMirroredMove needs.
-  const { mirrored, failed } = await persistMirroredMove(updated, updated.days, moves, date, block.days);
+  const { mirrored, failed, versionConflict } = await persistMirroredMove(updated, updated.days, moves, date, block.days);
+  if (versionConflict) {
+    return NextResponse.json(
+      { error: "This plan changed before the adjustment was saved — reload to see the latest." },
+      { status: 409 }
+    );
+  }
 
   // Stamp the apply onto today's entry so a refreshed UI shows "applied" instead of re-offering an
   // Apply button (which would now 400 — today is no longer a quality day post-swap).
