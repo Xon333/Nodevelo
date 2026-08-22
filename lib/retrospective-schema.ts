@@ -5,7 +5,7 @@
 // compliance seeds. The math/validation stay in TS; the model only phrases (AI-containment).
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { StructuredReflection } from "./types";
+import type { BlockHistoryEntry, StructuredReflection } from "./types";
 import { zodToToolInputSchema } from "./tool-schema";
 
 const ReflectionSchema = z.object({
@@ -45,4 +45,13 @@ export function formatReflectionsForPrompt(reflections: StructuredReflection[]):
     "\nCOACH REFLECTIONS FROM LAST BLOCK (your own clinical notes — apply the adjusted strategies):\n" +
     lines.join("\n")
   );
+}
+
+// Phase 1: AI-authored reflections influence another block ONLY after explicit athlete approval
+// (POST /api/history stamps reflectionsApprovedAt). Newest-reflection-bearing-entry-only: the
+// consumer prompt labels this "FROM LAST BLOCK", so an older APPROVED entry must never leak in
+// behind a newer UNAPPROVED one — silence beats misattribution.
+export function latestApprovedReflections(history: BlockHistoryEntry[]): StructuredReflection[] {
+  const newest = history.find((h) => h.structuredReflections?.length);
+  return newest?.reflectionsApprovedAt ? (newest.structuredReflections ?? []) : [];
 }
