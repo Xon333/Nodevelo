@@ -56,7 +56,7 @@ Every call fire-and-forgets `recordUsage(model, usage)` → `data/ai-usage.json`
 There is **no LLM trace module** (`lib/trace.ts` is the ride power chart). The debugging surface is:
 
 1. **`GeneratedPlan.raw`** — the verbatim tool-call JSON of the output (persisted; the audit trail). Compare against what the UI shows.
-2. **`warnings[]` / `protocolViolations[]`** in the API response — the validators' explanation of *why* a plan is suspect.
+2. **`warnings[]` / `plan.findings`** in the API response — the validators' explanation of *why* a plan is suspect (`findings.blockers` refuse publication; preferences need an explicit override; advisories fold into `warnings`).
 3. **Offline prompt reproduction** — the prompt builders are pure: construct the exact prompt in a unit test (`anthropic-prompts.test.ts` shows how), print it, inspect. This is the intended workflow; no API call needed.
 4. **Provenance stamps** — `model` + `promptVersion` on every artifact keep past outputs attributable after prompt/model changes.
 5. **Dedupe window** — within 60s, an identical regenerate returns the same result (`generate-cache.ts`); rule this out before suspecting the prompt.

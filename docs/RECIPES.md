@@ -57,7 +57,7 @@ future turnover, attended or not.
 
 ## Add or change a validator
 
-Placement rules → `lib/schedule-validate.ts`; per-session protocol → `lib/workout-validate.ts`; wire into `app/api/generate/route.ts`'s `warnings[]`. Validators warn — they never rewrite ([INVARIANTS #13](INVARIANTS.md)). **One fact, one owner** — before adding a new warning, check no existing validator already states that fact for a different reason; a recovery week once produced three near-identical warnings for one problem ([06-generation.md § Known rough edges](systems/06-generation.md#known-rough-edges), [INVARIANTS § Generation contracts](INVARIANTS.md#generation-contracts)).
+Placement rules → `lib/schedule-validate.ts`; per-session protocol → `lib/workout-validate.ts`; wire into `app/api/generate/route.ts`, which runs them via `lib/publication-gate.ts`'s `evaluatePublicationGate` — classify each finding there by emitter into blocker / preference / advisory ([INVARIANTS #62](INVARIANTS.md)), never by message text; a new validator's findings are unclassified (informational) until you bucket them. Validators warn — they never rewrite ([INVARIANTS #13](INVARIANTS.md)). **One fact, one owner** — before adding a new warning, check no existing validator already states that fact for a different reason; a recovery week once produced three near-identical warnings for one problem ([06-generation.md § Known rough edges](systems/06-generation.md#known-rough-edges), [INVARIANTS § Generation contracts](INVARIANTS.md#generation-contracts)).
 
 ## Change scoring
 
@@ -77,7 +77,7 @@ Read [systems/02-scoring-and-learning.md](systems/02-scoring-and-learning.md). S
 
 ## Debug a bad generation
 
-[systems/07-ai-layer.md#debugging-a-bad-generation](systems/07-ai-layer.md#debugging-a-bad-generation). Short version: check `warnings`/`protocolViolations` → inspect `GeneratedPlan.raw` → reproduce the prompt offline in a test → remember the 60s dedupe window. No trace module exists.
+[systems/07-ai-layer.md#debugging-a-bad-generation](systems/07-ai-layer.md#debugging-a-bad-generation). Short version: check `warnings` and the publication-gate buckets on `plan.findings` (blockers / preferences; advisories fold into warnings) → inspect `GeneratedPlan.raw` → reproduce the prompt offline in a test → remember the 60s dedupe window. No trace module exists.
 
 ## Debug a sync
 

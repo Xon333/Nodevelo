@@ -104,7 +104,8 @@ One line per file that matters. The authoritative per-file table — README keep
 | `retrospective-schema.ts` | Structured-reflection tool schema + re-injection formatter |
 | `narrative-critic.ts` | Overview-vs-facts critic (haiku, overview-only rewrites) |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
-| `workout-validate.ts` | KB-grounded protocol validator (violations vs advisories) |
+| `workout-validate.ts` | KB-grounded protocol validator (`splitPlanProtocol` → violations/hazards/advisories) |
+| `publication-gate.ts` | The one publication gate: runs every generation validator exactly once, buckets findings by emitter into blockers/preferences/advisories; `canonical` + `verdictHash` behind the persisted verdict. Change when a validator's severity needs classifying ([RECIPES § validators](RECIPES.md#add-or-change-a-validator)) |
 | `workout-library.ts` | Proven-workout selection/evidence/promotion domain model (pure, no I/O). `selectLibraryWorkout` still has no caller — no `app/api/generate` integration yet. Remaining scope → [ROADMAP.md](../ROADMAP.md) Phase 4 |
 | `workout-library-service.ts` | I/O layer over `workout-library.ts`: `promoteWorkoutManually`, `setWorkoutLibraryStatus`, `recordAcceptedLibraryUses`. `workout-library.json` is in `json-store.ts`'s `CRITICAL` set. Called by `app/api/workout-library` (Task 4). `recordAcceptedLibraryUses` still has no caller (Task 8) |
 | `workout-library-export.ts` | `exportWorkoutLibraryEntry`: per-entry single-flight + remote-lookup-before-create idempotency against Intervals.icu's Workout Library API (no native upsert on that endpoint). Primitives (`findOrCreateWorkoutFolder`, `createLibraryWorkout`, `findRemoteLibraryWorkout`) live in `intervals-api.ts`. Called by `app/api/workout-library` (Task 4) |
@@ -126,7 +127,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `analyze` | POST | Deferred coach-note generation for today's ride | ✅ sonnet |
 | `intent` | POST | Deferred self-directed intent parsing and deterministic overlay scoring | ✅ sonnet |
 | `generate` | POST | Block generation (proposal only) | ✅ sonnet + haiku critic |
-| `write` | POST | Accept a plan: calendar writes w/ rollback, archive, interventions | — |
+| `write` | POST | Accept a plan: publication-gate verdict check (422 refusals before any write), calendar writes w/ rollback, archive, interventions | — |
 | `ask` | POST | Streaming ask-coach | ✅ haiku, streamed |
 | `retrospective` | GET/POST | Block retrospective (prose + structured) + archive + clear block | ✅ sonnet ×2 |
 | `season` | GET/PUT | Season objective/events CRUD + outlook projection | — |
@@ -163,6 +164,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `morning-check.json` | morning-check | — | Per-date flags + decisions |
 | `loading-log.json` | loading | — | Carb-loading prompts/attributions (may not exist) |
 | `season-plan.json` | season | — | Objective, events, periods |
+| `generation-gate.json` | publication-gate (via data-store) | — | Persisted verdict for the LATEST generation only: verdictHash + blockers/preferences; `/api/write`'s publish passport |
 | `today-analysis.json` | ride-analysis | — | Today's analysis + coach note |
 | `rolling-baselines.json` | readiness | — | 90-day derived baselines |
 | `calibration.json` | calibration | — | Derived + overridden parameters |

@@ -495,6 +495,7 @@ describe("/api/write publication gate (trust contract)", () => {
   const expectZeroWrites = () => {
     expect(h.createEvent).not.toHaveBeenCalled();
     expect(h.fetchEvents).not.toHaveBeenCalled();
+    expect(h.deleteEvents).not.toHaveBeenCalled();
     expect(store.updateCurrentBlock).not.toHaveBeenCalled();
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
   };
@@ -514,6 +515,22 @@ describe("/api/write publication gate (trust contract)", () => {
     const res = await post({ plan: tampered, overrideAcknowledged: true });
     expect(res.status).toBe(422);
     expect((await res.json()).error).toBe("This exact plan didn't come from your generator — regenerate.");
+    expectZeroWrites();
+  });
+
+  it("fails CLOSED with a clean 422 (not a TypeError 500) when the persisted verdict is corrupt-but-valid JSON", async () => {
+    // A hand-edited/partial generation-gate.json can parse back missing its arrays. The route must
+    // treat that as "no publishable verdict" — refuse — never crash mid-check.
+    (store.readGenerationVerdict as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      verdictHash: verdictHash(plan.days as Parameters<typeof verdictHash>[0], plan.blockParams),
+      createdAt: "2026-06-14T00:00:00Z",
+    });
+    const res = await post({ plan, overrideAcknowledged: true });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    // Same refusal shape as an unknown plan: a corrupt record is NO passport.
+    expect(json.error).toBe("This exact plan didn't come from your generator — regenerate.");
+    expect(json).not.toHaveProperty("overrideRequired");
     expectZeroWrites();
   });
 

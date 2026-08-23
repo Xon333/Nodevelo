@@ -111,7 +111,8 @@ evaluation → [ARCHIVE.md](../../ARCHIVE.md) "Block-generation architecture red
   library and explicitly "does not design brand-new workout structures", with step authoring confined
   to a separate one-workout-at-a-time tool under human review. That's the other half of the tripwire,
   chosen independently. It is a design preference, not evidence against ours, so it changes nothing on
-  its own. **Reopen trigger:** if `protocolViolations` keeps firing on generated intervals once the
+  its own. **Reopen trigger:** if the publication gate's protocol blockers (`findings.blockers`,
+  fed by `workout-validate`) keep firing on generated intervals once the
   skeleton has a few more blocks behind it, invert `workout-validate`'s KB bands into template
   *constructors* (the shape `durability.ts` already uses) and have the LLM emit a template id + params.
   Until that evidence exists, content authoring stays with the model.

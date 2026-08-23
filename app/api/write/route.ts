@@ -83,18 +83,37 @@ export async function POST(req: Request) {
       { status: 422 }
     );
   }
-  if (verdict.blockers.length > 0) {
+  // Task 6 hardening: a corrupt-but-valid-JSON verdict record (e.g. a hand-edited
+  // generation-gate.json) can parse back with its finding buckets missing or non-array. Refuse any
+  // record whose buckets aren't real string arrays — the same fail-closed 422 an unknown plan gets
+  // — and only then coalesce, so nothing below can TypeError on `.length`. Checking AFTER a bare
+  // `?? []` would be self-defeating (the coalesced value is always an array), and coalescing alone
+  // would be WORSE than the old 500: it would read the corruption as a clean verdict and publish.
+  const verdictWellFormed =
+    Array.isArray(verdict.blockers) &&
+    Array.isArray(verdict.preferences) &&
+    verdict.blockers.every((finding) => typeof finding === "string") &&
+    verdict.preferences.every((finding) => typeof finding === "string");
+  if (!verdictWellFormed) {
     return NextResponse.json(
-      { error: "This plan has findings that cannot be overridden — regenerate to fix them.", blockers: verdict.blockers },
+      { error: "This exact plan didn't come from your generator — regenerate." },
+      { status: 422 }
+    );
+  }
+  const blockers = verdict.blockers ?? [];
+  const preferences = verdict.preferences ?? [];
+  if (blockers.length > 0) {
+    return NextResponse.json(
+      { error: "This plan has findings that cannot be overridden — regenerate to fix them.", blockers },
       { status: 422 }
     );
   }
   const overrideAcknowledged = b.overrideAcknowledged === true;
-  if (verdict.preferences.length > 0 && !overrideAcknowledged) {
+  if (preferences.length > 0 && !overrideAcknowledged) {
     return NextResponse.json(
       {
         error: "This plan carries coaching concerns that need your explicit acknowledgment before publishing.",
-        preferences: verdict.preferences,
+        preferences,
         overrideRequired: true,
       },
       { status: 422 }
@@ -240,8 +259,8 @@ export async function POST(req: Request) {
     // persisted preference findings — WHICH concerns the athlete acknowledged and WHEN (same "written
     // despite a known concern" trail as the per-day protocolFindings below). Clean publishes carry no
     // stamp at all.
-    ...(overrideAcknowledged && verdict.preferences.length > 0
-      ? { publicationOverride: { findings: [...verdict.preferences], acknowledgedAt: new Date().toISOString() } }
+    ...(overrideAcknowledged && preferences.length > 0
+      ? { publicationOverride: { findings: [...preferences], acknowledgedAt: new Date().toISOString() } }
       : {}),
     // Track B: stamp the template on the week's long Z2 ride(s) — a Z2 day at/near the block's longest Z2
     // duration — so scoring can grade that ride against the template's expected signal. Short easy Z2 days

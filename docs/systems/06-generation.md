@@ -8,8 +8,8 @@ The daily use loop is deliberately minimal — no manual markdown step survives:
 
 Generation is a **proposal**; nothing becomes real until the athlete accepts.
 
-- `POST /api/generate` — assembles context, calls Claude, validates, returns a `GeneratedPlan`. Persists **nothing** except (best-effort, CAS-guarded) an updated `season-plan.json`.
-- `POST /api/write` — the accept step: pushes calendar events to Intervals.icu (idempotent upserts keyed `nodevelo-<date>`, with rollback on partial failure), archives the old block's lived days to `block-history.json`, records interventions, writes `current-block.json`.
+- `POST /api/generate` — assembles context, calls Claude, validates through the publication gate, returns a `GeneratedPlan`. Persists **nothing** except (best-effort, CAS-guarded) an updated `season-plan.json` and (best-effort, single slot) the publication-gate verdict in `generation-gate.json`.
+- `POST /api/write` — the accept step: first checks the submitted plan against the **persisted verdict** ([ADR-0015](../DECISIONS.md#adr-0015--the-publication-gate-persists-the-verdict-at-generation-time-and-write-matches-it)), then pushes calendar events to Intervals.icu (idempotent upserts keyed `nodevelo-<date>`, with rollback on partial failure), archives the old block's lived days to `block-history.json`, records interventions, writes `current-block.json`. Blockers refuse outright; preferences require an explicit informed override; an unknown plan is refused. All refusals fire before any calendar mutation.
 
 A rejected or failed generation therefore never corrupts state or burns calendar writes ([ADR-0003](../DECISIONS.md)).
 
@@ -25,9 +25,9 @@ flowchart TD
   F --> G[generateTrainingBlock: sonnet, temp 0.3,\nforced tool_choice, deduped 60s]
   G --> H[zod parse PlanToolSchema]
   H --> I[Deterministic repair: reconcileDurationMin, repairNutrition]
-  I --> J[Warn-only validators - protocol, schedule, taper,\nweek hours, sequencing, requirements, season fit]
+  I --> J[Publication gate: evaluatePublicationGate runs every validator\nexactly once and buckets blockers / preferences / advisories]
   J --> K[Narrative critic - haiku, best-effort,\nrewrites only the overview prose]
-  K --> L[GeneratedPlan returned; season re-plan persisted CAS-guarded]
+  K --> L[GeneratedPlan returned; verdict + season re-plan persisted best-effort]
 ```
 
 ### 1. Deterministic pre-work (before any AI)
@@ -75,16 +75,44 @@ flowchart TD
 
 - **Structural failure = hard throw** (502, manual retry). A truncation is distinguished from malformed output; there is deliberately no auto-repair loop for structure.
 - **Deterministic repair (the only mutations)**: `reconcileDurationMin` (stated duration ↔ real step-sum) and `nutrition-validate.repairNutrition` (kcal figure rewritten to the formula's value, with a visible `repairs` note).
-- **Warn-only validators** (append to `warnings[]`, never rewrite — [ADR-0004](../DECISIONS.md)): `workout-validate.splitPlanProtocol` (KB-grounded intensity/duration bands; quality-type breaches surface separately as `protocolViolations`), `schedule-validate` (back-to-back hard days, quality budget, event taper, freshness-first sequencing, `validateRecoveryWeekDensity`, `validateSkeletonConformance`), `block-skeleton.validateWeekHours`, `session-requirements.validateSessionRequirements`, season-fit/focus validators from `season.ts`.
+- **Validators + the publication gate.** Validators append informational findings to `warnings[]`, never rewrite — [ADR-0004](../DECISIONS.md). Since 2026-08-23 their findings are also classified once, in `lib/publication-gate.ts`'s `evaluatePublicationGate`, into `blockers` (publication refused, no override exists) / `preferences` (publishable only via an explicit informed athlete override) / `advisories` (informational). Severity is decided by WHO emitted each fact — never by parsing message strings ([ADR-0015](../DECISIONS.md#adr-0015--the-publication-gate-persists-the-verdict-at-generation-time-and-write-matches-it)); validators remain sole owners of their facts. The gate runs each validator **exactly once** and its output feeds both display buckets (`plan.findings` + the advisories folded into `warnings[]`):
+
+  | Emitter | Fact it owns | Gate bucket |
+  |---|---|---|
+  | structural checks (in the gate itself) | truncated response; day count ≠ weeks × 7; duplicate/non-contiguous dates | blocker |
+  | `splitPlanProtocol` `.violations` | quality-day KB intensity/duration band breach | blocker |
+  | `splitPlanProtocol` `.hazards` | embedded-intensity envelope breach on a Z2/Recovery day | blocker |
+  | `splitPlanProtocol` `.advisories` | stated duration ↔ step-sum gap (dead post-reconcile) | advisory |
+  | `validateSchedule.spacing` | back-to-back hard days | blocker; **preference only when `qualitySessionsPerLoadingWeek ≥ 3`** |
+  | `validateSchedule.budget` | loading-week quality budget exceeded | blocker |
+  | `validateEventTaper` | hard session ≤2 days before an event; extra quality in event week | blocker |
+  | `block-skeleton.validateWeekHours` | weekly total off target (>±30 min) | blocker |
+  | `validateSkeletonConformance` | missing day; type outside slot; duration outside envelope | blocker (the old staged decision is resolved — see rough edges below) |
+  | `validateRecoveryWeekDensity` | embedded work in recovery long ride; >1 quality in recovery week | blocker |
+  | `validateWeekSequencing` | freshness-dependent quality after fatigue-tolerant | blocker |
+  | `session-requirements.validateSessionRequirements` | terrain/race goal ⇒ ≥1 RaceSim unmet | preference |
+  | season fit/focus family (`season.ts`) | intensity share / focus-label disagreement vs season structure | preference |
+
+  The one per-finding exception: with 3+ configured quality sessions per loading week the skeleton's canonical placement is best-effort and can produce adjacency **by design**, so the back-to-back finding degrades to a preference — regeneration cannot beat a deterministic placement limit.
 - **One fact, one owner.** These validators overlap by subject and were deliberately de-duplicated: `validateSkeletonConformance` owns *per-day* facts (missing day, type outside its slot, duration outside its envelope); `validateWeekHours` owns the *weekly total*; `validateRecoveryWeekDensity` owns recovery-week composition. Before adding a warning, check no existing validator already states that fact — a recovery week once produced three near-identical warnings for one problem, and this codebase treats redundant warnings as a real defect ("false warnings cause data fatigue", `workout-validate.ts`).
-- **Skeleton conformance is warn-only *by staged decision*, not oversight.** Hard-failing a locked-type mismatch was the original design; it is deferred until real runs show the model complies, because a skeleton too rigid on its first outing turns every generation into a 502. The escalation is a one-line change in `validateSkeletonConformance`.
+- **Skeleton conformance is now gate-enforced.** The original staged decision (warn-only until real runs showed the model complies) resolved 2026-08-23: real generations showed compliance, and the publication gate made escalation meaningful — a locked-type mismatch now blocks publication as a blocker instead of shipping as an ignorable warning.
 - **Narrative critic** (`lib/narrative-critic.ts`, haiku, forced tool-use): checks the model's written overview against deterministically-extracted real facts of the schedule; may rewrite the **overview only**, never the schedule. Best-effort — a critic failure never blocks the response.
+
+## The publication gate
+
+`lib/publication-gate.ts` (`evaluatePublicationGate`) runs every validator above **exactly once** and returns `{blockers, preferences, advisories}` ([ADR-0015](../DECISIONS.md#adr-0015--the-publication-gate-persists-the-verdict-at-generation-time-and-write-matches-it)):
+
+- **Blockers** refuse publication outright — no override exists for any of them.
+- **Preferences** are lower-confidence coaching heuristics; publishable only via an explicit informed athlete override, which `/api/write` stamps onto `CurrentBlock.publicationOverride` (findings + `acknowledgedAt`).
+- **Advisories** fold into the plan's ordinary `warnings[]`.
+
+The verdict is persisted server-side at generation time (best-effort, single slot in `data/generation-gate.json`, keyed by `verdictHash(days, blockParams)` = `sha256(canonical(...))` over the post-repair days exactly as placed in the response — canonicalisation makes the hash immune to client round-trip key reordering). `/api/write` does not re-run validators; it looks the submitted plan up against the persisted record and refuses anything else with 422. Recomputing at write time would score an unchanged plan against drifted context (score log, season plan) and raise false blockers — the classification is frozen when the evidence was fresh. A missing/corrupt verdict fails closed: no passport, no publish.
 
 ## Known rough edges
 
 - **Two real prescription changes ride along with the skeleton, deliberately.** A recovery week's long ride is now scaled down by the same retention fraction as the rest of the week (180→108 min at default settings) instead of staying full-length — the athlete's actual prescribed volume changed, not just the prompt. And quality-session envelopes are sized per type (SIT 55 / VO2max 75 / Threshold 80 / RaceSim 100 min), not a flat figure — both are [ADR-0013](../DECISIONS.md#adr-0013--composition-moves-to-a-deterministic-day-slot-skeleton-content-stays-with-the-llm) decisions, not side effects.
 - **Quality-session placement is canonical, not universal.** `computeBlockSkeleton` places rest/quality/long-ride on a fixed weekday pattern (Mon rest, Tue+Thu quality, Sat long) chosen because it's the shape the model already converged on unaided. With 3+ quality sessions configured, placement is best-effort and may produce adjacency — `validateSchedule`'s spacing check still runs and will flag it.
-- **Skeleton conformance is warn-only by staged decision**, not oversight — see [ADR-0013](../DECISIONS.md#adr-0013--composition-moves-to-a-deterministic-day-slot-skeleton-content-stays-with-the-llm). Escalating a locked-type mismatch to a hard throw is a one-line change in `validateSkeletonConformance` once real generations show the model complies; there's no evidence yet either way.
+- **Skeleton conformance's warn-only staging is RESOLVED** (2026-08-23, [ADR-0015](../DECISIONS.md#adr-0015--the-publication-gate-persists-the-verdict-at-generation-time-and-write-matches-it)). The deferral made sense when the only consequence of a finding was an ignorable amber warning; now that `validateSkeletonConformance`'s findings are publication blockers, escalation happened through the gate — a locked-type mismatch blocks publishing instead of shipping with a warning nobody had to read. The one-line-change escape hatch is moot; loosening a specific check is now a classification change in `lib/publication-gate.ts`.
 - **The event-date exclusion (`schedule-validate.ts`'s `eventDates`) is unconditional and priority-blind**, inherited from Phase A and still true for skeleton event slots — a day is excluded from every quality/recovery/taper count purely for sharing a date with any event, regardless of what that day actually contains. The obvious tightening (skip only when the day is itself a quality type) doesn't close the gap, because the masked case is genuine training on an event date, which is itself a quality type. Accepted tradeoff; see ROADMAP's stable handles.
 - **P2 hour-target precision — improved, not confirmed closed.** Phase B took loading weeks from 1/4 inside the 30-min tolerance to 3/4 on the last live run (2026-07-29). The residual cause (a flat quality-slot size flagging correct ~55min SIT sessions) was fixed *after* that measurement; replaying the old plan against the corrected skeleton drops its warnings to zero, but the next live generation is what actually confirms it — see `todo.md`.
 
@@ -98,7 +126,7 @@ Every `GeneratedPlan` is stamped with `model`, `promptVersion` (bump `PROMPT_VER
 |---|---|---|
 | Prompt rules / wording | `lib/anthropic-prompts.ts` (pure — testable offline) | Bump `PROMPT_VERSION`; update prompt tests; **one live smoke run** (AGENTS.md rule) |
 | Block output shape | `lib/plan-schema.ts` (+ `structuredToPlannedDays`) | Keep `weeks` before `overview`; update consumers of `PlannedDay` |
-| New validator | `lib/schedule-validate.ts` or `workout-validate.ts`, wired in `app/api/generate/route.ts` | Warn-only unless you have the standing the nutrition repairer has |
+| New validator | `lib/schedule-validate.ts` or `workout-validate.ts`, wired in `app/api/generate/route.ts` | Warn-only unless you have the standing the nutrition repairer has; classify its findings in `lib/publication-gate.ts` by emitter (blocker / preference / advisory — see the table above), never by message text |
 | Week-hour logic | `lib/block-skeleton.ts` | Feasibility gate + `validateWeekHours` stay in agreement |
 | Day-slot composition (which day gets which type/duration/ceiling) | `lib/block-skeleton.ts`'s `computeBlockSkeleton` / `formatBlockSkeleton` | Keep both swept invariants intact ([INVARIANTS § Generation contracts](../INVARIANTS.md#generation-contracts)); re-run `block-skeleton.test.ts`'s property sweep, not just the example tests |
 | Protocol bands | ⚠️ Three hand-synced copies: KB prose, `buildUserMessage` hard rules, `workout-validate.PROTOCOL` | Change all three or they drift (see [INVARIANTS](../INVARIANTS.md)) |
