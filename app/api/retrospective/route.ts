@@ -32,7 +32,7 @@ import type { BlockHistoryEntry, StructuredReflection, WorkoutType } from "@/lib
 // quotes (never substitute them), then flatten CR/LF runs to one space so the value stays on a
 // single frontmatter line. parseRetroSeeds in kb-loader unescapes the exact inverse of this form.
 export function yamlDoubleQuoted(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]+/g, " ").trim()}"`;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]+/g, " ")}"`;
 }
 
 function closestCtl(

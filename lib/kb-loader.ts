@@ -349,12 +349,17 @@ export function retroFileId(startDate: string, goal: string): string {
 // next `---`. Files not starting with `---` (or with an unterminated delimiter) have none. Both the
 // seed gate and the seeds list must be read from here — a prose line in the narrative body reading
 // `seeds_approved: true` must never open the approval gate.
-function retroFrontmatterLines(content: string): string[] | null {
+function retroFrontmatterBounds(content: string): { lines: string[]; close: number } | null {
   const lines = content.split("\n");
   if (lines[0]?.trim() !== "---") return null;
-  const close = lines.indexOf("---", 1);
+  const close = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
   if (close === -1) return null;
-  return lines.slice(1, close);
+  return { lines, close };
+}
+
+function retroFrontmatterLines(content: string): string[] | null {
+  const bounds = retroFrontmatterBounds(content);
+  return bounds ? bounds.lines.slice(1, bounds.close) : null;
 }
 
 // Phase 1: proposed seeds steer generation ONLY once the athlete (via the Plan-page adoption
@@ -378,10 +383,9 @@ export function parseRetroSeeds(content: string): string[] {
 // Pure transform: flip an existing flag, or insert one right after the opening delimiter — strictly
 // within the frontmatter region; body text is never modified.
 export function approveSeedsInMarkdown(content: string): string {
-  const lines = content.split("\n");
-  if (lines[0]?.trim() !== "---") return content;
-  const close = lines.indexOf("---", 1);
-  if (close === -1) return content;
+  const bounds = retroFrontmatterBounds(content);
+  if (!bounds) return content;
+  const { lines, close } = bounds;
   for (let i = 1; i < close; i++) {
     if (/^seeds_approved:\s*true\s*$/.test(lines[i])) return content;
     if (/^seeds_approved:/.test(lines[i])) {
@@ -406,16 +410,17 @@ export async function latestRetrospectiveSeeds(): Promise<string[]> {
   }
 }
 
-export async function markRetroSeedsApproved(name: string): Promise<void> {
+export async function markRetroSeedsApproved(name: string): Promise<boolean> {
   assertSafeName(name);
   const file = path.join(RETRO_DIR, name);
   let content: string;
   try {
     content = await fs.readFile(file, "utf-8");
   } catch {
-    return; // missing/unreadable file: nothing to mark; adoption of reflections already succeeded
+    return false;
   }
+  if (!retroFrontmatterBounds(content)) return false;
   const next = approveSeedsInMarkdown(content);
   if (next !== content) await fs.writeFile(file, next, "utf-8");
+  return true;
 }
-

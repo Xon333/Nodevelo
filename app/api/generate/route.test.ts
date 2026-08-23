@@ -40,10 +40,14 @@ vi.mock("@/lib/generate-cache", () => ({
   generationKey: () => "k",
   dedupeGeneration: async (_k: string, fn: () => Promise<unknown>) => ({ result: await fn() }),
 }));
-vi.mock("@/lib/kb-loader", () => ({
-  loadKnowledgeBaseContext: vi.fn(async () => "KB"),
-  latestRetrospectiveSeeds: vi.fn(async () => []),
-}));
+vi.mock("@/lib/kb-loader", async (orig) => {
+  const actual = await orig<typeof import("@/lib/kb-loader")>();
+  return {
+    ...actual,
+    loadKnowledgeBaseContext: vi.fn(async () => "KB"),
+    latestRetrospectiveSeeds: vi.fn(async () => []),
+  };
+});
 vi.mock("@/lib/physiology", () => ({
   readPhysiology: vi.fn(async () => null),
   resolvePowerZones: vi.fn(() => []),
@@ -66,6 +70,7 @@ vi.mock("@/lib/data-store", () => ({
 
 import * as store from "@/lib/data-store";
 import * as anthropic from "@/lib/anthropic-api";
+import * as kb from "@/lib/kb-loader";
 import { GENERATION_MODEL, PROMPT_VERSION } from "@/lib/anthropic-api";
 import { POST } from "@/app/api/generate/route";
 
@@ -93,6 +98,7 @@ beforeEach(() => {
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) =>
     mutate({ objective: "", events: [], periods: [], updatedAt: "" })
   );
+  vi.mocked(kb.latestRetrospectiveSeeds).mockResolvedValue([]);
 });
 
 const gen = (goal: string) =>
@@ -443,6 +449,34 @@ describe("POST /api/generate — focus-coverage requirement wiring (P2c)", () =>
     const dynamic = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][1];
     expect(dynamic).toContain("REQUIRED COVERAGE: this block's focus is threshold");
     expect(dynamic).toContain("include at least 1 Threshold session in EVERY loading week");
+  });
+});
+
+describe("POST /api/generate — approved retrospective seed injection", () => {
+  it("injects PREVIOUS BLOCK PRIORITIES only for approved seeds", async () => {
+    const retro = [
+      "---",
+      'id: "2026-06-15_build-ftp"',
+      "seeds_approved: false",
+      "next_block_seeds:",
+      '  - "Carry threshold progression forward"',
+      "---",
+      "## Retrospective",
+    ].join("\n");
+
+    vi.mocked(kb.latestRetrospectiveSeeds).mockResolvedValueOnce(kb.parseRetroSeeds(retro));
+    await gen("Build FTP");
+    const withoutApproval = vi.mocked(anthropic.generateTrainingBlock).mock.calls.at(-1)?.[1] ?? "";
+    expect(withoutApproval).not.toContain("PREVIOUS BLOCK PRIORITIES");
+    expect(withoutApproval).not.toContain("Carry threshold progression forward");
+
+    vi.mocked(kb.latestRetrospectiveSeeds).mockResolvedValueOnce(
+      kb.parseRetroSeeds(kb.approveSeedsInMarkdown(retro))
+    );
+    await gen("Build FTP");
+    const withApproval = vi.mocked(anthropic.generateTrainingBlock).mock.calls.at(-1)?.[1] ?? "";
+    expect(withApproval).toContain("PREVIOUS BLOCK PRIORITIES");
+    expect(withApproval).toContain("- Carry threshold progression forward");
   });
 });
 

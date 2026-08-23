@@ -474,6 +474,10 @@ describe("/api/retrospective POST", () => {
 describe("Phase 1 trust contract", () => {
   const unfinished = { ...block, endDate: "2099-01-01" };
 
+  it("yamlDoubleQuoted preserves leading/trailing spaces while still flattening CRLF runs", () => {
+    expect(yamlDoubleQuoted("  keep me  \r\n")).toBe('"  keep me   "');
+  });
+
   it("409s an unfinished block with no explicit early-end decision — and writes NOTHING", async () => {
     h.readCurrentBlock.mockResolvedValue(unfinished);
     const res = await post();

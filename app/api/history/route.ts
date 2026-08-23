@@ -19,7 +19,8 @@ export async function GET() {
 //     adoption channel can be silently skipped;
 //   * the flip runs BEFORE the stamp and both steps are idempotent: a crash between them leaves at
 //     most "flipped but unstamped", which a retry CONVERGES out of (no 409 dead-end);
-//   * a flip failure means NOTHING was stamped, so the athlete's retry starts clean.
+//   * a missing/malformed retro file means NOTHING was stamped, so adoption cannot claim success
+//     without a real, writable frontmatter gate.
 export async function POST(req: Request) {
   try {
     const body: unknown = await req.json();
@@ -30,7 +31,10 @@ export async function POST(req: Request) {
     const target = (await readBlockHistory()).find((e) => e.id === id);
     if (!target) return NextResponse.json({ error: "No such history entry." }, { status: 404 });
 
-    await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
+    const approved = await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
+    if (!approved) {
+      return NextResponse.json({ error: "Couldn't approve retrospective seeds." }, { status: 409 });
+    }
 
     let alreadyAdopted = false;
     const updated = await updateBlockHistory((entries) =>

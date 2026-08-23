@@ -124,6 +124,22 @@ describe("approveSeedsInMarkdown", () => {
     const once = approveSeedsInMarkdown(md(`seeds_approved: false\nstatus: completed`));
     expect(approveSeedsInMarkdown(once)).toBe(once);
   });
+
+  it("handles CRLF frontmatter with whitespace-padded delimiters", () => {
+    const src = [
+      " --- \r",
+      'id: "2026-06-01_build-ftp"\r',
+      "seeds_approved: false\r",
+      "next_block_seeds:\r",
+      '  - "frontmatter seed"\r',
+      "\t---\r",
+      "## Retrospective\r",
+      "Body.",
+    ].join("\n");
+    const out = approveSeedsInMarkdown(src);
+    expect(out).toContain("seeds_approved: true");
+    expect(parseRetroSeeds(out)).toEqual(["frontmatter seed"]);
+  });
 });
 
 describe("parseRetroSeeds unescaping", () => {
