@@ -19,6 +19,11 @@ interface Props {
   rollback: { rolledBack: number; rollbackFailed: number[] } | null;
   intervalsConfigured: boolean;
   hasActiveBlock: boolean; // UXA-8: states the consequence before Write replaces it
+  // Publication-gate trust contract: the acknowledgment checkbox is controlled from PlanView (which
+  // sends the flag in the write POST and resets it on regenerate), so the preview stays a pure
+  // renderer of the gating decision.
+  overrideAcknowledged: boolean;
+  onOverrideAcknowledgedChange: (acknowledged: boolean) => void;
   onWrite: () => void;
   onDismiss: () => void;
 }
@@ -102,14 +107,23 @@ export default function PlanPreview({
   rollback,
   intervalsConfigured,
   hasActiveBlock,
+  overrideAcknowledged,
+  onOverrideAcknowledgedChange,
   onWrite,
   onDismiss,
 }: Props) {
   const weeks = [...new Set(plan.days.map((d) => d.weekNumber))].sort((a, b) => a - b);
   const written = results !== null && results.every((r) => r.ok);
   const resultFor = (day: PlannedDay) => results?.find((r) => r.date === day.date);
-  // Truthy-check, never `=== null`: plans generated before this field parse back as undefined.
-  const violations = plan.protocolViolations ?? [];
+  // Truthy-check, never `=== null`: plans generated before the gate shipped parse back as undefined.
+  const blockers = plan.findings?.blockers ?? [];
+  const preferences = plan.findings?.preferences ?? [];
+  // Blockers are absolute — no acknowledgment exists for them. Preferences gate Write until the
+  // athlete explicitly acknowledges them (the checkbox state PlanView owns and sends to /api/write).
+  const blocked = blockers.length > 0;
+  const needsOverride = !blocked && preferences.length > 0;
+  const writeDisabled =
+    writing || written || !intervalsConfigured || blocked || (needsOverride && !overrideAcknowledged);
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900/50">
@@ -138,20 +152,45 @@ export default function PlanPreview({
         </div>
       </div>
 
-      {violations.length > 0 && (
+      {blocked && (
         <div className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 dark:border-red-700 dark:bg-red-950">
           <p className="text-xs font-semibold text-red-800 dark:text-red-300">
-            Protocol violations — these quality sessions contradict the KB protocol. Regenerate, or write anyway if deliberate:
+            Publication blocked — these defects make this plan unsafe to publish. Regenerate.
+          </p>
+          <p className="mt-0.5 text-xs text-red-700 dark:text-red-300">
+            These findings cannot be overridden — no acknowledgment can bypass them.
           </p>
           <ul className="mt-0.5 list-inside list-disc text-xs text-red-700 dark:text-red-300">
-            {violations.map((w) => <li key={w}>{w}</li>)}
+            {blockers.map((w) => <li key={w}>{w}</li>)}
           </ul>
+        </div>
+      )}
+
+      {needsOverride && (
+        <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+            Coaching concerns — review before publishing:
+          </p>
+          <ul className="mt-0.5 list-inside list-disc text-xs text-amber-700 dark:text-amber-300">
+            {preferences.map((w) => <li key={w}>{w}</li>)}
+          </ul>
+          {/* Informed override: publishing past these concerns is a deliberate athlete decision,
+              recorded server-side as provenance on the written block. */}
+          <label className="mt-2 flex items-start gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+            <input
+              type="checkbox"
+              checked={overrideAcknowledged}
+              onChange={(e) => onOverrideAcknowledgedChange(e.target.checked)}
+              className="mt-0.5"
+            />
+            I have read the concerns above — publish anyway.
+          </label>
         </div>
       )}
 
       {plan.warnings.length > 0 && (
         <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950">
-          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Warnings — review before writing:</p>
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Notes — for your awareness:</p>
           <ul className="mt-0.5 list-inside list-disc text-xs text-amber-700 dark:text-amber-300">
             {plan.warnings.map((w) => <li key={w}>{w}</li>)}
           </ul>
@@ -192,7 +231,7 @@ export default function PlanPreview({
         </button>
         <button
           onClick={onWrite}
-          disabled={writing || written || !intervalsConfigured}
+          disabled={writeDisabled}
           className="rounded bg-zinc-900 px-4 py-2 text-xs font-semibold text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-[#ff49c8] dark:text-zinc-900 dark:hover:brightness-110 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
         >
           {writing ? `Writing ${plan.days.length} events…` : written ? "✓ Written to Intervals.icu" : "Write to Intervals.icu"}

@@ -40,6 +40,16 @@ vi.mock("@/lib/generate-cache", () => ({
   generationKey: () => "k",
   dedupeGeneration: async (_k: string, fn: () => Promise<unknown>) => ({ result: await fn() }),
 }));
+// The publication gate itself runs FOR REAL in these tests (findings must be genuinely populated);
+// only the "clean plan" case below overrides evaluatePublicationGate per-case to prove how an
+// empty verdict maps onto the response shape.
+vi.mock("@/lib/publication-gate", async (orig) => {
+  const actual = await orig<typeof import("@/lib/publication-gate")>();
+  return {
+    ...actual,
+    evaluatePublicationGate: vi.fn(actual.evaluatePublicationGate),
+  };
+});
 vi.mock("@/lib/kb-loader", async (orig) => {
   const actual = await orig<typeof import("@/lib/kb-loader")>();
   return {
@@ -65,12 +75,14 @@ vi.mock("@/lib/data-store", () => ({
   readScoreLog: vi.fn(),
   readIntentOverlays: vi.fn(),
   readSeasonPlan: vi.fn(),
+  saveGenerationVerdict: vi.fn(),
   updateSeasonPlan: vi.fn(),
 }));
 
 import * as store from "@/lib/data-store";
 import * as anthropic from "@/lib/anthropic-api";
 import * as kb from "@/lib/kb-loader";
+import * as gate from "@/lib/publication-gate";
 import { GENERATION_MODEL, PROMPT_VERSION } from "@/lib/anthropic-api";
 import { POST } from "@/app/api/generate/route";
 
@@ -98,6 +110,7 @@ beforeEach(() => {
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) =>
     mutate({ objective: "", events: [], periods: [], updatedAt: "" })
   );
+  vi.mocked(store.saveGenerationVerdict).mockResolvedValue(undefined);
   vi.mocked(kb.latestRetrospectiveSeeds).mockResolvedValue([]);
 });
 
@@ -107,17 +120,17 @@ const gen = (goal: string) =>
 describe("POST /api/generate — Track B wiring", () => {
   it("enforces the RaceSim requirement for a terrain/race goal and stamps the durability template", async () => {
     const json = await (await gen("Win the hilly KOM road race")).json();
-    // Scoped to the GOAL: prefix (validateSessionRequirements' own warning) rather than a bare
-    // /RaceSim/ substring — Phase B's SKELETON: warnings can legitimately mention "RaceSim" too (a
-    // flexible quality slot's reason text names it as an allowed type), which would otherwise
-    // false-match here regardless of whether the goal-driven requirement itself fired.
-    expect(json.plan.warnings.some((w: string) => /^GOAL:.*RaceSim/.test(w))).toBe(true); // validateSessionRequirements wired in
+    // Scoped to the GOAL: prefix (validateSessionRequirements' own finding) rather than a bare
+    // /RaceSim/ substring. Since the publication gate landed, this lands in findings.preferences,
+    // not warnings — the route test proves the gate's preference bucket reaches the plan.
+    expect(json.plan.findings.preferences.some((w: string) => /^GOAL:.*RaceSim/.test(w))).toBe(true);
+    expect(json.plan.warnings.some((w: string) => /^GOAL:/.test(w))).toBe(false); // never double-bucketed
     expect(json.plan.durabilityTemplate).toBe("A"); // selected (no insights, no prior block) + stamped
   });
 
   it("does not require a RaceSim for a flat, non-terrain goal", async () => {
     const json = await (await gen("Improve 40k TT power on the flats")).json();
-    expect(json.plan.warnings.some((w: string) => /^GOAL:.*RaceSim/.test(w))).toBe(false);
+    expect(json.plan.findings.preferences.some((w: string) => /^GOAL:.*RaceSim/.test(w))).toBe(false);
   });
 
   it("HR-18: a weakpoint recorded only in profile.weakpoints still biases durability template selection", async () => {
@@ -199,7 +212,7 @@ describe("POST /api/generate — season wiring (multi-period blocks)", () => {
     // "Season fit" warning is expected here either, but for a different reason than before P1:
     // validateBlockFocus now runs for real and simply finds a matching session, not because the
     // whole season-validator family is dark.
-    expect(json.plan.warnings.some((w: string) => /^Season fit/.test(w))).toBe(false);
+    expect(json.plan.findings.preferences.some((w: string) => /^Season fit/.test(w))).toBe(false);
   });
 
   it("still surfaces a B/C-priority event inside the block range even with phase context disabled (Task 5 stays decoupled)", async () => {
@@ -304,11 +317,14 @@ describe("POST /api/generate — generation outcomes", () => {
     expect((await res.json()).error).toBe("Anthropic 500");
   });
 
-  it("surfaces truncation as the FIRST warning and flags the day-count shortfall", async () => {
+  it("routes truncation + the day-count shortfall into findings.blockers, never warnings", async () => {
+    // The publication gate owns both messages now (STRUCTURE blockers); the old inline
+    // warnings.unshift/push versions are gone, and `warnings` stays informational-only.
     vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: h.toolInput, raw: "", truncated: true, stopReason: "max_tokens" } as never);
     const json = await (await gen("Build FTP")).json();
-    expect(json.plan.warnings[0]).toMatch(/token limit/);
-    expect(json.plan.warnings).toContain("Expected 14 days, got 2.");
+    expect(json.plan.findings.blockers.some((w: string) => /token limit/.test(w))).toBe(true);
+    expect(json.plan.findings.blockers).toContain("STRUCTURE: Expected 14 days but the plan carries 2.");
+    expect(json.plan.warnings.some((w: string) => /token limit|Expected 14 days/.test(w))).toBe(false);
   });
 
   it("stamps provenance + the audit trail on the plan", async () => {
@@ -433,11 +449,11 @@ describe("POST /api/generate — nutrition auto-repair (P3a)", () => {
 });
 
 describe("POST /api/generate — week-hours skeleton wiring (P2b)", () => {
-  it("flags a week whose actual hours miss its computed target", async () => {
+  it("flags a week whose actual hours miss its computed target (as a gate BLOCKER now)", async () => {
     const json = await (await gen("Build FTP")).json();
-    const hourWarnings = json.plan.warnings.filter((w: string) => /^HOURS:/.test(w));
-    expect(hourWarnings.length).toBeGreaterThan(0);
-    expect(hourWarnings.some((w: string) => /week 1 \(loading\) totals 2\.1h — under its 12h target/.test(w))).toBe(true);
+    const hourBlockers = json.plan.findings.blockers.filter((w: string) => /^HOURS:/.test(w));
+    expect(hourBlockers.length).toBeGreaterThan(0);
+    expect(hourBlockers.some((w: string) => /week 1 \(loading\) totals 2\.1h — under its 12h target/.test(w))).toBe(true);
   });
 });
 
@@ -484,10 +500,10 @@ describe("POST /api/generate — approved retrospective seed injection", () => {
 // week 1 (a Threshold day) — week 2 has zero generated days, so it's missing the chosen focus
 // ("threshold") entirely. Confirms the stricter per-loading-week check actually reaches the route.
 describe("POST /api/generate — primary-quality cadence wiring (P5a)", () => {
-  it("flags the week missing the primary quality's matching session", async () => {
+  it("flags the week missing the primary quality's matching session (as a gate PREFERENCE now)", async () => {
     const json = await (await gen("Build FTP")).json();
-    const primaryWarnings = json.plan.warnings.filter((w: string) => /^PRIMARY QUALITY:/.test(w));
-    expect(primaryWarnings.some((w: string) => /week 2 \(loading\)/.test(w) && /no Threshold session/.test(w))).toBe(true);
+    const primaryPreferences = json.plan.findings.preferences.filter((w: string) => /^PRIMARY QUALITY:/.test(w));
+    expect(primaryPreferences.some((w: string) => /week 2 \(loading\)/.test(w) && /no Threshold session/.test(w))).toBe(true);
   });
 });
 
@@ -521,7 +537,7 @@ describe("POST /api/generate — within-week sequencing wiring (P5b)", () => {
       stopReason: null,
     } as never);
     const json = await (await gen("Build FTP")).json();
-    expect(json.plan.warnings.some((w: string) => /^SEQUENCING: week 1/.test(w))).toBe(true);
+    expect(json.plan.findings.blockers.some((w: string) => /^SEQUENCING: week 1/.test(w))).toBe(true);
   });
 });
 
@@ -571,7 +587,7 @@ describe("POST /api/generate — seasonFocus stamping (chooseNextFocus wiring)",
 });
 
 describe("POST /api/generate — protocol-violation severity (measurability)", () => {
-  it("carries quality-session protocol breaches as plan.protocolViolations, not generic warnings", async () => {
+  it("surfaces quality-session protocol breaches as findings.blockers, not generic warnings", async () => {
     const badSit = {
       overview: "o",
       weeks: [{
@@ -582,14 +598,20 @@ describe("POST /api/generate — protocol-violation severity (measurability)", (
     };
     vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: badSit, raw: "", truncated: false, stopReason: null } as never);
     const json = await (await gen("Build FTP")).json();
-    expect(json.plan.protocolViolations).toHaveLength(1);
-    expect(json.plan.protocolViolations[0]).toMatch(/longer than protocol/);
+    expect(json.plan.protocolViolations).toBeUndefined(); // no longer emitted (Task 5 removes the field)
+    // The fixture is structurally incomplete too (1 of 14 days → its own blockers); what matters
+    // is that the protocol breach itself landed in blockers and nowhere else.
+    expect(json.plan.findings.blockers.some((w: string) => /longer than protocol/.test(w))).toBe(true);
     expect(json.plan.warnings.some((w: string) => /longer than protocol/.test(w))).toBe(false); // not double-reported
   });
 
-  it("omits protocolViolations entirely on a clean plan (sparse-field convention)", async () => {
-    const json = await (await gen("Build FTP")).json(); // default mocked toolInput is protocol-clean
-    expect(json.plan.protocolViolations).toBeUndefined();
+  it("omits findings entirely when nothing blocks and nothing prefers (sparse-field convention)", async () => {
+    // The default mocked toolInput carries no protocol violations, but it IS structurally
+    // incomplete (2 of 14 days), so a bare run still has blockers. Override the gate to its clean
+    // verdict to pin the sparse-field mapping: no blockers + no preferences ⇒ no `findings` key.
+    vi.mocked(gate.evaluatePublicationGate).mockReturnValueOnce({ blockers: [], preferences: [], advisories: [] });
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.findings).toBeUndefined();
   });
 
   it("HR-19: reconciles a mismatched durationMin to the real prescribed total instead of just flagging it", async () => {
@@ -687,7 +709,7 @@ describe("POST /api/generate — season layer degradation (EC-3)", () => {
       })
     );
     const json = await res.json();
-    expect(json.plan.warnings.some((w: string) => /Season fit:.*focus is threshold.*zero Threshold/.test(w))).toBe(true);
+    expect(json.plan.findings.preferences.some((w: string) => /Season fit:.*focus is threshold.*zero Threshold/.test(w))).toBe(true);
   });
 });
 
@@ -706,6 +728,89 @@ describe("POST /api/generate — Phase B: skeleton wiring", () => {
     const userMessage = vi.mocked(anthropic.generateTrainingBlock).mock.calls[0][2];
     expect(userMessage).toContain("WEEK SKELETON (FIXED");
     // The mocked tool payload only returns 2 days for a 14-day block, so conformance must notice.
-    expect(json.plan.warnings.some((w: string) => /^SKELETON:/.test(w))).toBe(true);
+    expect(json.plan.findings.blockers.some((w: string) => /^SKELETON:/.test(w))).toBe(true);
+  });
+});
+
+// Publication-gate trust-contract plan, Task 3: ONE evaluatePublicationGate call feeds
+// plan.findings; warnings become informational-only; the verdict is persisted server-side
+// best-effort. The gate itself runs UNMOCKED here (see the vi.mock above) so these prove real
+// classification reaches the response — except where a test pins the empty-verdict mapping.
+describe("POST /api/generate — publication-gate wiring", () => {
+  it("populates findings from a single gate run on a warning-bearing fixture (blockers AND preferences)", async () => {
+    const json = await (await gen("Build FTP")).json();
+    // Blockers: structural (2 of 14 days), HOURS undershoot, SKELETON missing days…
+    expect(json.plan.findings.blockers).toContain("STRUCTURE: Expected 14 days but the plan carries 2.");
+    expect(json.plan.findings.blockers.some((w: string) => /^HOURS:/.test(w))).toBe(true);
+    expect(json.plan.findings.blockers.some((w: string) => /^SKELETON:/.test(w))).toBe(true);
+    // Preferences: rolling-focus cadence (threshold focus chosen, week 2 has no Threshold day).
+    expect(json.plan.findings.preferences.some((w: string) => /^PRIMARY QUALITY:/.test(w))).toBe(true);
+    // The same facts must NOT also appear as warnings — one fact, one bucket owner.
+    const gated = [...json.plan.findings.blockers, ...json.plan.findings.preferences];
+    expect(json.plan.warnings.some((w: string) => gated.includes(w))).toBe(false);
+    // And the gate ran exactly once per generation (no double-run for display).
+    expect(gate.evaluatePublicationGate).toHaveBeenCalledTimes(1);
+  });
+
+  it("clean verdict → no findings key and warnings carry only informational notes", async () => {
+    vi.mocked(gate.evaluatePublicationGate).mockReturnValueOnce({ blockers: [], preferences: [], advisories: [] });
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.findings).toBeUndefined();
+    // No season throw, no repairs, no advisories, critic silent → nothing informational either.
+    expect(json.plan.warnings).toEqual([]);
+  });
+
+  it("persists the verdict keyed by the canonical hash over plan.days + plan.blockParams", async () => {
+    const json = await (await gen("Build FTP")).json();
+    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(1);
+    const record = vi.mocked(store.saveGenerationVerdict).mock.calls[0][0];
+    expect(record.verdictHash).toBe(gate.verdictHash(json.plan.days, json.plan.blockParams));
+    expect(record.blockers).toEqual(json.plan.findings.blockers);
+    expect(record.preferences).toEqual(json.plan.findings.preferences);
+    expect(record.model).toBe(GENERATION_MODEL);
+    expect(record.promptVersion).toBe(PROMPT_VERSION);
+    expect(typeof record.createdAt).toBe("string");
+    // Nothing client-facing about the hash: the response body never mentions it.
+    expect(JSON.stringify(json)).not.toContain(record.verdictHash);
+  });
+
+  it("a verdict-save failure never blocks generation (best-effort) — the store stays stale/absent", async () => {
+    vi.mocked(store.saveGenerationVerdict).mockRejectedValueOnce(new Error("disk full"));
+    const res = await gen("Build FTP");
+    expect(res.status).toBe(200);
+    expect((await res.json()).plan).toBeDefined();
+    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(1); // attempted exactly once, failure swallowed
+  });
+
+  it("season branch selection still routes through the gate's seasonContext unchanged (rolling)", async () => {
+    await gen("Build FTP"); // no A-event → rolling branch
+    const args = vi.mocked(gate.evaluatePublicationGate).mock.calls[0][0];
+    expect(args.seasonContext?.mode).toBe("rolling");
+    if (args.seasonContext?.mode === "rolling") {
+      expect(typeof args.seasonContext.focus).toBe("string");
+    }
+  });
+
+  it("season branch selection: an A-event routes through the gate exactly as the old route flags did", async () => {
+    // SEASON_SHAPES_GENERATION is currently false, so — mirroring the pre-gate validator branch
+    // (`SEASON_SHAPES_GENERATION && aEventForBlock && replannedSeason`, else rolling) — an
+    // upcoming A-event still selects the ROLLING season family today. This pins that parity:
+    // the gate must not silently widen or narrow the branch condition.
+    vi.mocked(store.readSeasonPlan).mockResolvedValue({
+      objective: "",
+      events: [{ name: "A Race", date: "2026-10-01", priority: "A" }],
+      periods: [],
+      updatedAt: "",
+    } as never);
+    await POST(
+      new Request("http://t/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ lengthWeeks: 2, goal: "Build FTP", startDate: "2026-06-15", weakpoints: [], today: "2026-06-15" }),
+      })
+    );
+    const calls = vi.mocked(gate.evaluatePublicationGate).mock.calls;
+    const args = calls[calls.length - 1][0];
+    expect(args.seasonContext?.mode).toBe("rolling");
+    expect(args.events.some((e) => e.name === "A Race")).toBe(true); // events still handed to the gate
   });
 });

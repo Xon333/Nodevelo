@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logError, logWarn } from "@/lib/log";
 import { createEvent, deleteEvents, fetchEvents, isIntervalsConfigured } from "@/lib/intervals-api";
-import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readIntentOverlays, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, updateInterventionLog } from "@/lib/data-store";
+import { appendBlockHistory, readAthleteProfile, readBlockSettings, readCurrentBlock, readGenerationVerdict, readIntentOverlays, readLastSync, readScoreLog, readSeasonPlan, updateCurrentBlock, updateInterventionLog } from "@/lib/data-store";
 import { blockChangedResponse } from "@/lib/block-version";
 import { dayToEventPayload } from "@/lib/calendar-mirror";
 import { currentPeriod, isSeasonFocus } from "@/lib/season";
@@ -15,6 +15,7 @@ import { parsePrescription } from "@/lib/prescription";
 import { computeSessionLevel } from "@/lib/session-level";
 import { validateWorkoutProtocol, validateDurationConsistency } from "@/lib/workout-validate";
 import { resolveDurabilityInsertEnvelope } from "@/lib/calibration";
+import { verdictHash } from "@/lib/publication-gate";
 import type { CurrentBlock, CurrentBlockDay, GeneratedPlan, PlannedDay, WriteResult } from "@/lib/types";
 import { WORKOUT_TYPES } from "@/lib/types";
 
@@ -68,6 +69,61 @@ export async function POST(req: Request) {
   const expectedCreatedAt = "expectedBlockCreatedAt" in b ? (b.expectedBlockCreatedAt as string | null) : undefined;
   const versionError = blockChangedResponse(existing, expectedCreatedAt);
   if (versionError) return versionError;
+
+  // Publication gate (publication-gate trust-contract plan, Task 4): the server-authoritative
+  // verdict persisted at generation time is the ONLY passport through this route. All three
+  // refusal paths return BEFORE any calendar mutation — including the HR-38 old-description
+  // snapshot below — and before any local write, so a refused request leaves Intervals.icu and
+  // data/ completely untouched. Blockers are absolute (no request field can bypass them); the
+  // override path exists only for preferences, and only with an explicit acknowledgment.
+  const verdict = await readGenerationVerdict();
+  if (!verdict || verdict.verdictHash !== verdictHash(plan.days, plan.blockParams)) {
+    return NextResponse.json(
+      { error: "This exact plan didn't come from your generator — regenerate." },
+      { status: 422 }
+    );
+  }
+  // Task 6 hardening: a corrupt-but-valid-JSON verdict record (e.g. a hand-edited
+  // generation-gate.json) can parse back with its finding buckets missing or non-array, or without
+  // the rest of the GenerationVerdict shape. Refuse any record that isn't FULLY well-formed — real
+  // string arrays for both buckets AND a present, parseable `createdAt` timestamp — the same
+  // fail-closed 422 an unknown plan gets — and only then coalesce, so nothing below can TypeError
+  // on `.length`. Checking AFTER a bare `?? []` would be self-defeating (the coalesced value is
+  // always an array), and coalescing alone would be WORSE than the old 500: it would read the
+  // corruption as a clean verdict and publish.
+  const verdictWellFormed =
+    Array.isArray(verdict.blockers) &&
+    Array.isArray(verdict.preferences) &&
+    verdict.blockers.every((finding) => typeof finding === "string") &&
+    verdict.preferences.every((finding) => typeof finding === "string") &&
+    typeof verdict.createdAt === "string" &&
+    !Number.isNaN(Date.parse(verdict.createdAt));
+  if (!verdictWellFormed) {
+    return NextResponse.json(
+      { error: "This exact plan didn't come from your generator — regenerate." },
+      { status: 422 }
+    );
+  }
+  const blockers = verdict.blockers ?? [];
+  const preferences = verdict.preferences ?? [];
+  if (blockers.length > 0) {
+    return NextResponse.json(
+      { error: "This plan has findings that cannot be overridden — regenerate to fix them.", blockers },
+      { status: 422 }
+    );
+  }
+  const overrideAcknowledged = b.overrideAcknowledged === true;
+  if (preferences.length > 0 && !overrideAcknowledged) {
+    return NextResponse.json(
+      {
+        error: "This plan carries coaching concerns that need your explicit acknowledgment before publishing.",
+        preferences,
+        overrideRequired: true,
+      },
+      { status: 422 }
+    );
+  }
+
   // HR-32: was utcToday() at both use sites below — see the identical fix on /api/sync's DELETE.
   const today = resolveToday(b.today);
 
@@ -203,6 +259,13 @@ export async function POST(req: Request) {
       : seasonPeriod
         ? { seasonFocus: seasonPeriod.focus, seasonPhase: seasonPeriod.phase }
         : {}),
+    // Publication-gate trust contract: freeze the informed-override provenance when publishing past
+    // persisted preference findings — WHICH concerns the athlete acknowledged and WHEN (same "written
+    // despite a known concern" trail as the per-day protocolFindings below). Clean publishes carry no
+    // stamp at all.
+    ...(overrideAcknowledged && preferences.length > 0
+      ? { publicationOverride: { findings: [...preferences], acknowledgedAt: new Date().toISOString() } }
+      : {}),
     // Track B: stamp the template on the week's long Z2 ride(s) — a Z2 day at/near the block's longest Z2
     // duration — so scoring can grade that ride against the template's expected signal. Short easy Z2 days
     // (well below the long-ride duration) aren't durability rides and stay unstamped.

@@ -56,6 +56,11 @@ export default function PlanView() {
   // `ok: true` were actually undone server-side (their events deleted/restored), so PlanPreview must
   // not render them as "✓ written".
   const [writeRollback, setWriteRollback] = useState<{ rolledBack: number; rollbackFailed: number[] } | null>(null);
+  // Publication-gate trust contract: the informed-override acknowledgment for preference findings.
+  // Owned here (not in PlanPreview) because it must (a) ride along in the write POST and
+  // (b) reset whenever a new plan replaces the old one — a stale "publish anyway" must never
+  // silently apply to regenerated output.
+  const [overrideAcknowledged, setOverrideAcknowledged] = useState(false);
 
   const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
   // HR-56: surfaces a partially-failed calendar cleanup after Delete — the server computes
@@ -224,6 +229,7 @@ export default function PlanView() {
     setGenerating(true);
     setGenerateError(null);
     setWriteResults(null);
+    setOverrideAcknowledged(false);
     try {
       const { plan } = await api<{ plan: GeneratedPlan }>("/api/generate", {
         method: "POST",
@@ -287,7 +293,15 @@ export default function PlanView() {
         method: "POST",
         // HR-32: today, alongside expectedBlockCreatedAt — the route's archive-truncation step needs
         // the athlete's real local date, not the server's UTC one.
-        body: JSON.stringify({ plan, expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null, today: localToday() }),
+        // Publication gate: the informed-override acknowledgment for preference findings — the
+        // server independently refuses when its own persisted preference list is non-empty and
+        // this flag isn't true (422 overrideRequired), so this is the honest-UX half of the contract.
+        body: JSON.stringify({
+          plan,
+          expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null,
+          today: localToday(),
+          overrideAcknowledged,
+        }),
       });
       setWriteResults(results);
       setWriteRollback(typeof rolledBack === "number" ? { rolledBack, rollbackFailed: rollbackFailed ?? [] } : null);
@@ -323,6 +337,7 @@ export default function PlanView() {
     setState((s) => (s ? { ...s, currentBlock: null } : s));
     setPlan(null);
     setWriteResults(null);
+    setOverrideAcknowledged(false);
     setDeleteEventsFailed(eventsFailed.length > 0 ? eventsFailed : null);
     void loadBlockHistory();
   };
@@ -447,11 +462,14 @@ export default function PlanView() {
           intervalsConfigured={state.configured}
           hasActiveBlock={hasActiveBlock}
           onWrite={write}
+          overrideAcknowledged={overrideAcknowledged}
+          onOverrideAcknowledgedChange={setOverrideAcknowledged}
           onDismiss={() => {
             setPlan(null);
             setWriteResults(null);
             setWriteError(null);
             setWriteRollback(null);
+            setOverrideAcknowledged(false);
           }}
         />
       )}

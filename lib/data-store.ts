@@ -1,7 +1,7 @@
 // Local JSON persistence under /data. This app is local-first by design:
 // the filesystem is the single source of truth (see README — not Vercel-safe).
 // Crash-safe atomic writes + backup/recovery live in ./json-store.
-import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis, WeeklyEnvelope, WorkoutLibraryStore } from "./types";
+import type { AthleteProfile, AthleteQuirkStore, BlockHistoryEntry, BlockSettings, CalibrationStore, CurrentBlock, CurrentBlockDay, DispositionLog, GenerationVerdict, IntentOverlay, IntentOverlayStore, InterventionLog, LedgerRebuildMarker, LoadingLogStore, MorningCheckLog, RollingBaselines, ScoreLog, SeasonPlan, SyncData, TodayAnalysis, WeeklyEnvelope, WorkoutLibraryStore } from "./types";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { emptyCalibration } from "./calibration";
 import { parseGoalsWeakpointsForMigration, readMdPerformance } from "./kb-loader";
@@ -173,6 +173,32 @@ export async function readLastSync(): Promise<SyncData | null> {
 
 export async function writeLastSync(sync: SyncData): Promise<void> {
   await writeJson("last-sync.json", sync);
+}
+
+// Publication gate (Phase: publication-gate trust contract). The verdict of the MOST RECENT
+// generation, persisted as a single slot so /api/write can verify the plan it's about to publish
+// was actually gated (hash match) and refuse on blockers. Ephemeral by design — a fresh generation
+// overwrites it (latest-wins), and a lost/corrupt record fails SAFE: readGenerationVerdict returns
+// null and /api/write refuses the write as "no verdict" until the athlete regenerates.
+//
+// NOT in json-store.ts's CRITICAL set, deliberately: CRITICAL means "cannot be re-derived from a
+// fresh sync" (ledgers, human decisions like intent-overlays/workout-library). A verdict is fully
+// re-derivable — re-running the gate on the same days/blockParams reproduces it byte-for-byte from
+// canonical hashing — and is only ever valid for one generation cycle anyway. Same treatment as the
+// other single-slot ephemeral stores (last-sync.json, today-analysis.json, weekly-envelope.json):
+// atomic writes via the per-file lock, no .bak rotation, corrupt file reads back as null.
+export async function readGenerationVerdict(): Promise<GenerationVerdict | null> {
+  return readJson<GenerationVerdict | null>("generation-gate.json", null);
+}
+
+// Single-slot latest-wins save. writeJson takes the per-file lock for the whole atomic write, so
+// two concurrent saves serialize and the file is always exactly ONE complete record (the last to
+// acquire the lock) — never interleaved bytes. That's the correct semantics here: each save is a
+// whole-record replacement, not a merge, so there's no lost-update hazard a read-modify-write
+// (updateJson) would be needed for; plain last-writer-wins IS latest-wins. Persisted verbatim —
+// the caller owns the record's content, including `createdAt`, matching writeLastSync/writeTodayAnalysis.
+export async function saveGenerationVerdict(record: GenerationVerdict): Promise<void> {
+  await writeJson("generation-gate.json", record);
 }
 
 export async function readCurrentBlock(): Promise<CurrentBlock | null> {

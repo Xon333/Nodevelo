@@ -348,12 +348,30 @@ export interface GeneratedPlan {
   // period lookup) and for plans generated before this shipped — truthy-check, never `=== null`.
   seasonFocus?: SeasonFocus;
   seasonFocusRationale?: string;
-  // Protocol violations on quality sessions (Threshold/VO2max/SIT/RaceSim) — a distinct,
-  // higher-severity category than `warnings`: the session contradicts its own KB protocol, so
-  // writing it means the plan and the lived session describe different things. Kept out of
-  // `warnings` so the UI renders it as its own red category. Optional: plans generated before this
-  // field parse back as undefined — truthy-check on read.
-  protocolViolations?: string[];
+  // Publication-gate verdict (lib/publication-gate.ts): blockers refuse publication outright — no
+  // override exists; preferences publish only via an explicit informed override. Absent for plans
+  // generated before the gate shipped — truthy-check on read, never `=== null`.
+  findings?: PlanFindings;
+}
+
+// Classified validator output the publication gate stamps onto a generated plan. Severity is
+// decided once in the gate by emitter, never by parsing message strings.
+export interface PlanFindings {
+  blockers: string[];
+  preferences: string[];
+}
+
+// Persisted publication-gate verdict for the most recent generation (data/generation-gate.json,
+// single slot, latest wins). /api/write refuses any write whose verdictHash doesn't match the plan
+// being published, so an unverified or superseded plan can never reach the calendar. `model` /
+// `promptVersion` are provenance stamps; absent on records from before they existed — truthy-read.
+export interface GenerationVerdict {
+  verdictHash: string;
+  blockers: string[];
+  preferences: string[];
+  model?: string;
+  promptVersion?: number;
+  createdAt: string;
 }
 
 // ---------- Active block (data/current-block.json) ----------
@@ -510,6 +528,17 @@ export interface CurrentBlock {
   deferredQuality?: string[];
   seasonFocus?: string; // MACRO: the focus period this block was generated under
   seasonPhase?: string;
+  // Publication-gate trust contract: the informed-override provenance stamped when this block was
+  // published past persisted preference findings under an explicit athlete acknowledgment — WHICH
+  // concerns were overridden (frozen verbatim) and WHEN. Absent on clean publishes and on blocks
+  // written before this shipped — truthy-check on read, never `=== null`.
+  publicationOverride?: PublicationOverride;
+}
+
+// The write-time record of an informed override decision (see CurrentBlock.publicationOverride).
+export interface PublicationOverride {
+  findings: string[];
+  acknowledgedAt: string; // ISO timestamp of the acknowledged publish
 }
 
 // ---------- No-block Today (data/weekly-envelope.json) — Phase 3a §8-10 ----------

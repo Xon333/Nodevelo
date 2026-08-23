@@ -28,16 +28,16 @@ function day(date: string, type: WorkoutType, weekNumber = 1): PlannedDay {
 
 describe("validateSchedule — back-to-back hard days", () => {
   it("flags two quality sessions on consecutive dates", () => {
-    const w = validateSchedule([day("2026-06-20", "Threshold"), day("2026-06-21", "VO2max")], SETTINGS, 250);
-    expect(w).toHaveLength(1);
-    expect(w[0]).toMatch(/back-to-back hard days/);
-    expect(w[0]).toMatch(/Threshold on 2026-06-20 then VO2max on 2026-06-21/);
+    const { spacing } = validateSchedule([day("2026-06-20", "Threshold"), day("2026-06-21", "VO2max")], SETTINGS, 250);
+    expect(spacing).toHaveLength(1);
+    expect(spacing[0]).toMatch(/back-to-back hard days/);
+    expect(spacing[0]).toMatch(/Threshold on 2026-06-20 then VO2max on 2026-06-21/);
   });
 
   it("counts RaceSim as a hard day", () => {
-    const w = validateSchedule([day("2026-06-20", "SIT"), day("2026-06-21", "RaceSim")], SETTINGS, 250);
-    expect(w).toHaveLength(1);
-    expect(w[0]).toMatch(/back-to-back hard days/);
+    const { spacing } = validateSchedule([day("2026-06-20", "SIT"), day("2026-06-21", "RaceSim")], SETTINGS, 250);
+    expect(spacing).toHaveLength(1);
+    expect(spacing[0]).toMatch(/back-to-back hard days/);
   });
 
   it("passes when a rest day separates two quality sessions", () => {
@@ -45,7 +45,8 @@ describe("validateSchedule — back-to-back hard days", () => {
       [day("2026-06-20", "Threshold"), day("2026-06-21", "Rest"), day("2026-06-22", "VO2max")],
       SETTINGS, 250
     );
-    expect(w).toEqual([]);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 
   it("does not treat Z2/Recovery/Strength as hard", () => {
@@ -53,7 +54,8 @@ describe("validateSchedule — back-to-back hard days", () => {
       [day("2026-06-20", "Strength"), day("2026-06-21", "Threshold"), day("2026-06-22", "Z2")],
       SETTINGS, 250
     );
-    expect(w).toEqual([]);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 
   it("treats a durability Z2 ride with embedded threshold work as a hard day (CR-1)", () => {
@@ -61,9 +63,9 @@ describe("validateSchedule — back-to-back hard days", () => {
       date: "2026-06-20", weekNumber: 1, weekTheme: "t", name: "Durability", type: "Z2",
       durationMin: 240, workoutText: "Main Set 3x\n- 12m 95%\n- 6m 60%", description: "x",
     };
-    const w = validateSchedule([durability, day("2026-06-21", "VO2max")], SETTINGS, 250);
-    expect(w.some((m) => /back-to-back hard days/.test(m))).toBe(true);
-    expect(w.some((m) => /embedded intensity/.test(m))).toBe(true);
+    const { spacing } = validateSchedule([durability, day("2026-06-21", "VO2max")], SETTINGS, 250);
+    expect(spacing.some((m) => /back-to-back hard days/.test(m))).toBe(true);
+    expect(spacing.some((m) => /embedded intensity/.test(m))).toBe(true);
   });
 
   it("uses the athlete's durability-envelope override for the embedded-intensity floor (CAL-3)", () => {
@@ -74,33 +76,36 @@ describe("validateSchedule — back-to-back hard days", () => {
       durationMin: 240, workoutText: "Main Set 3x\n- 12m 92%\n- 6m 60%", description: "x",
     };
     const pair = [durability, day("2026-06-21", "VO2max")];
-    expect(validateSchedule(pair, SETTINGS, 250).some((m) => /embedded intensity/.test(m))).toBe(true);
+    expect(validateSchedule(pair, SETTINGS, 250).spacing.some((m) => /embedded intensity/.test(m))).toBe(true);
     const raised: BlockSettings = { ...SETTINGS, durabilityInsertEnvelope: { embeddedHardPct: 95, maxIntensityPct: 122, maxEffortMin: 20 } };
-    expect(validateSchedule(pair, raised, 250).some((m) => /embedded intensity/.test(m))).toBe(false);
+    expect(validateSchedule(pair, raised, 250).spacing.some((m) => /embedded intensity/.test(m))).toBe(false);
   });
 
   it("leaves a plain Z2 ride (no embedded intensity) easy next to a quality day", () => {
-    expect(validateSchedule([day("2026-06-20", "Z2"), day("2026-06-21", "VO2max")], SETTINGS, 250)).toEqual([]);
+    const w = validateSchedule([day("2026-06-20", "Z2"), day("2026-06-21", "VO2max")], SETTINGS, 250);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 
   it("does not pair quality days that are two calendar days apart", () => {
     // Same array positions, but a gap in dates (a missing day) must not false-flag.
     const w = validateSchedule([day("2026-06-20", "Threshold"), day("2026-06-22", "VO2max")], SETTINGS, 250);
-    expect(w).toEqual([]);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 
   it("catches a back-to-back pair across the week boundary (Sat → Sun)", () => {
-    const w = validateSchedule(
+    const { spacing } = validateSchedule(
       [day("2026-06-20", "VO2max", 1), day("2026-06-21", "SIT", 2)],
       SETTINGS, 250
     );
-    expect(w.some((m) => /back-to-back/.test(m))).toBe(true);
+    expect(spacing.some((m) => /back-to-back/.test(m))).toBe(true);
   });
 });
 
 describe("validateSchedule — weekly quality budget", () => {
   it("flags a week with more quality sessions than the budget", () => {
-    const w = validateSchedule(
+    const { budget } = validateSchedule(
       [
         day("2026-06-15", "Threshold", 1),
         day("2026-06-17", "VO2max", 1),
@@ -108,22 +113,23 @@ describe("validateSchedule — weekly quality budget", () => {
       ],
       SETTINGS, 250
     );
-    const budget = w.find((m) => /over the 2\/week budget for a loading week/.test(m));
-    expect(budget).toBeDefined();
-    expect(budget).toMatch(/week 1 has 3 quality sessions/);
+    const overBudget = budget.find((m) => /over the 2\/week budget for a loading week/.test(m));
+    expect(overBudget).toBeDefined();
+    expect(overBudget).toMatch(/week 1 has 3 quality sessions/);
   });
 
   it("passes a week exactly at budget", () => {
-    const w = validateSchedule(
+    const { budget } = validateSchedule(
       [day("2026-06-15", "Threshold", 1), day("2026-06-17", "VO2max", 1)],
       SETTINGS, 250
     );
-    expect(w.some((m) => /budget/.test(m))).toBe(false);
+    expect(budget.some((m) => /budget/.test(m))).toBe(false);
   });
 
   it("does not flag a recovery week that sits under budget", () => {
     const w = validateSchedule([day("2026-07-06", "Threshold", 4)], SETTINGS, 250);
-    expect(w).toEqual([]);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 });
 
@@ -144,29 +150,31 @@ describe("validateSchedule — per-week budget (EC-11)", () => {
     const days = [q("2026-06-16", 1, "Threshold"), q("2026-06-18", 1, "SIT")];
     const targets = [{ weekNumber: 1, isRecovery: true, targetHours: 7.2 }];
     const w = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets);
-    expect(w).toEqual([]);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 
   it("does not count an event day against the week's quality budget", () => {
     const days = [q("2026-06-16", 1, "Threshold"), q("2026-06-18", 1, "SIT"), q("2026-06-20", 1, "RaceSim")];
     const targets = [{ weekNumber: 1, isRecovery: false, targetHours: 12 }];
     const events = [{ name: "KOM", date: "2026-06-20", priority: "B" as const, type: "road-race" as const }];
-    const w = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets, events);
-    expect(w.some((s) => /quality sessions/.test(s))).toBe(false); // 3 days, but the race isn't budgeted
+    const { budget } = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets, events);
+    expect(budget.some((s) => /quality sessions/.test(s))).toBe(false); // 3 days, but the race isn't budgeted
   });
 });
 
 describe("validateSchedule — edges", () => {
-  it("returns [] for an empty block", () => {
-    expect(validateSchedule([], SETTINGS, 250)).toEqual([]);
+  it("returns empty spacing and budget for an empty block", () => {
+    expect(validateSchedule([], SETTINGS, 250)).toEqual({ spacing: [], budget: [] });
   });
 
-  it("returns [] for an all-easy week", () => {
+  it("returns no findings for an all-easy week", () => {
     const w = validateSchedule(
       [day("2026-06-15", "Z2"), day("2026-06-16", "Recovery"), day("2026-06-17", "Rest")],
       SETTINGS, 250
     );
-    expect(w).toEqual([]);
+    expect(w.spacing).toEqual([]);
+    expect(w.budget).toEqual([]);
   });
 });
 
@@ -379,16 +387,17 @@ describe("Decision 2 — single owner per concern (2026-07-29)", () => {
     ];
     const targets = [{ weekNumber: 1, isRecovery: true, targetHours: 7.2 }];
 
-    const scheduleWarnings = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets);
+    const schedule = validateSchedule(days, DEFAULT_BLOCK_SETTINGS, 250, targets);
     const densityWarnings = validateRecoveryWeekDensity(days, targets, DEFAULT_BLOCK_SETTINGS, 250, []);
     const cadenceWarnings = validatePrimaryQualityCadence(days, "vo2max", targets, 250);
 
-    expect(scheduleWarnings).toEqual([]);
+    expect(schedule.spacing).toEqual([]);
+    expect(schedule.budget).toEqual([]);
     expect(cadenceWarnings).toEqual([]);
     expect(densityWarnings).toHaveLength(1);
     expect(densityWarnings[0]).toMatch(/RECOVERY DENSITY: week 1 \(recovery\) has 2 quality sessions \(VO2max, VO2max\)/);
 
-    const total = [...scheduleWarnings, ...densityWarnings, ...cadenceWarnings];
+    const total = [...schedule.spacing, ...schedule.budget, ...densityWarnings, ...cadenceWarnings];
     expect(total).toHaveLength(1);
   });
 });

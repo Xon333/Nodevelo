@@ -40,7 +40,7 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 
 20. **`correlation.ts` never imports `calibration.ts`** (calibration consumes correlation; reversing creates a cycle).
 21. **Calibration precedence is exactly**: manual override > honestly-derived (must discriminate) > population default — all through `trustedCalibration`.
-22. **Generation proposes; `/api/write` commits.** `/api/generate` persists nothing but the CAS-guarded season re-plan, and only after success.
+22. **Generation proposes; `/api/write` commits.** `/api/generate` persists nothing but the CAS-guarded season re-plan and the publication-gate verdict record (`data/generation-gate.json`, best-effort, single slot — see #61), both only after success.
 23. **The sync route stays LLM-free** — the coach note is `/api/analyze`'s job (fast sync, isolated Anthropic failures).
 24. **CSRF enforcement stays central** in `proxy.ts` — routes must not grow their own opt-outs.
 25. **`compliance` is capped by execution** (`resolveCompliance`) — a badly-executed session can never report 100%.
@@ -61,6 +61,9 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 
 32. **A block's day-slot durations sum exactly to its week's hour target**, and every slot satisfies `0 ≤ minMin ≤ nominalMin ≤ maxMin` (`block-skeleton.computeBlockSkeleton`, [06-generation.md](systems/06-generation.md#the-week-skeleton-composition-authority)). Property-swept across settings combinations in `block-skeleton.test.ts`, not just example-tested — the guarantee was broken by inputs no example test tried (an event colliding with the canonical long-ride day; a configured budget that couldn't actually be placed).
 33. **One fact, one warning owner.** `validateSkeletonConformance` owns day-level facts, `validateWeekHours` owns the weekly total, `validateRecoveryWeekDensity` owns recovery composition — none may restate another's warning. A recovery week once produced three near-identical warnings for one problem before this was enforced.
+60. **Publication-gate blockers are absolute.** `/api/write` refuses any plan whose persisted verdict carries blockers — no request field (`overrideAcknowledged`, flags, client state) can bypass them, and the refusal returns before any calendar mutation or local write ([06-generation.md § The publication gate](systems/06-generation.md#the-publication-gate), [DECISIONS](DECISIONS.md) ADR-0015). The override path exists only for preferences, and only with an explicit acknowledgment that gets stamped onto `CurrentBlock.publicationOverride`.
+61. **The publish passport is the persisted verdict, not a recompute.** `/api/generate` persists the classified verdict (single slot in `data/generation-gate.json`, keyed by `sha256(canonical({days, blockParams}))`) and `/api/write` matches the submitted plan against THAT record, refusing anything else with 422. Re-running validators at write time would score an unchanged plan against drifted context (the score log and season plan move between generate and publish) and raise false blockers on a plan nothing is wrong with.
+62. **Severity is decided once, by emitter.** `lib/publication-gate.ts` buckets each finding by WHICH validator emitted it (blockers / preferences / advisories) — never by parsing message strings. Validators remain the sole owners of their facts (#33); the gate only classifies. A new validator's severity is a one-place decision in that module, recorded next to its peers.
 
 ## Aerobic comparability
 

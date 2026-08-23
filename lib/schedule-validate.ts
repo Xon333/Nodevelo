@@ -47,18 +47,26 @@ function daysBetween(isoA: string, isoB: string): number {
   return Math.round((Date.parse(`${isoB}T12:00:00Z`) - Date.parse(`${isoA}T12:00:00Z`)) / 86_400_000);
 }
 
-// Validate a whole generated block's session *placement*. Returns a (possibly empty) list of
-// human-readable warnings — never throws, never mutates.
+// Validate a whole generated block's session *placement*. Returns the two findings families as a
+// typed split — `spacing` (back-to-back hard days) vs `budget` (loading-week quality overrun) — so
+// the publication gate can bucket them by emitter without parsing message strings (the ≥3-quality
+// adjacency exception applies to spacing only). Never throws, never mutates.
+export interface ScheduleFindings {
+  spacing: string[];
+  budget: string[];
+}
+
 export function validateSchedule(
   days: PlannedDay[],
   settings: BlockSettings,
   ftp: number,
   weekTargets: WeekTarget[] = [],
   events: SeasonEvent[] = []
-): string[] {
-  if (days.length === 0) return [];
+): ScheduleFindings {
+  if (days.length === 0) return { spacing: [], budget: [] };
   const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
-  const warnings: string[] = [];
+  const spacing: string[] = [];
+  const budget: string[] = [];
   // The embedded-hard floor, per-athlete: resolve the durability envelope once and reuse it for every
   // adjacency check, so spacing agrees with validatePlanProtocol on what counts as an embedded effort.
   const embeddedHardPct = resolveDurabilityInsertEnvelope(settings.durabilityInsertEnvelope).embeddedHardPct;
@@ -70,7 +78,7 @@ export function validateSchedule(
     const prev = sorted[i - 1];
     const cur = sorted[i];
     if (isHardDay(prev, ftp, embeddedHardPct) && isHardDay(cur, ftp, embeddedHardPct) && daysBetween(prev.date, cur.date) === 1) {
-      warnings.push(
+      spacing.push(
         `SCHEDULE: back-to-back hard days — ${hardLabel(prev)} on ${prev.date} then ${hardLabel(cur)} on ${cur.date}. Put an easy or rest day between hard sessions.`
       );
     }
@@ -100,18 +108,18 @@ export function validateSchedule(
   }
   for (const [week, weekDays] of [...byWeek.entries()].sort((a, b) => a[0] - b[0])) {
     if (recoveryWeeks.has(week)) continue; // owned solely by validateRecoveryWeekDensity now
-    const budget = settings.qualitySessionsPerLoadingWeek;
+    const qualityBudget = settings.qualitySessionsPerLoadingWeek;
     const quality = weekDays.filter((d) => isQuality(d) && !eventDates.has(d.date));
-    if (quality.length > budget) {
-      warnings.push(
+    if (quality.length > qualityBudget) {
+      budget.push(
         `SCHEDULE: week ${week} has ${quality.length} quality sessions (${quality
           .map((d) => d.type)
-          .join(", ")}) — over the ${budget}/week budget for a loading week.`
+          .join(", ")}) — over the ${qualityBudget}/week budget for a loading week.`
       );
     }
   }
 
-  return warnings;
+  return { spacing, budget };
 }
 
 // P4 (2026-07-24 block-generation redesign): a lightweight taper tier for priority-B/C events, short
