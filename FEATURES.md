@@ -16,7 +16,11 @@ AI — and the AI only ever phrases numbers the code already computed.
   effective today ("FTP changed 288 → 300 W on …; zones updated"). `reconcile()`
 - **History anchored to the right FTP** — each ride is scored against the physiology in effect *that day*.
 - **Self-directed intent learning (AI-assisted)** — after sync, an athlete-authored ride note is parsed
-  into grounded objectives and graded deterministically against available evidence. A trustworthy
+  into grounded objectives and graded deterministically against available evidence. A note naming
+  curated Intervals.icu segments grades each from its own lap (duration range, average-power zone,
+  normalized-power zone against the ride-date zones); unmatched or ambiguous labels stay unscored
+  rather than guessed from whole-ride totals. While a noted unplanned ride's intent is being evaluated,
+  Today shows "Evaluating your intent…" instead of a generic off-plan score. A trustworthy
   result teaches the overall athlete model and no longer counts as plan drift; prescribed sessions
   remain ledger-authoritative. The Today debrief shows the interpreted intent, supported evidence,
   and overlay-resolved score or `Not scored` reason. `app/api/intent`, `lib/intent-runner.ts`,

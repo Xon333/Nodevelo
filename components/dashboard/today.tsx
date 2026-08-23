@@ -189,8 +189,21 @@ export function TodayRideCard({
   // Once an overlay APPLIES, its effective score (or Not-scored reason) is authoritative — the old
   // intrinsic scorer's analysis.executionScore must not leak through. A non-null outcome alone means
   // only that a ledger row was found; prescribed/no-overlay rides keep the analysis score.
-  const intentPending = Boolean(analyzing && outcome?.overlay == null && analysis.activityDescription);
-  const displayScore = intentPending ? null : outcome?.overlay != null ? outcome.effectiveExecutionScore : analysis.executionScore;
+  //
+  // Task 6 (segment-aware intent scoring): while /api/intent resolves an UNPLANNED, athlete-noted
+  // ride, hold back the intrinsic number — it's about to be overridden or contradicted by the
+  // overlay. Planned rides and unnoted rides have nothing for the intent parser to evaluate, so
+  // they keep their ordinary score even mid-analysis; a whitespace-only note carries no intent
+  // signal and counts as unnoted.
+  const intentPending = Boolean(
+    analyzing && !analysis.plannedName && analysis.activityDescription?.trim() && outcome?.overlay == null
+  );
+  const displayScore =
+    outcome?.overlay != null
+      ? outcome.effectiveExecutionScore
+      : intentPending
+        ? null
+        : analysis.executionScore;
 
   // Compliance % removed — execution (the duration/completion-aware 1–10 shown above) is the
   // single completion-anchored index; a separate macro % only duplicated the same story.

@@ -186,8 +186,11 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 - **Named segment objectives are the local exception.** When the note names a curated Intervals.icu
   segment, intent parsing preserves its label, duration range, average-power zone, and normalized-power
   zone as one `segment` objective. The scorer matches that label exactly (or to one unique numeric suffix),
-  reads average/normalized watts from that lap, and uses the ride-date power-zone tops. It never falls back
-  to whole-ride zone time; missing or ambiguous labels are ungraded. This closes the August 19 false
+  reads average/normalized watts from that lap, and uses the ride-date power-zone tops; grades the lap's
+  duration against the stated range within its own ±3 kind band (plus ride-order and all-precise
+  bonuses). It never falls back
+  to whole-ride zone time; missing or ambiguous labels are ungraded, as is a matched lap with no
+  average/normalized-power reading. This closes the August 19 false
   whole-ride aggregation while leaving genuinely whole-ride zone claims unchanged.
 - **Phase 3b (2026-08-12) added HR-ceiling, cadence and terrain claims to self-directed intent-scoring.**
   `ExecutedInterval` gained `maxHr`/`avgCadenceRpm`/`maxGradientPct`/`elevationGainM`/`label`; `matchLaps`

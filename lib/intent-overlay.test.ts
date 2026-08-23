@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { indexOverlaysByActivity, indexOverlaysByDate, resolveAll, resolveEffectiveOutcome } from "./intent-overlay";
+import { INTENT_SCORING_VERSION, buildOverlay } from "./intent-scoring";
+import {
+  indexOverlaysByActivity,
+  indexOverlaysByDate,
+  isApplicable,
+  resolveAll,
+  resolveEffectiveOutcome,
+} from "./intent-overlay";
 import type { IntentOverlay, NotScoredReason, RideScoreEntry } from "./types";
 
 const entry = (over: Partial<RideScoreEntry> = {}): RideScoreEntry => ({
@@ -313,5 +320,57 @@ describe("resolveAll", () => {
       expect(resolved.outcome.effectiveExecutionScore).toBe(resolved.entry.executionScore);
       expect(resolved.outcome.source).toBe("ledger");
     }
+  });
+});
+
+describe("overlay schema versions", () => {
+  // What the store round-trip does to every row: JSON serialise → parse back.
+  const roundTrip = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+  it("schema-1 and schema-2 overlays both survive serialization and stay coherent/applicable", () => {
+    const v1 = overlay(); // fixture defaults to schemaVersion: 1
+    const v2 = overlay({ id: "ov-2", scoringVersion: 2, schemaVersion: 2 });
+    expect(v1.schemaVersion).toBe(1);
+    expect(v2.schemaVersion).toBe(2);
+
+    for (const candidate of [v1, v2]) {
+      const restored = roundTrip(candidate);
+      expect(restored).toEqual(candidate);
+      expect(isApplicable(restored)).toBe(true);
+      const result = resolveEffectiveOutcome(
+        entry({ activityId: candidate.activityId, executionScore: 3 }),
+        indexOverlaysByActivity([restored]),
+        new Map()
+      );
+      expect(result).toMatchObject({ source: "overlay", effectiveExecutionScore: 8 });
+    }
+  });
+
+  it("new writes stamp schemaVersion 2 with scoringVersion INTENT_SCORING_VERSION and round-trip applicable", () => {
+    const interpretation = overlay().interpretation;
+    if (!interpretation) throw new Error("fixture interpretation missing");
+    const written = buildOverlay({
+      id: "fresh",
+      activityId: "a1",
+      date: "2026-06-15",
+      noteFingerprint: "fp-fresh",
+      createdAt: "2026-06-16T10:00:00.000Z",
+      interpretation,
+      verdict: {
+        score: 7,
+        reason: null,
+        objectives: interpretation.objectives,
+        scopeMin: 45,
+        scopeRequiredMin: 20,
+      },
+    });
+
+    expect(written.schemaVersion).toBe(2);
+    expect(written.scoringVersion).toBe(INTENT_SCORING_VERSION);
+    expect(INTENT_SCORING_VERSION).toBe(2);
+
+    const restored = roundTrip(written);
+    expect(restored).toEqual(written);
+    expect(isApplicable(restored)).toBe(true);
   });
 });

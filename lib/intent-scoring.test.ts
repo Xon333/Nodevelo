@@ -1734,6 +1734,32 @@ describe("intentWorkoutType", () => {
     ).toBe("VO2max");
   });
 
+  it("resolves segment zones over contextual rest-day wording in the purpose", () => {
+    expect(
+      intentWorkoutType({
+        primaryPurpose: "hard efforts after a rest day",
+        phases: [
+          { description: "warm up", kind: "zone-time", targetZone: "Z2" },
+          { description: "Rolling Terrain segment", kind: "segment", avgPowerZone: "Z4", normalizedPowerZone: "Z5" },
+        ],
+      })
+    ).toBe("VO2max");
+  });
+
+  it("keeps a bare rest day as Rest when no zones are stated", () => {
+    expect(intentWorkoutType(withPurpose("rest day"))).toBe("Rest");
+    expect(intentWorkoutType({ primaryPurpose: "rest", phases: [] })).toBe("Rest");
+  });
+
+  it("keeps a recovery spin after a rest day as Recovery", () => {
+    expect(
+      intentWorkoutType({
+        primaryPurpose: "recovery spin after yesterday's rest day",
+        phases: [{ description: "easy spinning", kind: "zone-emphasis", targetZone: "Z1" }],
+      })
+    ).toBe("Recovery");
+  });
+
   it("returns null for an unmappable purpose", () => {
     expect(intentWorkoutType(withPurpose("just riding around with friends and stopping for cake"))).toBeNull();
     expect(intentWorkoutType({ primaryPurpose: "", phases: [] })).toBeNull();

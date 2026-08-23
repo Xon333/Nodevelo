@@ -5,7 +5,26 @@ import * as intervals from "./intervals-api";
 import { buildIntentQueue, noteFingerprint } from "./intent-queue";
 import { isApplicable } from "./intent-overlay";
 import { runIntentParsing } from "./intent-runner";
-import type { ActivitySummary, IntentInterpretation, IntentOverlay, IntentOverlayStore, IntentParseFailure, RideScoreEntry } from "./types";
+import type { RideEvidence } from "./intent-scoring";
+import { readPhysiology } from "./physiology";
+import type {
+  ActivitySummary,
+  IntentInterpretation,
+  IntentOverlay,
+  IntentOverlayStore,
+  IntentParseFailure,
+  PhysiologySnapshot,
+  RideScoreEntry,
+} from "./types";
+
+// Call-through spy on the deterministic scorer, so tests can inspect the exact evidence the runner
+// hands it (e.g. ride-date power zones) while every other test keeps real scoring behaviour.
+const scoreIntentExecutionSpy = vi.hoisted(() => vi.fn());
+vi.mock("./intent-scoring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./intent-scoring")>();
+  scoreIntentExecutionSpy.mockImplementation(actual.scoreIntentExecution);
+  return { ...actual, scoreIntentExecution: scoreIntentExecutionSpy };
+});
 
 vi.mock("./anthropic-api", () => ({ isAnthropicConfigured: vi.fn(), parseRideIntent: vi.fn() }));
 vi.mock("./intervals-api", () => ({ fetchIntervals: vi.fn() }));
@@ -16,6 +35,12 @@ vi.mock("./data-store", () => ({
   updateIntentOverlayStore: vi.fn(),
   updateIntentOverlays: vi.fn(),
 }));
+// Only `readPhysiology` is stubbed — `physiologyAsOf` stays REAL so this suite pins actual
+// effective-dating behaviour, not a re-implementation of it.
+vi.mock("./physiology", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./physiology")>();
+  return { ...actual, readPhysiology: vi.fn() };
+});
 
 const TODAY = "2026-08-07";
 
@@ -145,6 +170,7 @@ beforeEach(() => {
     overlayStore.overlays = await mutate(structuredClone(overlayStore.overlays));
     return structuredClone(overlayStore);
   });
+  vi.mocked(readPhysiology).mockResolvedValue(null);
   vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
   vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(interpretation()));
   vi.mocked(intervals.fetchIntervals).mockResolvedValue([]);
@@ -336,5 +362,36 @@ describe("runIntentParsing", () => {
     expect(active).toHaveLength(1);
     expect(active[0].interpretation?.objectives[0].evidence).toContain("at 200 W vs");
     expect(active[0].interpretation?.objectives[0].evidence).not.toContain("at 250 W vs");
+  });
+
+  it("ride-date power zones: the scorer sees the historical snapshot's tops, not current zones", async () => {
+    const rideDateTops = [60, 80, 95, 110, 130, 160];
+    const currentTops = [50, 70, 85, 100, 115, 140];
+    const snapshot = (effectiveFrom: string, powerZonePct: number[]): PhysiologySnapshot => ({
+      effectiveFrom,
+      capturedAt: "2026-08-01T00:00:00.000Z",
+      source: "intervals",
+      ftp: 288,
+      lthr: 165,
+      maxHr: 185,
+      powerZonePct,
+      hrZones: [],
+      hrZonesAreBpm: true,
+      powerZoneNames: [],
+      hrZoneNames: [],
+    });
+    // The CURRENT zones changed only AFTER TODAY (2026-08-07): as-of resolution must ignore them
+    // for this ride and anchor to the snapshot that was live on the ride date.
+    vi.mocked(readPhysiology).mockResolvedValue({
+      history: [snapshot("2026-07-01", rideDateTops)],
+      current: snapshot("2026-08-10", currentTops),
+    });
+
+    await runIntentParsing(TODAY, []);
+
+    expect(scoreIntentExecutionSpy).toHaveBeenCalledTimes(1);
+    const evidence = scoreIntentExecutionSpy.mock.calls[0][1] as RideEvidence;
+    expect(evidence.powerZoneTopsPct).toEqual(rideDateTops);
+    expect(evidence.powerZoneTopsPct).not.toEqual(currentTops);
   });
 });

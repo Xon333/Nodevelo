@@ -297,6 +297,91 @@ describe("TodayRideCard overlay-resolved score", () => {
   });
 });
 
+// Task 6 (segment-aware intent scoring): while /api/intent resolves an UNPLANNED, athlete-noted
+// ride, the card must hold back the intrinsic scorer's number rather than flash a score the intent
+// parser is about to override (or contradict). Planned rides and unnoted rides have no intent to
+// evaluate — they keep their ordinary score even mid-analysis.
+describe("TodayRideCard intent-pending state", () => {
+  const activeOverlay = {
+    id: "ov-1", activityId: "a1", date: "2026-08-11", noteFingerprint: "fp",
+    status: "active" as const, origin: "self-directed" as const, effectiveExecutionScore: 8,
+    notScoredReason: null,
+    interpretation: { intent: { primaryPurpose: "endurance", phases: [] }, confidence: "high" as const, objectives: [], model: "m", promptVersion: 1 },
+    scoringVersion: 1, schemaVersion: 1, createdAt: "2026-08-11T00:00:00.000Z",
+    approvedAt: null, supersededBy: null,
+  };
+
+  const analysis = (over: Record<string, unknown>) =>
+    ({
+      activityDate: "2026-08-11",
+      activityName: "Ride",
+      activityDurationMin: 90,
+      activityDecoupling: null,
+      executionScore: 5,
+      coachNote: null,
+      powerPRs: [],
+      ...over,
+    }) as unknown as TodayAnalysis;
+
+  it("shows 'Evaluating your intent…' instead of the generic score for an unplanned noted ride while analyzing with no overlay", () => {
+    render(
+      <TodayRideCard
+        analysis={analysis({ plannedName: null, activityDescription: "Intent: Flat 1" })}
+        outcome={null}
+        analyzing
+      />
+    );
+    expect(screen.getByText("Evaluating your intent…")).toBeTruthy();
+    expect(screen.queryByText("5/10")).toBeNull(); // brief's exact assertion
+    expect(screen.queryByText("5")).toBeNull(); // the score renders as split spans; guard both halves
+  });
+
+  it("keeps an already-resolved overlay's effective score visible during manual re-analysis — overlay beats pending", () => {
+    render(
+      <TodayRideCard
+        analysis={analysis({ plannedName: null, activityDescription: "Intent: Flat 1" })}
+        outcome={{ effectiveExecutionScore: 8, origin: "self-directed", source: "overlay", overlay: activeOverlay }}
+        analyzing
+      />
+    );
+    expect(screen.getByText("8")).toBeTruthy();
+    expect(screen.getByText("/10", { exact: false })).toBeTruthy();
+    expect(screen.queryByText("Evaluating your intent…")).toBeNull();
+  });
+
+  it("keeps the ordinary score for a PLANNED ride even while analyzing — nothing to evaluate", () => {
+    render(
+      <TodayRideCard
+        analysis={analysis({ plannedName: "Sweet Spot 3x12", activityDescription: "Felt controlled" })}
+        outcome={null}
+        analyzing
+      />
+    );
+    expect(screen.queryByText("Evaluating your intent…")).toBeNull();
+    expect(screen.getByText("5")).toBeTruthy();
+  });
+
+  it("keeps the ordinary score for an UNNOTED ride even while analyzing", () => {
+    render(<TodayRideCard analysis={analysis({ plannedName: null })} outcome={null} analyzing />);
+    expect(screen.queryByText("Evaluating your intent…")).toBeNull();
+    expect(screen.getByText("5")).toBeTruthy();
+  });
+
+  // A whitespace-only Intervals.icu note carries no intent signal — trimming guards the pending
+  // state so "   " doesn't blank the score.
+  it("treats a whitespace-only note as unnoted and keeps the ordinary score", () => {
+    render(
+      <TodayRideCard
+        analysis={analysis({ plannedName: null, activityDescription: "   " })}
+        outcome={null}
+        analyzing
+      />
+    );
+    expect(screen.queryByText("Evaluating your intent…")).toBeNull();
+    expect(screen.getByText("5")).toBeTruthy();
+  });
+});
+
 describe("PlannedToday — Phase 3a no-block summary", () => {
   const mkBlock = (over: Partial<CurrentBlock> = {}): CurrentBlock => ({
     goal: "g",
