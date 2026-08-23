@@ -48,7 +48,7 @@ vi.mock("@/lib/data-store", () => ({
 }));
 
 import * as store from "@/lib/data-store";
-import { POST } from "@/app/api/retrospective/route";
+import { POST, yamlDoubleQuoted } from "@/app/api/retrospective/route";
 
 // post() sends { today: "2026-06-29" }; post(obj) without `today` merges that fixed date in, so
 // no call site depends on the real system clock. Objects already carrying `today` pass through
@@ -501,9 +501,41 @@ describe("Phase 1 trust contract", () => {
     expect(arg.endedEarlyReason).toBe(reason); // history entry round-trips the original verbatim
     const content = h.writeRetrospective.mock.calls[0][1] as string;
     const reasonLine = content.split("\n").find((line) => line.startsWith("ended_early_reason:"));
-    // Exactly one single-line frontmatter value: quote flattened to ', newline collapsed — so no
-    // raw newline can sit between the quotes and break the YAML.
-    expect(reasonLine).toBe(`ended_early_reason: "Pivot: rider said 'stop' mid-block"`);
+    // Exactly one single-line frontmatter value: the quote ESCAPED (not substituted), newline
+    // collapsed — so no raw newline can sit between the quotes and break the YAML.
+    expect(reasonLine).toBe(`ended_early_reason: "Pivot: rider said \\"stop\\" mid-block"`);
+  });
+
+  it("escapes (never substitutes) quotes and flattens newlines in the goal frontmatter value", async () => {
+    // Goals can be multi-line (the Plan page splits them on \n) and may carry quotes — the raw
+    // interpolation previously broke strict YAML; quote substitution corrupted the text.
+    h.readCurrentBlock.mockResolvedValueOnce({ ...block, goal: 'Build "big" FTP\nfor racing' });
+    const res = await post();
+    expect(res.status).toBe(200);
+    const content = h.writeRetrospective.mock.calls[0][1] as string;
+    const goalLine = content.split("\n").find((line) => line.startsWith("goal:"));
+    expect(goalLine).toBe('goal: "Build \\"big\\" FTP for racing"');
+  });
+
+  it("a seed containing a double quote and a newline survives the markdown channel intact", () => {
+    // The route's seeds are templated today, but the channel must be loss-proof for any text:
+    // writer escapes, approval flips the stamp, parser unescapes back to the original.
+    const seed = 'Progress "threshold" focus\nnext block';
+    const doc = [
+      "---",
+      'id: "2026-06-15_build-ftp"',
+      "seeds_approved: false",
+      "next_block_seeds:",
+      `  - ${yamlDoubleQuoted(seed)}`,
+      "---",
+      "## Retrospective",
+    ].join("\n");
+    expect(doc).toContain('\\"');
+    expect(doc).not.toContain("'threshold'");
+    expect(parseRetroSeeds(doc)).toEqual([]); // gated while unapproved
+    // Quotes survive byte-exact; CR/LF runs are deliberately flattened to one space by the
+    // single-line frontmatter format (same contract as ended_early_reason).
+    expect(parseRetroSeeds(approveSeedsInMarkdown(doc))).toEqual(['Progress "threshold" focus next block']);
   });
 
   it("409s an early-end decision with a blank reason", async () => {

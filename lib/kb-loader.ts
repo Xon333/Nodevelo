@@ -345,31 +345,52 @@ export function retroFileId(startDate: string, goal: string): string {
   return `${startDate}_${slugifyGoal(goal)}`;
 }
 
+// The frontmatter region of a retro markdown file: ONLY the lines between a leading `---` and the
+// next `---`. Files not starting with `---` (or with an unterminated delimiter) have none. Both the
+// seed gate and the seeds list must be read from here — a prose line in the narrative body reading
+// `seeds_approved: true` must never open the approval gate.
+function retroFrontmatterLines(content: string): string[] | null {
+  const lines = content.split("\n");
+  if (lines[0]?.trim() !== "---") return null;
+  const close = lines.indexOf("---", 1);
+  if (close === -1) return null;
+  return lines.slice(1, close);
+}
+
 // Phase 1: proposed seeds steer generation ONLY once the athlete (via the Plan-page adoption
 // action or a hand edit) stamped the file. Absent/false ⇒ [] — old files degrade to unapproved.
 export function parseRetroSeeds(content: string): string[] {
-  if (!/^seeds_approved:\s*true\s*$/m.test(content)) return [];
-  const lines = content.split("\n");
+  const fmLines = retroFrontmatterLines(content);
+  if (!fmLines || !fmLines.some((l) => /^seeds_approved:\s*true\s*$/.test(l))) return [];
   const seeds: string[] = [];
   let inSeeds = false;
-  for (const line of lines) {
+  for (const line of fmLines) {
     if (/^next_block_seeds:\s*$/.test(line)) { inSeeds = true; continue; }
     if (inSeeds) {
       const m = line.match(/^\s+-\s+"?(.*?)"?\s*$/);
-      if (m && m[1].trim()) { seeds.push(m[1].trim()); continue; }
+      if (m && m[1].trim()) { seeds.push(m[1].trim().replace(/\\(.)/g, "$1")); continue; }
       if (line.trim() !== "" && !/^\s+-/.test(line)) break;
     }
   }
   return seeds;
 }
 
-// Pure transform: flip an existing flag, or insert one right after the opening delimiter.
+// Pure transform: flip an existing flag, or insert one right after the opening delimiter — strictly
+// within the frontmatter region; body text is never modified.
 export function approveSeedsInMarkdown(content: string): string {
-  if (/^seeds_approved:\s*true\s*$/m.test(content)) return content;
-  if (/^seeds_approved:.*$/m.test(content)) {
-    return content.replace(/^seeds_approved:.*$/m, "seeds_approved: true");
+  const lines = content.split("\n");
+  if (lines[0]?.trim() !== "---") return content;
+  const close = lines.indexOf("---", 1);
+  if (close === -1) return content;
+  for (let i = 1; i < close; i++) {
+    if (/^seeds_approved:\s*true\s*$/.test(lines[i])) return content;
+    if (/^seeds_approved:/.test(lines[i])) {
+      lines[i] = "seeds_approved: true";
+      return lines.join("\n");
+    }
   }
-  return content.replace(/^---\n/, "---\nseeds_approved: true\n");
+  lines.splice(1, 0, "seeds_approved: true");
+  return lines.join("\n");
 }
 
 // Parse the `next_block_seeds:` YAML list out of the newest retrospective's frontmatter,

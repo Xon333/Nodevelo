@@ -28,6 +28,13 @@ import type { BlockHistoryEntry, StructuredReflection, WorkoutType } from "@/lib
 
 // slugify deleted — kb-loader.retroFileId owns filename derivation (single owner).
 
+// Correct YAML double-quoted scalar for frontmatter string values: escape backslashes first, then
+// quotes (never substitute them), then flatten CR/LF runs to one space so the value stays on a
+// single frontmatter line. parseRetroSeeds in kb-loader unescapes the exact inverse of this form.
+export function yamlDoubleQuoted(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]+/g, " ").trim()}"`;
+}
+
 function closestCtl(
   wellness: Array<{ date: string; ctl: number | null }>,
   targetDate: string
@@ -216,7 +223,7 @@ export async function POST(req: Request) {
   const frontmatter = [
     "---",
     `id: "${fileId}"`,
-    `goal: "${block.goal}"`,
+    `goal: ${yamlDoubleQuoted(block.goal)}`,
     `start_date: "${block.startDate}"`,
     `end_date: "${block.endDate}"`,
     `length_weeks: ${block.lengthWeeks}`,
@@ -224,7 +231,7 @@ export async function POST(req: Request) {
     ...(endedEarly
       ? [
           `ended_early: true`,
-          `ended_early_reason: "${endReason.replace(/\\/g, "\\\\").replace(/"/g, "'").replace(/[\r\n]+/g, " ")}"`,
+          `ended_early_reason: ${yamlDoubleQuoted(endReason)}`,
         ]
       : []),
     `execution_scored: ${evidence.scoredSessions}/${evidence.plannedSessions}`,
@@ -233,7 +240,7 @@ export async function POST(req: Request) {
     `execution_mean_score: ${evidence.overallMeanExecution ?? "n/a"}`,
     `seeds_approved: false`,
     "next_block_seeds:",
-    ...seeds.map((s) => `  - "${s.replace(/\\/g, "\\\\").replace(/"/g, "'")}"`),
+    ...seeds.map((s) => `  - ${yamlDoubleQuoted(s)}`),
     `generated_at: "${new Date().toISOString()}"`,
     "---",
     "",
