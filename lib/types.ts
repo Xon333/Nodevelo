@@ -534,6 +534,17 @@ export interface CurrentBlock {
   deferredQuality?: string[];
   seasonFocus?: string; // MACRO: the focus period this block was generated under
   seasonPhase?: string;
+  // Publication-gate trust contract: the informed-override provenance stamped when this block was
+  // published past persisted preference findings under an explicit athlete acknowledgment — WHICH
+  // concerns were overridden (frozen verbatim) and WHEN. Absent on clean publishes and on blocks
+  // written before this shipped — truthy-check on read, never `=== null`.
+  publicationOverride?: PublicationOverride;
+}
+
+// The write-time record of an informed override decision (see CurrentBlock.publicationOverride).
+export interface PublicationOverride {
+  findings: string[];
+  acknowledgedAt: string; // ISO timestamp of the acknowledged publish
 }
 
 // ---------- No-block Today (data/weekly-envelope.json) — Phase 3a §8-10 ----------

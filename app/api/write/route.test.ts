@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { IntervalsCalendarEvent, RideScoreEntry, WorkoutType } from "@/lib/types";
+import type { GenerationVerdict, IntervalsCalendarEvent, RideScoreEntry, WorkoutType } from "@/lib/types";
+import { verdictHash } from "@/lib/publication-gate";
 
 // Integration test for /api/write (RV-9, regression for RV-2). Proves the route's partial-failure
 // safety at the IO boundary the pure tests can't reach: a mid-loop createEvent failure must NOT
@@ -23,6 +24,10 @@ vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(async () => ({ performance: { ftp: 280 } })),
   readBlockSettings: vi.fn(async () => ({ durabilityInsertEnvelope: undefined })),
   readCurrentBlock: vi.fn(async () => null),
+  // Publication gate (Task 4): default is the verdict-less refusal — /api/generate persisted
+  // nothing this route can match. Success-path tests opt in via allowPlan() below; the gate's own
+  // tests override per-fixture (blockers/preferences/tampered hash).
+  readGenerationVerdict: vi.fn(async () => null),
   readLastSync: vi.fn(async () => null),
   readScoreLog: vi.fn(async () => ({ entries: [] })),
   readIntentOverlays: vi.fn(async () => ({ overlays: [], updatedAt: "" })),
@@ -61,12 +66,30 @@ const plan = {
 const post = (body: unknown) =>
   POST(new Request("http://localhost/api/write", { method: "POST", body: JSON.stringify(body) }));
 
+// Deliberate extension for the publication gate (Task 4): hand the route the verdict /api/generate
+// would have persisted for EXACTLY this plan body — the passport the gate demands. mockResolvedValueOnce
+// so nothing leaks across tests; each test here issues a single POST. Gate-specific tests override
+// readGenerationVerdict themselves (via the overrides param or by not calling this at all).
+const allowPlan = (
+  body: { plan: { days: unknown[]; blockParams: unknown } },
+  overrides: Partial<GenerationVerdict> = {}
+) => {
+  (store.readGenerationVerdict as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    verdictHash: verdictHash(body.plan.days as Parameters<typeof verdictHash>[0], body.plan.blockParams),
+    blockers: [],
+    preferences: [],
+    createdAt: "2026-06-14T00:00:00Z",
+    ...overrides,
+  } satisfies GenerationVerdict);
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
   it("does not write a local block or archive history when a day fails mid-loop", async () => {
+    allowPlan({ plan });
     h.createEvent.mockResolvedValueOnce(101).mockRejectedValueOnce(new Error("502 upstream"));
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(false);
@@ -77,6 +100,7 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
   });
 
   it("on full success writes the block and posts every day with a stable nodevelo-<date> external_id", async () => {
+    allowPlan({ plan });
     h.createEvent.mockResolvedValue(200);
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
@@ -86,6 +110,7 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
   });
 
   it("auto-rolls-back the days that wrote when a later day fails (RV-9)", async () => {
+    allowPlan({ plan });
     h.createEvent.mockResolvedValueOnce(101).mockRejectedValueOnce(new Error("502 upstream"));
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(false);
@@ -112,6 +137,7 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
       { id: 900, uid: "u", externalId: "nodevelo-2026-06-15", name: "Old Threshold", description: "Old intent text", category: "WORKOUT", type: "Ride", date: "2026-06-15" },
     ]);
     const threeDayPlan = { ...plan, days: [day("2026-06-15", "A"), day("2026-06-16", "B"), day("2026-06-17", "C")] };
+    allowPlan({ plan: threeDayPlan });
     h.createEvent
       .mockResolvedValueOnce(101) // 2026-06-15 — overwrites the old block's real event
       .mockResolvedValueOnce(102) // 2026-06-16 — a genuinely new date
@@ -146,6 +172,7 @@ describe("/api/write partial-failure safety (RV-9 / RV-2)", () => {
       createdAt: "2026-06-01T00:00:00Z",
       days: [{ date: "2999-06-20", name: "Old", type: "Z2", durationMin: 60, eventId: 900 }],
     });
+    allowPlan({ plan });
     h.createEvent.mockResolvedValueOnce(501).mockResolvedValueOnce(502);
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
@@ -187,6 +214,7 @@ describe("/api/write version guard (UXA-24)", () => {
       goal: "g", lengthWeeks: 2, startDate: "2026-06-10", endDate: "2026-06-20", overview: "",
       createdAt: "2026-06-01T00:00:00Z", days: [],
     });
+    allowPlan({ plan });
     h.createEvent.mockResolvedValue(200);
     const json = await (await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z" })).json();
     expect(json.blockSaved).toBe(true);
@@ -200,6 +228,7 @@ describe("/api/write version guard (UXA-24)", () => {
       goal: "g", lengthWeeks: 2, startDate: "2026-06-10", endDate: "2026-06-20", overview: "",
       createdAt: "2026-06-01T00:00:00Z", days: [],
     });
+    allowPlan({ plan });
     h.createEvent.mockResolvedValueOnce(301).mockResolvedValueOnce(302);
     (store.updateCurrentBlock as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => ({
       goal: "a different, newer block", lengthWeeks: 1, startDate: "2026-06-11", endDate: "2026-06-11",
@@ -230,6 +259,7 @@ describe("/api/write archive-truncation uses the client's local today (HR-32)", 
       createdAt: "2026-06-01T00:00:00Z",
       days: [{ date: "2026-06-16", name: "Threshold", type: "Threshold", durationMin: 60 }],
     });
+    allowPlan({ plan });
     h.createEvent.mockResolvedValue(200);
     await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z", today: "2026-06-16" });
     const archived = vi.mocked(store.appendBlockHistory).mock.calls[0][0];
@@ -242,6 +272,7 @@ describe("/api/write archive-truncation uses the client's local today (HR-32)", 
       createdAt: "2026-06-01T00:00:00Z",
       days: [{ date: "2026-06-20", name: "Threshold", type: "Threshold", durationMin: 60 }], // all in the future
     });
+    allowPlan({ plan });
     h.createEvent.mockResolvedValue(200);
     await post({ plan, expectedBlockCreatedAt: "2026-06-01T00:00:00Z", today: "2026-06-16" }); // before the block even starts
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
@@ -282,6 +313,7 @@ describe("/api/write season stamp (MACRO)", () => {
       ],
       updatedAt: "",
     });
+    allowPlan({ plan });
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.seasonFocus).toBe("aerobic-base");
@@ -296,6 +328,7 @@ describe("/api/write season stamp (MACRO)", () => {
       periods: [focusPeriod({ focus: "vo2max", phase: "build", startDate: "2026-07-01", plannedWeeks: 4 })],
       updatedAt: "",
     });
+    allowPlan({ plan });
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.seasonFocus).toBeUndefined();
@@ -306,9 +339,11 @@ describe("/api/write season stamp (MACRO)", () => {
   // (plan.seasonFocus) — /api/write must stamp CurrentBlock directly from that, never re-derive via
   // currentPeriod (which could disagree, having consulted the season plan as it stands at WRITE time).
   it("stamps seasonFocus/seasonPhase straight from plan.seasonFocus when present (threshold -> build), without consulting the season plan at all", async () => {
+    const rollingPlan = { ...plan, seasonFocus: "threshold", seasonFocusRationale: "rotation: threshold next" };
+    allowPlan({ plan: rollingPlan });
     h.createEvent.mockResolvedValue(200);
     const json = await (
-      await post({ plan: { ...plan, seasonFocus: "threshold", seasonFocusRationale: "rotation: threshold next" } })
+      await post({ plan: rollingPlan })
     ).json();
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.seasonFocus).toBe("threshold");
@@ -319,8 +354,10 @@ describe("/api/write season stamp (MACRO)", () => {
   });
 
   it("maps plan.seasonFocus 'aerobic-base' to seasonPhase 'base' (the one focus outside the build-phase default)", async () => {
+    const basePlan = { ...plan, seasonFocus: "aerobic-base" };
+    allowPlan({ plan: basePlan });
     h.createEvent.mockResolvedValue(200);
-    const json = await (await post({ plan: { ...plan, seasonFocus: "aerobic-base" } })).json();
+    const json = await (await post({ plan: basePlan })).json();
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.seasonFocus).toBe("aerobic-base");
     expect(json.currentBlock.seasonPhase).toBe("base");
@@ -361,6 +398,7 @@ describe("/api/write intervention recording (learning loop, first-ever write)", 
       ],
     });
 
+    allowPlan({ plan });
     const json = await (await post({ plan })).json();
     expect(json.blockSaved).toBe(true);
 
@@ -390,6 +428,7 @@ describe("/api/write intervention recording (learning loop, first-ever write)", 
   });
 
   it("empty directives (no insights fire) succeeds without ever calling updateInterventionLog", async () => {
+    allowPlan({ plan });
     h.createEvent.mockResolvedValue(200);
     // readScoreLog default from this file's top-level mock is already { entries: [] }, which can't
     // clear MIN_OBSERVATIONS for any dimension — deriveInsights returns [].
@@ -409,6 +448,7 @@ describe("/api/write sessionLevel stamp (measurability)", () => {
   };
 
   it("stamps a comparable sessionLevel on quality days and omits it on pure endurance", async () => {
+    allowPlan({ plan: qualityPlan });
     h.createEvent.mockResolvedValue(200);
     const json = await (await post({ plan: qualityPlan })).json();
     expect(json.blockSaved).toBe(true);
@@ -428,6 +468,7 @@ describe("/api/write protocolFindings stamp (§8, block-history-enrichment)", ()
       ...plan,
       days: [{ ...day("2026-06-15", "SIT"), type: "SIT", durationMin: 33, workoutText: "6x\n- 90s 150%\n- 4m 50%" }],
     };
+    allowPlan({ plan: violatingPlan });
     const json = await (await post({ plan: violatingPlan })).json();
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.days[0].protocolFindings).toEqual(
@@ -441,8 +482,87 @@ describe("/api/write protocolFindings stamp (§8, block-history-enrichment)", ()
       ...plan,
       days: [{ ...day("2026-06-15", "Rest"), type: "Rest", durationMin: 0, workoutText: "" }],
     };
+    allowPlan({ plan: cleanPlan });
     const json = await (await post({ plan: cleanPlan })).json();
     expect(json.blockSaved).toBe(true);
     expect(json.currentBlock.days[0].protocolFindings).toBeUndefined();
+  });
+});
+
+describe("/api/write publication gate (trust contract)", () => {
+  // Every refusal must leave BOTH surfaces untouched: zero Intervals.icu mutations (not even the
+  // HR-38 old-description fetch that precedes the createEvent loop) and zero local writes.
+  const expectZeroWrites = () => {
+    expect(h.createEvent).not.toHaveBeenCalled();
+    expect(h.fetchEvents).not.toHaveBeenCalled();
+    expect(store.updateCurrentBlock).not.toHaveBeenCalled();
+    expect(store.appendBlockHistory).not.toHaveBeenCalled();
+  };
+
+  it("refuses a verdict-less plan with 422 unknown-plan and performs zero calendar/local writes", async () => {
+    // Default data-store mock: readGenerationVerdict → null (nothing persisted by /api/generate).
+    const res = await post({ plan });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("This exact plan didn't come from your generator — regenerate.");
+    expectZeroWrites();
+  });
+
+  it("refuses tampered days as unknown-plan even when the body claims overrideAcknowledged: true", async () => {
+    allowPlan({ plan }); // verdict matches the ORIGINAL plan only
+    const tampered = { ...plan, days: [{ ...plan.days[0], durationMin: 999 }, ...plan.days.slice(1)] };
+    const res = await post({ plan: tampered, overrideAcknowledged: true });
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("This exact plan didn't come from your generator — regenerate.");
+    expectZeroWrites();
+  });
+
+  it("refuses blockers outright — overrideAcknowledged cannot bypass them — and echoes them", async () => {
+    allowPlan({ plan }, { blockers: ["STRUCTURE: Expected 14 days but the plan carries 2."] });
+    const res = await post({ plan, overrideAcknowledged: true });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.blockers).toEqual(["STRUCTURE: Expected 14 days but the plan carries 2."]);
+    expect(json).not.toHaveProperty("overrideRequired");
+    expectZeroWrites();
+  });
+
+  it("demands an informed override when preferences are present and unacknowledged", async () => {
+    allowPlan({ plan }, { preferences: ["PRIMARY QUALITY: week 1 carries two primary quality sessions."] });
+    const res = await post({ plan });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.overrideRequired).toBe(true);
+    expect(json.preferences).toEqual(["PRIMARY QUALITY: week 1 carries two primary quality sessions."]);
+    expectZeroWrites();
+  });
+
+  it("publishes with acknowledgment: writes every day, saves the block, stamps publicationOverride", async () => {
+    const preferences = ["PRIMARY QUALITY: week 1 carries two primary quality sessions."];
+    allowPlan({ plan }, { preferences });
+    h.createEvent.mockResolvedValue(200);
+    const json = await (await post({ plan, overrideAcknowledged: true })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(store.updateCurrentBlock).toHaveBeenCalledTimes(1);
+    expect(h.createEvent).toHaveBeenCalledTimes(plan.days.length);
+    expect(json.currentBlock.publicationOverride.findings).toEqual(preferences);
+    expect(typeof json.currentBlock.publicationOverride.acknowledgedAt).toBe("string");
+    expect(Number.isNaN(Date.parse(json.currentBlock.publicationOverride.acknowledgedAt))).toBe(false);
+  });
+
+  it("leaves a fully clean verdict's behavior unchanged — no publicationOverride stamp", async () => {
+    allowPlan({ plan });
+    h.createEvent.mockResolvedValue(200);
+    const json = await (await post({ plan })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.publicationOverride).toBeUndefined();
+  });
+
+  it("omits the publicationOverride stamp when an ack is sent but no preferences exist", async () => {
+    allowPlan({ plan });
+    h.createEvent.mockResolvedValue(200);
+    const json = await (await post({ plan, overrideAcknowledged: true })).json();
+    expect(json.blockSaved).toBe(true);
+    expect(json.currentBlock.publicationOverride).toBeUndefined();
   });
 });
