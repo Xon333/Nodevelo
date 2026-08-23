@@ -47,6 +47,11 @@ future turnover, attended or not.
    block's `current-block.json` here, not on the retrospective's `block-history.json` entry.
 7. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.
 8. Confirm `/today` shows the new block's first session; the block-completion nudge is gone.
+9. **Owed smoke run (PR #92, first genuine turnover after 2026-08-23):** the retrospective
+   closeout shipped with its live LLM paths unexercised — before calling this turnover done, run
+   `POST /api/retrospective` once against the live API on this real block and read the actual
+   output: narrative well-formed, `## Retrospective` omitted cleanly in degraded mode, and
+   `approveSeedsInMarkdown` round-tripping the real frontmatter (AGENTS.md rule).
    - **If any step fails:** stop, `POST /api/import` the backup, report — do not improvise against live data.
 
 ## Add or change a validator
