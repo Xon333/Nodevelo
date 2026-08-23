@@ -17,9 +17,12 @@ export async function GET() {
 // on the entry. FAILURE-SAFE by construction:
 //   * the retro filename is DERIVED from the entry itself — a caller cannot omit it, so neither
 //     adoption channel can be silently skipped;
+//   * an entry already carrying reflectionsApprovedAt stays a successful no-op retry even if the
+//     retrospective file later goes missing or unreadable;
 //   * the flip runs BEFORE the stamp and both steps are idempotent: a crash between them leaves at
 //     most "flipped but unstamped", which a retry CONVERGES out of (no 409 dead-end);
-//   * a flip failure means NOTHING was stamped, so the athlete's retry starts clean.
+//   * a missing/malformed retro file means NOTHING was stamped, so adoption cannot claim success
+//     without a real, writable frontmatter gate.
 export async function POST(req: Request) {
   try {
     const body: unknown = await req.json();
@@ -29,15 +32,32 @@ export async function POST(req: Request) {
 
     const target = (await readBlockHistory()).find((e) => e.id === id);
     if (!target) return NextResponse.json({ error: "No such history entry." }, { status: 404 });
+    const alreadyAdopted = Boolean(target.reflectionsApprovedAt);
+    let approved = false;
+    try {
+      approved = await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
+    } catch (err) {
+      if (alreadyAdopted) {
+        return NextResponse.json({ ok: true, alreadyAdopted: true });
+      }
+      throw err;
+    }
+    if (!approved) {
+      if (alreadyAdopted) {
+        return NextResponse.json({ ok: true, alreadyAdopted: true });
+      }
+      return NextResponse.json({ error: "Couldn't approve retrospective seeds." }, { status: 409 });
+    }
+    if (alreadyAdopted) {
+      return NextResponse.json({ ok: true, alreadyAdopted: true });
+    }
 
-    await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
-
-    let alreadyAdopted = false;
+    let racedAlreadyAdopted = false;
     const updated = await updateBlockHistory((entries) =>
       entries.map((e) => {
         if (e.id !== id) return e;
         if (e.reflectionsApprovedAt) {
-          alreadyAdopted = true;
+          racedAlreadyAdopted = true;
           return e;
         }
         return { ...e, reflectionsApprovedAt: new Date().toISOString() };
@@ -47,7 +67,7 @@ export async function POST(req: Request) {
       // The entry vanished between the read and the lock — nothing was adopted.
       return NextResponse.json({ error: "No such history entry." }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, ...(alreadyAdopted ? { alreadyAdopted: true } : {}) });
+    return NextResponse.json({ ok: true, ...(racedAlreadyAdopted ? { alreadyAdopted: true } : {}) });
   } catch (err) {
     logError("/api/history", "adopt", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Couldn't record the adoption." }, { status: 502 });

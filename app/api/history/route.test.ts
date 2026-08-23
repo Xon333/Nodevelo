@@ -28,7 +28,7 @@ const entry = (): BlockHistoryEntry =>
 describe("POST /api/history — adoption", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    h.markRetroSeedsApproved.mockResolvedValue(undefined);
+    h.markRetroSeedsApproved.mockResolvedValue(true);
     h.readBlockHistory.mockResolvedValue([entry()]);
     h.updateBlockHistory.mockImplementation(async (mutate: (e: BlockHistoryEntry[]) => BlockHistoryEntry[]) =>
       // Feed the mutate whatever readBlockHistory currently returns, so tests overriding
@@ -52,6 +52,14 @@ describe("POST /api/history — adoption", () => {
     expect(h.updateBlockHistory).not.toHaveBeenCalled(); // no orphaned reflectionsApprovedAt
   });
 
+  it("409s WITHOUT stamping when the retrospective exists but seed approval could not be written", async () => {
+    h.markRetroSeedsApproved.mockResolvedValueOnce(false);
+    const res = await post({ id: "b1" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "Couldn't approve retrospective seeds." });
+    expect(h.updateBlockHistory).not.toHaveBeenCalled();
+  });
+
   it("a retry after that failure completes end-to-end", async () => {
     h.markRetroSeedsApproved.mockRejectedValueOnce(new Error("EACCES")); // attempt 1 dies on the flip
     expect((await post({ id: "b1" })).status).toBe(502);
@@ -70,11 +78,31 @@ describe("POST /api/history — adoption", () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
-  it("is idempotent once fully adopted — 200 with alreadyAdopted, never a 409 dead-end", async () => {
+  it("repairs a missing seed gate for an already-adopted entry, then returns alreadyAdopted", async () => {
     h.readBlockHistory.mockResolvedValue([{ ...entry(), reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" }]);
     const res = await post({ id: "b1" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, alreadyAdopted: true });
+    expect(h.markRetroSeedsApproved).toHaveBeenCalledWith("2026-06-01_build-ftp.md");
+    expect(h.updateBlockHistory).not.toHaveBeenCalled();
+  });
+
+  it("keeps alreadyAdopted success when an already-stamped entry's retro is malformed", async () => {
+    h.readBlockHistory.mockResolvedValue([{ ...entry(), reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" }]);
+    h.markRetroSeedsApproved.mockResolvedValueOnce(false);
+    const res = await post({ id: "b1" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, alreadyAdopted: true });
+    expect(h.updateBlockHistory).not.toHaveBeenCalled();
+  });
+
+  it("keeps alreadyAdopted success when an already-stamped entry's retro cannot be repaired", async () => {
+    h.readBlockHistory.mockResolvedValue([{ ...entry(), reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" }]);
+    h.markRetroSeedsApproved.mockRejectedValueOnce(new Error("EACCES"));
+    const res = await post({ id: "b1" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, alreadyAdopted: true });
+    expect(h.updateBlockHistory).not.toHaveBeenCalled();
   });
 
   it("404s an unknown id before any write", async () => {
