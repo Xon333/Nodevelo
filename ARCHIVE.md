@@ -12,6 +12,33 @@ exact commits.
 
 ---
 
+## Named-segment intent scoring (2026-08-19 → 2026-08-23)
+
+A note describing several named Intervals.icu segments was graded against whole-ride zone-time
+arrays: each segment's zone claim consumed the aggregate array, merging distinct segments into
+misleading whole-ride phase objectives. Live reproduction (2026-08-19, activity `i177434779`; four
+segments — Rolling Terrain 1 / Flat 1 / Flat 2 / Short Effort): the ride scored **5/10** on merged
+whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment-local comparisons.
+
+- **NV-15 · `lib/intent-scoring.ts`:** `segmentLabelKey` normalizes a curated label;
+  `matchSegment` accepts one exact normalized-label match first, then exactly one `<label><n>`
+  numbered variant — anything else (missing, multiple exact, multiple suffix, stem already ending in
+  digits) stays ungraded rather than guessed. `gradeSegment` grades only that lap: duration vs stated
+  range, average-power and normalized-power zones from the lap's own watts against ride-date FTP zone
+  tops, never whole-ride zone seconds; a matched lap with no avg/NP reading is also ungraded.
+  Segment-backed objectives subsume duplicate whole-ride claims from the same source span; each scored
+  segment contributes within its ±3 kind band, with a +1 ride-order bonus (scored segments' laps strictly
+  increasing) and a +1 all-precise bonus.
+- **Today hold (`components/dashboard/today.tsx`):** while a noted unplanned ride's intent is still
+  being evaluated, Today shows "Evaluating your intent…" instead of a generic off-plan score, so a
+  fast sync render never exposes a score the pending analysis is about to replace.
+- **Verified:** the same August 19 activity now deterministically resolves to **9/10** from four
+  separate `segment` objectives matching Rolling Terrain 1 / Flat 1 / Flat 2 / Short Effort
+  (238/263, 220, 190, and 285/309 W segment evidence), with no whole-ride phase evidence strings and
+  no `Rest` classification; genuinely whole-ride zone objectives are unchanged.
+
+---
+
 ## Trust-contract repairs — calendar mirroring + retrospective closeout (2026-08-22/23, PRs #87/#92/#94)
 
 Two Phase 1 trust contracts shipped back-to-back. PR #87 was reviewed shallow post-merge and

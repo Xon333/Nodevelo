@@ -184,9 +184,14 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     and found no minimum/trough-gradient field, so the separate compound climb+descent-lap exclusion was
     not built and remains a documented rough edge rather than a guessed signal.
 58. **Named segment intent is label-bound and local.** A `segment` objective may only grade one unique
-    Intervals.icu-curated label match; average power and normalized power use that lap plus the ride-date
-    FTP zone tops, never whole-ride zone seconds or guessed boundaries. Missing or ambiguous labels stay
-    ungraded, and segment-backed objectives subsume duplicate whole-ride claims from the same source span.
+    Intervals.icu-curated label match (`matchSegment`: exact normalized-label hit first; a bare stem
+    falls back to exactly one `<stem><number>` variant, and a stem already ending in digits never
+    suffix-expands); duration grades as its stated range against that lap alone, and average power and
+    normalized power use that lap plus the ride-date FTP zone tops, never whole-ride zone seconds or
+    guessed boundaries. Missing or ambiguous labels stay ungraded, and segment-backed objectives subsume duplicate whole-ride claims from the same source span. Each scored segment contributes within its
+    own ±3 kind band; the ordering bonus requires every scored segment's lap to strictly follow the
+    previous in ride order, and the perfect-score bonus requires every scored segment's verdict to be
+    precise.
 
 ## Block closeout & adoption
 
