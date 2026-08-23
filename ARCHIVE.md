@@ -12,11 +12,11 @@ exact commits.
 
 ---
 
-## Trust-contract repairs — calendar mirroring + retrospective closeout (2026-08-22/23, PRs #87/#92)
+## Trust-contract repairs — calendar mirroring + retrospective closeout (2026-08-22/23, PRs #87/#92/#94)
 
-Two Phase 1 trust contracts shipped back-to-back. Both merged after full code review (PR #87
-reviewed shallow post-merge and judged SOUND; PR #92 reviewed at head `bfa2497` — no critical
-findings, suite green, `tsc` clean).
+Two Phase 1 trust contracts shipped back-to-back. PR #87 was reviewed shallow post-merge and
+judged SOUND; PR #92 was reviewed at head `bfa2497` with no critical findings, suite green, and
+`tsc` clean. PR #94 then shipped the retrospective hardening follow-ups.
 
 - **Calendar trust contract (PR #87, merged 2026-08-22):** `persistMirroredMove`
   (`lib/calendar-mirror.ts`) now commits the authoritative local move under the current-block lock
@@ -34,8 +34,10 @@ findings, suite green, `tsc` clean).
   bare-archive collisions (HR-37 extension) and render a deterministic fallback card, never blank.
   **Deferred:** the live LLM smoke run for the changed retrospective paths is owed at the next real
   block turnover — see [RECIPES § block turnover](docs/RECIPES.md#turn-over-a-block-end--retrospective--next-block).
-  Minor hardening notes from the merge review (lossy seed-quote escaping, seed-gate regex not
-  anchored to the frontmatter region, PROMPT_VERSION bump judgment call) were accepted as follow-ups.
+  **Hardening (PR #94, merged 2026-08-23):** bumped `PROMPT_VERSION` to 8 for the changed
+  model-visible context, made YAML quote escaping lossless for goals, reasons, and seeds, scoped
+  seed parsing/approval to frontmatter, preserved partial-adoption repair and retry semantics,
+  and added approved-only generation-path regression coverage.
 
 ---
 
