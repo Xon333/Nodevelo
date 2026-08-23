@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { isAnthropicConfigured, parseRideIntent } from "./anthropic-api";
 import {
   readIntentOverlays,
   readLastSync,
@@ -8,10 +7,11 @@ import {
   updateIntentOverlayStore,
 } from "./data-store";
 import { fetchIntervals } from "./intervals-api";
+import { DETERMINISTIC_INTENT_VERSION, parseDeterministicIntent } from "./intent-note-parser";
 import { physiologyAsOf, readPhysiology } from "./physiology";
 import { buildIntentQueue, INTENT_MAX_PER_RUN, normalizeNote, primaryRideOfDate } from "./intent-queue";
 import { buildOverlay, scoreIntentExecution, type RideEvidence } from "./intent-scoring";
-import type { IntentOverlay, RideScoreEntry } from "./types";
+import type { ExecutedInterval, IntentOverlay, RideScoreEntry } from "./types";
 
 export interface RunIntentOptions {
   force?: boolean;
@@ -66,7 +66,6 @@ export async function runIntentParsing(
   const queue = eligible.filter((item) => !skipped.has(item.activityId)).slice(0, Math.max(0, opts.limit ?? INTENT_MAX_PER_RUN));
   const failedIds: string[] = [];
   let processed = 0;
-  let warnedUnconfigured = false;
 
   for (const item of queue) {
     const entry = scoreLog.entries.find((candidate) => candidate.date === item.date && !candidate.planned);
@@ -84,55 +83,48 @@ export async function runIntentParsing(
         reason: "no-intent-found",
       });
     } else {
-      if (!isAnthropicConfigured()) {
-        if (!warnedUnconfigured) warnings.push("Intent parsing skipped: Anthropic API is not configured.");
-        warnedUnconfigured = true;
-        continue;
+      // Parse BEFORE the fetch: an unsupported note is recorded straight from the parser's untrusted
+      // low-confidence interpretation without touching Intervals.icu, so an API outage can never
+      // stall a note that would never be graded anyway (plan Task 3: "an unsupported note records an
+      // untrusted deterministic interpretation instead of calling Claude").
+      const parsed = parseDeterministicIntent(item.note);
+      let laps: ExecutedInterval[] = [];
+      if (parsed !== null) {
+        try {
+          laps = await fetchIntervals(item.activityId);
+        } catch {
+          failedIds.push(item.activityId);
+          continue;
+        }
       }
-
-      const laps = await fetchIntervals(item.activityId).catch(() => []);
-      let outcome;
-      try {
-        outcome = await parseRideIntent(item.note, item.durationMin);
-      } catch (error) {
-        warnings.push(`Intent parsing failed for ${item.activityId}: ${error instanceof Error ? error.message : String(error)}`);
-        failedIds.push(item.activityId);
-        continue;
-      }
-
-      if (!outcome.interpretation) {
-        next = buildOverlay({
-          id: randomUUID(),
-          activityId: item.activityId,
-          date: item.date,
-          noteFingerprint: item.fingerprint,
-          createdAt: new Date().toISOString(),
-          reason: "interpreter-failed",
-          parseFailure: outcome.failure,
-        });
-      } else {
-        const evidence: RideEvidence = {
-          durationMin: item.durationMin,
-          isIndoor: activity.type === "VirtualRide",
-          powerZoneTimes: activity.powerZoneTimes,
-          hrZoneTimes: activity.hrZoneTimes,
-          laps,
-          ftpUsed: entry.ftpUsed,
-          wholeRideMaxHr: activity.maxHr,
-          wholeRideAvgCadence: activity.avgCadence,
-          powerZoneTopsPct: physiologyAsOf(physiology, item.date)?.powerZonePct ?? null,
-        };
-        const verdict = scoreIntentExecution(outcome.interpretation, evidence, item.note);
-        next = buildOverlay({
-          id: randomUUID(),
-          activityId: item.activityId,
-          date: item.date,
-          noteFingerprint: item.fingerprint,
-          createdAt: new Date().toISOString(),
-          interpretation: outcome.interpretation,
-          verdict,
-        });
-      }
+      const interpretation = parsed ?? {
+        intent: { primaryPurpose: "No supported labelled interval grammar found.", phases: [] },
+        confidence: "low" as const,
+        objectives: [],
+        model: "deterministic-note-parser",
+        promptVersion: DETERMINISTIC_INTENT_VERSION,
+      };
+      const evidence: RideEvidence = {
+        durationMin: item.durationMin,
+        isIndoor: activity.type === "VirtualRide",
+        powerZoneTimes: activity.powerZoneTimes,
+        hrZoneTimes: activity.hrZoneTimes,
+        laps,
+        ftpUsed: entry.ftpUsed,
+        wholeRideMaxHr: activity.maxHr,
+        wholeRideAvgCadence: activity.avgCadence,
+        powerZoneTopsPct: physiologyAsOf(physiology, item.date)?.powerZonePct ?? null,
+      };
+      const verdict = scoreIntentExecution(interpretation, evidence, item.note);
+      next = buildOverlay({
+        id: randomUUID(),
+        activityId: item.activityId,
+        date: item.date,
+        noteFingerprint: item.fingerprint,
+        createdAt: new Date().toISOString(),
+        interpretation,
+        verdict,
+      });
     }
 
     await updateIntentOverlays((existing) => supersedeAndAppend(existing, next, entry));

@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as anthropic from "./anthropic-api";
 import * as store from "./data-store";
 import * as intervals from "./intervals-api";
-import { buildIntentQueue, noteFingerprint } from "./intent-queue";
+import { noteFingerprint } from "./intent-queue";
 import { isApplicable } from "./intent-overlay";
 import { runIntentParsing } from "./intent-runner";
 import type { RideEvidence } from "./intent-scoring";
@@ -12,7 +11,6 @@ import type {
   IntentInterpretation,
   IntentOverlay,
   IntentOverlayStore,
-  IntentParseFailure,
   PhysiologySnapshot,
   RideScoreEntry,
 } from "./types";
@@ -26,7 +24,6 @@ vi.mock("./intent-scoring", async (importOriginal) => {
   return { ...actual, scoreIntentExecution: scoreIntentExecutionSpy };
 });
 
-vi.mock("./anthropic-api", () => ({ isAnthropicConfigured: vi.fn(), parseRideIntent: vi.fn() }));
 vi.mock("./intervals-api", () => ({ fetchIntervals: vi.fn() }));
 vi.mock("./data-store", () => ({
   readLastSync: vi.fn(),
@@ -122,12 +119,6 @@ function interpretation(confidence: "high" | "medium" | "low" = "high"): IntentI
   };
 }
 
-// NV-10: parseRideIntent's real return shape — the mocked module returns this instead of a bare
-// IntentInterpretation now.
-function outcome(interp: IntentInterpretation | null, failure: IntentParseFailure | null = null) {
-  return { interpretation: interp, failure };
-}
-
 function prior(over: Partial<IntentOverlay> = {}): IntentOverlay {
   return {
     id: "old",
@@ -171,17 +162,51 @@ beforeEach(() => {
     return structuredClone(overlayStore);
   });
   vi.mocked(readPhysiology).mockResolvedValue(null);
-  vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(true);
-  vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(interpretation()));
   vi.mocked(intervals.fetchIntervals).mockResolvedValue([]);
 });
 
 describe("runIntentParsing", () => {
+  it("scores the August 23 labelled intervals without calling Claude", async () => {
+    activities[0].description = `Intent:
+-Block 1 (Z3, 1h)
+-Effort 1 (Z4 avg/Z5 NP, 7m, rolling climb, steep gradients)
+-Effort 2 (z5 avg, 3m30s, very steep short climb)
+-Block 2 (Z2 avg/Z3 NP, 24m, rolling terrain)`;
+    activities[0].movingTimeSec = 6030;
+    entries[0] = ledger({ durationMin: 101, ftpUsed: 288 });
+    vi.mocked(readPhysiology).mockResolvedValue({
+      history: [],
+      current: {
+        effectiveFrom: "2026-08-01", capturedAt: "2026-08-01T00:00:00.000Z", source: "intervals",
+        ftp: 288, lthr: 165, maxHr: 185, powerZonePct: [55, 75, 90, 105, 120, 150, 999],
+        hrZones: [], hrZonesAreBpm: true, powerZoneNames: [], hrZoneNames: [],
+      },
+    });
+    const named = (label: string, durationSec: number, avgWatts: number, npWatts: number, startIndex: number) => ({
+      type: "WORK", durationSec, avgWatts, npWatts, avgHr: null, startIndex, endIndex: startIndex + durationSec,
+      avgGradientPct: null, groupId: null, zone: null, maxHr: null, avgCadenceRpm: null,
+      maxGradientPct: null, elevationGainM: null, label, avgSpeedKph: null,
+    });
+    vi.mocked(intervals.fetchIntervals).mockResolvedValue([
+      named("Block 1", 3600, 240, 247, 0),
+      named("Effort 1", 440, 275, 304, 3600),
+      named("Effort 2", 210, 327, 334, 4040),
+      named("Block 2", 1461, 211, 236, 4531),
+    ]);
+
+    await runIntentParsing(TODAY, []);
+
+    expect(overlayStore.overlays[0]).toMatchObject({
+      effectiveExecutionScore: 9,
+      notScoredReason: null,
+      interpretation: { model: "deterministic-note-parser" },
+    });
+  });
+
   it("decides a note-less ride with no parse call", async () => {
     activities[0].description = "  ";
     await runIntentParsing(TODAY, []);
 
-    expect(anthropic.parseRideIntent).not.toHaveBeenCalled();
     expect(overlayStore.overlays[0]).toMatchObject({
       notScoredReason: "no-intent-found",
       origin: "unspecified",
@@ -190,56 +215,30 @@ describe("runIntentParsing", () => {
     });
   });
 
-  it("a transient failure writes nothing and leaves the ride queued", async () => {
-    vi.mocked(anthropic.parseRideIntent).mockRejectedValueOnce(new Error("ECONNRESET"));
-    const warnings: string[] = [];
-    const result = await runIntentParsing(TODAY, warnings);
-
-    expect(overlayStore.overlays).toHaveLength(0);
-    expect(result).toMatchObject({ processed: 0, remaining: 1, stalled: true, failedIds: ["a1"] });
-    expect(buildIntentQueue(activities, entries, overlayStore.overlays, TODAY, TODAY)).toHaveLength(1);
-    expect(warnings[0]).toContain("ECONNRESET");
-  });
-
-  it("a later invocation retries and writes after a transient failure", async () => {
-    vi.mocked(anthropic.parseRideIntent).mockRejectedValueOnce(new Error("503"));
-    await runIntentParsing(TODAY, []);
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(outcome(interpretation()));
-
-    expect((await runIntentParsing(TODAY, [])).processed).toBe(1);
-    expect(overlayStore.overlays).toHaveLength(1);
-  });
-
-  it("a completed call with no usable output writes interpreter-failed, carrying the bounded diagnosis (NV-10)", async () => {
-    const failure: IntentParseFailure = { category: "schema-invalid", stopReason: "tool_use", issues: [{ path: "confidence", message: "bad enum" }] };
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(outcome(null, failure));
-    const result = await runIntentParsing(TODAY, []);
-
-    expect(result.processed).toBe(1);
-    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "interpreter-failed", origin: "unspecified", parseFailure: failure });
-  });
-
-  it("a low-confidence parse writes intent-unreliable", async () => {
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValueOnce(outcome(interpretation("low")));
+  it("an unsupported note writes intent-unreliable without calling Claude", async () => {
     await runIntentParsing(TODAY, []);
 
     expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable", origin: "unspecified" });
   });
 
-  it("skips a failed item for the rest of one client chain", async () => {
-    activities = [activity({ id: "a-new", date: TODAY }), activity({ id: "a-old", date: "2026-08-06" })];
-    entries = [ledger({ date: TODAY }), ledger({ date: "2026-08-06" })];
-    overlayStore.autoFromDate = "2026-08-06";
-    vi.mocked(anthropic.parseRideIntent).mockRejectedValueOnce(new Error("429")).mockResolvedValueOnce(outcome(interpretation()));
+  // The parse runs BEFORE the Intervals.icu fetch, so a note the parser cannot grade never depends
+  // on the API being up — an outage must not stall it into failedIds when its overlay needs no laps.
+  // A SUPPORTED note, whose grading genuinely needs curated laps, must still stall on an outage.
+  it("an unsupported note is recorded without fetching curated laps; a supported one still stalls on an outage", async () => {
+    await runIntentParsing(TODAY, []);
 
-    const first = await runIntentParsing(TODAY, [], { limit: 5 });
-    expect(first.processed).toBe(1);
-    expect(first.failedIds).toEqual(["a-new"]);
-    expect(anthropic.parseRideIntent).toHaveBeenCalledTimes(2);
+    expect(intervals.fetchIntervals).not.toHaveBeenCalled();
+    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable" });
 
-    const second = await runIntentParsing(TODAY, [], { skip: first.failedIds });
-    expect(second).toMatchObject({ processed: 0, remaining: 1, stalled: true });
-    expect(anthropic.parseRideIntent).toHaveBeenCalledTimes(2);
+    activities[0].description = "-Effort 1 (10m)";
+    vi.mocked(intervals.fetchIntervals).mockRejectedValueOnce(new Error("Intervals unavailable"));
+
+    const result = await runIntentParsing(TODAY, []);
+
+    expect(result).toMatchObject({ processed: 0, remaining: 1, stalled: true, failedIds: ["a1"] });
+    // The outage wrote nothing new — only the earlier unsupported note's own overlay remains.
+    expect(overlayStore.overlays).toHaveLength(1);
+    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable" });
   });
 
   it("persists autoFromDate before the first parse and never rewrites it", async () => {
@@ -250,11 +249,6 @@ describe("runIntentParsing", () => {
       overlayStore = await mutate(structuredClone(overlayStore));
       return structuredClone(overlayStore);
     });
-    vi.mocked(anthropic.parseRideIntent).mockImplementation(async () => {
-      order.push("parse");
-      return outcome(interpretation());
-    });
-
     await runIntentParsing(TODAY, []);
     expect(order[0]).toBe("boundary");
     expect(overlayStore.autoFromDate).toBe(TODAY);
@@ -312,13 +306,11 @@ describe("runIntentParsing", () => {
     expect(overlayStore.overlays).toHaveLength(0);
   });
 
-  it("does not call Anthropic when it is unconfigured", async () => {
-    vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(false);
+  it("does not depend on Anthropic configuration", async () => {
     const warnings: string[] = [];
     const result = await runIntentParsing(TODAY, warnings);
-    expect(result).toMatchObject({ processed: 0, remaining: 1, stalled: true });
-    expect(anthropic.parseRideIntent).not.toHaveBeenCalled();
-    expect(warnings).toHaveLength(1);
+    expect(result).toMatchObject({ processed: 1, remaining: 0, stalled: false });
+    expect(warnings).toHaveLength(0);
   });
 
   it("binds the write to the exact note fingerprint", async () => {
@@ -327,41 +319,26 @@ describe("runIntentParsing", () => {
   });
 
   it("force re-analysis picks up curated intervals the athlete edited after the first parse", async () => {
-    activities[0].description = "1 x 10 min at 250W";
-    const effortInterpretation: IntentInterpretation = {
-      ...interpretation(),
-      intent: {
-        primaryPurpose: "10 min effort",
-        phases: [{ description: "10 min at 250W", kind: "effort", durationMin: 10, targetWatts: 250 }],
-      },
-      objectives: [{
-        description: "10 min at 250W", kind: "effort",
-        target: { durationMin: 10, watts: 250, reps: 1 }, zoneBasis: "unspecified",
-        grounded: true, sourceText: "10 min at 250W", measurable: false, scored: false,
-        scopeMin: null, evidence: null,
-      }],
-    };
+    activities[0].description = "-Effort 1 (10m)";
     const curatedLap = (avgWatts: number) => ({
       type: "WORK", durationSec: 600, avgWatts, npWatts: avgWatts, avgHr: null,
       startIndex: 0, endIndex: 600, avgGradientPct: null, groupId: null, zone: null,
-      maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: null,
+      maxHr: null, avgCadenceRpm: null, maxGradientPct: null, elevationGainM: null, label: "Effort 1",
       avgSpeedKph: null,
     });
 
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(effortInterpretation));
     vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(250)]);
     await runIntentParsing(TODAY, [], { force: true });
     const first = overlayStore.overlays.find((o) => o.supersededBy === null);
-    expect(first?.interpretation?.objectives[0].evidence).toContain("at 250 W vs");
+    expect(first?.interpretation?.objectives[0].evidence).toContain("avg 250 W");
 
-    vi.mocked(anthropic.parseRideIntent).mockResolvedValue(outcome(effortInterpretation));
     vi.mocked(intervals.fetchIntervals).mockResolvedValueOnce([curatedLap(200)]);
     await runIntentParsing(TODAY, [], { force: true });
 
     const active = overlayStore.overlays.filter((o) => o.supersededBy === null);
     expect(active).toHaveLength(1);
-    expect(active[0].interpretation?.objectives[0].evidence).toContain("at 200 W vs");
-    expect(active[0].interpretation?.objectives[0].evidence).not.toContain("at 250 W vs");
+    expect(active[0].interpretation?.objectives[0].evidence).toContain("avg 200 W");
+    expect(active[0].interpretation?.objectives[0].evidence).not.toContain("avg 250 W");
   });
 
   it("ride-date power zones: the scorer sees the historical snapshot's tops, not current zones", async () => {

@@ -133,23 +133,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   );
 
   // UXA-6: a ref-based re-entrancy guard, not just the `analyzing` state — a double-click races two
-  // calls before the first setAnalyzing(true) has re-rendered, and each was a real billed Anthropic
-  // call (the "no note yet" button lacked disabled={analyzing} entirely; see today.tsx). Mirrors
+  // calls before the first setAnalyzing(true) has re-rendered; coach-note generation is billed and
+  // deterministic intent evaluation still must not race it. Mirrors
   // AskCoach's own self-guard, which already gets this right independent of its button's disabled prop.
   const analyzingRef = useRef(false);
 
   // Deferred AI work. Shared by the post-sync auto-run (force=false, idempotent) and the manual
-  // re-analyse action (force=true). One ref guard covers both billed endpoints.
+  // re-analyse action (force=true). One ref guard covers both deferred endpoints.
   const runAnalysis = useCallback(async (force: boolean) => {
     if (analyzingRef.current) return;
     analyzingRef.current = true;
     setAnalyzing(true);
 
-    // NV-1 (2026-08-15): intent parsing runs to completion BEFORE coach-note generation, not after.
+    // Intent scoring runs to completion BEFORE coach-note generation, not after.
     // The note prompt (lib/sync-analysis.ts's addCoachNote) reads today's resolved overlay to decide
     // whether the raw note may reach the model at all — if /api/analyze ran first, that overlay
     // wouldn't exist yet, and the coach note could assert a confident intent-execution judgment on the
-    // very note the intent parser goes on to reject a moment later (the exact split-brain this fixes).
+    // very note the deterministic scorer goes on to reject a moment later.
     try {
       const failed = new Set<string>();
       for (let round = 0; round < 6; round += 1) {

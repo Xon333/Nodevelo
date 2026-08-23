@@ -5,12 +5,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 export { isAnthropicConfigured } from "./anthropic-config";
 import { isAnthropicConfigured } from "./anthropic-config";
-import type { IntentInterpretation, IntentParseFailure, StructuredReflection } from "./types";
+import type { StructuredReflection } from "./types";
 import { TRAINING_BLOCK_TOOL } from "./plan-schema";
 import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-schema";
 import { buildNarrativeCriticPrompt, NARRATIVE_CRITIC_TOOL, parseNarrativeCriticOutput, type NarrativeCriticOutput, type WeekFacts } from "./narrative-critic";
-import { INTENT_TOOL, parseIntentToolOutput } from "./intent-schema";
-import { buildIntentPrompt, INTENT_PROMPT_VERSION } from "./intent-prompt";
 import { recordUsage } from "./ai-usage";
 import {
   buildAskCoachPrompt,
@@ -40,7 +38,7 @@ export const GENERATION_MODEL = "claude-sonnet-4-6";
 // Bump whenever the generation/analysis prompt structure or rules change. Stamped (with the model
 // id) onto every AI-produced artifact — GeneratedPlan, TodayAnalysis, BlockHistoryEntry — so a past
 // output stays reproducible/auditable when the model or prompt later changes.
-export const PROMPT_VERSION = 8; // 7→8: PR #92 changed prior-block context composition (unapproved reflections/seeds inject empty)
+export const PROMPT_VERSION = 9; // 8→9: ride prose receives authoritative deterministic intent score/evidence
 // Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
 // session + the question, never deep history, so a small model is the right cost/latency call.
 export const QUICK_MODEL = "claude-haiku-4-5";
@@ -98,110 +96,6 @@ export interface ProseResult {
   text: string;
   truncated: boolean;
   stopReason: Anthropic.Message["stop_reason"];
-}
-
-// ---------- Activity-note intent ----------
-
-// NV-10 (2026-08-15): a COMPLETED-but-unusable response is a terminal interpreter result, but "null"
-// alone couldn't say WHY — every cause (truncation, a declined tool call, a schema mismatch) collapsed
-// to the same opaque `interpreter-failed` overlay. `failure` is non-null exactly when `interpretation`
-// is null. SDK/network errors are deliberately excluded from this shape and still just throw (the
-// caller's catch never burns the note fingerprint — see lib/intent-runner.ts).
-export interface IntentParseOutcome {
-  interpretation: IntentInterpretation | null;
-  failure: IntentParseFailure | null;
-}
-
-// Live-confirmed 2026-08-15 (the smoke run this fix was verified with): a max_tokens cutoff does not
-// always mean "no tool_use block at all". Anthropic's tool-input JSON is assembled incrementally in
-// schema-field order, so a cutoff partway through can still leave a syntactically valid object behind
-// (e.g. `primaryPurpose` and `phases` complete, `objectives`/`confidence` never started) — that parses
-// as a tool_use block, then fails Zod on the missing trailing fields, which would mis-bucket a genuine
-// truncation as "schema-invalid" if stop_reason weren't checked FIRST, before whether a block exists.
-const INTENT_MAX_TOKENS = 1800; // was 900 — too tight for a multi-section note; see the failure above
-
-export async function parseRideIntent(note: string, rideDurationMin: number): Promise<IntentParseOutcome> {
-  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
-  const client = getClient();
-  const response = await client.messages.create({
-    model: GENERATION_MODEL,
-    max_tokens: INTENT_MAX_TOKENS,
-    temperature: TEMPERATURE,
-    tools: [INTENT_TOOL],
-    tool_choice: { type: "tool", name: INTENT_TOOL.name },
-    messages: [{ role: "user", content: buildIntentPrompt(note, rideDurationMin) }],
-  });
-  void recordUsage(GENERATION_MODEL, response.usage);
-
-  const toolUse = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-
-  if (response.stop_reason === "max_tokens") {
-    return {
-      interpretation: null,
-      failure: {
-        category: "max-tokens",
-        stopReason: "max_tokens",
-        // Attach whatever schema issues a partial (but parseable) tool_use block produces — free
-        // extra diagnostic showing exactly which fields never arrived — without letting them steer
-        // the category away from the true cause.
-        issues: toolUse ? parseIntentToolOutput(toolUse.input).issues : [],
-      },
-    };
-  }
-
-  if (!toolUse) {
-    // tool_choice forces the tool, so a completed, non-max_tokens response with no tool_use block at
-    // all means the model declined/malformed the call outright, not a truncation.
-    return {
-      interpretation: null,
-      failure: { category: "missing-tool-use", stopReason: response.stop_reason, issues: [] },
-    };
-  }
-
-  const { data: parsed, issues } = parseIntentToolOutput(toolUse.input);
-  if (!parsed) {
-    return {
-      interpretation: null,
-      failure: { category: "schema-invalid", stopReason: response.stop_reason, issues },
-    };
-  }
-
-  return {
-    interpretation: {
-      intent: {
-        primaryPurpose: parsed.primaryPurpose,
-        // Field-by-field, never `...phase`: the tool schema's phase carries `zone`, `zoneBasis`,
-        // `targetPctFtp` and `reps`, none of which `StructuredIntent.phases[]` declares. A spread is
-        // exempt from excess-property checking, so TypeScript would wave those through into
-        // `IntentOverlay.interpretation` — a permanent stored record. Fields with no slot here are
-        // dropped, not smuggled in under their raw names.
-        phases: parsed.phases.map((phase) => ({
-          description: phase.description,
-          kind: phase.kind,
-          ...(phase.durationMin === undefined ? {} : { durationMin: phase.durationMin }),
-          ...(phase.durationMaxMin === undefined ? {} : { durationMaxMin: phase.durationMaxMin }),
-          ...(phase.zone === undefined ? {} : { targetZone: phase.zone }),
-          ...(phase.avgPowerZone === undefined ? {} : { avgPowerZone: phase.avgPowerZone }),
-          ...(phase.normalizedPowerZone === undefined ? {} : { normalizedPowerZone: phase.normalizedPowerZone }),
-          ...(phase.segmentLabel === undefined ? {} : { segmentLabel: phase.segmentLabel }),
-          ...(phase.targetWatts === undefined ? {} : { targetWatts: phase.targetWatts }),
-        })),
-      },
-      confidence: parsed.confidence,
-      objectives: parsed.objectives.map((objective) => ({
-        ...objective,
-        measurable: false,
-        scored: false,
-        scopeMin: null,
-        evidence: null,
-      })),
-      model: GENERATION_MODEL,
-      promptVersion: INTENT_PROMPT_VERSION,
-    },
-    failure: null,
-  };
 }
 
 // ---------- Today's ride analysis ----------

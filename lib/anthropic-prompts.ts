@@ -18,7 +18,7 @@ import { weightTrendFromWellness } from "./nutrition";
 import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { isSteadyEnduranceRide } from "./aerobic";
-import { INTENT_NOTE_MAX_CHARS } from "./intent-prompt";
+import { ACTIVITY_NOTE_MAX_CHARS } from "./intent-note-parser";
 import type { AerobicDiscipline } from "./execution-score";
 import { round1 } from "./stats";
 import { AEROBIC_DEADBAND_PCT } from "./aerobic";
@@ -358,6 +358,9 @@ export interface RideAnalysisInput {
   activityRpe: number | null;
   activityDecoupling: number | null;
   activityDescription: string | null;
+  // Authoritative deterministic intent verdict and segment evidence. Claude may phrase this context
+  // but must not reinterpret the note or recompute the score.
+  intentContext?: string | null;
   avgCadence: number | null;
   distanceMeters: number | null;
   elevationGain: number | null;
@@ -487,16 +490,17 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
   // Was capped at 400 chars, which silently cut a real self-directed ride's note mid-sentence before it
   // ever reached the note's second effort block — with no marker, so the model had no way to know its
   // input was a fragment and would describe the cut as the athlete's note being incomplete. Now shares
-  // INTENT_NOTE_MAX_CHARS with the intent-parsing prompt (lib/intent-prompt.ts) — one cap, not two
-  // drifting numbers — and marks a real truncation explicitly rather than cutting silently.
+  // Shares the activity-note cap with the deterministic intent parser and marks a real truncation
+  // explicitly rather than cutting silently.
   const trimmedNote = input.activityDescription?.trim();
   const athleteNote = trimmedNote
     ? `Athlete note: "${
-        trimmedNote.length > INTENT_NOTE_MAX_CHARS
-          ? `${trimmedNote.slice(0, INTENT_NOTE_MAX_CHARS)}… [note truncated]`
+        trimmedNote.length > ACTIVITY_NOTE_MAX_CHARS
+          ? `${trimmedNote.slice(0, ACTIVITY_NOTE_MAX_CHARS)}… [note truncated]`
           : trimmedNote
       }"`
     : null;
+  const intentLine = input.intentContext?.trim() ? input.intentContext.trim() : null;
 
   // Deterministic fuel-prompt context (lib/fuel-prompt.ts) — a pre-computed, one-line nudge or gap
   // read the model may mention, never recompute. Pre-formatted by the caller; passed through verbatim.
@@ -541,7 +545,7 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
     " Never turn a low coasting share into blanket \"stop coasting\" advice — braking and coasting are the correct, safer choice in corners, traffic, on poor surfaces and technical descents, so frame any coasting note around sustained-effort sections, not descents in general.";
 
   return [
-    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days." + evidenceDiscipline + descendingSafety + disciplineInstruction + " Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
+    "You are a cycling coach. Review today's ride vs the plan in 2–3 sentences. Power is the primary lens: if interval adherence is given, judge execution on BOTH the power hit AND whether each rep held its prescribed duration — a rep at target watts but cut short is NOT full execution, so don't call it textbook. Use HR — and, when a Pw:HR drift figure is shown (steady rides only), aerobic durability/fade — to judge aerobic quality; do not infer decoupling on interval days." + evidenceDiscipline + descendingSafety + disciplineInstruction + " If a DETERMINISTIC INTENT line is given, treat its score and segment evidence as authoritative: phrase it, never reinterpret the note or recompute the verdict. Be direct: execution quality, any notable deviation, and one concrete takeaway for next session. If a new power PR is listed, call it out as a breakthrough first — it's a genuine fitness signal worth recognising. If the athlete left a note, factor it in. If a FUEL PROMPT line is given, you may mention it in one sentence — use its numbers verbatim, never invent or recompute them. No greeting, no fluff, and do not restate the prescription verbatim.",
     "",
     planned,
     header,
@@ -553,6 +557,7 @@ export function buildRideAnalysisPrompt(input: RideAnalysisInput): string {
     powerZoneLine,
     hrZoneLine,
     disciplineLine,
+    intentLine,
     athleteNote,
     fuelPromptLine,
   ].filter(Boolean).join("\n");
@@ -582,6 +587,7 @@ export function buildRideAnalysisInput(
     // whole-ride figure is a ride-structure artifact, so the coach note never sees it there.
     activityDecoupling: isSteadyEnduranceRide(activity, athleteFtp) ? activity.decoupling : null,
     activityDescription: activity.description,
+    intentContext: null,
     avgCadence: activity.avgCadence,
     distanceMeters: activity.distanceMeters,
     elevationGain: activity.elevationGain,

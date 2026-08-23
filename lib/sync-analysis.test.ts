@@ -149,11 +149,24 @@ describe("addCoachNote — withholds the raw note from the prose prompt on a par
 
   it("still passes the raw note through when the overlay resolved successfully (not interpreter-failed)", async () => {
     vi.mocked(store.readIntentOverlays).mockResolvedValue({
-      overlays: [overlay({ notScoredReason: null, effectiveExecutionScore: 7, scoringVersion: 1, origin: "self-directed" })],
+      overlays: [overlay({
+        notScoredReason: null, effectiveExecutionScore: 7, scoringVersion: 1, origin: "self-directed",
+        interpretation: {
+          intent: { primaryPurpose: "segments", phases: [] }, confidence: "high", model: "deterministic-note-parser", promptVersion: 1,
+          objectives: [{
+            description: "Block 1", kind: "segment", target: { segmentLabel: "Block 1", durationMin: 60 },
+            zoneBasis: "unspecified", grounded: true, sourceText: "Block 1 (1h)", measurable: true,
+            scored: true, scopeMin: 60, evidence: "Block 1 60.0 min; avg 240 W; NP 247 W",
+          }],
+        },
+      })],
       updatedAt: "",
     });
     await addCoachNote(TODAY, []);
-    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({
+      activityDescription: "solo ride",
+      intentContext: "DETERMINISTIC INTENT: 7/10 — Block 1 60.0 min; avg 240 W; NP 247 W",
+    }));
   });
 
   it("ignores a superseded overlay (not the applicable one) and still withholds correctly for the CURRENT overlay", async () => {
@@ -166,6 +179,31 @@ describe("addCoachNote — withholds the raw note from the prose prompt on a par
     });
     await addCoachNote(TODAY, []);
     expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
+  });
+
+  // Migration-flag trap (AGENTS.md): an overlay JSON written before effectiveExecutionScore existed
+  // parses the key back as `undefined`, and `undefined !== null` is true — the guard used to pass and
+  // render "DETERMINISTIC INTENT: undefined/10" into the billed prompt. A legacy overlay carrying an
+  // interpretation but no score field must inject nothing.
+  it("injects no intentContext when a legacy overlay predates effectiveExecutionScore", async () => {
+    const legacy = overlay({
+      notScoredReason: null, scoringVersion: 1, origin: "self-directed",
+      interpretation: {
+        intent: { primaryPurpose: "segments", phases: [] }, confidence: "high", model: "claude-sonnet-4-6", promptVersion: 1,
+        objectives: [{
+          description: "Block 1", kind: "segment", target: { segmentLabel: "Block 1", durationMin: 60 },
+          zoneBasis: "unspecified", grounded: true, sourceText: "Block 1 (1h)", measurable: true,
+          scored: true, scopeMin: 60, evidence: "Block 1 60.0 min; avg 240 W; NP 247 W",
+        }],
+      },
+    });
+    delete (legacy as Partial<import("./types").IntentOverlay>).effectiveExecutionScore;
+    vi.mocked(store.readIntentOverlays).mockResolvedValue({ overlays: [legacy], updatedAt: "" });
+
+    await addCoachNote(TODAY, []);
+
+    const [call] = vi.mocked(anthropic.analyseRide).mock.calls;
+    expect(call[0].intentContext).toBeNull();
   });
 });
 

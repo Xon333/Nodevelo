@@ -61,8 +61,9 @@ One line per file that matters. The authoritative per-file table — README keep
 | `intent-display.ts` | Copy formatters for overlay-aware ride debriefs |
 | `intent-queue.ts` | Derivable, idempotent queue for eligible self-directed rides; rollout boundary + primary-ride binding |
 | `intent-grounding.ts` | Field-specific semantic grounding for parsed objective targets |
+| `intent-note-parser.ts` | Strict per-bullet parser for labelled Intervals.icu segment targets; no AI |
 | `intent-scoring.ts` | Objective canonicalisation, scoreability gate, deterministic grading, and overlay construction |
-| `intent-runner.ts` | Store/LLM orchestrator: boundary initialization, retry semantics, and atomic supersession |
+| `intent-runner.ts` | Deterministic intent orchestrator: interval fetch, parsing/scoring, retry semantics, and atomic supersession |
 | `score-log.ts` | Ledger builder + append-only/rebuild merges (LEDGER-1/2) + provenance stamps. Change when adding ledger fields — needs an idempotent backfill in `sync-ledger.ts` ([RECIPES § scoring](RECIPES.md#change-scoring)) |
 | `block-closeout.ts` | Deterministic closeout evidence + seed derivation from the frozen ledger read-only (overshoot bar 1.25×, capped compliance); consumed by `POST /api/retrospective` |
 | `athlete-model.ts` | Ledger → EWMA per-type model → ranked `Insight[]` |
@@ -97,8 +98,6 @@ One line per file that matters. The authoritative per-file table — README keep
 | `anthropic-api.ts` | SDK shell: client, models, call functions, usage recording |
 | `anthropic-config.ts` | SDK-free Anthropic configuration predicate for deterministic routes |
 | `anthropic-prompts.ts` | ALL prompt assembly, pure/offline-testable. Change via [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape); bump PROMPT_VERSION |
-| `intent-schema.ts` | Ride-intent zod/tool schema; excludes score/compliance fields by construction |
-| `intent-prompt.ts` | Note-only ride-intent prompt, dedicated version, and 2000-character cap |
 | `tool-schema.ts` | The one zod→tool-schema bridge. No test file |
 | `plan-schema.ts` | Block tool schema (`weeks` before `overview` — deliberate) |
 | `retrospective-schema.ts` | Structured-reflection tool schema + re-injection formatter |
