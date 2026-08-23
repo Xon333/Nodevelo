@@ -2,9 +2,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readInterventionLog, readSeasonPlan, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readGenerationVerdict, readInterventionLog, readSeasonPlan, saveGenerationVerdict, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
-import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, InterventionRecord, SeasonPlan } from "./types";
+import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, GenerationVerdict, InterventionRecord, SeasonPlan } from "./types";
 
 const defaultNeat = {
   multiplier: 1.2, confidence: "low" as const, source: "default" as const,
@@ -691,5 +691,59 @@ describe("updateSeasonPlan", () => {
     ]);
     const onDisk = await readSeasonPlan();
     expect(onDisk.events).toEqual([{ name: "Fondo", date: "2026-09-01", priority: "A" }]);
+  });
+});
+
+describe("generation verdict store (generation-gate.json)", () => {
+  const verdict = (hash: string, overrides: Partial<GenerationVerdict> = {}): GenerationVerdict => ({
+    verdictHash: hash,
+    blockers: [],
+    preferences: [],
+    createdAt: "2026-08-23T12:00:00.000Z",
+    ...overrides,
+  });
+
+  it("round-trips a saved verdict byte-for-byte", async () => {
+    const record = verdict("abc123", {
+      blockers: ["STRUCTURE: truncated plan"],
+      preferences: ["PREFERENCE: recovery density below target"],
+      model: "claude-sonnet-4-5",
+      promptVersion: 7,
+    });
+    await saveGenerationVerdict(record);
+    expect(await readGenerationVerdict()).toEqual(record);
+  });
+
+  it("returns null when generation-gate.json doesn't exist yet (absent file → no verdict → /api/write refuses)", async () => {
+    expect(await readGenerationVerdict()).toBeNull();
+  });
+
+  it("latest-wins: a second save fully replaces the first — the single slot holds only the newest verdict", async () => {
+    await saveGenerationVerdict(verdict("first-hash"));
+    await saveGenerationVerdict(verdict("second-hash", { blockers: ["STRUCTURE: duplicate dates"] }));
+    const stored = await readGenerationVerdict();
+    expect(stored?.verdictHash).toBe("second-hash");
+    expect(stored?.blockers).toEqual(["STRUCTURE: duplicate dates"]);
+    // And nothing of the old record leaks through — the slot is whole-record replacement.
+    expect(stored).toEqual(verdict("second-hash", { blockers: ["STRUCTURE: duplicate dates"] }));
+  });
+
+  it("corrupt file behaves like the sibling non-CRITICAL stores: reads back as null, not a crash", async () => {
+    // Not in json-store's CRITICAL set (documented in data-store.ts): a corrupt record fails safe
+    // to null exactly like last-sync.json/today-analysis.json would — no .bak exists to fall back
+    // to, and the caller refuses the write rather than publishing an unverifiable plan.
+    await fs.writeFile(p("generation-gate.json"), "{ corrupted", "utf-8");
+    expect(await readGenerationVerdict()).toBeNull();
+  });
+
+  it("concurrent saves are safe — every save lands atomically and the file is always ONE complete record", async () => {
+    // Mirrors appendBlockHistory's lost-update coverage, but for plain writes: writeJson serializes
+    // on the per-file lock, so racing saves can never interleave into unparseable bytes or a
+    // chimera of two records. Last-writer-wins IS latest-wins here — each save is a whole-record
+    // replacement, so there's no merge a locked read-modify-write would be needed to protect.
+    const records = Array.from({ length: 25 }, (_, n) => verdict(`hash-${n}`));
+    await Promise.all(records.map((r) => saveGenerationVerdict(r)));
+    const stored = await readGenerationVerdict();
+    expect(records).toContainEqual(stored); // exactly one of the saved records, complete and intact
   });
 });

@@ -367,6 +367,19 @@ export interface PlanFindings {
   preferences: string[];
 }
 
+// Persisted publication-gate verdict for the most recent generation (data/generation-gate.json,
+// single slot, latest wins). /api/write refuses any write whose verdictHash doesn't match the plan
+// being published, so an unverified or superseded plan can never reach the calendar. `model` /
+// `promptVersion` are provenance stamps; absent on records from before they existed — truthy-read.
+export interface GenerationVerdict {
+  verdictHash: string;
+  blockers: string[];
+  preferences: string[];
+  model?: string;
+  promptVersion?: number;
+  createdAt: string;
+}
+
 // ---------- Active block (data/current-block.json) ----------
 
 // Acute:chronic workload ratio (7-day vs 28-day average daily TSS) — the standard
