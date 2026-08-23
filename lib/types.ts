@@ -354,6 +354,17 @@ export interface GeneratedPlan {
   // `warnings` so the UI renders it as its own red category. Optional: plans generated before this
   // field parse back as undefined — truthy-check on read.
   protocolViolations?: string[];
+  // Publication-gate verdict (lib/publication-gate.ts): blockers refuse publication outright — no
+  // override exists; preferences publish only via an explicit informed override. Absent for plans
+  // generated before the gate shipped — truthy-check on read, never `=== null`.
+  findings?: PlanFindings;
+}
+
+// Classified validator output the publication gate stamps onto a generated plan. Severity is
+// decided once in the gate by emitter, never by parsing message strings.
+export interface PlanFindings {
+  blockers: string[];
+  preferences: string[];
 }
 
 // ---------- Active block (data/current-block.json) ----------

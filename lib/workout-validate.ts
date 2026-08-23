@@ -133,24 +133,30 @@ const QUALITY_TYPES = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceS
 
 export interface ProtocolFindings {
   violations: string[]; // quality-session protocol breaches — a distinct, higher-severity category
-  advisories: string[]; // endurance-day insert findings — ordinary warnings
+  hazards: string[]; // embedded-intensity envelope breaches on endurance/Recovery days — protocol hazards, not preferences
+  advisories: string[]; // duration-consistency findings — ordinary informational warnings
 }
 
-// Validate a whole generated block, split by severity. The generate route folds `advisories` into
-// the plan's generic warnings and carries `violations` separately (GeneratedPlan.protocolViolations)
-// so the UI can render them as their own category. Replaces the old flat validatePlanProtocol.
+// Validate a whole generated block, split by severity — PER SOURCE, PER DAY, not per day: each
+// finding is bucketed by its own emitter, so a day that produces both an insert finding and a
+// duration-consistency finding contributes to two different buckets. The generate route folds
+// `advisories` into the plan's generic warnings; `violations`/`hazards` are carried as distinct
+// higher-severity categories (publication gate: both are blockers). Replaces the old flat
+// validatePlanProtocol.
 export function splitPlanProtocol(
   days: PlannedDay[],
   ftp: number,
   envelope: DurabilityInsertEnvelope = DEFAULT_DURABILITY_INSERT_ENVELOPE
 ): ProtocolFindings {
-  const out: ProtocolFindings = { violations: [], advisories: [] };
+  const out: ProtocolFindings = { violations: [], hazards: [], advisories: [] };
   for (const d of days) {
-    const findings = validateWorkoutProtocol(d, ftp, envelope);
+    // Insert findings (validateWorkoutProtocol) bucket by day type: quality-day breaches stay
+    // violations; endurance/Recovery-day embedded-intensity breaches are hazards. The
+    // duration-consistency check is a different fact from a different validator and ALWAYS lands
+    // in advisories — even on a quality day that also breached its bands.
+    (QUALITY_TYPES.has(d.type) ? out.violations : out.hazards).push(...validateWorkoutProtocol(d, ftp, envelope));
     const durationFinding = validateDurationConsistency(d);
-    if (durationFinding) findings.push(durationFinding);
-    if (findings.length === 0) continue;
-    (QUALITY_TYPES.has(d.type) ? out.violations : out.advisories).push(...findings);
+    if (durationFinding) out.advisories.push(durationFinding);
   }
   return out;
 }

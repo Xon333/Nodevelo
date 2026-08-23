@@ -169,16 +169,38 @@ describe("splitPlanProtocol", () => {
     expect(f.violations).toHaveLength(1);
     expect(f.violations[0]).toMatch(/SIT/);
     expect(f.violations[0]).toMatch(/longer than protocol/);
+    expect(f.hazards).toEqual([]);
     expect(f.advisories).toEqual([]);
   });
 
-  it("keeps endurance-day durability-insert findings advisory (the existing lighter touch)", () => {
+  it("routes endurance-day embedded-intensity findings to hazards (protocol hazards, not preferences)", () => {
     const d = day("Z2", "- 5m 140%");
-    d.durationMin = 5; // actual ~5min
+    d.durationMin = 5; // actual ~5min — no duration-consistency finding to muddy the bucket
     const f = splitPlanProtocol([d], FTP);
     expect(f.violations).toEqual([]);
+    expect(f.hazards).toHaveLength(1);
+    expect(f.hazards[0]).toMatch(/exceeds the 122% ceiling/);
+    expect(f.advisories).toEqual([]);
+  });
+
+  it("buckets duration-consistency findings as advisories even on a QUALITY day that also breached its bands", () => {
+    // The old per-day routing dumped the whole day's findings into one bucket; the split is now
+    // per source. The SIT band breach stays a violation; the stated-vs-steps gap is an advisory.
+    const d = day("SIT", "Main Set 5x\n- 1m 150%\n- 4m 40%", 90); // real steps ~25min vs stated 90
+    const f = splitPlanProtocol([d], FTP);
+    expect(f.violations.some((m) => /longer than protocol/.test(m))).toBe(true);
+    expect(f.advisories.some((m) => /stated 90min/.test(m))).toBe(true);
+    expect(f.hazards).toEqual([]);
+  });
+
+  it("buckets duration-consistency findings as advisories on a day that also produced a hazards insert finding", () => {
+    // One Z2 day, two sources: the supra-VO2 insert (hazards) and a stated-duration gap (advisories).
+    const d = day("Z2", "- 5m 140%", 90); // real ~5min vs stated 90
+    const f = splitPlanProtocol([d], FTP);
+    expect(f.hazards).toHaveLength(1);
+    expect(f.hazards[0]).toMatch(/exceeds the 122% ceiling/);
     expect(f.advisories).toHaveLength(1);
-    expect(f.advisories[0]).toMatch(/exceeds the 122% ceiling/);
+    expect(f.advisories[0]).toMatch(/stated 90min/);
   });
 
   it("returns empty findings for a clean plan", () => {
@@ -186,6 +208,7 @@ describe("splitPlanProtocol", () => {
     d.durationMin = 32; // actual ~32min
     expect(splitPlanProtocol([d], FTP)).toEqual({
       violations: [],
+      hazards: [],
       advisories: [],
     });
   });

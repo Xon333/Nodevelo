@@ -478,12 +478,14 @@ export async function POST(req: Request) {
     // KB-grounded protocol check: flag any generated workout that contradicts the knowledge base
     // (e.g. SIT prescribed as 1-min efforts). Quality-session breaches are carried as a distinct,
     // higher-severity category (plan.protocolViolations); endurance-day durability-insert findings
-    // stay ordinary warnings.
+    // (hazards, since the publication-gate split) stay ordinary warnings until Task 3 wires the gate.
     const protocol = splitPlanProtocol(days, profile.performance.ftp, resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope));
-    warnings.push(...protocol.advisories);
+    warnings.push(...protocol.advisories, ...protocol.hazards);
     // Placement check (P5): the protocol check validates each session in isolation; this flags
-    // where they land — back-to-back hard days and any week over the quality budget.
-    warnings.push(...validateSchedule(days, blockSettings, profile.performance.ftp, weekTargets, existingSeason.events));
+    // where they land — back-to-back hard days and any week over the quality budget. (Task 3 of the
+    // publication-gate plan folds both halves into evaluatePublicationGate.)
+    const schedule = validateSchedule(days, blockSettings, profile.performance.ftp, weekTargets, existingSeason.events);
+    warnings.push(...schedule.spacing, ...schedule.budget);
     // Event taper (P4, 2026-07-24): a lightweight check for priority-B/C events inside this block —
     // no HARD day (isHardDay: a quality type OR an endurance ride carrying embedded threshold/VO2
     // work — hardLabel names which) in the final 2 days before the event, and no more than 1 other
