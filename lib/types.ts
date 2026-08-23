@@ -348,12 +348,6 @@ export interface GeneratedPlan {
   // period lookup) and for plans generated before this shipped — truthy-check, never `=== null`.
   seasonFocus?: SeasonFocus;
   seasonFocusRationale?: string;
-  // Protocol violations on quality sessions (Threshold/VO2max/SIT/RaceSim) — a distinct,
-  // higher-severity category than `warnings`: the session contradicts its own KB protocol, so
-  // writing it means the plan and the lived session describe different things. Kept out of
-  // `warnings` so the UI renders it as its own red category. Optional: plans generated before this
-  // field parse back as undefined — truthy-check on read.
-  protocolViolations?: string[];
   // Publication-gate verdict (lib/publication-gate.ts): blockers refuse publication outright — no
   // override exists; preferences publish only via an explicit informed override. Absent for plans
   // generated before the gate shipped — truthy-check on read, never `=== null`.

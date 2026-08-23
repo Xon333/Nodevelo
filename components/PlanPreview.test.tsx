@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import PlanPreview from "./PlanPreview";
-import type { GeneratedPlan } from "@/lib/types";
+import type { GeneratedPlan, PlanFindings } from "@/lib/types";
 
 const base: GeneratedPlan = {
   overview: "Test block.",
@@ -9,7 +9,7 @@ const base: GeneratedPlan = {
     date: "2026-06-15", weekNumber: 1, weekTheme: "Build", name: "SIT 5x1min", type: "SIT",
     durationMin: 45, workoutText: "Main Set 5x\n- 1m 150%\n- 4m 40%", description: "d",
   }],
-  warnings: ["Expected 14 days, got 1."],
+  warnings: ["Season context degraded — goals used as-is."],
   raw: "",
   blockParams: { lengthWeeks: 2, goal: "g", startDate: "2026-06-15", weakpoints: [] },
 };
@@ -23,26 +23,71 @@ const twoDayPlan: GeneratedPlan = {
   ],
 };
 
-const render = (plan: GeneratedPlan) =>
+// renderToStaticMarkup runs in the node environment (no jsdom), so the disabled/enabled matrix is
+// asserted against the Write button's own opening tag rather than via fireEvent. The attribute
+// check must be `disabled=""` — the className carries Tailwind `disabled:` variants.
+function writeButtonTag(html: string): string {
+  const i = html.indexOf("Write to Intervals.icu");
+  expect(i).toBeGreaterThan(-1);
+  return html.slice(html.lastIndexOf("<button", i), i);
+}
+
+const writeDisabled = (html: string) => writeButtonTag(html).includes('disabled=""');
+
+const render = (
+  plan: GeneratedPlan,
+  overrideAcknowledged = false
+) =>
   renderToStaticMarkup(
-    <PlanPreview plan={plan} writing={false} results={null} writeError={null} rollback={null} intervalsConfigured={true} hasActiveBlock={false} onWrite={() => {}} onDismiss={() => {}} />
+    <PlanPreview plan={plan} writing={false} results={null} writeError={null} rollback={null} intervalsConfigured={true} hasActiveBlock={false} overrideAcknowledged={overrideAcknowledged} onOverrideAcknowledgedChange={() => {}} onWrite={() => {}} onDismiss={() => {}} />
   );
 
-test("renders protocol violations as a distinct red category above the amber warnings", () => {
+test("renders blockers as a distinct red panel that cannot be overridden, above the notes", () => {
   const html = render({
     ...base,
-    protocolViolations: ["DAY 2026-06-15 (SIT): effort 5×1m @ 432W runs 1m — longer than protocol."],
+    findings: {
+      blockers: ["DAY 2026-06-15 (SIT): effort 5×1m @ 432W runs 1m — longer than protocol."],
+      preferences: [],
+    },
   });
-  expect(html).toContain("Protocol violations");
+  expect(html).toContain("Publication blocked");
+  expect(html).toContain("these defects make this plan unsafe to publish. Regenerate.");
+  expect(html).toContain("cannot be overridden");
+  expect(html).toContain("longer than protocol");
   expect(html).toContain("border-red-300"); // its own severity styling…
-  expect(html).toContain("border-amber-200"); // …without replacing the ordinary warnings box
-  expect(html.indexOf("Protocol violations")).toBeLessThan(html.indexOf("Warnings — review before writing"));
+  expect(html).toContain("border-amber-200"); // …without replacing the informational notes box
+  expect(html.indexOf("Publication blocked")).toBeLessThan(html.indexOf("Notes — for your awareness"));
 });
 
-test("renders no violations box when the plan carries none (pre-field plans included)", () => {
+test("publication-gate matrix: clean → enabled; preferences unchecked → disabled; checked → enabled; blockers → disabled regardless", () => {
+  const clean = render(base);
+  expect(writeDisabled(clean)).toBe(false);
+
+  const preferences: PlanFindings = { blockers: [], preferences: ["GOAL: terrain-driven goal but no RaceSim session."] };
+  const unchecked = render({ ...base, findings: preferences }, false);
+  expect(writeDisabled(unchecked)).toBe(true);
+  expect(unchecked).toContain("I have read the concerns above — publish anyway.");
+  expect(unchecked).not.toContain("checked"); // checkbox starts unchecked
+
+  const checked = render({ ...base, findings: preferences }, true);
+  expect(writeDisabled(checked)).toBe(false);
+  expect(checked).toMatch(/type="checkbox"[^>]*checked=""/);
+
+  const blockedRegardless = render({
+    ...base,
+    findings: { blockers: ["STRUCTURE: Expected 14 days but the plan carries 1."], preferences: ["GOAL: …"] },
+  }, true); // even with the acknowledgment held, a blocker refuses
+  expect(writeDisabled(blockedRegardless)).toBe(true);
+  expect(blockedRegardless).toContain("cannot be overridden");
+});
+
+test("a plan without findings renders no blocker/preference panels — informational notes only (pre-gate plans included)", () => {
   const html = render(base);
-  expect(html).not.toContain("Protocol violations");
-  expect(html).toContain("Warnings — review before writing");
+  expect(html).not.toContain("Publication blocked");
+  expect(html).not.toContain("Coaching concerns");
+  expect(html).not.toContain("I have read the concerns above");
+  expect(html).toContain("Notes — for your awareness");
+  expect(html).toContain("Season context degraded");
 });
 
 test("HR-34: shows writeError next to the Write button instead of nowhere", () => {
@@ -55,6 +100,8 @@ test("HR-34: shows writeError next to the Write button instead of nowhere", () =
       rollback={null}
       intervalsConfigured={true}
       hasActiveBlock={false}
+      overrideAcknowledged={false}
+      onOverrideAcknowledgedChange={() => {}}
       onWrite={() => {}}
       onDismiss={() => {}}
     />
@@ -75,6 +122,8 @@ test("HR-48: a rolled-back day never shows '✓ written' even though its raw res
       rollback={{ rolledBack: 1, rollbackFailed: [] }}
       intervalsConfigured={true}
       hasActiveBlock={false}
+      overrideAcknowledged={false}
+      onOverrideAcknowledgedChange={() => {}}
       onWrite={() => {}}
       onDismiss={() => {}}
     />
@@ -99,6 +148,8 @@ test("HR-48: flags a day whose own rollback failed distinctly from a cleanly rol
       rollback={{ rolledBack: 0, rollbackFailed: [101] }}
       intervalsConfigured={true}
       hasActiveBlock={false}
+      overrideAcknowledged={false}
+      onOverrideAcknowledgedChange={() => {}}
       onWrite={() => {}}
       onDismiss={() => {}}
     />
@@ -121,6 +172,8 @@ test("no rollback → the ordinary partial-failure summary still renders as befo
       rollback={null}
       intervalsConfigured={true}
       hasActiveBlock={false}
+      overrideAcknowledged={false}
+      onOverrideAcknowledgedChange={() => {}}
       onWrite={() => {}}
       onDismiss={() => {}}
     />
