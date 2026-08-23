@@ -355,6 +355,18 @@ describe("canonical + verdictHash", () => {
     expect(verdictHash(tampered, blockParams)).not.toBe(verdictHash(days, blockParams));
   });
 
+  // Task 1 review fix: a client round-trip is JSON.stringify → parse, which DROPS keys whose
+  // value is undefined. If canonical emitted them (e.g. as null), a server-side hash over the
+  // original object would never match the write-side hash over the round-tripped one.
+  it("hash survives a JSON.stringify→parse→re-canonicalize cycle that removes an undefined-valued key", () => {
+    const daysWithOptional = CLEAN_DAYS.map((d) => ({ ...d, notes: undefined }));
+    const blockParams = { lengthWeeks: 2, goal: "fitness", weakpoints: [], startDate: "2026-06-01" };
+    const before = verdictHash(daysWithOptional as PlannedDay[], blockParams);
+    const roundTripped = JSON.parse(JSON.stringify({ days: daysWithOptional, blockParams }));
+    expect(verdictHash(roundTripped.days, roundTripped.blockParams)).toBe(before);
+    expect(canonical({ a: 1, gone: undefined })).toBe(canonical({ a: 1 }));
+  });
+
   it("accepts arbitrary BlockSettings-shaped input too (typed convenience only)", () => {
     const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS };
     expect(typeof canonical(settings)).toBe("string");

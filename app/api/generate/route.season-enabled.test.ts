@@ -65,6 +65,7 @@ vi.mock("@/lib/data-store", () => ({
   readScoreLog: vi.fn(),
   readIntentOverlays: vi.fn(),
   readSeasonPlan: vi.fn(),
+  saveGenerationVerdict: vi.fn(),
   updateSeasonPlan: vi.fn(),
 }));
 
@@ -96,6 +97,7 @@ beforeEach(() => {
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) =>
     mutate({ objective: "", events: [], periods: [], updatedAt: "" })
   );
+  vi.mocked(store.saveGenerationVerdict).mockResolvedValue(undefined);
 });
 
 // Same fixture route.test.ts's "season wiring" describe block uses, so this file's assertions are
@@ -128,15 +130,17 @@ describe("POST /api/generate — season wiring with SEASON_SHAPES_GENERATION=tru
     expect(dynamic).toContain("focus threshold");
   });
 
-  it("pushes a Season fit warning when a generated day's intensity disagrees with its period", async () => {
+  it("flags a Season fit PREFERENCE when a generated day's intensity disagrees with its period", async () => {
     vi.mocked(store.readSeasonPlan).mockResolvedValue(seasonPlan as never);
     const json = await (await genWithSeason()).json();
     // Both mocked days (06-15 Threshold 36m + 06-16 Z2 90m) land in the base portion: 36/126 ≈ 28.6%
     // of riding time is hard — same fixture and expectation route.test.ts's pre-Task-6 test used.
-    const fit = json.plan.warnings.filter((w: string) => /^Season fit/.test(w));
+    // Since the publication gate landed, this surfaces via findings.preferences, not warnings.
+    const fit = json.plan.findings.preferences.filter((w: string) => /^Season fit/.test(w));
     expect(fit.length).toBe(1);
     expect(fit[0]).toContain("2026-06-15");
     expect(fit[0]).toContain("riding time");
+    expect(json.plan.warnings.some((w: string) => /^Season fit/.test(w))).toBe(false);
   });
 
   // Hostile-review finding (CFS-7 task-7 review): every test above has an upcoming A-event, so

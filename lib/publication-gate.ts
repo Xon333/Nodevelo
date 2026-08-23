@@ -29,12 +29,16 @@ import { validateSessionRequirements, type SessionRequirements } from "./session
 import { validateBlockFocus, validateFocusMatch, validatePrimaryQualityCadence, validateSeasonFit } from "./season";
 
 // Recursive key-sort + stringify. Arrays keep order (order is meaningful); object keys sort so
-// byte-equality survives a JSON round-trip that reordered keys.
+// byte-equality survives a JSON round-trip that reordered keys. Keys whose value is undefined are
+// SKIPPED, matching JSON.stringify's own semantics — a plan that round-trips through the client
+// loses its undefined-valued keys entirely, so emitting them here (as null) would hash-mismatch
+// every such plan at write time (Task 4 compares client-round-tripped hashes).
 export function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   const obj = value as Record<string, unknown>;
   return `{${Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
     .sort()
     .map((k) => `${JSON.stringify(k)}:${canonical(obj[k])}`)
     .join(",")}}`;

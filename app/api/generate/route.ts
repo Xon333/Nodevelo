@@ -13,7 +13,7 @@ import {
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
 import { extractBlockFacts } from "@/lib/narrative-critic";
-import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readIntentOverlays, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, updateSeasonPlan } from "@/lib/data-store";
+import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readIntentOverlays, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, saveGenerationVerdict, updateSeasonPlan } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { formatReflectionsForPrompt, latestApprovedReflections } from "@/lib/retrospective-schema";
 import { formatQuirksForPrompt } from "@/lib/quirks";
@@ -36,14 +36,13 @@ import {
 } from "@/lib/nutrition";
 import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
 import { reconcileDurationMin } from "@/lib/prescription";
-import { splitPlanProtocol } from "@/lib/workout-validate";
 import { repairNutrition } from "@/lib/nutrition-validate";
-import { validateEventTaper, validateRecoveryWeekDensity, validateSchedule, validateSkeletonConformance, validateWeekSequencing } from "@/lib/schedule-validate";
-import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets, validateWeekHours } from "@/lib/block-skeleton";
-import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "@/lib/session-requirements";
+import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets } from "@/lib/block-skeleton";
+import { deriveSessionRequirements, formatSessionRequirements } from "@/lib/session-requirements";
+import { evaluatePublicationGate, verdictHash } from "@/lib/publication-gate";
 import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
 import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory, validateBlockFocus, validateFocusMatch, validatePrimaryQualityCadence, validateSeasonFit } from "@/lib/season";
+import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory } from "@/lib/season";
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import type { BlockParams, GeneratedPlan } from "@/lib/types";
@@ -469,62 +468,37 @@ export async function POST(req: Request) {
     // A resolver because this block spans both rest and training days (DT Task 2b).
     const nutritionRepair = repairNutrition(reconciledDays, nutritionModelFor, profile.performance.ftp, bufferStatus.bufferApplied);
     const days = nutritionRepair.days;
-    const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs];
     const expected = weeks.flat();
-    if (days.length !== expected.length) {
-      warnings.push(`Expected ${expected.length} days, got ${days.length}.`);
-    }
 
-    // KB-grounded protocol check: flag any generated workout that contradicts the knowledge base
-    // (e.g. SIT prescribed as 1-min efforts). Quality-session breaches are carried as a distinct,
-    // higher-severity category (plan.protocolViolations); endurance-day durability-insert findings
-    // (hazards, since the publication-gate split) stay ordinary warnings until Task 3 wires the gate.
-    const protocol = splitPlanProtocol(days, profile.performance.ftp, resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope));
-    warnings.push(...protocol.advisories, ...protocol.hazards);
-    // Placement check (P5): the protocol check validates each session in isolation; this flags
-    // where they land — back-to-back hard days and any week over the quality budget. (Task 3 of the
-    // publication-gate plan folds both halves into evaluatePublicationGate.)
-    const schedule = validateSchedule(days, blockSettings, profile.performance.ftp, weekTargets, existingSeason.events);
-    warnings.push(...schedule.spacing, ...schedule.budget);
-    // Event taper (P4, 2026-07-24): a lightweight check for priority-B/C events inside this block —
-    // no HARD day (isHardDay: a quality type OR an endurance ride carrying embedded threshold/VO2
-    // work — hardLabel names which) in the final 2 days before the event, and no more than 1 other
-    // quality session that week. A-priority events are excluded (they get the full backward-scheduled arc).
-    warnings.push(...validateEventTaper(days, existingSeason.events, profile.performance.ftp, blockSettings));
-    // Hours check (P2b, 2026-07-24): did each week's actual total land near its exact skeleton
-    // target — the check that was missing entirely (only session counts/spacing were validated).
-    warnings.push(...validateWeekHours(days, weekTargets));
-    // Phase B: per-day conformance against the same skeleton the prompt was built from — a missing
-    // day, a type outside its slot, or a duration outside its envelope.
-    warnings.push(...validateSkeletonConformance(days, blockSkeleton));
-    // The composition half of the recovery contract — validateWeekHours only checks volume.
-    warnings.push(...validateRecoveryWeekDensity(days, weekTargets, blockSettings, profile.performance.ftp, existingSeason.events));
-    // Sequencing check (P5b, 2026-07-24): freshness-dependent quality (VO2max/SIT) should land
-    // earlier in the week than fatigue-tolerant quality (Threshold/RaceSim).
-    warnings.push(...validateWeekSequencing(days));
-    // Track B: enforce the goal-driven session requirement (terrain/race goal ⇒ ≥1 RaceSim).
-    warnings.push(...validateSessionRequirements(days, requirements));
-    // Season fit (event-anchored) / block focus (rolling): flag intensity or focus-label disagreement
-    // vs the active season structure. P1 (2026-07-24): the event-anchored pair stays behind the
-    // doubted-model flag; block-focus (rolling, state-scored) is not that model and always runs.
-    // Fix 3 (2026-07-29 whole-branch review): the rolling branch used to be gated on the OUTER
-    // `if (replannedSeason)` too, even though validateBlockFocus/validatePrimaryQualityCadence take
-    // rollingFocusChoice, not replannedSeason — so a season-replan throw (replannedSeason stays null)
-    // silently skipped both, dark exactly when the prompt-side fix above needed them most to check its
-    // own work. Only the event-anchored branch actually needs replannedSeason (a non-null SeasonPlan
-    // argument), so it alone stays gated on it.
-    if (SEASON_SHAPES_GENERATION && aEventForBlock && replannedSeason) {
-      warnings.push(...validateSeasonFit(days, replannedSeason, profile.performance.ftp));
-      warnings.push(...validateFocusMatch(days, replannedSeason, profile.performance.ftp));
-    } else if (rollingFocusChoice) {
-      warnings.push(...validateBlockFocus(days, rollingFocusChoice.focus, profile.performance.ftp));
-      // P5a (2026-07-24): stricter than the block-wide floor above — the primary quality must
-      // appear in EVERY loading week, not just once somewhere in the block.
-      warnings.push(...validatePrimaryQualityCadence(days, rollingFocusChoice.focus, weekTargets, profile.performance.ftp));
-    }
-    if (truncated) {
-      warnings.unshift("The AI response hit the token limit and may be incomplete.");
-    }
+    // Publication gate (publication-gate trust-contract plan, Task 3): ONE call runs every
+    // validator exactly once and buckets their outputs — blockers/preferences land on
+    // plan.findings, and only informational output (season degradation, nutrition repairs,
+    // duration-consistency advisories) stays in `warnings`. The old inline day-count mismatch
+    // and truncation warnings are gone: the gate owns both now (as STRUCTURE blockers); the
+    // critic-skip condition below keeps using the raw values. Severity is decided by emitter
+    // inside lib/publication-gate.ts — never here.
+    const gate = evaluatePublicationGate({
+      days,
+      truncated,
+      expectedDayCount: expected.length,
+      ftp: profile.performance.ftp,
+      envelope: resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope),
+      blockSettings,
+      weekTargets,
+      blockSkeleton,
+      events: existingSeason.events,
+      requirements,
+      // Mirrors the route's own branch flags: event-anchored only when the flag AND an A-event
+      // AND a surviving replan are all present; rolling whenever a focus choice exists;
+      // null skips the season family.
+      seasonContext:
+        SEASON_SHAPES_GENERATION && aEventForBlock && replannedSeason
+          ? { mode: "event-anchored", plan: replannedSeason }
+          : rollingFocusChoice
+            ? { mode: "rolling", focus: rollingFocusChoice.focus }
+            : null,
+    });
+    const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs, ...gate.advisories];
 
     // Narrative-coherence critic (P3c, 2026-07-24): a cheap follow-up check that the written overview
     // actually matches the generated schedule (the "escalate SIT" contradiction the reviewed block
@@ -546,7 +520,12 @@ export async function POST(req: Request) {
       overview: finalOverview,
       days,
       warnings,
-      ...(protocol.violations.length > 0 ? { protocolViolations: protocol.violations } : {}),
+      // Publication-gate findings stamped sparse (absent entirely on a fully clean plan —
+      // truthy-check on read). protocolViolations are no longer emitted separately; quality-day
+      // breaches now surface via findings.blockers.
+      ...(gate.blockers.length > 0 || gate.preferences.length > 0
+        ? { findings: { blockers: gate.blockers, preferences: gate.preferences } }
+        : {}),
       raw: rawForAudit,
       blockParams,
       model: GENERATION_MODEL,
@@ -554,6 +533,25 @@ export async function POST(req: Request) {
       durabilityTemplate: durability.id, // Track B: stamp the template for rotation + future scoring
       ...(rollingFocusChoice ? { seasonFocus: rollingFocusChoice.focus, seasonFocusRationale: rollingFocusChoice.rationale } : {}),
     };
+
+    // Persist the server-authoritative verdict (single slot, latest wins) so /api/write can match
+    // the published plan against THIS generation's classification without re-running validators on
+    // drifted context. Best-effort like the season persist below — a save failure logs and the
+    // generation still succeeds, but the response carries no publishable verdict, so /api/write's
+    // unknown-plan refusal will block publication of this plan until a regeneration (fail-safe).
+    // Nothing about the hash itself is client-facing.
+    try {
+      await saveGenerationVerdict({
+        verdictHash: verdictHash(days, plan.blockParams),
+        blockers: gate.blockers,
+        preferences: gate.preferences,
+        model: GENERATION_MODEL,
+        promptVersion: PROMPT_VERSION,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      logWarn("/api/generate", "verdict-persist", err instanceof Error ? err.message : String(err));
+    }
 
     // HR-58: persist the season re-plan/settle only now that generation actually succeeded — never
     // for a proposal that failed or was discarded. CAS-guarded on the `updatedAt` this route's own
