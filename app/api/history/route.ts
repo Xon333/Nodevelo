@@ -32,21 +32,32 @@ export async function POST(req: Request) {
 
     const target = (await readBlockHistory()).find((e) => e.id === id);
     if (!target) return NextResponse.json({ error: "No such history entry." }, { status: 404 });
-    if (target.reflectionsApprovedAt) {
+    const alreadyAdopted = Boolean(target.reflectionsApprovedAt);
+    let approved = false;
+    try {
+      approved = await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
+    } catch (err) {
+      if (alreadyAdopted) {
+        return NextResponse.json({ ok: true, alreadyAdopted: true });
+      }
+      throw err;
+    }
+    if (!approved) {
+      if (alreadyAdopted) {
+        return NextResponse.json({ ok: true, alreadyAdopted: true });
+      }
+      return NextResponse.json({ error: "Couldn't approve retrospective seeds." }, { status: 409 });
+    }
+    if (alreadyAdopted) {
       return NextResponse.json({ ok: true, alreadyAdopted: true });
     }
 
-    const approved = await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
-    if (!approved) {
-      return NextResponse.json({ error: "Couldn't approve retrospective seeds." }, { status: 409 });
-    }
-
-    let alreadyAdopted = false;
+    let racedAlreadyAdopted = false;
     const updated = await updateBlockHistory((entries) =>
       entries.map((e) => {
         if (e.id !== id) return e;
         if (e.reflectionsApprovedAt) {
-          alreadyAdopted = true;
+          racedAlreadyAdopted = true;
           return e;
         }
         return { ...e, reflectionsApprovedAt: new Date().toISOString() };
@@ -56,7 +67,7 @@ export async function POST(req: Request) {
       // The entry vanished between the read and the lock — nothing was adopted.
       return NextResponse.json({ error: "No such history entry." }, { status: 404 });
     }
-    return NextResponse.json({ ok: true, ...(alreadyAdopted ? { alreadyAdopted: true } : {}) });
+    return NextResponse.json({ ok: true, ...(racedAlreadyAdopted ? { alreadyAdopted: true } : {}) });
   } catch (err) {
     logError("/api/history", "adopt", err instanceof Error ? err.message : String(err));
     return NextResponse.json({ error: "Couldn't record the adoption." }, { status: 502 });

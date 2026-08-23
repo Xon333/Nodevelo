@@ -147,16 +147,16 @@ describe("approveSeedsInMarkdown", () => {
 });
 
 describe("parseRetroSeeds unescaping", () => {
-  it("strips outer quotes and unescapes \\\" and \\\\ inside a quoted scalar", () => {
+  it("strips outer quotes and unescapes only writer-owned \\\" and \\\\ inside a quoted scalar", () => {
     const fm = [
       "---",
       'id: "x"',
       "seeds_approved: true",
       "next_block_seeds:",
-      '  - "backslash \\\\ then quote \\""',
+      '  - "keep \\\\n and \\\\t, backslash \\\\ then quote \\""',
       "---",
     ].join("\n");
-    expect(parseRetroSeeds(fm)).toEqual(['backslash \\ then quote "']);
+    expect(parseRetroSeeds(fm)).toEqual(['keep \\n and \\t, backslash \\ then quote "']);
   });
 
   it("preserves significant edge whitespace inside quoted seeds", () => {
@@ -169,6 +169,18 @@ describe("parseRetroSeeds unescaping", () => {
       "---",
     ].join("\n");
     expect(parseRetroSeeds(fm)).toEqual(['  backslash \\ then quote "  ']);
+  });
+
+  it("preserves unrecognized backslash sequences instead of dropping the slash", () => {
+    const fm = [
+      "---",
+      'id: "x"',
+      "seeds_approved: true",
+      "next_block_seeds:",
+      '  - "athlete kept \\n and \\t literally"',
+      "---",
+    ].join("\n");
+    expect(parseRetroSeeds(fm)).toEqual(["athlete kept \\n and \\t literally"]);
   });
 
   it("leaves plain unescaped seed text untouched", () => {

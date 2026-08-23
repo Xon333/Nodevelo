@@ -374,7 +374,7 @@ export function parseRetroSeeds(content: string): string[] {
     if (inSeeds) {
       const quoted = line.match(/^\s+-\s+"((?:\\.|[^"])*)"\s*$/);
       if (quoted) {
-        const seed = quoted[1].replace(/\\(.)/g, "$1");
+        const seed = quoted[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
         if (seed.trim()) seeds.push(seed);
         continue;
       }
