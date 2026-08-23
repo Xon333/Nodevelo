@@ -1,6 +1,6 @@
 # NodeVelo roadmap
 
-*Last reconciled 2026-08-21.* The forward backlog — open work only.
+*Last reconciled 2026-08-23.* The forward backlog — open work only.
 
 Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
 The review is an immutable point-in-time decision record; this file is its living operating backlog.
@@ -29,10 +29,6 @@ when a real A-event exists.
 
 ### Phase 1 · Repair trust contracts
 
-- Commit local calendar state before best-effort Intervals.icu mirroring.
-- After normal block completion or an explicit early-end decision, replace duration-led progression
-  with a deterministic closeout using execution and meaningful compliance evidence; keep facts,
-  optional AI narrative, and athlete-approved future seeds separate.
 - Make named-segment scoring fail closed on missing, ambiguous, or unstated evidence and distinguish
   those states from API/interpreter failure. Exact curated Intervals labels plus constrained syntax
   are the authoritative scoreable lane.
@@ -91,6 +87,8 @@ cannot discriminate outcomes.
 
 Each block closes cleanly through the adaptive bridge and records usefulness, trust, edits, retained
 prescriptions, and adaptations. Repaired history, manually seeded workouts, and test generations do not count.
+The first real turnover after 2026-08-23 also owes the deferred PR #92 live smoke run —
+[RECIPES § block turnover](docs/RECIPES.md#turn-over-a-block-end--retrospective--next-block), step 9.
 
 The feature freeze ends only when the [charter's evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate)
 is fully met:

@@ -12,6 +12,33 @@ exact commits.
 
 ---
 
+## Trust-contract repairs — calendar mirroring + retrospective closeout (2026-08-22/23, PRs #87/#92)
+
+Two Phase 1 trust contracts shipped back-to-back. Both merged after full code review (PR #87
+reviewed shallow post-merge and judged SOUND; PR #92 reviewed at head `bfa2497` — no critical
+findings, suite green, `tsc` clean).
+
+- **Calendar trust contract (PR #87, merged 2026-08-22):** `persistMirroredMove`
+  (`lib/calendar-mirror.ts`) now commits the authoritative local move under the current-block lock
+  *before* any Intervals.icu network call ([INVARIANTS #8](docs/INVARIANTS.md)), aborts with
+  `versionConflict` when the block was concurrently deleted or replaced (morning-check surfaces the
+  409 instead of consuming the check — [INVARIANTS #7](docs/INVARIANTS.md)), and overlays freshly
+  minted mirror eventIds via a targeted lock-held `updateCurrentBlock` rather than re-merging days.
+- **Retrospective turnover trust contract (PR #92, merged 2026-08-23):** closeout is
+  deterministic-first — evidence and proposed seeds are computed read-only from the frozen ledger
+  (`lib/block-closeout.ts`); Claude's narrative/reflections are best-effort enrichment (degraded
+  mode returns 200 + `narrativeDegraded`, facts still land); closing an unfinished block requires an
+  explicit early-end reason (409 otherwise). Nothing AI-authored steers generation until adoption:
+  `POST /api/history` flips `seeds_approved: true` on the retro markdown frontmatter and stamps
+  `reflectionsApprovedAt` on the newest reflection-bearing history entry. Degraded closeouts resist
+  bare-archive collisions (HR-37 extension) and render a deterministic fallback card, never blank.
+  **Deferred:** the live LLM smoke run for the changed retrospective paths is owed at the next real
+  block turnover — see [RECIPES § block turnover](docs/RECIPES.md#turn-over-a-block-end--retrospective--next-block).
+  Minor hardening notes from the merge review (lossy seed-quote escaping, seed-gate regex not
+  anchored to the frontmatter region, PROMPT_VERSION bump judgment call) were accepted as follow-ups.
+
+---
+
 ## Whole-repo hostile review closeout — HR-60…HR-72 (2026-08-15; workflow closeout 2026-08-21)
 
 - **HR-60/61:** corrected local-date handling in the learning loop and made UTC defaults explicit.
