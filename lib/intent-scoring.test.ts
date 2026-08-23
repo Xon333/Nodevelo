@@ -24,6 +24,7 @@ import {
 } from "./intent-scoring";
 import { isApplicable } from "./intent-overlay";
 import { groundsWatts } from "./intent-grounding";
+import { parseDeterministicIntent } from "./intent-note-parser";
 import type {
   ExecutedInterval,
   IntentInterpretation,
@@ -73,6 +74,48 @@ describe("segment intent", () => {
     );
     expect(result.objective.scored).toBe(false);
     expect(result.delta).toBeNull();
+  });
+
+  it("does not award credit for an unstated NP component", () => {
+    const result = gradeObjective(
+      obj("segment", { segmentLabel: "Effort 2", durationMin: 10, avgPowerZone: "Z5" }),
+      evidence({
+        powerZoneTopsPct: [55, 75, 90, 105, 120, 150, 999],
+        laps: [{ ...lap(20 * 60, 150, 100), npWatts: 400, label: "Effort 2" }],
+      })
+    );
+
+    expect(result.delta).toBe(-3);
+  });
+
+  it("scores the August 23 labelled intervals at 9/10 from the strict note", () => {
+    const note = `Intent:
+-Block 1 (Z3, 1h)
+-Effort 1 (Z4 avg/Z5 NP, 7m, rolling climb, steep gradients)
+-Effort 2 (z5 avg, 3m30s, very steep short climb)
+-Block 2 (Z2 avg/Z3 NP, 24m, rolling terrain)`;
+    const interpretation = parseDeterministicIntent(note);
+    expect(interpretation).not.toBeNull();
+
+    const named = (label: string, seconds: number, avg: number, np: number, start: number) =>
+      ({ ...lap(seconds, avg, start), label, npWatts: np });
+    const result = scoreIntentExecution(
+      interpretation!,
+      evidence({
+        durationMin: 101,
+        powerZoneTopsPct: [55, 75, 90, 105, 120, 150, 999],
+        laps: [
+          named("Block 1", 3600, 240, 247, 0),
+          named("Effort 1", 440, 275, 304, 3600),
+          named("Effort 2", 210, 327, 334, 4040),
+          named("Block 2", 1461, 211, 236, 4531),
+        ],
+      }),
+      note
+    );
+
+    expect(result.score).toBe(9);
+    expect(result.objectives.map((objective) => objective.scored)).toEqual([true, true, true, true]);
   });
 
   it("keeps the August 19 four-segment acceptance ride at 9/10", () => {

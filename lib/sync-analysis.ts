@@ -78,6 +78,13 @@ export async function addCoachNote(
     if (todayOverlay?.notScoredReason === "interpreter-failed") {
       input.activityDescription = null;
     }
+    if (todayOverlay?.effectiveExecutionScore !== null && todayOverlay?.interpretation) {
+      const evidence = todayOverlay.interpretation.objectives
+        .filter((objective) => objective.scored && objective.evidence)
+        .map((objective) => objective.evidence)
+        .join("; ");
+      input.intentContext = `DETERMINISTIC INTENT: ${todayOverlay.effectiveExecutionScore}/10${evidence ? ` — ${evidence}` : ""}`;
+    }
     input.powerZoneTimes = analysis.powerZoneTimes;
     input.hrZoneTimes = analysis.hrZoneTimes;
     input.intervalComparison = analysis.intervalComparison;

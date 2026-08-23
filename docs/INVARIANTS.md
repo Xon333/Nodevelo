@@ -159,9 +159,9 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     one inferred from IF, and may only accompany `origin: "self-directed"`. Per-type learning stays
     prescribed-only until the two 1–10 scales are shown comparable on a real corpus and compliance
     gains a meaning for rides that currently have none.
-54. **`INTENT_PROMPT_VERSION` is independent of `PROMPT_VERSION`.** The latter is stamped on generated
-    plans, today analyses, and block-history entries; bumping it for an unrelated intent prompt would
-    falsely assert changes to all three artifact families.
+54. **Intent interpretation is deterministic and independently versioned.** `POST /api/intent` must
+    not call an LLM. `DETERMINISTIC_INTENT_VERSION` stamps parser provenance; `PROMPT_VERSION` remains
+    reserved for generated plans, today analyses, and block-history entries.
 55. **The debrief never displays the raw ledger/analysis score once an overlay applies.**
     `RideIntentBlock`/`TodayRideCard` (`components/dashboard/ride-intent.tsx`,
     `components/dashboard/today.tsx`) read `todayOutcome.effectiveExecutionScore` — resolved
@@ -196,7 +196,8 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     and each stated average/NP watts resolving to its stated zone by exact zone match), NOT the design
     spec's stricter middle-half-of-watt-band precision criterion
     ([spec](superpowers/specs/2026-08-19-segment-aware-intent-scoring-design.md#component-grading);
-    see [ROADMAP](../ROADMAP.md) for the open follow-up).
+    see [ROADMAP](../ROADMAP.md) for the open follow-up). Only components explicitly stated in the note
+    may contribute points; one malformed bullet cannot prevent valid sibling bullets from scoring.
 
 ## Block closeout & adoption
 

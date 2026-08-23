@@ -1,7 +1,7 @@
 // Deterministic scoring of a SELF-DIRECTED ride against the athlete's own stated objectives.
 //
-// The LLM translates a free-text note into structured objectives (lib/intent-schema.ts); everything
-// that turns those objectives into a 1-10 verdict lives here, in pure TypeScript with no I/O, no SDK
+// The strict note parser produces structured objectives; everything that turns those objectives into
+// a 1-10 verdict lives here, in pure TypeScript with no I/O, no SDK
 // and no network (INVARIANT 12 — the model never computes a number).
 //
 // Three things this module is deliberately the ONLY place for:
@@ -1025,16 +1025,30 @@ function gradeSegment(objective: ScoredObjective, evidence: RideEvidence, pool: 
   const actualMin = lap.durationSec / 60;
   const min = numeric(target.durationMin);
   const max = numeric(target.durationMaxMin) ?? min;
-  const durationScore = min === null ? 1 : max !== null && actualMin >= min && actualMin <= max ? 2 : actualMin >= min * 0.85 && actualMin <= (max ?? min) * 1.15 ? 1 : 0;
-  const avgZone = powerZoneForWatts(lap.avgWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null);
-  const npZone = powerZoneForWatts(lap.npWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null);
-  const avg = zoneMatch(avgZone, target.avgPowerZone ?? target.zone);
-  const np = zoneMatch(npZone, target.normalizedPowerZone);
-  if (avg === null) return ungraded("no average-power zone evidence for the matched segment");
-  if (np === null) return ungraded("no normalized-power zone evidence for the matched segment");
-  const components = [durationScore, avg === null ? 0 : avg ? 2 : 0, np === null ? 0 : np ? 2 : 0];
+  const components: number[] = [];
+  if (min !== null) {
+    components.push(max !== null && actualMin >= min && actualMin <= max ? 2 : actualMin >= min * 0.85 && actualMin <= (max ?? min) * 1.15 ? 1 : 0);
+  }
+  const avgTarget = target.avgPowerZone ?? target.zone;
+  if (avgTarget) {
+    const avg = zoneMatch(
+      powerZoneForWatts(lap.avgWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null),
+      avgTarget
+    );
+    if (avg === null) return ungraded("no average-power zone evidence for the matched segment");
+    components.push(avg ? 2 : 0);
+  }
+  if (target.normalizedPowerZone) {
+    const np = zoneMatch(
+      powerZoneForWatts(lap.npWatts, evidence.ftpUsed, evidence.powerZoneTopsPct ?? null),
+      target.normalizedPowerZone
+    );
+    if (np === null) return ungraded("no normalized-power zone evidence for the matched segment");
+    components.push(np ? 2 : 0);
+  }
+  if (components.length === 0) return ungraded("segment has no measurable target");
   const mean = components.reduce((sum, value) => sum + value, 0) / components.length;
-  const precise = durationScore === 2 && components.slice(1).every((value) => value === 2);
+  const precise = components.every((value) => value === 2);
   const delta = mean >= 1.5 ? 3 : mean >= 1 ? 2 : mean >= 0.5 ? 0 : -3;
   return { delta, scored: true, measurable: true, scopeMin: actualMin, evidence: `${lap.label ?? target.segmentLabel} ${actualMin.toFixed(1)} min; avg ${lap.avgWatts ?? "?"} W; NP ${lap.npWatts ?? "?"} W${precise ? "; precise" : ""}`, matchedLaps: matched };
 }

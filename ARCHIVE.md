@@ -34,6 +34,14 @@ whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment
 - **Today hold (`components/dashboard/today.tsx`):** while a noted unplanned ride's intent is still
   being evaluated, Today shows "Evaluating your intent…" instead of a generic off-plan score, so a
   fast sync render never exposes a score the pending analysis is about to replace.
+- **Deterministic extraction (2026-08-23):** `lib/intent-note-parser.ts` replaced Claude intent
+  identification with strict per-bullet parsing of labelled segment duration, average-power zone, and
+  normalized-power zone targets. Synced Intervals.icu laps are authoritative; malformed siblings,
+  missing labels, and ambiguous labels never cause guesses, and only stated components earn points.
+  Claude receives the finished score/evidence only when writing optional coach prose. A live forced
+  sync/re-analysis of activity `i178790011` scored **9/10** from Block 1 / Effort 1 / Effort 2 / Block 2,
+  with four segment-local evidence rows and deterministic parser provenance. A live Sonnet smoke at
+  `PROMPT_VERSION = 9` preserved that verdict and phrased the supplied evidence without recomputing it.
 - **Verified (live re-analysis 2026-08-23):** re-running the August 19 activity (`i177434779`)
   superseded its schema-1 overlay transactionally and persisted overlay `edfc5d9d`
   (schemaVersion 2, scoringVersion 2) scoring **9/10** from four separate `segment` objectives

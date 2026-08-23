@@ -849,9 +849,9 @@ export interface ScoredObjective {
   evidence: string | null;
 }
 
-// The AI-derived half of an overlay. NULL when no model ran — a missing note is decided
-// deterministically, and demanding model/promptVersion there would force fabricated provenance.
-// When present it carries both (INVARIANT 16).
+// The interpreted half of an overlay. NULL only when no interpretation ran (for example, no note).
+// `model` is the parser provenance identifier (`deterministic-note-parser` for the strict lane, or an
+// AI model name on historical overlays); `promptVersion` versions that parser's input contract.
 export interface IntentInterpretation {
   intent: StructuredIntent;
   confidence: "high" | "medium" | "low";

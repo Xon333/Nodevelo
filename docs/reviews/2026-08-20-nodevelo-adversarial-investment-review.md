@@ -108,7 +108,7 @@ future reader can identify the source category without committing private athlet
 | Calendar mirror runs before the guarded local merge | [calendar mirror](../../lib/calendar-mirror.ts), [local-first invariant](../INVARIANTS.md) | — |
 | Publication checks are partial and non-gating | [write route](../../app/api/write/route.ts), [generation pipeline](../systems/06-generation.md) | — |
 | Retrospective progression used duration ratios and Claude causal prose | [retrospective route](../../app/api/retrospective/route.ts), [retrospective schema](../../lib/retrospective-schema.ts) | `data/block-history.json` |
-| Named-segment interpretation used Claude before deterministic evidence matching | [intent runner](../../lib/intent-runner.ts), [intent prompt](../../lib/intent-prompt.ts), [intent scoring](../../lib/intent-scoring.ts) | `data/intent-overlays.json`, `data/last-sync.json` |
+| Named-segment interpretation used Claude before deterministic evidence matching | [historical design](../superpowers/specs/2026-08-19-segment-aware-intent-scoring-design.md), [intent scoring](../../lib/intent-scoring.ts) | `data/intent-overlays.json`, `data/last-sync.json` |
 | Nutrition has known identifiability, historical-target, and weight-offset limits | [nutrition system](../systems/09-nutrition.md), [nutrition engine](../../lib/nutrition.ts) | `data/last-sync.json`, `data/calibration.json` |
 | Ask Coach already received a shared snapshot plus today's and next prescribed session | [Ask Coach route](../../app/api/ask/route.ts) | Athlete-reported output quality and non-use |
 | Backup is optional and localhost/no-auth is a deliberate boundary | [README](../../README.md), [backup](../../lib/backup.ts), [CSRF guard](../../lib/csrf.ts) | `.env.local` configuration state |

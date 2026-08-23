@@ -149,11 +149,24 @@ describe("addCoachNote — withholds the raw note from the prose prompt on a par
 
   it("still passes the raw note through when the overlay resolved successfully (not interpreter-failed)", async () => {
     vi.mocked(store.readIntentOverlays).mockResolvedValue({
-      overlays: [overlay({ notScoredReason: null, effectiveExecutionScore: 7, scoringVersion: 1, origin: "self-directed" })],
+      overlays: [overlay({
+        notScoredReason: null, effectiveExecutionScore: 7, scoringVersion: 1, origin: "self-directed",
+        interpretation: {
+          intent: { primaryPurpose: "segments", phases: [] }, confidence: "high", model: "deterministic-note-parser", promptVersion: 1,
+          objectives: [{
+            description: "Block 1", kind: "segment", target: { segmentLabel: "Block 1", durationMin: 60 },
+            zoneBasis: "unspecified", grounded: true, sourceText: "Block 1 (1h)", measurable: true,
+            scored: true, scopeMin: 60, evidence: "Block 1 60.0 min; avg 240 W; NP 247 W",
+          }],
+        },
+      })],
       updatedAt: "",
     });
     await addCoachNote(TODAY, []);
-    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({ activityDescription: "solo ride" }));
+    expect(anthropic.analyseRide).toHaveBeenCalledWith(expect.objectContaining({
+      activityDescription: "solo ride",
+      intentContext: "DETERMINISTIC INTENT: 7/10 — Block 1 60.0 min; avg 240 W; NP 247 W",
+    }));
   });
 
   it("ignores a superseded overlay (not the applicable one) and still withholds correctly for the CURRENT overlay", async () => {

@@ -142,6 +142,10 @@ describe("semantic intent grounding", () => {
 });
 
 describe("Phase 3b grounding — HR, cadence, terrain", () => {
+  it("grounds a compound minute-second duration", () => {
+    expect(groundsDuration("Effort 2 (z5 avg, 3m30s)", 3.5)).toBe(true);
+  });
+
   it("grounds an HR ceiling only from a bpm-unit form", () => {
     expect(groundsHrBpm("if HR goes over 154bpm dial back", 154)).toBe(true);
     expect(groundsHrBpm("30 min effort", 154)).toBe(false); // no bpm unit anywhere — must not invent one

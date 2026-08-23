@@ -11,7 +11,7 @@ import {
   type RideAnalysisInput,
 } from "./anthropic-prompts";
 import { computeBlockSkeleton, computeWeekTargets } from "./block-skeleton";
-import { INTENT_NOTE_MAX_CHARS } from "./intent-prompt";
+import { ACTIVITY_NOTE_MAX_CHARS } from "./intent-note-parser";
 import { DEFAULT_BLOCK_SETTINGS, type BlockParams, type IntervalComparison } from "./types";
 
 // These prompt builders were inlined in the SDK call functions before the RV-8 split, so they couldn't
@@ -202,18 +202,18 @@ describe("buildRideAnalysisPrompt", () => {
 
   it("does not truncate the real self-directed note — the second effort block must reach the model", () => {
     expect(realSelfDirectedNote.length).toBeGreaterThan(400); // would have been cut by the old cap
-    expect(realSelfDirectedNote.length).toBeLessThan(INTENT_NOTE_MAX_CHARS); // passes through whole
+    expect(realSelfDirectedNote.length).toBeLessThan(ACTIVITY_NOTE_MAX_CHARS); // passes through whole
     const p = buildRideAnalysisPrompt(rideInput({ activityDescription: realSelfDirectedNote }));
     expect(p).toContain("2nd part roughly  km 23 to km 29");
     expect(p).toContain("Then descent and z2 back home");
     expect(p).not.toContain("[note truncated]");
   });
 
-  it("truncates a note past INTENT_NOTE_MAX_CHARS with an explicit marker, not a silent cut", () => {
-    const long = "x".repeat(INTENT_NOTE_MAX_CHARS + 200);
+  it("truncates a note past ACTIVITY_NOTE_MAX_CHARS with an explicit marker, not a silent cut", () => {
+    const long = "x".repeat(ACTIVITY_NOTE_MAX_CHARS + 200);
     const p = buildRideAnalysisPrompt(rideInput({ activityDescription: long }));
     expect(p).toContain("… [note truncated]");
-    expect(p).not.toContain("x".repeat(INTENT_NOTE_MAX_CHARS + 1)); // never emits the untruncated tail
+    expect(p).not.toContain("x".repeat(ACTIVITY_NOTE_MAX_CHARS + 1)); // never emits the untruncated tail
   });
 
   it("leaves a short note untouched, with no marker", () => {
