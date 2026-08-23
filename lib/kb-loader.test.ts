@@ -155,6 +155,18 @@ describe("parseRetroSeeds unescaping", () => {
     expect(parseRetroSeeds(fm)).toEqual(['backslash \\ then quote "']);
   });
 
+  it("preserves significant edge whitespace inside quoted seeds", () => {
+    const fm = [
+      "---",
+      'id: "x"',
+      "seeds_approved: true",
+      "next_block_seeds:",
+      '  - "  backslash \\\\ then quote \\"  "',
+      "---",
+    ].join("\n");
+    expect(parseRetroSeeds(fm)).toEqual(['  backslash \\ then quote "  ']);
+  });
+
   it("leaves plain unescaped seed text untouched", () => {
     expect(parseRetroSeeds(md(`seeds_approved: true\nstatus: completed`))).toEqual([
       "Threshold executed well — evidence supports progressing Threshold load",

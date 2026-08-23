@@ -372,8 +372,14 @@ export function parseRetroSeeds(content: string): string[] {
   for (const line of fmLines) {
     if (/^next_block_seeds:\s*$/.test(line)) { inSeeds = true; continue; }
     if (inSeeds) {
-      const m = line.match(/^\s+-\s+"?(.*?)"?\s*$/);
-      if (m && m[1].trim()) { seeds.push(m[1].trim().replace(/\\(.)/g, "$1")); continue; }
+      const quoted = line.match(/^\s+-\s+"((?:\\.|[^"])*)"\s*$/);
+      if (quoted) {
+        const seed = quoted[1].replace(/\\(.)/g, "$1");
+        if (seed.trim()) seeds.push(seed);
+        continue;
+      }
+      const plain = line.match(/^\s+-\s+(.*?)\s*$/);
+      if (plain && plain[1].trim()) { seeds.push(plain[1].trim()); continue; }
       if (line.trim() !== "" && !/^\s+-/.test(line)) break;
     }
   }
