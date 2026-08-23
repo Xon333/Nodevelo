@@ -221,13 +221,24 @@ describe("runIntentParsing", () => {
     expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable", origin: "unspecified" });
   });
 
-  it("writes nothing when the authoritative interval fetch fails", async () => {
+  // The parse runs BEFORE the Intervals.icu fetch, so a note the parser cannot grade never depends
+  // on the API being up — an outage must not stall it into failedIds when its overlay needs no laps.
+  // A SUPPORTED note, whose grading genuinely needs curated laps, must still stall on an outage.
+  it("an unsupported note is recorded without fetching curated laps; a supported one still stalls on an outage", async () => {
+    await runIntentParsing(TODAY, []);
+
+    expect(intervals.fetchIntervals).not.toHaveBeenCalled();
+    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable" });
+
+    activities[0].description = "-Effort 1 (10m)";
     vi.mocked(intervals.fetchIntervals).mockRejectedValueOnce(new Error("Intervals unavailable"));
 
     const result = await runIntentParsing(TODAY, []);
 
     expect(result).toMatchObject({ processed: 0, remaining: 1, stalled: true, failedIds: ["a1"] });
-    expect(overlayStore.overlays).toHaveLength(0);
+    // The outage wrote nothing new — only the earlier unsupported note's own overlay remains.
+    expect(overlayStore.overlays).toHaveLength(1);
+    expect(overlayStore.overlays[0]).toMatchObject({ notScoredReason: "intent-unreliable" });
   });
 
   it("persists autoFromDate before the first parse and never rewrites it", async () => {

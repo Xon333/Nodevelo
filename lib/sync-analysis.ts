@@ -78,7 +78,12 @@ export async function addCoachNote(
     if (todayOverlay?.notScoredReason === "interpreter-failed") {
       input.activityDescription = null;
     }
-    if (todayOverlay?.effectiveExecutionScore !== null && todayOverlay?.interpretation) {
+    // Truthy-checked, never `!== null`: an overlay JSON written before effectiveExecutionScore existed
+    // parses the key back as `undefined`, and `undefined !== null` is true — which would render
+    // "DETERMINISTIC INTENT: undefined/10" into the billed prompt (the exact migration-flag trap in
+    // AGENTS.md). Safe as a truthy check because buildOverlay clamps every score to 1-10; 0 is
+    // unrepresentable (lib/intent-scoring.ts).
+    if (todayOverlay?.effectiveExecutionScore && todayOverlay?.interpretation) {
       const evidence = todayOverlay.interpretation.objectives
         .filter((objective) => objective.scored && objective.evidence)
         .map((objective) => objective.evidence)

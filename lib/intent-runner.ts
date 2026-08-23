@@ -11,7 +11,7 @@ import { DETERMINISTIC_INTENT_VERSION, parseDeterministicIntent } from "./intent
 import { physiologyAsOf, readPhysiology } from "./physiology";
 import { buildIntentQueue, INTENT_MAX_PER_RUN, normalizeNote, primaryRideOfDate } from "./intent-queue";
 import { buildOverlay, scoreIntentExecution, type RideEvidence } from "./intent-scoring";
-import type { IntentOverlay, RideScoreEntry } from "./types";
+import type { ExecutedInterval, IntentOverlay, RideScoreEntry } from "./types";
 
 export interface RunIntentOptions {
   force?: boolean;
@@ -83,14 +83,21 @@ export async function runIntentParsing(
         reason: "no-intent-found",
       });
     } else {
-      let laps;
-      try {
-        laps = await fetchIntervals(item.activityId);
-      } catch {
-        failedIds.push(item.activityId);
-        continue;
+      // Parse BEFORE the fetch: an unsupported note is recorded straight from the parser's untrusted
+      // low-confidence interpretation without touching Intervals.icu, so an API outage can never
+      // stall a note that would never be graded anyway (plan Task 3: "an unsupported note records an
+      // untrusted deterministic interpretation instead of calling Claude").
+      const parsed = parseDeterministicIntent(item.note);
+      let laps: ExecutedInterval[] = [];
+      if (parsed !== null) {
+        try {
+          laps = await fetchIntervals(item.activityId);
+        } catch {
+          failedIds.push(item.activityId);
+          continue;
+        }
       }
-      const interpretation = parseDeterministicIntent(item.note) ?? {
+      const interpretation = parsed ?? {
         intent: { primaryPurpose: "No supported labelled interval grammar found.", phases: [] },
         confidence: "low" as const,
         objectives: [],
