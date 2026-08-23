@@ -22,16 +22,16 @@ One file per completed block: `knowledge-base/block-retrospectives/<startDate>_<
 
 ### Frontmatter contract
 
-Committed reference for the schema (the live `SCHEMA.md` sits inside the gitignored tree): `id`, `goal`, `start_date` / `end_date`, `length_weeks`, `status`, `planned_hours` / `actual_hours`, `compliance_pct`, `ctl_start` / `ctl_end`, `compliance_by_type`, **`next_block_seeds`** (YAML list — athlete-editable steering), `generated_at`.
+Committed reference for the schema (the live `SCHEMA.md` sits inside the gitignored tree): `id`, `goal`, `start_date` / `end_date`, `length_weeks`, `status`, `ended_early: true` + `ended_early_reason: "…"` (only on an explicit early end — the reason the athlete typed), **`execution_scored`** (`scored/planned` sessions from `CloseoutEvidence`), **`execution_missed_sessions`**, **`execution_overshoot_days`**, **`execution_mean_score`**, **`seeds_approved`** (always written `false` by the route; flipped to `true` only by adoption — see below), `next_block_seeds` (YAML list of deterministic, evidence-templated seeds), `generated_at`.
 
 ## The two feedback channels (easy to describe incompletely — don't)
 
-One retrospective call feeds the next generation through **two unrelated stores**:
+One retrospective call feeds the next generation through **two unrelated stores, both adoption-gated** — nothing Claude wrote steers a block until the athlete adopts it on the Plan page (`POST /api/history` is the ONE adoption action: it flips `seeds_approved: true` in the retro markdown and stamps `reflectionsApprovedAt` on the history entry; failure-safe by construction — the flip runs first, both steps idempotent):
 
-1. **Seeds** — `kb-loader.latestRetrospectiveSeeds` parses `next_block_seeds:` from the *newest* retrospective file only → injected as "PREVIOUS BLOCK PRIORITIES". Athlete-editable by hand in the file.
-2. **Structured reflections** — `generateStructuredRetrospective` (forced tool-use, `lib/retrospective-schema.ts`: hypothesis → observation → root cause → adjusted strategy per matured intervention) persisted on `BlockHistoryEntry.structuredReflections` (JSON, **not** the markdown) → re-injected via `formatReflectionsForPrompt` as "COACH REFLECTIONS FROM LAST BLOCK". Degrades to `[]` on any failure.
+1. **Seeds** — `kb-loader.latestRetrospectiveSeeds` parses `next_block_seeds:` from the *newest* retrospective file only → injected as "PREVIOUS BLOCK PRIORITIES". Gated by `seeds_approved:` (kb-loader.parseRetroSeeds): absent/false ⇒ `[]` — old files written before the flag degrade to unapproved. The seeds themselves are deterministic (`block-closeout.deriveCloseoutSeeds`, templated from ledger evidence); hand-editing the list after adoption stays allowed.
+2. **Structured reflections** — `generateStructuredRetrospective` (forced tool-use, `lib/retrospective-schema.ts`: hypothesis → observation → root cause → adjusted strategy per matured intervention) persisted on `BlockHistoryEntry.structuredReflections` (JSON, **not** the markdown) → re-injected via `latestApprovedReflections` + `formatReflectionsForPrompt` as "COACH REFLECTIONS FROM LAST BLOCK" — but only from the single newest reflection-bearing history entry AND only when that entry carries `reflectionsApprovedAt`; an unapproved newer entry suppresses an approved older one rather than falling back to it. Degrades to `[]` on any failure.
 
-Debugging "what prior-block context fed this generation" therefore requires checking **both** the newest retrospective file and the newest block-history entry.
+Debugging "what prior-block context fed this generation" therefore requires checking **both** approval stamps: the newest retrospective file's `seeds_approved:` and the newest reflection-bearing block-history entry's `reflectionsApprovedAt`.
 
 ## Rules
 

@@ -66,7 +66,7 @@ Replaces population magic numbers with athlete-derived values *only when honestl
 
 ## Where each piece runs
 
-Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-data.md)); the model/insights are computed on demand by `/api/trends`, `/api/generate`, `/api/write`; interventions are recorded at write time and validated at sync time.
+Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-data.md)); the model/insights are computed on demand by `/api/trends`, `/api/generate`, `/api/write`; interventions are recorded at write time and validated at sync time. Block closeout (`lib/block-closeout.ts`, run inside `POST /api/retrospective`) consumes the frozen ledger **read-only** — its compliance figures are the ledger's already-capped values (INVARIANT 25), raw duration ratios only *detect* overshoot and never grade it — so a closeout can never re-derive or rewrite history.
 
 ## Known rough edges
 

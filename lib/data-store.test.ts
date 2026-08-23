@@ -118,6 +118,18 @@ describe("updateBlockHistory", () => {
     const out = await updateBlockHistory((entries) => entries);
     expect(out).toEqual([]);
   });
+
+  it("Phase 1: approving reflections never touches the score ledger", async () => {
+    await fs.writeFile(
+      p("score-log.json"),
+      JSON.stringify({ entries: [{ id: "r1", tss: 90 }], updatedAt: "2026-06-01T00:00:00.000Z" }),
+      "utf-8"
+    );
+    const before = JSON.parse(await fs.readFile(p("score-log.json"), "utf-8"));
+    await updateBlockHistory((entries) => entries.map((e) => (e.id === "a" ? { ...e, reflectionsApprovedAt: "X" } : e)));
+    const after = JSON.parse(await fs.readFile(p("score-log.json"), "utf-8"));
+    expect(after).toEqual(before);
+  });
 });
 
 describe("appendBlockHistory", () => {
@@ -200,6 +212,37 @@ describe("appendBlockHistory", () => {
     await appendBlockHistory(entry("shared-id", { retrospective: "Now complete." }));
     const history = await readBlockHistory();
     expect(history.find((h) => h.id === "shared-id")?.retrospective).toBe("Now complete.");
+  });
+
+  it("Phase 1: an entry written before closeout/approval fields existed reads back with them undefined", async () => {
+    const legacy = entry("legacy-id", {}); // entry() helper builds a pre-Phase-1-shaped record
+    delete (legacy as Partial<BlockHistoryEntry>).closeout;
+    await appendBlockHistory(legacy);
+    const out = await readBlockHistory();
+    expect(out.find((e) => e.id === "legacy-id")?.closeout).toBeUndefined();
+    expect(out.find((e) => e.id === "legacy-id")?.reflectionsApprovedAt).toBeUndefined();
+    expect(out.find((e) => e.id === "legacy-id")?.endedEarlyAt).toBeUndefined();
+  });
+
+  it("Phase 1: a bare archive landing AFTER a degraded closeout (closeout, no retrospective) does not wipe it", async () => {
+    await appendBlockHistory(entry("shared-id", {
+      closeout: { perType: [], plannedSessions: 2, scoredSessions: 1, missedSessions: 1, overshootSessions: 0, overallMeanExecution: 7, overallMeanCompliancePct: 95 },
+      nextBlockSeeds: ["Insufficient scored sessions this block (1/2)"],
+      structuredReflections: [{ dimension: "Overall", hypothesis: "h", observation: "o", root_cause: "r", adjusted_strategy: "a" }],
+      // deliberate: NO retrospective — the degraded path
+    }));
+    await appendBlockHistory(entry("shared-id", { overview: "bare DELETE archive" }));
+
+    const survivor = (await readBlockHistory()).find((h) => h.id === "shared-id");
+    expect(survivor?.closeout?.scoredSessions).toBe(1);
+    expect(survivor?.nextBlockSeeds).toEqual(["Insufficient scored sessions this block (1/2)"]);
+    expect(survivor?.structuredReflections?.length).toBe(1);
+  });
+
+  it("Phase 1: still replaces normally when BOTH entries are degraded (last write wins)", async () => {
+    await appendBlockHistory(entry("shared-id", { nextBlockSeeds: ["first"] }));
+    await appendBlockHistory(entry("shared-id", { nextBlockSeeds: ["second"] }));
+    expect((await readBlockHistory()).find((h) => h.id === "shared-id")?.nextBlockSeeds).toEqual(["second"]);
   });
 });
 

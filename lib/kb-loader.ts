@@ -303,7 +303,8 @@ export async function loadKnowledgeBaseContext(): Promise<string> {
 // Stored under knowledge-base/block-retrospectives/. They are NOT pulled into
 // loadKnowledgeBaseContext() (listKnowledgeFiles only matches flat .md files),
 // so they never bloat the generation prompt. Instead the *latest* file's
-// next_block_seeds — editable by the athlete — are injected at generation time.
+// next_block_seeds are injected at generation time — gated on the athlete's
+// `seeds_approved: true` stamp (see parseRetroSeeds below).
 
 const RETRO_DIR = path.join(KB_DIR, "block-retrospectives");
 
@@ -334,20 +335,20 @@ export async function writeRetrospective(name: string, content: string): Promise
   await fs.writeFile(path.join(RETRO_DIR, name), content, "utf-8");
 }
 
-// Parse the `next_block_seeds:` YAML list out of the newest retrospective's
-// frontmatter. Athlete edits to this list flow straight into the next block.
-export async function latestRetrospectiveSeeds(): Promise<string[]> {
-  const all = await listRetrospectives();
-  // Only date-prefixed retrospectives count for "latest" — ignore any stray
-  // notes the athlete may have dropped in (their ISO date prefix sorts correctly).
-  const dated = all.filter((f) => /^\d{4}-\d{2}-\d{2}_/.test(f));
-  if (dated.length === 0) return [];
-  let content = "";
-  try {
-    content = await fs.readFile(path.join(RETRO_DIR, dated[0]), "utf-8");
-  } catch {
-    return [];
-  }
+// Moved verbatim from app/api/retrospective/route.ts (which now imports this) so filename
+// derivation has exactly one owner.
+export function slugifyGoal(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+}
+
+export function retroFileId(startDate: string, goal: string): string {
+  return `${startDate}_${slugifyGoal(goal)}`;
+}
+
+// Phase 1: proposed seeds steer generation ONLY once the athlete (via the Plan-page adoption
+// action or a hand edit) stamped the file. Absent/false ⇒ [] — old files degrade to unapproved.
+export function parseRetroSeeds(content: string): string[] {
+  if (!/^seeds_approved:\s*true\s*$/m.test(content)) return [];
   const lines = content.split("\n");
   const seeds: string[] = [];
   let inSeeds = false;
@@ -356,10 +357,44 @@ export async function latestRetrospectiveSeeds(): Promise<string[]> {
     if (inSeeds) {
       const m = line.match(/^\s+-\s+"?(.*?)"?\s*$/);
       if (m && m[1].trim()) { seeds.push(m[1].trim()); continue; }
-      // A non-list line ends the block (next key, closing ---, or blank-then-key).
       if (line.trim() !== "" && !/^\s+-/.test(line)) break;
     }
   }
   return seeds;
+}
+
+// Pure transform: flip an existing flag, or insert one right after the opening delimiter.
+export function approveSeedsInMarkdown(content: string): string {
+  if (/^seeds_approved:\s*true\s*$/m.test(content)) return content;
+  if (/^seeds_approved:.*$/m.test(content)) {
+    return content.replace(/^seeds_approved:.*$/m, "seeds_approved: true");
+  }
+  return content.replace(/^---\n/, "---\nseeds_approved: true\n");
+}
+
+// Parse the `next_block_seeds:` YAML list out of the newest retrospective's frontmatter,
+// gated on the athlete's `seeds_approved: true` stamp.
+export async function latestRetrospectiveSeeds(): Promise<string[]> {
+  const all = await listRetrospectives();
+  const dated = all.filter((f) => /^\d{4}-\d{2}-\d{2}_/.test(f));
+  if (dated.length === 0) return [];
+  try {
+    return parseRetroSeeds(await fs.readFile(path.join(RETRO_DIR, dated[0]), "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+export async function markRetroSeedsApproved(name: string): Promise<void> {
+  assertSafeName(name);
+  const file = path.join(RETRO_DIR, name);
+  let content: string;
+  try {
+    content = await fs.readFile(file, "utf-8");
+  } catch {
+    return; // missing/unreadable file: nothing to mark; adoption of reflections already succeeded
+  }
+  const next = approveSeedsInMarkdown(content);
+  if (next !== content) await fs.writeFile(file, next, "utf-8");
 }
 

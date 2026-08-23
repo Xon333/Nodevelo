@@ -4,6 +4,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { BlockHistoryEntry, CurrentBlock, RideScoreEntry, SyncData } from "@/lib/types";
+import { api } from "@/lib/client-api";
 import { TYPE_STYLES } from "@/lib/workout-types";
 import { localToday as todayIso } from "@/lib/date";
 import { Card, StatTile, HeroSurface, InfoDot } from "../ui";
@@ -55,18 +56,70 @@ export function RetroSection({
   result,
   error,
   onGenerate,
+  // Early-end confirm panel (threaded from PlanView, which owns the state). Optional so standalone
+  // renderers (plan.test.tsx) that never trigger the flow don't need to supply no-op plumbing.
+  endEarlyOpen = false,
+  endReason = "",
+  onEndReasonChange = () => {},
+  onCancelEndEarly = () => {},
 }: {
   block: CurrentBlock | null;
   generating: boolean;
-  result: { retrospective: string; seeds: string[]; complianceByType: Record<string, number> } | null;
+  result: {
+    retrospective: string | null;
+    narrativeDegraded?: boolean;
+    seeds: string[];
+    complianceByType: Record<string, number>;
+    fileId: string;
+  } | null;
   error: string | null;
   onGenerate: () => void;
+  endEarlyOpen?: boolean;
+  endReason?: string;
+  onEndReasonChange?: (v: string) => void;
+  onCancelEndEarly?: () => void;
 }) {
   const today = todayIso();
   const blockEnded = block && block.endDate < today;
 
-  // Show the latest retro from a history entry if we've already run it for this block.
-  if (!result && !blockEnded) return null;
+  // Show the latest retro from a history entry if we've already run it for this block — or the
+  // early-end confirm panel when the athlete opted in from CurrentBlockSection (an active block has
+  // no amber nudge of its own to reveal this section).
+  if (!result && !blockEnded && !endEarlyOpen) return null;
+
+  if (!result && !blockEnded && endEarlyOpen) {
+    return (
+      <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-800">
+        <p className="text-sm font-semibold text-amber-900 dark:text-zinc-100">End this block early?</p>
+        <p className="mt-0.5 text-xs text-amber-700 dark:text-zinc-400">
+          The remaining scheduled sessions won&apos;t count against you. This closes the block now.
+        </p>
+        <input
+          aria-label="Why is it ending early?"
+          value={endReason}
+          onChange={(e) => onEndReasonChange(e.target.value)}
+          placeholder="Why is it ending early?"
+          className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-800 placeholder:text-zinc-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+        />
+        {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        <div className="mt-2 flex justify-end gap-2">
+          <button
+            onClick={onCancelEndEarly}
+            className="px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onGenerate}
+            disabled={generating || !endReason.trim()}
+            className="rounded-md bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 disabled:opacity-50 dark:bg-[#ff49c8]/20 dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/30 dark:border dark:border-[#ff49c8]/40"
+          >
+            {generating ? "Closing…" : "Confirm early end"}
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   if (result) {
     return (
@@ -78,7 +131,10 @@ export function RetroSection({
           </span>
         }
       >
-        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">{result.retrospective}</p>
+        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+          {result.retrospective ??
+            "Closed deterministically — no AI narrative was produced for this block. The execution facts and proposed seeds below were still recorded."}
+        </p>
         {result.seeds.length > 0 && (
           <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
@@ -128,6 +184,36 @@ export function RetroSection({
 // newest-first) block-history.json — capped to the most recent 20 here too.
 const MAX_HISTORY_SHOWN = 20;
 
+// Trust contract (retro trust): AI-authored reflections stay inert until the athlete explicitly
+// adopts them. POST /api/history takes only the entry id — the server derives the retro filename.
+function ReflectionAdopt({ id }: { id: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <button
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await api("/api/history", { method: "POST", body: JSON.stringify({ id }) });
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Couldn't adopt.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+        disabled={busy}
+        className="rounded-md border border-amber-400 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-[#ff49c8]/40 dark:text-[#ff49c8]"
+      >
+        {busy ? "Adopting…" : "Review & adopt"}
+      </button>
+      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">lets these notes steer the next block</span>
+      {error && <span className="text-[10px] text-red-600">{error}</span>}
+    </div>
+  );
+}
+
 export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
   if (!history.length) return null;
   const shown = history.slice(0, MAX_HISTORY_SHOWN);
@@ -155,6 +241,15 @@ export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
                 {entry.overview}
               </p>
             )}
+            {entry.structuredReflections?.length ? (
+              entry.reflectionsApprovedAt ? (
+                <p className="mt-2 text-[10px] font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                  Adopted {new Date(entry.reflectionsApprovedAt).toLocaleDateString()} — these notes reach the next block
+                </p>
+              ) : (
+                <ReflectionAdopt id={entry.id} />
+              )
+            ) : null}
           </div>
         ))}
       </div>
@@ -378,6 +473,7 @@ function BlockCalendar({
 export function CurrentBlockSection({
   block,
   onDelete,
+  onEndEarly,
   scores,
   compromisedDates,
   partialDates,
@@ -386,6 +482,8 @@ export function CurrentBlockSection({
 }: {
   block: CurrentBlock | null;
   onDelete?: () => Promise<void>;
+  // Early-end closeout opt-in (PlanView owns the flow's state) — absent in standalone renders.
+  onEndEarly?: () => void;
   scores: RideScoreEntry[];
   compromisedDates: string[];
   partialDates: string[];
@@ -484,6 +582,17 @@ export function CurrentBlockSection({
               <span className="text-zinc-700 dark:text-zinc-300">{block.goal.split("\n")[0]}</span>
             </p>
           </div>
+          {/* Quiet secondary control (same visual register as the "…" trigger) — reveals
+              RetroSection's early-end confirm panel. Hidden while the delete confirm bar is open so
+              the two destructive-ish flows don't compete for the header. */}
+          {onEndEarly && !confirming && (
+            <button
+              onClick={onEndEarly}
+              className="shrink-0 rounded-md px-2.5 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            >
+              End block early…
+            </button>
+          )}
           {onDelete && (
             confirming ? (
               <div className="flex shrink-0 flex-col items-end gap-1.5">

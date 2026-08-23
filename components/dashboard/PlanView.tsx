@@ -64,11 +64,18 @@ export default function PlanView() {
 
   const [retroGenerating, setRetroGenerating] = useState(false);
   const [retroResult, setRetroResult] = useState<{
-    retrospective: string;
+    retrospective: string | null;
+    narrativeDegraded?: boolean;
     seeds: string[];
     complianceByType: Record<string, number>;
+    fileId: string;
   } | null>(null);
   const [retroError, setRetroError] = useState<string | null>(null);
+  // Explicit early-end closeout: an ACTIVE block has no amber "Wrap up block" nudge to click through,
+  // so the athlete opts in via CurrentBlockSection's quiet header control; RetroSection then shows the
+  // confirm panel that collects the required reason before generateRetro may fire.
+  const [endEarlyOpen, setEndEarlyOpen] = useState(false);
+  const [endReason, setEndReason] = useState("");
 
   // When a block is already active the generator collapses to a thin bar so it stops
   // cutting the Plan page in half; it expands on demand (and is always open with no block).
@@ -327,11 +334,25 @@ export default function PlanView() {
       // HR-32/HR-33: was a bare POST with no body — the route fell back to UTC "today" for its
       // archive truncation (could silently drop or skip archiving a day ridden this morning local
       // time but not yet "today" in UTC), and had no version guard at all, unlike write/delete.
-      const result = await api<{ retrospective: string; seeds: string[]; complianceByType: Record<string, number> }>(
+      const result = await api<{
+        retrospective: string | null;
+        narrativeDegraded?: boolean;
+        seeds: string[];
+        complianceByType: Record<string, number>;
+        fileId: string;
+      }>(
         "/api/retrospective",
         {
           method: "POST",
-          body: JSON.stringify({ today: localToday(), expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null }),
+          // Only an unfinished block sends the explicit early-end decision; a finished block wraps up
+          // normally and sends neither field.
+          body: JSON.stringify({
+            today: localToday(),
+            expectedBlockCreatedAt: state?.currentBlock?.createdAt ?? null,
+            ...(state.currentBlock && state.currentBlock.endDate >= localToday()
+              ? { endedEarly: true, endReason: endReason.trim() }
+              : {}),
+          }),
         }
       );
       setRetroResult(result);
@@ -363,9 +384,16 @@ export default function PlanView() {
         result={retroResult}
         error={retroError}
         onGenerate={generateRetro}
+        endEarlyOpen={endEarlyOpen}
+        endReason={endReason}
+        onEndReasonChange={setEndReason}
+        onCancelEndEarly={() => {
+          setEndEarlyOpen(false);
+          setEndReason("");
+        }}
       />
 
-      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} completedDates={state.completedDates} sync={state.lastSync ?? null} />}
+      {!retroResult && <CurrentBlockSection block={state.currentBlock} onDelete={deleteBlock} onEndEarly={() => setEndEarlyOpen(true)} scores={state.scores} compromisedDates={state.compromisedDates} partialDates={state.partialDates} completedDates={state.completedDates} sync={state.lastSync ?? null} />}
       {/* HR-56: eventsFailed previously never reached the UI — a partially-failed calendar cleanup
           was invisible. Block is already gone from state.currentBlock by the time this shows, so it
           lives here rather than inside CurrentBlockSection's own (now-unmounted) confirm bar. */}

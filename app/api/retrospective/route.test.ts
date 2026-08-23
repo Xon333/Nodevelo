@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReflectionInterventionInput, RetrospectiveInput } from "@/lib/anthropic-api";
+import { approveSeedsInMarkdown, parseRetroSeeds } from "@/lib/kb-loader";
 import type { StructuredReflection } from "@/lib/types";
 
 // Route test for /api/retrospective — this route runs for the first time ever around 2026-07-12,
@@ -18,6 +19,7 @@ const h = vi.hoisted(() => ({
   readLastSync: vi.fn(),
   readInterventionLog: vi.fn(),
   readAthleteProfile: vi.fn(),
+  readScoreLog: vi.fn(),
   appendBlockHistory: vi.fn(async () => {}),
   updateCurrentBlock: vi.fn(async (mutate: (cur: null) => unknown) => mutate(null)),
   readBlockHistory: vi.fn(async () => []),
@@ -29,7 +31,8 @@ vi.mock("@/lib/anthropic-api", () => ({
   generateStructuredRetrospective: h.generateStructuredRetrospective,
 }));
 
-vi.mock("@/lib/kb-loader", () => ({
+vi.mock("@/lib/kb-loader", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kb-loader")>()),
   writeRetrospective: h.writeRetrospective,
 }));
 
@@ -38,6 +41,7 @@ vi.mock("@/lib/data-store", () => ({
   readLastSync: h.readLastSync,
   readInterventionLog: h.readInterventionLog,
   readAthleteProfile: h.readAthleteProfile,
+  readScoreLog: h.readScoreLog,
   appendBlockHistory: h.appendBlockHistory,
   updateCurrentBlock: h.updateCurrentBlock,
   readBlockHistory: h.readBlockHistory,
@@ -46,10 +50,24 @@ vi.mock("@/lib/data-store", () => ({
 import * as store from "@/lib/data-store";
 import { POST } from "@/app/api/retrospective/route";
 
-// A bare Request with no body — tolerated (today falls back to UTC), matching every existing test's
-// expectations below; the dedicated `today`-threading tests further down send a real body.
-const post = (body?: unknown) =>
-  POST(new Request("http://localhost/api/retrospective", { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) }));
+// post() sends { today: "2026-06-29" }; post(obj) without `today` merges that fixed date in, so
+// no call site depends on the real system clock. Objects already carrying `today` pass through
+// untouched. post(null) is the escape hatch: it sends a truly empty body, exercising the route's
+// UTC-fallback semantics (used by the fake-timer HR-32 test below).
+const post = (body?: unknown) => {
+  const payload =
+    body === null
+      ? null
+      : typeof body === "object" && !("today" in body)
+        ? { ...(body as Record<string, unknown>), today: "2026-06-29" }
+        : (body ?? { today: "2026-06-29" });
+  return POST(
+    new Request("http://localhost/api/retrospective", {
+      method: "POST",
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    })
+  );
+};
 
 const day = (date: string, type: string, durationMin: number) => ({
   date,
@@ -156,6 +174,15 @@ beforeEach(() => {
   h.readLastSync.mockResolvedValue(sync);
   h.readInterventionLog.mockResolvedValue(emptyInterventionLog);
   h.readAthleteProfile.mockResolvedValue(athleteProfile);
+  // Default ledger consistent with the fixture activities: same dates, capped compliance 100,
+  // execution 7. Individual cases override via mockResolvedValue after this runs.
+  h.readScoreLog.mockReset();
+  h.readScoreLog.mockResolvedValue({
+    entries: [
+      { date: "2026-06-15", planned: true, executionScore: 7, compliancePct: 100, plannedType: "Z2", activityId: "a1" },
+      { date: "2026-06-17", planned: true, executionScore: 7, compliancePct: 100, plannedType: "Threshold", activityId: "a2" },
+    ],
+  });
   h.appendBlockHistory.mockResolvedValue(undefined);
   h.updateCurrentBlock.mockImplementation(async (mutate: (cur: null) => unknown) => mutate(null));
 });
@@ -272,11 +299,14 @@ describe("/api/retrospective POST", () => {
     });
 
     it("falls back to UTC when no today is sent in the body", async () => {
+      // endDate shifted one day earlier so the Phase 1 gate (today > endDate, with UTC-fallback
+      // today = 2026-06-28) sees a finished block — the truncation assertions are unchanged.
       h.readCurrentBlock.mockResolvedValueOnce({
         ...block,
+        endDate: "2026-06-27",
         days: [...block.days, day("2026-06-29", "Z2", 60)],
       });
-      await post(); // no body at all
+      await post(null); // truly empty body → UTC fallback
       const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(entry.days.map((d: { date: string }) => d.date)).not.toContain("2026-06-29");
     });
@@ -289,9 +319,10 @@ describe("/api/retrospective POST", () => {
     expect(entry.seasonFocus).toBeUndefined();
   });
 
-  it("appends history before clearing the current block, and never clears if the append fails", async () => {
+  it("appends history before clearing the current block, and 502s without clearing if the append fails", async () => {
     h.appendBlockHistory.mockRejectedValueOnce(new Error("disk full"));
-    await expect(post()).rejects.toThrow("disk full");
+    const res = await post();
+    expect(res.status).toBe(502);
     expect(store.updateCurrentBlock).not.toHaveBeenCalled();
   });
 
@@ -350,39 +381,64 @@ describe("/api/retrospective POST", () => {
     expect(h.generateStructuredRetrospective).not.toHaveBeenCalled();
   });
 
-  it("writes the retro file with the slugified filename and next_block_seeds frontmatter", async () => {
+  it("writes the retro file with the retroFileId filename and execution frontmatter", async () => {
     await post();
     expect(store.appendBlockHistory).toHaveBeenCalledTimes(1); // sanity: reached the end of the handler
     expect(h.writeRetrospective).toHaveBeenCalledTimes(1);
     const [filename, content] = h.writeRetrospective.mock.calls[0];
-    // slugify(): lowercase, non [a-z0-9] runs -> '-', trim leading/trailing '-', cap at 40 chars.
+    // retroFileId(): lowercase, non [a-z0-9] runs -> '-', trim leading/trailing '-', cap at 40 chars.
     expect(filename).toBe("2026-06-15_build-ftp.md");
-    expect(content).toContain("next_block_seeds:");
     expect(content).toContain('id: "2026-06-15_build-ftp"');
+    expect(content).toContain("next_block_seeds:");
+    expect(content).toContain("execution_scored: 2/5");
+    expect(content).toContain("seeds_approved: false");
   });
 
-  describe("live Anthropic call failure (HR-57)", () => {
-    it("502s with an {error} body instead of throwing when generateRetrospective rejects", async () => {
+  it("round-trips seeds through the markdown channel: written gated, parseable once adopted", async () => {
+    // The whole seeds contract end to end: the route writes next_block_seeds into frontmatter,
+    // parseRetroSeeds returns [] while unapproved, and after approveSeedsInMarkdown flips the
+    // stamp the exact response seeds come back out of the file.
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(h.writeRetrospective).toHaveBeenCalledTimes(1);
+    const md = h.writeRetrospective.mock.calls[0][1] as string;
+    expect(md).toContain("next_block_seeds:");
+    expect(parseRetroSeeds(md)).toEqual([]); // gated while unapproved
+    const adopted = approveSeedsInMarkdown(md);
+    const seeds = parseRetroSeeds(adopted);
+    expect(seeds.length).toBeGreaterThan(0); // flows once adopted
+    expect(body.seeds).toEqual(seeds); // file list == response seeds
+  });
+
+  describe("live Anthropic call failure (HR-57, Phase 1 trust contract)", () => {
+    it("degrades to a deterministic closeout (200, retrospective null) when generateRetrospective rejects", async () => {
       h.generateRetrospective.mockRejectedValueOnce(new Error("529 overloaded"));
       const res = await post();
-      expect(res.status).toBe(502);
+      expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json.error).toBe("529 overloaded");
+      expect(json.retrospective).toBeNull();
+      expect(json.narrativeDegraded).toBe(true);
     });
 
-    it("never archives or clears the block when generateRetrospective fails", async () => {
+    it("still archives and clears the block when generateRetrospective fails", async () => {
       h.generateRetrospective.mockRejectedValueOnce(new Error("network blip"));
-      await post();
-      expect(store.appendBlockHistory).not.toHaveBeenCalled();
-      expect(store.updateCurrentBlock).not.toHaveBeenCalled();
+      const res = await post();
+      expect(res.status).toBe(200);
+      expect(store.appendBlockHistory).toHaveBeenCalledTimes(1);
+      expect(store.updateCurrentBlock).toHaveBeenCalled();
     });
   });
 
-  it("400s when Anthropic is not configured, without touching the data store", async () => {
+  it("closes out deterministically when Anthropic is not configured — no preflight 400 (Phase 1)", async () => {
     h.isAnthropicConfigured.mockReturnValue(false);
     const res = await post();
-    expect(res.status).toBe(400);
-    expect(store.readCurrentBlock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(store.readCurrentBlock).toHaveBeenCalled();
+    const json = await res.json();
+    expect(json.retrospective).toBeNull();
+    expect(json.narrativeDegraded).toBe(true);
+    expect(h.generateRetrospective).not.toHaveBeenCalled();
   });
 
   it("404s when there is no active block", async () => {
@@ -399,13 +455,12 @@ describe("/api/retrospective POST", () => {
     expect(store.appendBlockHistory).not.toHaveBeenCalled();
   });
 
-  it("archives and clears an unfinished block — no server-side guard exists (characterization)", async () => {
-    // isBlockFinished (lib/date.ts) is a UI-only nudge on /today — this route never calls it. Push
-    // endDate far into the future to make the block unambiguously unfinished relative to any realistic
-    // "today", then assert the route runs to completion exactly as it would on a finished block.
+  it("closes out an unfinished block given an explicit early-end decision (was: archived freely — now gated)", async () => {
+    // The Phase 1 gate replaced the old no-guard characterization: an unfinished block can only
+    // complete via endedEarly + reason, which then runs the full closeout end to end.
     h.readCurrentBlock.mockResolvedValueOnce({ ...block, endDate: "2027-06-28" });
 
-    const res = await post();
+    const res = await post({ endedEarly: true, endReason: "Race prep pivot" });
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.fileId).toBe("2026-06-15_build-ftp");
@@ -413,5 +468,143 @@ describe("/api/retrospective POST", () => {
     expect(store.updateCurrentBlock).toHaveBeenCalled();
     const mutateFn = (store.updateCurrentBlock as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(mutateFn(null)).toBe(null);
+  });
+});
+
+describe("Phase 1 trust contract", () => {
+  const unfinished = { ...block, endDate: "2099-01-01" };
+
+  it("409s an unfinished block with no explicit early-end decision — and writes NOTHING", async () => {
+    h.readCurrentBlock.mockResolvedValue(unfinished);
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(h.writeRetrospective).not.toHaveBeenCalled();
+    expect(h.appendBlockHistory).not.toHaveBeenCalled();
+    expect(h.updateCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("proceeds on an explicit early-end decision and records it on the history entry", async () => {
+    h.readCurrentBlock.mockResolvedValue(unfinished);
+    const res = await post({ endedEarly: true, endReason: "Race prep pivot" });
+    expect(res.status).toBe(200);
+    const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.endedEarlyAt).toBeTruthy();
+    expect(arg.endedEarlyReason).toBe("Race prep pivot");
+  });
+
+  it("escapes quotes and flattens newlines in ended_early_reason frontmatter without corrupting the history entry", async () => {
+    h.readCurrentBlock.mockResolvedValue(unfinished);
+    const reason = 'Pivot: rider said "stop"\nmid-block';
+    const res = await post({ endedEarly: true, endReason: reason });
+    expect(res.status).toBe(200);
+    const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.endedEarlyReason).toBe(reason); // history entry round-trips the original verbatim
+    const content = h.writeRetrospective.mock.calls[0][1] as string;
+    const reasonLine = content.split("\n").find((line) => line.startsWith("ended_early_reason:"));
+    // Exactly one single-line frontmatter value: quote flattened to ', newline collapsed — so no
+    // raw newline can sit between the quotes and break the YAML.
+    expect(reasonLine).toBe(`ended_early_reason: "Pivot: rider said 'stop' mid-block"`);
+  });
+
+  it("409s an early-end decision with a blank reason", async () => {
+    h.readCurrentBlock.mockResolvedValue(unfinished);
+    const res = await post({ endedEarly: true, endReason: "   " });
+    expect(res.status).toBe(409);
+    expect(h.appendBlockHistory).not.toHaveBeenCalled();
+  });
+
+  it("closes out a normally finished block without any endedEarly fields", async () => {
+    h.readCurrentBlock.mockResolvedValue(block); // endDate 2026-06-28 < today fixture usage below
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(200);
+    const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.endedEarlyAt).toBeUndefined();
+    expect(arg.closeout).toBeTruthy();
+  });
+
+  it("completes the whole closeout when Anthropic is NOT configured", async () => {
+    h.isAnthropicConfigured.mockReturnValue(false);
+    h.readCurrentBlock.mockResolvedValue(block);
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.retrospective).toBeNull();
+    expect(body.narrativeDegraded).toBe(true);
+    expect(h.generateRetrospective).not.toHaveBeenCalled();
+    const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.retrospective).toBeUndefined();
+    expect(arg.closeout).toBeTruthy();
+    expect(arg.nextBlockSeeds.length).toBeGreaterThan(0);
+    expect(h.updateCurrentBlock).toHaveBeenCalled(); // the clear STILL happened
+  });
+
+  it("degrades gracefully when the narrative call THROWS (no 502, closeout completes)", async () => {
+    h.generateRetrospective.mockRejectedValueOnce(new Error("429 overload"));
+    h.readCurrentBlock.mockResolvedValue(block);
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).retrospective).toBeNull();
+    expect(h.appendBlockHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("a markdown-write failure leaves history and the active block untouched", async () => {
+    h.writeRetrospective.mockRejectedValueOnce(new Error("disk full"));
+    h.readCurrentBlock.mockResolvedValue(block);
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(502);
+    expect(h.appendBlockHistory).not.toHaveBeenCalled();
+    expect(h.updateCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("a history-append failure leaves the active block uncleared", async () => {
+    h.appendBlockHistory.mockRejectedValueOnce(new Error("lock poisoned"));
+    h.readCurrentBlock.mockResolvedValue(block);
+    const res = await post({ today: "2026-06-29" });
+    expect(res.status).toBe(502);
+    expect(h.updateCurrentBlock).not.toHaveBeenCalled();
+  });
+
+  it("persists closeout evidence built from CAPPED ledger values, and no approval stamp", async () => {
+    h.readCurrentBlock.mockResolvedValue(block);
+    h.readScoreLog.mockResolvedValue({
+      entries: [
+        { date: "2026-06-17", planned: true, executionScore: 3, compliancePct: 54, plannedType: "Threshold", activityId: "a2" },
+      ],
+    });
+    const res = await post({ today: "2026-06-29" });
+    const body = await res.json();
+    const threshold = body.closeout.perType.find((t: { type: string }) => t.type === "Threshold");
+    expect(threshold.meanCompliancePct).toBe(54); // capped ledger value…
+    expect(threshold.meanCompliancePct).not.toBe(100); // …not the raw 60/60 ratio
+    const arg = (h.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(arg.reflectionsApprovedAt).toBeUndefined();
+  });
+
+  it("flags overshoot against the ride the ledger scored when a shorter ride sorts first", async () => {
+    const twoRides = {
+      ...sync,
+      activities: [
+        { ...sync.activities[0], id: "short", movingTimeSec: 20 * 60 }, // first on 06-15
+        { ...sync.activities[0], id: "long", movingTimeSec: 120 * 60 }, // actual primary
+      ],
+    };
+    h.readLastSync.mockResolvedValue(twoRides);
+    h.readCurrentBlock.mockResolvedValue(block);
+    h.readScoreLog.mockResolvedValue({
+      entries: [{ date: "2026-06-15", planned: true, executionScore: 7, compliancePct: 100, plannedType: "Z2", activityId: "long" }],
+    });
+    const res = await post({ today: "2026-06-29" });
+    const body = await res.json();
+    expect(body.closeout.overshootSessions).toBe(1); // 120min vs 90 planned > 1.25× — judged on "long"
+  });
+
+  it("early ends count only lived days as missed", async () => {
+    const early = { ...unfinished, days: [day("2026-06-16", "Z2", 60), day("2098-12-31", "SIT", 45)] };
+    h.readCurrentBlock.mockResolvedValue(early);
+    h.readScoreLog.mockResolvedValue({ entries: [] });
+    const res = await post({ today: "2026-06-20", endedEarly: true, endReason: "injury" });
+    const body = await res.json();
+    expect(body.closeout.plannedSessions).toBe(1); // the 2098 day excluded entirely
+    expect(body.closeout.missedSessions).toBe(1);
   });
 });

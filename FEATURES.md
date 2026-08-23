@@ -96,6 +96,24 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Generation dedupe** — a double-click / repeat request in a short window shares one Claude call.
   `lib/generate-cache.ts`
 
+## Block closeout (Plan page)
+- **Gated wrap-up** — closing a block is one Plan-page action: a finished block proceeds straight to
+  deterministic closeout; an unfinished one requires typing why it's ending early (the reason is stamped
+  on the retro + history entry, and un-lived days are cut from the archive). `POST /api/retrospective`
+  (409 otherwise), `lib/block-closeout.ts`, `components/dashboard/plan.tsx`
+- **Deterministic-first evidence card** — the closeout card renders per-type execution/compliance/
+  missed/overshoot evidence from the frozen ledger (compliance figures capped by execution; sessions over
+  125% of prescribed duration flagged as overshoot, never graded down for it), with deterministic seeds.
+  Claude's narrative and structured reflections are best-effort enrichment on top. `CloseoutEvidence`,
+  `deriveCloseoutSeeds`
+- **Degraded mode never blanks out** — with no Anthropic key or a failed narrative call, the closeout
+  still lands: facts + seeds persist, only the prose is absent (the card says so).
+  `narrativeDegraded`, `components/dashboard/PlanView.tsx`
+- **Review & adopt control** — nothing AI-written reaches the next block until the athlete presses
+  "Review & adopt" on Plan history: it flips `seeds_approved: true` on the retro markdown and stamps
+  `reflectionsApprovedAt` on the entry; unadopted seeds/reflections inject as empty.
+  `POST /api/history`, `lib/kb-loader.ts`, `lib/retrospective-schema.ts`
+
 ## Today page
 - **No-block Today** — when there's no active block (never had one, or one finished and hasn't been
   regenerated), Today replaces the bare "no active training block" fallback with a weekly TSS

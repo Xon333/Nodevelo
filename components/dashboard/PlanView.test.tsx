@@ -146,3 +146,70 @@ describe("PlanView — HR-56 (deleteBlock surfaces the response and reloads hist
     expect(screen.queryByText(/calendar event/i)).toBeNull();
   });
 });
+
+describe("Phase 1 — explicit early-end closeout", () => {
+  // Route the api mock per-endpoint: mount fires /api/history + /api/profile + /api/season alongside
+  // whatever the test itself triggers, so a blanket mockResolvedValue would feed the retro payload to
+  // those too (season.ts's derivations read plan.periods and would throw mid-render).
+  const routeApi = (retroResponse: unknown) => {
+    h.api.mockImplementation(async (url: string) => {
+      if (url === "/api/retrospective") return retroResponse;
+      if (url === "/api/history") return [];
+      if (url === "/api/profile") return { athleteMd: {}, goals: [], weakpoints: [] };
+      if (typeof url === "string" && url.startsWith("/api/season")) {
+        return { plan: { objective: "", events: [], periods: [], updatedAt: "" }, outlook: null };
+      }
+      throw new Error(`unexpected api call: ${url}`);
+    });
+  };
+
+  const sentRetroBody = (): Record<string, unknown> => {
+    const call = h.api.mock.calls.find(([u]) => u === "/api/retrospective");
+    expect(call).toBeTruthy();
+    return JSON.parse(call![1].body as string);
+  };
+
+  const active = (): CurrentBlock => ({ ...block(), endDate: "2099-01-07", startDate: "2098-12-27", createdAt: "2098-12-26T00:00:00Z" });
+
+  it("requires a reason before Confirm fires, then posts endedEarly + endReason", async () => {
+    mockSync(active());
+    routeApi({ retrospective: "done", narrativeDegraded: false, seeds: [], complianceByType: {}, fileId: "x" });
+    renderPlanView();
+
+    fireEvent.click(await screen.findByRole("button", { name: /end block early/i }));
+
+    const confirm = screen.getByRole("button", { name: /^confirm early end$/i }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true); // disabled while the reason is empty
+    fireEvent.change(screen.getByLabelText(/why is it ending early/i), { target: { value: "Race prep pivot" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(h.api).toHaveBeenCalledWith(
+      "/api/retrospective",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"endedEarly":true'),
+      })
+    ));
+    expect(sentRetroBody()).toMatchObject({ endedEarly: true, endReason: "Race prep pivot" });
+  });
+
+  it("a FINISHED block wraps up without any early-end fields", async () => {
+    mockSync({ ...block(), endDate: "2020-01-01", startDate: "2019-12-18", createdAt: "2019-12-17T00:00:00Z" });
+    routeApi({ retrospective: "done", narrativeDegraded: false, seeds: [], complianceByType: {}, fileId: "x" });
+    renderPlanView();
+
+    fireEvent.click(await screen.findByRole("button", { name: /wrap up block/i }));
+    await waitFor(() => expect(h.api.mock.calls.some(([u]) => u === "/api/retrospective")).toBe(true));
+    const sent = sentRetroBody();
+    expect(sent.endedEarly).toBeUndefined();
+    expect(sent.endReason).toBeUndefined();
+  });
+
+  it("renders the degraded fallback copy when the closeout came back narrative-less", async () => {
+    mockSync({ ...block(), endDate: "2020-01-01", startDate: "2019-12-18", createdAt: "2019-12-17T00:00:00Z" });
+    routeApi({ retrospective: null, narrativeDegraded: true, seeds: ["s"], complianceByType: {}, fileId: "x" });
+    renderPlanView();
+    fireEvent.click(await screen.findByRole("button", { name: /wrap up block/i }));
+    expect(await screen.findByText(/closed deterministically/i)).toBeTruthy();
+  });
+});
