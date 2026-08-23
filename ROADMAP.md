@@ -140,6 +140,7 @@ repeatedly exceeds it.
 | **P7 · urgency before app history** | Documented limitation; reopen only if goal-driven blocks stop masking it in real use. |
 | **Event-date validator exclusion** | Accepted priority-blind limitation; remains dormant with event mode. |
 | **Compound climb+descent matching** | Blocked on a trustworthy gradient data source and design review. |
+| **Segment grading fidelity** | `gradeSegment` (`lib/intent-scoring.ts`) ships binary zone matching with per-component full-compliance precision; the design spec's adjacent-zone partial credit and middle-half-of-band precision criterion ([§ Component grading](docs/superpowers/specs/2026-08-19-segment-aware-intent-scoring-design.md#component-grading)) is not implemented. Either implement it or formally re-decide the simpler shipped semantics via a [decision record](docs/DECISIONS.md). |
 | **Subjective-wellness follow-ons** | Form retirement needs measured Phase 2 friction; strain derivation needs motivation provenance and discriminating evidence. |
 
 Mobile density polish remains evidence-gated. Rejected alternatives stay in [ADR-0012](docs/DECISIONS.md#adr-0012--rejected-alternatives-a-running-log).

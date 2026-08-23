@@ -191,7 +191,12 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     guessed boundaries. Missing or ambiguous labels stay ungraded, and segment-backed objectives subsume duplicate whole-ride claims from the same source span. Each scored segment contributes within its
     own ±3 kind band; the ordering bonus requires every scored segment's lap to strictly follow the
     previous in ride order, and the perfect-score bonus requires every scored segment's verdict to be
-    precise.
+    precise — where "precise" means every stated component was fully compliant per component under the
+    shipped semantics (duration inside its stated range, or an exact duration within ±15% of target,
+    and each stated average/NP watts resolving to its stated zone by exact zone match), NOT the design
+    spec's stricter middle-half-of-watt-band precision criterion
+    ([spec](superpowers/specs/2026-08-19-segment-aware-intent-scoring-design.md#component-grading);
+    see [ROADMAP](../ROADMAP.md) for the open follow-up).
 
 ## Block closeout & adoption
 

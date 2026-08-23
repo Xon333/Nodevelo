@@ -29,7 +29,8 @@ whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment
    Segment-backed objectives subsume duplicate whole-ride claims from the same source span; each scored
    segment contributes within its ±3 kind band, with a +1 ride-order bonus when at least two scored
    segments have strictly increasing lap start indices (a single scored segment earns no order point)
-   and a +1 all-precise bonus.
+   and a +1 all-precise bonus (precise = every stated component fully compliant under the shipped
+   semantics: duration inside its stated range and each stated avg/NP watts inside its stated zone).
 - **Today hold (`components/dashboard/today.tsx`):** while a noted unplanned ride's intent is still
   being evaluated, Today shows "Evaluating your intent…" instead of a generic off-plan score, so a
   fast sync render never exposes a score the pending analysis is about to replace.
@@ -37,7 +38,9 @@ whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment
   superseded its schema-1 overlay transactionally and persisted overlay `edfc5d9d`
   (schemaVersion 2, scoringVersion 2) scoring **9/10** from four separate `segment` objectives
   matching Rolling Terrain 1 / Flat 1 / Flat 2 / Short Effort, with segment evidence watts
-  238/263, 220, 190/214, and 285/309 — the 220 W evidence marked precise — and zero whole-ride
+   238/263, 220, 190/214, and 285/309 — the 220 W evidence marked precise (fully compliant per
+   component under shipped semantics: Flat 1's duration inside its 45–60m range and its 220 W average
+   watts inside its stated Z3) and zero whole-ride
   "min in Z" evidence strings. The ride resolved **`Recovery`**, not `Rest`: the live purpose
   paraphrase contained "Z2 recovery flat", which matches a designed purpose-pattern precedence —
   this is intended behavior, not a misclassification. Genuinely whole-ride zone objectives are
