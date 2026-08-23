@@ -534,6 +534,33 @@ describe("/api/write publication gate (trust contract)", () => {
     expectZeroWrites();
   });
 
+  it("refuses a hash-matched verdict with valid arrays but a MISSING createdAt", async () => {
+    // The full GenerationVerdict shape is the passport, not just the buckets — a partial record
+    // that lost its timestamp is still corrupt and must get the same fail-closed 422.
+    (store.readGenerationVerdict as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      verdictHash: verdictHash(plan.days as Parameters<typeof verdictHash>[0], plan.blockParams),
+      blockers: [],
+      preferences: [],
+    });
+    const res = await post({ plan });
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("This exact plan didn't come from your generator — regenerate.");
+    expectZeroWrites();
+  });
+
+  it("refuses a hash-matched verdict whose createdAt is not a parseable date", async () => {
+    (store.readGenerationVerdict as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      verdictHash: verdictHash(plan.days as Parameters<typeof verdictHash>[0], plan.blockParams),
+      blockers: [],
+      preferences: [],
+      createdAt: "not-a-date",
+    });
+    const res = await post({ plan });
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("This exact plan didn't come from your generator — regenerate.");
+    expectZeroWrites();
+  });
+
   it("refuses blockers outright — overrideAcknowledged cannot bypass them — and echoes them", async () => {
     allowPlan({ plan }, { blockers: ["STRUCTURE: Expected 14 days but the plan carries 2."] });
     const res = await post({ plan, overrideAcknowledged: true });

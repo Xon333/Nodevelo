@@ -84,16 +84,20 @@ export async function POST(req: Request) {
     );
   }
   // Task 6 hardening: a corrupt-but-valid-JSON verdict record (e.g. a hand-edited
-  // generation-gate.json) can parse back with its finding buckets missing or non-array. Refuse any
-  // record whose buckets aren't real string arrays — the same fail-closed 422 an unknown plan gets
-  // — and only then coalesce, so nothing below can TypeError on `.length`. Checking AFTER a bare
-  // `?? []` would be self-defeating (the coalesced value is always an array), and coalescing alone
-  // would be WORSE than the old 500: it would read the corruption as a clean verdict and publish.
+  // generation-gate.json) can parse back with its finding buckets missing or non-array, or without
+  // the rest of the GenerationVerdict shape. Refuse any record that isn't FULLY well-formed — real
+  // string arrays for both buckets AND a present, parseable `createdAt` timestamp — the same
+  // fail-closed 422 an unknown plan gets — and only then coalesce, so nothing below can TypeError
+  // on `.length`. Checking AFTER a bare `?? []` would be self-defeating (the coalesced value is
+  // always an array), and coalescing alone would be WORSE than the old 500: it would read the
+  // corruption as a clean verdict and publish.
   const verdictWellFormed =
     Array.isArray(verdict.blockers) &&
     Array.isArray(verdict.preferences) &&
     verdict.blockers.every((finding) => typeof finding === "string") &&
-    verdict.preferences.every((finding) => typeof finding === "string");
+    verdict.preferences.every((finding) => typeof finding === "string") &&
+    typeof verdict.createdAt === "string" &&
+    !Number.isNaN(Date.parse(verdict.createdAt));
   if (!verdictWellFormed) {
     return NextResponse.json(
       { error: "This exact plan didn't come from your generator — regenerate." },

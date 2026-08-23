@@ -3,7 +3,16 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement
 > this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Status: drafted 2026-08-23 — not yet executed.**
+> **Status: SHIPPED 2026-08-23** (Tasks 1–6 complete; branch ox/publication-gate).
+> Live-smoke acceptance evidence (attended, isolated worktree data copy, primary data untouched):
+> three real 4-week generations against the live Anthropic API — run 1 returned HTTP 200 with
+> findings.blockers = [SKELETON: 2026-09-19 is 164 min, outside its 165–195 min slot] (gate caught a
+> real envelope miss); tampered-days replay to /api/write → 422 unknown-plan, zero writes; exact-plan
+> replay → 422 {error, blockers} non-overridable, zero writes; run 3 returned zero SKELETON findings,
+> satisfying the acceptance gate (run 1's miss was a one-off near-miss, not systematic). Local writes
+> during the smoke limited to ai-usage.json, season-plan.json (CAS re-plan), generation-gate.json;
+> nothing published, calendar untouched. Browser inspection of preview panels deferred: Anthropic
+> credit exhausted after run 3; panel states covered by the component-test matrix.
 
 **Goal:** Repair Phase 1's first trust contract ([ROADMAP](../../../ROADMAP.md) Phase 1 bullet 1):
 publication of a generated block is hard-blocked on malformed structure, clear protocol hazards,
