@@ -17,6 +17,8 @@ export async function GET() {
 // on the entry. FAILURE-SAFE by construction:
 //   * the retro filename is DERIVED from the entry itself — a caller cannot omit it, so neither
 //     adoption channel can be silently skipped;
+//   * an entry already carrying reflectionsApprovedAt stays a successful no-op retry even if the
+//     retrospective file later goes missing or unreadable;
 //   * the flip runs BEFORE the stamp and both steps are idempotent: a crash between them leaves at
 //     most "flipped but unstamped", which a retry CONVERGES out of (no 409 dead-end);
 //   * a missing/malformed retro file means NOTHING was stamped, so adoption cannot claim success
@@ -30,6 +32,9 @@ export async function POST(req: Request) {
 
     const target = (await readBlockHistory()).find((e) => e.id === id);
     if (!target) return NextResponse.json({ error: "No such history entry." }, { status: 404 });
+    if (target.reflectionsApprovedAt) {
+      return NextResponse.json({ ok: true, alreadyAdopted: true });
+    }
 
     const approved = await markRetroSeedsApproved(`${retroFileId(target.startDate, target.goal)}.md`);
     if (!approved) {

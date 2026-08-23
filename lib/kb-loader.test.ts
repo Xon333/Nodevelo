@@ -1,6 +1,10 @@
+import { promises as fs } from "fs";
+import path from "path";
 import { describe, expect, it } from "vitest";
 import { listKnowledgeFiles, loadKnowledgeBaseContext, stripObsidianSyntax, parseGoalsWeakpointsForMigration, stripGoalsWeakpointsSections } from "./kb-loader";
-import { approveSeedsInMarkdown, parseRetroSeeds, retroFileId } from "./kb-loader";
+import { approveSeedsInMarkdown, markRetroSeedsApproved, parseRetroSeeds, retroFileId } from "./kb-loader";
+
+const RETRO_DIR = path.join(process.cwd(), "knowledge-base", "block-retrospectives");
 
 // CR-4: the loader must never hard-fail when knowledge-base/ is absent (a fresh clone / CI) — it
 // falls back to the committed knowledge-base-defaults/ skeleton. These invariants hold whether or not
@@ -227,5 +231,19 @@ seeds_approved: true`);
 describe("retroFileId", () => {
   it("matches the filename the retrospective route writes", () => {
     expect(retroFileId("2026-06-01", "Build FTP!")).toBe("2026-06-01_build-ftp");
+  });
+});
+
+describe("markRetroSeedsApproved", () => {
+  it("returns false for malformed or missing frontmatter", async () => {
+    const name = "2099-01-01_mark-retro-seeds-approved-malformed.md";
+    await fs.mkdir(RETRO_DIR, { recursive: true });
+    await fs.writeFile(path.join(RETRO_DIR, name), "# no frontmatter here", "utf-8");
+    await expect(markRetroSeedsApproved(name)).resolves.toBe(false);
+    await fs.unlink(path.join(RETRO_DIR, name));
+  });
+
+  it("rejects on storage failures instead of collapsing them into false", async () => {
+    await expect(markRetroSeedsApproved("2099-01-01_mark-retro-seeds-approved-missing.md")).rejects.toThrow();
   });
 });

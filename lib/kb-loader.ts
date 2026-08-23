@@ -419,12 +419,7 @@ export async function latestRetrospectiveSeeds(): Promise<string[]> {
 export async function markRetroSeedsApproved(name: string): Promise<boolean> {
   assertSafeName(name);
   const file = path.join(RETRO_DIR, name);
-  let content: string;
-  try {
-    content = await fs.readFile(file, "utf-8");
-  } catch {
-    return false;
-  }
+  const content = await fs.readFile(file, "utf-8");
   if (!retroFrontmatterBounds(content)) return false;
   const next = approveSeedsInMarkdown(content);
   if (next !== content) await fs.writeFile(file, next, "utf-8");

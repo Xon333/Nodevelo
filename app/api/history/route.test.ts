@@ -83,6 +83,8 @@ describe("POST /api/history — adoption", () => {
     const res = await post({ id: "b1" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, alreadyAdopted: true });
+    expect(h.markRetroSeedsApproved).not.toHaveBeenCalled();
+    expect(h.updateBlockHistory).not.toHaveBeenCalled();
   });
 
   it("404s an unknown id before any write", async () => {
