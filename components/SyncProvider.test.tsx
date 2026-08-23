@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SYNC_QUERY_KEY, SyncProvider, useSync } from "./SyncProvider";
 import type { AppState } from "./SyncProvider";
@@ -153,5 +154,82 @@ describe("SyncProvider — deferred intent parsing", () => {
     await waitFor(() => expect(intentBodies).toHaveLength(3));
     expect(intentBodies.map((body) => body.skip)).toEqual([[], ["a1"], ["a1", "a2"]]);
     expect(intentBodies.every((body) => body.force)).toBe(true);
+  });
+});
+
+// Task 6 (segment-aware intent scoring): the Today card holds the generic score while `analyzing`
+// is true, so that flag MUST already be set by the time the fast-path sync render settles —
+// otherwise a frame renders syncing=false AND analyzing=false with the fresh (un-overlaid) analysis,
+// flashing a score the intent loop is about to override. Assert every committed render between POST
+// sync completion and intent completion shows at least one of the two flags up.
+describe("SyncProvider — intent-pending handoff", () => {
+  it("never commits syncing=false AND analyzing=false between POST sync completing and /api/intent finishing", async () => {
+    let releaseIntent: (() => void) | null = null;
+    h.api.mockImplementation(async (url: string) => {
+      if (typeof url === "string" && url.startsWith("/api/sync?today=")) return mkAppState(null);
+      if (url === "/api/sync") {
+        return {
+          lastSync: { syncedAt: "now" },
+          todayAnalysis: null,
+          analysisPending: false,
+          warnings: [],
+          readiness: null,
+          fatigueAlert: null,
+          loadRamp: null,
+          acwr: null,
+          polarization: null,
+          scores: [],
+          compromisedDates: [],
+          partialDates: [],
+          completedDates: [],
+        };
+      }
+      if (url === "/api/intent") {
+        await new Promise<void>((resolve) => { releaseIntent = resolve; });
+        return { processed: 0, remaining: 0, stalled: true, failedIds: [], warnings: [] };
+      }
+      if (url === "/api/analyze") return { todayAnalysis: null, warnings: [] };
+      throw new Error(`unexpected api call: ${url}`);
+    });
+
+    const observed: Array<{ syncing: boolean; analyzing: boolean }> = [];
+    function Probe() {
+      const { syncing, analyzing } = useSync();
+      useEffect(() => {
+        observed.push({ syncing, analyzing });
+      });
+      return null;
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SyncProvider>
+          <Probe />
+          <Harness />
+        </SyncProvider>
+      </QueryClientProvider>
+    );
+    await screen.findByText("sync");
+
+    fireEvent.click(screen.getByText("sync"));
+    // Hold /api/intent open so every render in the post-POST window is observable.
+    await waitFor(() => expect(releaseIntent).not.toBeNull());
+    // Let any interleaved renders/microtasks flush while the intent call is still pending.
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const firstBusyIndex = observed.findIndex((s) => s.syncing || s.analyzing);
+    expect(firstBusyIndex).toBeGreaterThanOrEqual(0); // sanity: the busy window was actually observed
+
+    // After release, wait for full settle so no late render escapes observation.
+    releaseIntent!();
+    await waitFor(() => expect(observed[observed.length - 1]).toEqual({ syncing: false, analyzing: false }));
+
+    // Every committed state from the first busy one until the final settle must keep at least one
+    // flag up. A {false,false} entry mid-window is exactly the flash this guards against.
+    const busyWindow = observed.slice(firstBusyIndex, -1);
+    const gaps = busyWindow.filter((s) => !s.syncing && !s.analyzing);
+    expect(gaps).toEqual([]);
   });
 });
