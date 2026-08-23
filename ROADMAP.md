@@ -29,9 +29,6 @@ when a real A-event exists.
 
 ### Phase 1 · Repair trust contracts
 
-- Make named-segment scoring fail closed on missing, ambiguous, or unstated evidence and distinguish
-  those states from API/interpreter failure. Exact curated Intervals labels plus constrained syntax
-  are the authoritative scoreable lane.
 - Block publication on malformed structure and clear protocol, spacing, or load-envelope hazards;
   allow only lower-confidence coaching preferences through an explicit informed override.
 - Show physiology freshness; warn through temporary sync failure, but block missing, inconsistent,
