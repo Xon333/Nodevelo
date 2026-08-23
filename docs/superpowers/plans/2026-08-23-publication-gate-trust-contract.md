@@ -84,11 +84,11 @@ escalation was deferred until real runs showed compliance. The supporting eviden
 **not yet confirmed by a post-fix live run**: Phase B's replay of the last real plan against the
 corrected per-type skeleton dropped SKELETON warnings 3 → 0 (2026-07-29 ledger), but
 `docs/systems/06-generation.md:89` still records the hour-target fix as "improved, not confirmed
-closed". This plan therefore escalates as a classified blocker **with an explicit live-smoke
-acceptance gate and a documented fallback** (Task 6): the real generation must produce zero
-SKELETON findings; if it does not, the duration-envelope branch is downgraded to informational
-pending evidence, while missing-day/type branches stay blockers (they are unambiguous structural
-facts, not calibration-sensitive).
+closed". This plan escalates all three SKELETON branches to blockers **unconditionally** — the
+spec's load-envelope category is non-negotiable, so there is no severity fallback. Task 6's live
+smoke carries an acceptance gate instead: the real generation must produce zero SKELETON findings;
+if it does not, that is a BLOCKED escalation back to the human (possible skeleton regression),
+never a silent downgrade of the gate.
 
 ## Classification (the contract)
 
@@ -108,6 +108,9 @@ facts, not calibration-sensitive).
   (`docs/systems/06-generation.md` Known rough edges) — regeneration cannot beat a deterministic
   placement limit, so in that configuration the back-to-back finding is bucketed as a **preference**
   (informed override), not a blocker. At the default budget (≤2) it stays a hard blocker.
+  Implementing this without string-parsing requires `validateSchedule` to stop returning one flat
+  `string[]`: Task 1 splits it into a typed result `{ spacing: string[]; budget: string[] }`
+  (adjacency vs quality-budget findings), updating its only production call site and tests.
 - *Load envelope / hour budget:* HOURS week off target; loading-week quality budget overrun;
   RECOVERY DENSITY extra quality session in a recovery week.
 
@@ -208,12 +211,16 @@ Every task inherits these; reviewers are handed them verbatim.
 **Files:**
 - Modify: `lib/workout-validate.ts` (`ProtocolFindings` gains `hazards: string[]`; `splitPlanProtocol`
   routes embedded-intensity envelope findings there; duration-consistency stays in `advisories`)
+- Modify: `lib/schedule-validate.ts` (`validateSchedule` returns `{ spacing: string[]; budget:
+  string[] }` instead of one flat array — the typed split that lets the gate bucket adjacency and
+  budget findings differently without parsing strings; update call sites/tests)
 - Modify: `lib/types.ts` (add `PlanFindings { blockers: string[]; preferences: string[] }`; ADD
   optional `findings?: PlanFindings` to `GeneratedPlan`. Do NOT remove `protocolViolations` here —
   its only code reader (`components/PlanPreview.tsx:112`) isn't updated until Task 5, and removing
   it now would break the build for Tasks 1–4. Task 5 removes the field together with its reader.)
 - Create: `lib/publication-gate.ts`
-- Tests: update `lib/workout-validate.test.ts`; create `lib/publication-gate.test.ts`
+- Tests: update `lib/workout-validate.test.ts`, `lib/schedule-validate.test.ts`; create
+  `lib/publication-gate.test.ts`
 
 - [ ] `canonical(value)` helper: recursive key-sort + `JSON.stringify`, exported for reuse. The
       verdict hash is `sha256(canonical({ days, blockParams }))` — a single canonical stringify of
@@ -228,14 +235,15 @@ Every task inherits these; reviewers are handed them verbatim.
       non-contiguous date sequence (sorted dates step exactly +1 day). Messages follow existing
       prefix style (e.g. `STRUCTURE: …`).
 - [ ] Bucketing exactly per the Classification section: call each validator ONCE, assign whole
-      arrays by owner (`validateSchedule`, `validateEventTaper`, `validateWeekHours`,
-      `validateSkeletonConformance`, `validateRecoveryWeekDensity`, `validateWeekSequencing`,
-      `protocol.violations`, `protocol.hazards`, recovery-density → blockers;
-      `validateSessionRequirements`, season family → preferences; `protocol.advisories` returned
-      as informational so the route folds them into `warnings` without re-running anything).
-      Sole per-finding exception: the back-to-back finding from `validateSchedule` is bucketed as a
-      preference when `blockSettings.qualitySessionsPerLoadingWeek >= 3` (Classification section's
-      ADR-recorded exception) — decided by emitter+settings in the gate, never by parsing strings.
+      arrays by owner (`validateSchedule`'s `spacing`/`budget` halves, `validateEventTaper`,
+      `validateWeekHours`, `validateSkeletonConformance`, `validateRecoveryWeekDensity`,
+      `validateWeekSequencing`, `protocol.violations`, `protocol.hazards`, recovery-density →
+      blockers; `validateSessionRequirements`, season family → preferences; `protocol.advisories`
+      returned as informational so the route folds them into `warnings` without re-running anything).
+      Sole per-finding exception: the back-to-back finding from `validateSchedule.spacing` is
+      bucketed as a preference when `blockSettings.qualitySessionsPerLoadingWeek >= 3`
+      (Classification section's ADR-recorded exception) — decided by emitter+settings in the gate,
+      never by parsing strings.
 - [ ] ⚠️ `splitPlanProtocol` hazards split is **per source, per day**, not per day: today
       `lib/workout-validate.ts:153` routes everything from one day into one bucket, including its
       `validateDurationConsistency` finding. Restructure so each finding is bucketed by its own
@@ -327,8 +335,9 @@ Every task inherits these; reviewers are handed them verbatim.
 
 - [ ] PlanPreview: render blockers (red, Write disabled, explicit "cannot be overridden"),
       preferences (amber + the acknowledgment checkbox gating Write), informational warnings
-      (amber notes). Legacy fixtures without `findings` render as today via truthy checks.
-      Replace the old protocolViolations banner and its "write anyway if deliberate" copy.
+      (amber notes). A plan without `findings` (truthy check) renders no blocker/preference panels —
+      informational warnings only; the old protocolViolations banner and its "write anyway if
+      deliberate" copy are deleted along with the field.
 - [ ] PlanView: hold `overrideAcknowledged` state (reset on regenerate/new plan), send it in the
       write POST; handle `overrideRequired`/blocker 422 responses with readable messages.
 - [ ] Component tests: disabled/enabled matrix (clean → enabled; preferences unchecked → disabled;
@@ -356,8 +365,8 @@ Every task inherits these; reviewers are handed them verbatim.
 - [ ] **Live smoke (attended):** back up `data/`; start dev server; POST a real 4-week generation;
     READ the actual returned JSON (jq the `findings`/`warnings` arrays) and the preview panels in
     the browser. **Acceptance gate:** the live plan must carry zero SKELETON findings — if it does
-    not, downgrade the SKELETON duration-envelope branch to informational per the trace section's
-    documented fallback before finishing (missing-day/type stay blockers). Then, without
+    not, that is a BLOCKED escalation to the human (suspected skeleton regression), never a
+    downgrade of the gate's severity. Then, without
     publishing: replay the SAME plan to `/api/write` with one day's `durationMin` tampered → expect
     the unknown-plan 422 and confirm zero calendar mutations; restore the untampered plan and (if
     preferences exist) POST without `overrideAcknowledged` → expect `overrideRequired` 422, again
