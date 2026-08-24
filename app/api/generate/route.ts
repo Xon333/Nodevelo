@@ -18,7 +18,7 @@ import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loa
 import { formatReflectionsForPrompt, latestApprovedReflections } from "@/lib/retrospective-schema";
 import { formatQuirksForPrompt } from "@/lib/quirks";
 import { analyzePowerProfile, formatPowerProfileForPrompt } from "@/lib/power-profile";
-import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
+import { readPhysiologyWithStatus, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { summariseValidation } from "@/lib/intervention";
 import { synthesizeCoachingDirectives } from "@/lib/synthesis";
@@ -45,6 +45,12 @@ import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
 import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory } from "@/lib/season";
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
+import {
+  assessPhysiologyFreshness,
+  physiologyGenerationBlock,
+  physiologyGenerationWarning,
+  readPhysiologyStatus,
+} from "@/lib/physiology-freshness";
 import type { BlockParams, GeneratedPlan } from "@/lib/types";
 
 // Generation calls take 1–2 minutes for a 4-week block.
@@ -89,7 +95,7 @@ export async function POST(req: Request) {
 
   try {
     // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, intentStore, physStore, interventionLog, baselines, currentBlock, blockHistory, quirks, existingSeason] = await Promise.all([
+    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, intentStore, physRead, physStatusRead, interventionLog, baselines, currentBlock, blockHistory, quirks, existingSeason] = await Promise.all([
       readAthleteProfile(),
       readLastSync(),
       loadKnowledgeBaseContext(),
@@ -97,7 +103,8 @@ export async function POST(req: Request) {
       latestRetrospectiveSeeds(),
       readScoreLog(),
       readIntentOverlays(),
-      readPhysiology(),
+      readPhysiologyWithStatus(),
+      readPhysiologyStatus(),
       readInterventionLog(),
       readRollingBaselines(),
       readCurrentBlock(),
@@ -112,6 +119,23 @@ export async function POST(req: Request) {
     if (feasibilityConflict) {
       return NextResponse.json({ error: feasibilityConflict }, { status: 400 });
     }
+
+    const freshness = assessPhysiologyFreshness({
+      store: physRead.store,
+      corruptFallback: physRead.corruptFallback,
+      fileExisted: physRead.fileExisted,
+      statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
+      status: physStatusRead.status,
+      today,
+    });
+    const blockReason = physiologyGenerationBlock(freshness);
+    if (blockReason) {
+      return NextResponse.json({ error: blockReason }, { status: 400 });
+    }
+    const warnings: string[] = [];
+    const freshnessWarning = physiologyGenerationWarning(freshness);
+    if (freshnessWarning) warnings.push(freshnessWarning);
+    const physStore = physRead.store;
 
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
     const latestWeight =
@@ -432,6 +456,7 @@ export async function POST(req: Request) {
     // Dedupe identical generations in a short window (P4): a double-click or a second request landing
     // mid-generation shares one Claude call instead of paying twice. A considered regenerate minutes
     // later falls outside the window and re-calls, so temperature-0.3 variation is preserved.
+    // Gate before LLM spend: freshness blockers must return before dedupeGeneration/generateTrainingBlock.
     const { result: genResult } = await dedupeGeneration(
       generationKey(cached, dynamic, userMessage),
       () => generateTrainingBlock(cached, dynamic, userMessage, blockParams.lengthWeeks)
@@ -498,7 +523,9 @@ export async function POST(req: Request) {
             ? { mode: "rolling", focus: rollingFocusChoice.focus }
             : null,
     });
-    const warnings: string[] = [...seasonDegradedWarnings, ...nutritionRepair.repairs, ...gate.advisories];
+    warnings.push(...seasonDegradedWarnings);
+    warnings.push(...nutritionRepair.repairs);
+    warnings.push(...gate.advisories);
 
     // Narrative-coherence critic (P3c, 2026-07-24): a cheap follow-up check that the written overview
     // actually matches the generated schedule (the "escalate SIT" contradiction the reviewed block

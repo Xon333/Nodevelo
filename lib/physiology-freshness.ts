@@ -244,3 +244,30 @@ export function assessPhysiologyFreshness(input: {
     effectiveFrom: store.current.effectiveFrom,
   };
 }
+
+export function physiologyGenerationBlock(f: PhysiologyFreshness): string | null {
+  switch (f.state) {
+    case "missing":
+      return "Physiology has never been established: connect Intervals.icu and run a sync before generating a block.";
+    case "malformed":
+      return `Physiology store is unreadable (${f.reason}). Restore its backup or re-sync before generating a block.`;
+    case "inconsistent":
+      return `Physiology data is internally inconsistent (${f.reason}). Refresh from Intervals.icu before generating a block.`;
+    case "obsolete":
+      return `Physiology was marked obsolete on ${f.markedObsoleteAt.slice(0, 10)}. Re-sync from Intervals.icu (or clear the marker on Profile) before generating a block.`;
+    default:
+      return null;
+  }
+}
+
+export function physiologyGenerationWarning(f: PhysiologyFreshness): string | null {
+  if (f.state === "sync-failed") {
+    return `Generating on physiology last confirmed ${
+      f.lastConfirmedAt ? f.lastConfirmedAt.slice(0, 10) : "at an unknown time"
+    }; the latest check failed (${f.lastDetail}).`;
+  }
+  if (f.state === "stale") {
+    return `Physiology has not been confirmed in ${f.ageDays ?? "an unknown number of"} days; zones and TSS may be outdated.`;
+  }
+  return null;
+}

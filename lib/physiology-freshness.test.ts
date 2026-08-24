@@ -6,6 +6,8 @@ import {
   assessPhysiologyFreshness,
   clearPhysiologyObsolete,
   markPhysiologyObsolete,
+  physiologyGenerationBlock,
+  physiologyGenerationWarning,
   readPhysiologyStatus,
   recordPhysiologyCheck,
   validateSnapshotConsistency,
@@ -278,6 +280,75 @@ describe("assessPhysiologyFreshness", () => {
   it("uses only the supplied dates for deterministic UTC day math", () => {
     const input = baseInput();
     expect(assessPhysiologyFreshness(input)).toEqual(assessPhysiologyFreshness(input));
+  });
+});
+
+describe("generation gate helpers", () => {
+  it.each([
+    [
+      { state: "missing" } as const,
+      "Physiology has never been established",
+    ],
+    [
+      { state: "malformed", reason: "does not parse" } as const,
+      "Physiology store is unreadable",
+    ],
+    [
+      { state: "inconsistent", reason: "FTP -1 is not positive" } as const,
+      "Physiology data is internally inconsistent",
+    ],
+    [
+      { state: "obsolete", markedObsoleteAt: "2026-08-20T00:00:00.000Z" } as const,
+      "Physiology was marked obsolete on 2026-08-20",
+    ],
+  ])("blocks %o with the expected message", (freshness, expected) => {
+    expect(physiologyGenerationBlock(freshness)).toContain(expected);
+  });
+
+  it.each([
+    { state: "fresh", confirmedAt: iso(0, TODAY), effectiveFrom: "2026-08-01" } as const,
+    {
+      state: "sync-failed",
+      lastAttemptAt: iso(0, TODAY),
+      lastDetail: "timeout",
+      lastConfirmedAt: iso(2, TODAY),
+    } as const,
+    { state: "stale", lastConfirmedAt: iso(120, TODAY), ageDays: 120 } as const,
+  ])("does not block %o", (freshness) => {
+    expect(physiologyGenerationBlock(freshness)).toBeNull();
+  });
+
+  it("warns through a recent sync failure", () => {
+    expect(
+      physiologyGenerationWarning({
+        state: "sync-failed",
+        lastAttemptAt: iso(0, TODAY),
+        lastDetail: "timeout",
+        lastConfirmedAt: iso(2, TODAY),
+      })
+    ).toBe(
+      `Generating on physiology last confirmed ${iso(2, TODAY).slice(0, 10)}; the latest check failed (timeout).`
+    );
+  });
+
+  it("warns through stale physiology", () => {
+    expect(
+      physiologyGenerationWarning({
+        state: "stale",
+        lastConfirmedAt: iso(120, TODAY),
+        ageDays: 120,
+      })
+    ).toBe("Physiology has not been confirmed in 120 days; zones and TSS may be outdated.");
+  });
+
+  it.each([
+    { state: "fresh", confirmedAt: iso(0, TODAY), effectiveFrom: "2026-08-01" } as const,
+    { state: "missing" } as const,
+    { state: "malformed", reason: "does not parse" } as const,
+    { state: "inconsistent", reason: "FTP -1 is not positive" } as const,
+    { state: "obsolete", markedObsoleteAt: "2026-08-20T00:00:00.000Z" } as const,
+  ])("does not warn for %o", (freshness) => {
+    expect(physiologyGenerationWarning(freshness)).toBeNull();
   });
 });
 
