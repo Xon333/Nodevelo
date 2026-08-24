@@ -1,12 +1,100 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner, PlannedToday, TodayRideCard } from "./today";
+import TodayView from "./TodayView";
+import type { AppState } from "../SyncProvider";
 import type { NeatImbalanceContext, NutritionTrendWarning } from "@/lib/nutrition";
 import type { CurrentBlock, NoBlockSummary, SyncData, TodayAnalysis } from "@/lib/types";
 
+const h = vi.hoisted(() => ({ useSync: vi.fn() }));
+
+vi.mock("../SyncProvider", () => ({ useSync: h.useSync }));
+vi.mock("../AskCoach", () => ({ default: () => null }));
+vi.mock("../AthleteStateCard", () => ({ default: () => null }));
+vi.mock("../LoadingPrompt", () => ({ default: () => null }));
+vi.mock("../MorningCheckIn", () => ({ default: () => null }));
+vi.mock("@/lib/date", async (orig) => {
+  const actual = await orig<typeof import("@/lib/date")>();
+  return { ...actual, localToday: () => "2026-08-24" };
+});
+
 afterEach(() => {
   cleanup();
+});
+
+beforeEach(() => {
+  h.useSync.mockReset();
+});
+
+const renderTodayView = (overrides: Partial<AppState> = {}) => {
+  h.useSync.mockReturnValue({
+    state: {
+      configured: true,
+      anthropicConfigured: false,
+      lastSync: null,
+      currentBlock: null,
+      todayAnalysis: null,
+      todayOutcome: null,
+      readiness: null,
+      fatigueAlert: null,
+      loadRamp: null,
+      acwr: null,
+      noBlockSummary: null,
+      polarization: null,
+      scores: [],
+      compromisedDates: [],
+      partialDates: [],
+      completedDates: [],
+      autoSyncOnOpen: false,
+      ...overrides,
+    } satisfies AppState,
+    setState: vi.fn(),
+    loadError: null,
+    syncing: false,
+    syncError: null,
+    analyzing: false,
+    syncWarnings: [],
+    doSync: vi.fn(),
+    reAnalyse: vi.fn(),
+  });
+  return render(<TodayView />);
+};
+
+describe("TodayView physiology freshness line", () => {
+  it("stays hidden when the sync state does not include physiologyFreshness yet", () => {
+    renderTodayView();
+    expect(screen.queryByText(/Physiology confirmed|Physiology last confirmed|No physiology yet/)).toBeNull();
+  });
+
+  it("shows the quiet current line when physiology was confirmed today", () => {
+    renderTodayView({
+      physiologyFreshness: {
+        state: "fresh",
+        confirmedAt: "2026-08-24T09:15:00.000Z",
+        effectiveFrom: "2026-08-24",
+      },
+    });
+    expect(screen.getByText("Physiology confirmed today — current.")).toBeTruthy();
+  });
+
+  it("shows amber stale copy when confirmation has aged out", () => {
+    renderTodayView({
+      physiologyFreshness: {
+        state: "stale",
+        lastConfirmedAt: "2026-05-01T09:15:00.000Z",
+        ageDays: 115,
+      },
+    });
+    expect(screen.getByText("Physiology last confirmed 2026-05-01 — 115 days ago. Re-sync or re-test.")).toBeTruthy();
+  });
+
+  it("shows blocking copy when physiology is missing", () => {
+    renderTodayView({
+      physiologyFreshness: { state: "missing" },
+    });
+    expect(screen.getByText("No physiology yet — connect Intervals.icu and sync. Generation blocked.")).toBeTruthy();
+  });
 });
 
 describe("NutritionTrendWarningBanner", () => {

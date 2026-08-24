@@ -6,11 +6,21 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
+import { describeFreshnessForAthlete } from "@/lib/physiology-freshness";
 import { Card, PrimaryButton, SectionDivider, Skeleton, SkeletonScreen } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
 import type { AthleteMdSnapshot } from "@/lib/kb-loader";
-import type { DayTypeNeat, NeatCalibration, NutritionSettings, PowerCurvePoint, PowerProfile, PowerSystem, SeasonFocus } from "@/lib/types";
+import type {
+  DayTypeNeat,
+  NeatCalibration,
+  NutritionSettings,
+  PhysiologyFreshness,
+  PowerCurvePoint,
+  PowerProfile,
+  PowerSystem,
+  SeasonFocus,
+} from "@/lib/types";
 import type { IfBandOffsetRow } from "@/lib/calibration";
 import { groupGoalsByFocus } from "@/lib/profile-goals";
 import { FOCUS_LABELS } from "@/lib/season";
@@ -100,6 +110,7 @@ interface ProfileResponse {
   nutritionModel: NutritionModel;
   performance: PerformanceRmrFields;
   ftpStaleDays: number | null;
+  physiologyFreshness: PhysiologyFreshness;
   physiologyChange: PhysiologyChange | null;
   physiologySource: "intervals" | "manual" | null;
   athleteMd: AthleteMdSnapshot;
@@ -319,6 +330,8 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
   // above: the brief calls for the same separate-save-path pattern the other sections already follow.
   const [neatInput, setNeatInput] = useState("");
   const [neatSaveState, setNeatSaveState] = useState<SaveState>({ state: "idle" });
+  const [physiologyAction, setPhysiologyAction] = useState<"mark-obsolete" | "clear-obsolete" | null>(null);
+  const [physiologyError, setPhysiologyError] = useState<string | null>(null);
 
   // Mount-load the profile + nutrition fields. Inline async IIFE (setState lands after the await,
   // guarded by a cancelled flag) so it reads as a fetch-on-mount, not a synchronous setState in
@@ -494,6 +507,19 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
     }
   };
 
+  const updatePhysiologyFreshness = async (action: "mark-obsolete" | "clear-obsolete") => {
+    setPhysiologyAction(action);
+    setPhysiologyError(null);
+    try {
+      await api("/api/physiology", { method: "POST", body: JSON.stringify({ action }) });
+      setData(await api<ProfileResponse>("/api/profile"));
+    } catch (err) {
+      setPhysiologyError(err instanceof Error ? err.message : "Couldn't update physiology freshness — try again.");
+    } finally {
+      setPhysiologyAction(null);
+    }
+  };
+
   if (loadError) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -520,6 +546,19 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
   }
 
   const { athleteMd, autoSync, derivation, syncedPowerCurve, powerProfile, latestWeightKg } = data;
+  const freshness = describeFreshnessForAthlete(data.physiologyFreshness);
+  const freshnessClasses =
+    freshness.tone === "warn"
+      ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/40"
+      : freshness.tone === "block"
+      ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/50"
+      : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900";
+  const freshnessTextClasses =
+    freshness.tone === "warn"
+      ? "text-amber-900 dark:text-amber-300"
+      : freshness.tone === "block"
+      ? "text-red-900 dark:text-red-300"
+      : "text-zinc-800 dark:text-zinc-100";
 
   // Rider profile + Power PRs as standalone sections, composed below into a side-by-side row when both
   // are available (FB-2026-06-30): curve + PR grid in one half, the rider read in the other.
@@ -656,6 +695,36 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
           </p>
         </div>
       )}
+
+      <div className={`rounded-lg border px-4 py-3 ${freshnessClasses}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Physiology freshness
+            </p>
+            <p className={`mt-1 text-sm ${freshnessTextClasses}`}>{freshness.text}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void updatePhysiologyFreshness("mark-obsolete")}
+              disabled={physiologyAction !== null}
+              className="rounded border border-amber-300 px-2.5 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950"
+            >
+              {physiologyAction === "mark-obsolete" ? "Marking…" : "Mark obsolete"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void updatePhysiologyFreshness("clear-obsolete")}
+              disabled={physiologyAction !== null}
+              className="rounded border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            >
+              {physiologyAction === "clear-obsolete" ? "Clearing…" : "Clear"}
+            </button>
+          </div>
+        </div>
+        {physiologyError && <p className="mt-2 text-xs text-red-700 dark:text-red-300">{physiologyError}</p>}
+      </div>
 
       {/* FTP stale warning */}
       {data.ftpStaleDays !== null && data.ftpStaleDays > 90 && (

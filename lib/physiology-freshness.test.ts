@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   assessPhysiologyFreshness,
   clearPhysiologyObsolete,
+  describeFreshnessForAthlete,
   markPhysiologyObsolete,
   physiologyGenerationBlock,
   physiologyGenerationWarning,
@@ -280,6 +281,79 @@ describe("assessPhysiologyFreshness", () => {
   it("uses only the supplied dates for deterministic UTC day math", () => {
     const input = baseInput();
     expect(assessPhysiologyFreshness(input)).toEqual(assessPhysiologyFreshness(input));
+  });
+});
+
+describe("describeFreshnessForAthlete", () => {
+  it("maps each freshness verdict to deterministic athlete-facing copy", () => {
+    expect(
+      describeFreshnessForAthlete({
+        state: "fresh",
+        confirmedAt: "2026-08-24T09:15:00.000Z",
+        effectiveFrom: "2026-08-24",
+      })
+    ).toEqual({
+      tone: "ok",
+      text: "Physiology confirmed 2026-08-24 — current.",
+    });
+
+    expect(
+      describeFreshnessForAthlete({
+        state: "sync-failed",
+        lastAttemptAt: "2026-08-24T09:15:00.000Z",
+        lastDetail: "Intervals.icu timeout",
+        lastConfirmedAt: "2026-08-22T09:15:00.000Z",
+      })
+    ).toEqual({
+      tone: "warn",
+      text: "Physiology check failed (Intervals.icu timeout); using values confirmed 2026-08-22.",
+    });
+
+    expect(
+      describeFreshnessForAthlete({
+        state: "stale",
+        lastConfirmedAt: null,
+        ageDays: null,
+      })
+    ).toEqual({
+      tone: "warn",
+      text: "Physiology has never been confirmed since freshness tracking began — re-sync to confirm.",
+    });
+
+    expect(
+      describeFreshnessForAthlete({
+        state: "obsolete",
+        markedObsoleteAt: "2026-08-24T09:15:00.000Z",
+      })
+    ).toEqual({
+      tone: "block",
+      text: "Physiology marked obsolete 2026-08-24 — generation blocked until re-synced.",
+    });
+
+    expect(
+      describeFreshnessForAthlete({
+        state: "inconsistent",
+        reason: "power-zone bounds are not strictly ascending",
+      })
+    ).toEqual({
+      tone: "block",
+      text: "Physiology inconsistent (power-zone bounds are not strictly ascending) — generation blocked until refreshed.",
+    });
+
+    expect(
+      describeFreshnessForAthlete({
+        state: "malformed",
+        reason: "physiology.json does not parse",
+      })
+    ).toEqual({
+      tone: "block",
+      text: "Physiology store is unreadable — restore its backup or re-sync. Generation blocked.",
+    });
+
+    expect(describeFreshnessForAthlete({ state: "missing" })).toEqual({
+      tone: "block",
+      text: "No physiology yet — connect Intervals.icu and sync. Generation blocked.",
+    });
   });
 });
 

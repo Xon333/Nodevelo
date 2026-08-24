@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, isStale } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
+import { describeFreshnessForAthlete } from "@/lib/physiology-freshness";
 import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
 import AskCoach from "../AskCoach";
@@ -98,6 +99,18 @@ export default function TodayView() {
   // Mode detection (approved: auto-switch, no tabs — masterplan §4).
   const todayRide = state.todayAnalysis?.activityDate === localToday() ? state.todayAnalysis : null;
   const mode: "pre" | "post" = todayRide && !flipped ? "post" : "pre";
+  const freshness = state.physiologyFreshness ? describeFreshnessForAthlete(state.physiologyFreshness) : null;
+  const freshnessText =
+    state.physiologyFreshness?.state === "fresh" &&
+    state.physiologyFreshness.confirmedAt.slice(0, 10) === localToday()
+      ? "Physiology confirmed today — current."
+      : freshness?.text ?? null;
+  const freshnessClasses =
+    freshness?.tone === "warn"
+      ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+      : freshness?.tone === "block"
+      ? "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300"
+      : "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300";
 
   // Collapsed evidence shared by both moments (hidden ≠ deleted, Constitution §6).
   const supportingSignals = state.lastSync ? (
@@ -136,6 +149,10 @@ export default function TodayView() {
       <h1 className="sr-only">Today</h1>
       {/* Triggered alarms outrank both moments (aviation rule, Constitution §4). */}
       <ReadinessAlerts fatigueAlert={state.fatigueAlert} loadRamp={state.loadRamp} />
+
+      {freshness && freshnessText && (
+        <p className={`rounded-lg border px-3 py-2 text-xs ${freshnessClasses}`}>{freshnessText}</p>
+      )}
 
       {/* Track C loading chip: day-before target / day-of loaded-or-skipped attribution. Its
           pre-ask fires the evening BEFORE a durability ride — when Today is typically already in
