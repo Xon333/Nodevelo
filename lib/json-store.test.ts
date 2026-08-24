@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { readJsonFile, updateJsonFile, writeJsonFile } from "./json-store";
+import { readJsonFile, readJsonFileWithStatus, updateJsonFile, writeJsonFile } from "./json-store";
 
 // Point the store at a throwaway dir so tests never touch real ledger data.
 let dir: string;
@@ -40,6 +40,46 @@ describe("json-store (atomic + recovery)", () => {
     await fs.copyFile(p("rec.json"), p("rec.json.bak")); // a prior good backup exists
     await fs.writeFile(p("rec.json"), "{ this is not valid json", "utf-8"); // live file goes corrupt
     expect(await readJsonFile("rec.json", { v: "DEFAULT" })).toEqual({ v: "good" });
+  });
+
+  it("reports enoent false when a missing live file is recovered from .bak", async () => {
+    await writeJsonFile("rec.json", { v: "good" });
+    await fs.copyFile(p("rec.json"), p("rec.json.bak"));
+    await fs.rm(p("rec.json"));
+
+    await expect(readJsonFileWithStatus("rec.json", { v: "DEFAULT" })).resolves.toEqual({
+      value: { v: "good" },
+      corruptFallback: false,
+      enoent: false,
+      liveCorrupt: false,
+    });
+  });
+
+  it("reports liveCorrupt when a corrupt live file is recovered from .bak", async () => {
+    await writeJsonFile("rec.json", { v: "good" });
+    await fs.copyFile(p("rec.json"), p("rec.json.bak"));
+    await fs.writeFile(p("rec.json"), "{ this is not valid json", "utf-8");
+
+    await expect(readJsonFileWithStatus("rec.json", { v: "DEFAULT" })).resolves.toEqual({
+      value: { v: "good" },
+      corruptFallback: false,
+      enoent: false,
+      liveCorrupt: true,
+    });
+  });
+
+  it("reports corruptFallback when the live file is missing and the backup is corrupt", async () => {
+    await writeJsonFile("rec.json", { v: "good" });
+    await fs.copyFile(p("rec.json"), p("rec.json.bak"));
+    await fs.rm(p("rec.json"));
+    await fs.writeFile(p("rec.json.bak"), "{ this is not valid json", "utf-8");
+
+    await expect(readJsonFileWithStatus("rec.json", { v: "DEFAULT" })).resolves.toEqual({
+      value: { v: "DEFAULT" },
+      corruptFallback: true,
+      enoent: false,
+      liveCorrupt: false,
+    });
   });
 
   it("falls back to the default when both live and backup are unusable", async () => {

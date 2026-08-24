@@ -8,7 +8,8 @@
 import type { PhysiologySnapshot, PhysiologyStore } from "./types";
 import type { Zone } from "./zones";
 import { readMdHrZones, readMdPowerZones } from "./kb-loader";
-import { readJsonFile, updateJsonFile } from "./json-store";
+import { isPhysiologyStore } from "./physiology-freshness";
+import { readJsonFileWithStatus, updateJsonFile } from "./json-store";
 
 const FILE = "physiology.json";
 
@@ -185,8 +186,20 @@ export function reconcile(
 // ---------- persistence ----------
 
 export async function readPhysiology(): Promise<PhysiologyStore | null> {
-  const store = await readJsonFile<PhysiologyStore | null>(FILE, null);
-  return store && asRecord(store).current ? store : null;
+  return (await readPhysiologyWithStatus()).store;
+}
+
+export async function readPhysiologyWithStatus(): Promise<{
+  store: PhysiologyStore | null;
+  corruptFallback: boolean;
+  fileExisted: boolean;
+}> {
+  const { value, corruptFallback, enoent } = await readJsonFileWithStatus<unknown>(FILE, null);
+  return {
+    store: isPhysiologyStore(value) ? value : null,
+    corruptFallback,
+    fileExisted: !enoent,
+  };
 }
 
 // HR-52: transactional read-modify-write on physiology.json — the read happens inside the per-file
@@ -198,7 +211,7 @@ export async function updatePhysiology(
   mutate: (current: PhysiologyStore | null) => PhysiologyStore | Promise<PhysiologyStore>
 ): Promise<PhysiologyStore> {
   return updateJsonFile<PhysiologyStore | null>(FILE, null, async (raw) => {
-    const current = raw && asRecord(raw).current ? raw : null;
+    const current = isPhysiologyStore(raw) ? raw : null;
     return mutate(current);
   }) as Promise<PhysiologyStore>;
 }

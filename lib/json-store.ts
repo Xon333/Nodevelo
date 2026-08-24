@@ -46,25 +46,33 @@ const CRITICAL = new Set([
 // back to disk need this distinction: persisting a fallback born from a genuine double-corruption would
 // permanently enshrine that data loss as the new on-disk truth, whereas persisting one born from "this
 // store has simply never existed yet" is exactly the normal, desired first-write behavior.
-export async function readJsonFileWithStatus<T>(file: string, fallback: T): Promise<{ value: T; corruptFallback: boolean }> {
+export async function readJsonFileWithStatus<T>(
+  file: string,
+  fallback: T
+): Promise<{ value: T; corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }> {
   const full = path.join(dataDir(), file);
-  let corruptFallback = false;
-  for (const candidate of [full, `${full}.bak`]) {
+  let enoent = true;
+  let liveCorrupt = false;
+  for (const [index, candidate] of [full, `${full}.bak`].entries()) {
     try {
       const raw = await fs.readFile(candidate, "utf-8");
+      enoent = false;
       // A successful parse is trusted as-is, even when the value is `null` — that's the real,
       // intentional content for some stores (current-block.json's "no active block" after a
       // delete). Treating a legitimate `null` as a failed read fell through to `.bak`, which
       // always holds the pre-write snapshot — resurrecting the block a delete had just cleared.
       // Only a genuine read/parse failure (missing file, corrupt JSON) should reach `.bak`.
-      return { value: JSON.parse(raw) as T, corruptFallback: false };
+      return { value: JSON.parse(raw) as T, corruptFallback: false, enoent, liveCorrupt };
     } catch (err) {
       // ENOENT (this candidate was never written) is not corruption; anything else — a parse
       // failure (SyntaxError) or a real read error (EACCES/EIO) — means something existed but is broken.
-      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") corruptFallback = true;
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        enoent = false;
+        if (index === 0) liveCorrupt = true;
+      }
     }
   }
-  return { value: fallback, corruptFallback };
+  return { value: fallback, corruptFallback: !enoent, enoent, liveCorrupt };
 }
 
 export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
