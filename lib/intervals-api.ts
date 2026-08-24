@@ -315,8 +315,10 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
 }
 
 // The athlete's per-sport settings (FTP, power/HR zones, threshold/max HR) — the source of
-// truth for physiology. Best-effort: null on any failure so a missing endpoint never breaks
-// sync. The Ride setting is selected and mapped to a snapshot in parseSportSettings.
+// truth for physiology. Best-effort: fetchSportSettings returns a discriminated
+// SportSettingsResult: `ok` with a snapshot, `unavailable` when the request fails, or `invalid`
+// when the payload has no usable Ride FTP. The Ride setting is selected and mapped to a snapshot
+// in parseSportSettings.
 export async function fetchSportSettings(
   // HR-61: named helper, not an inline literal — see lib/score-log.ts's buildRideScores for why.
   today: string = utcToday()
