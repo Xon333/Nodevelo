@@ -1,4 +1,9 @@
-import type { PhysiologySnapshot, PhysiologyStatus, PhysiologyStore } from "./types";
+import type {
+  PhysiologyFreshness,
+  PhysiologySnapshot,
+  PhysiologyStatus,
+  PhysiologyStore,
+} from "./types";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -25,6 +30,12 @@ function isStrictlyAscendingFiniteNumberArray(value: unknown): value is number[]
     isFiniteNumberArray(value) &&
     value.every((entry, index) => index === 0 || entry > value[index - 1])
   );
+}
+
+export const PHYSIOLOGY_STALE_DAYS = 90;
+
+function ageDays(iso: string, today: string): number {
+  return Math.floor((Date.parse(today) - Date.parse(iso)) / 86_400_000);
 }
 
 export function isPhysiologySnapshot(value: unknown): value is PhysiologySnapshot {
@@ -87,4 +98,70 @@ export function validateSnapshotConsistency(
     return { ok: false, reason: `LTHR ${snapshot.lthr} exceeds max HR ${snapshot.maxHr}` };
   }
   return { ok: true };
+}
+
+export function assessPhysiologyFreshness(input: {
+  store: PhysiologyStore | null;
+  corruptFallback: boolean;
+  fileExisted: boolean;
+  statusCorrupt: boolean;
+  status: PhysiologyStatus | undefined;
+  today: string;
+}): PhysiologyFreshness {
+  const { store, corruptFallback, fileExisted, statusCorrupt, status, today } = input;
+
+  if (corruptFallback) {
+    return { state: "malformed", reason: "physiology.json does not parse" };
+  }
+  if (statusCorrupt) {
+    return { state: "malformed", reason: "physiology freshness records are unreadable" };
+  }
+  if (store === null && fileExisted) {
+    return {
+      state: "malformed",
+      reason: "physiology.json parsed but has no usable current snapshot",
+    };
+  }
+  if (store === null) {
+    return { state: "missing" };
+  }
+
+  const consistency = validateSnapshotConsistency(store.current);
+  if (!consistency.ok) {
+    return { state: "inconsistent", reason: consistency.reason };
+  }
+
+  if (status?.markedObsoleteAt) {
+    return { state: "obsolete", markedObsoleteAt: status.markedObsoleteAt };
+  }
+
+  const confirmedAt = status?.lastConfirmedAt ?? null;
+  const confirmedAge = confirmedAt === null ? null : ageDays(confirmedAt, today);
+  const attemptAge = status?.lastAttemptAt ? ageDays(status.lastAttemptAt, today) : null;
+
+  if (
+    status?.lastOutcome &&
+    status.lastOutcome !== "confirmed" &&
+    attemptAge !== null &&
+    attemptAge <= PHYSIOLOGY_STALE_DAYS &&
+    confirmedAge !== null &&
+    confirmedAge <= PHYSIOLOGY_STALE_DAYS
+  ) {
+    return {
+      state: "sync-failed",
+      lastAttemptAt: status.lastAttemptAt!,
+      lastDetail: status.lastDetail ?? "the last physiology check did not succeed",
+      lastConfirmedAt: confirmedAt,
+    };
+  }
+
+  if (confirmedAge === null || confirmedAge > PHYSIOLOGY_STALE_DAYS) {
+    return { state: "stale", lastConfirmedAt: confirmedAt, ageDays: confirmedAge };
+  }
+
+  return {
+    state: "fresh",
+    confirmedAt,
+    effectiveFrom: store.current.effectiveFrom,
+  };
 }
