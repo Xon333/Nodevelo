@@ -4,6 +4,9 @@ import type {
   PhysiologyStatus,
   PhysiologyStore,
 } from "./types";
+import { readJsonFileWithStatus, updateJsonFile } from "./json-store";
+
+const STATUS_FILE = "physiology-status.json";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -79,6 +82,55 @@ export function isPhysiologyStatus(value: unknown): value is PhysiologyStatus {
     (status.lastConfirmedAt === undefined || typeof status.lastConfirmedAt === "string") &&
     (status.markedObsoleteAt === undefined || typeof status.markedObsoleteAt === "string")
   );
+}
+
+export async function readPhysiologyStatus(): Promise<{
+  status: PhysiologyStatus;
+  corruptFallback: boolean;
+  liveCorrupt: boolean;
+}> {
+  const { value, corruptFallback, liveCorrupt, enoent } = await readJsonFileWithStatus<unknown>(STATUS_FILE, null);
+  const valid = !enoent && isPhysiologyStatus(value);
+  return {
+    status: valid ? value : {},
+    corruptFallback: corruptFallback || (!enoent && !valid),
+    liveCorrupt,
+  };
+}
+
+async function updatePhysiologyStatus(
+  mutate: (status: PhysiologyStatus) => PhysiologyStatus | Promise<PhysiologyStatus>
+): Promise<PhysiologyStatus> {
+  return updateJsonFile<unknown>(STATUS_FILE, {}, (raw) => mutate(isPhysiologyStatus(raw) ? raw : {})) as Promise<PhysiologyStatus>;
+}
+
+export async function recordPhysiologyCheck(
+  now: string,
+  outcome: "confirmed" | "unavailable" | "invalid",
+  detail?: string
+): Promise<void> {
+  await updatePhysiologyStatus((status) => {
+    const next: PhysiologyStatus = {
+      ...status,
+      lastAttemptAt: now,
+      lastOutcome: outcome,
+      ...(detail !== undefined ? { lastDetail: detail } : {}),
+      ...(outcome === "confirmed" ? { lastConfirmedAt: now } : {}),
+    };
+    if (outcome === "confirmed") delete next.markedObsoleteAt;
+    return next;
+  });
+}
+
+export async function markPhysiologyObsolete(): Promise<void> {
+  await updatePhysiologyStatus((status) => ({ ...status, markedObsoleteAt: new Date().toISOString() }));
+}
+
+export async function clearPhysiologyObsolete(): Promise<void> {
+  await updatePhysiologyStatus((status) => {
+    const { markedObsoleteAt: _drop, ...rest } = status;
+    return rest;
+  });
 }
 
 export function validateSnapshotConsistency(
@@ -188,7 +240,7 @@ export function assessPhysiologyFreshness(input: {
 
   return {
     state: "fresh",
-    confirmedAt,
+    confirmedAt: confirmedAt!,
     effectiveFrom: store.current.effectiveFrom,
   };
 }

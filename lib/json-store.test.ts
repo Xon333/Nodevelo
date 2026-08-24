@@ -68,6 +68,19 @@ describe("json-store (atomic + recovery)", () => {
     });
   });
 
+  it("recovers a critical physiology-status marker from .bak while still reporting the corrupt live file", async () => {
+    await writeJsonFile("physiology-status.json", { markedObsoleteAt: "2026-08-23T10:00:00.000Z" });
+    await writeJsonFile("physiology-status.json", { lastOutcome: "confirmed" });
+    await fs.writeFile(p("physiology-status.json"), "{ this is not valid json", "utf-8");
+
+    await expect(readJsonFileWithStatus("physiology-status.json", {})).resolves.toEqual({
+      value: { markedObsoleteAt: "2026-08-23T10:00:00.000Z" },
+      corruptFallback: false,
+      enoent: false,
+      liveCorrupt: true,
+    });
+  });
+
   it("reports corruptFallback when the live file is missing and the backup is corrupt", async () => {
     await writeJsonFile("rec.json", { v: "good" });
     await fs.copyFile(p("rec.json"), p("rec.json.bak"));

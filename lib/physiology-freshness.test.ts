@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { assessPhysiologyFreshness, validateSnapshotConsistency } from "./physiology-freshness";
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  assessPhysiologyFreshness,
+  clearPhysiologyObsolete,
+  markPhysiologyObsolete,
+  readPhysiologyStatus,
+  recordPhysiologyCheck,
+  validateSnapshotConsistency,
+} from "./physiology-freshness";
 import type { PhysiologySnapshot, PhysiologyStatus, PhysiologyStore } from "./types";
 
 const snap = (over: Partial<PhysiologySnapshot> = {}): PhysiologySnapshot => ({
@@ -268,5 +278,87 @@ describe("assessPhysiologyFreshness", () => {
   it("uses only the supplied dates for deterministic UTC day math", () => {
     const input = baseInput();
     expect(assessPhysiologyFreshness(input)).toEqual(assessPhysiologyFreshness(input));
+  });
+});
+
+describe("physiology status IO", () => {
+  let dir: string;
+  const p = (file: string) => path.join(dir, file);
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "nodevelo-phys-"));
+    process.env.NODEVELO_DATA_DIR = dir;
+  });
+
+  afterAll(async () => {
+    delete process.env.NODEVELO_DATA_DIR;
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  afterEach(async () => {
+    for (const f of await fs.readdir(dir)) await fs.rm(p(f), { force: true });
+  });
+
+  it("returns an empty status for a missing file", async () => {
+    await expect(readPhysiologyStatus()).resolves.toEqual({
+      status: {},
+      corruptFallback: false,
+      liveCorrupt: false,
+    });
+  });
+
+  it("flags a corrupt status file instead of silently reading empty", async () => {
+    await fs.writeFile(p("physiology-status.json"), "{not json");
+    const { corruptFallback, liveCorrupt } = await readPhysiologyStatus();
+    expect(corruptFallback).toBe(true);
+    expect(liveCorrupt).toBe(true);
+  });
+
+  it("fails closed for a parsed status object with invalid field types", async () => {
+    await fs.writeFile(p("physiology-status.json"), JSON.stringify({ markedObsoleteAt: 42 }));
+    await expect(readPhysiologyStatus()).resolves.toEqual({
+      status: {},
+      corruptFallback: true,
+      liveCorrupt: false,
+    });
+  });
+
+  it("records a confirmation: stamps attempt + confirmed and drops the obsolete marker", async () => {
+    await markPhysiologyObsolete();
+    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "confirmed");
+    const s = await readPhysiologyStatus();
+    expect(s.status.lastAttemptAt).toBe("2026-08-23T10:00:00.000Z");
+    expect(s.status.lastOutcome).toBe("confirmed");
+    expect(s.status.lastConfirmedAt).toBe("2026-08-23T10:00:00.000Z");
+    expect(s.status.markedObsoleteAt).toBeUndefined();
+  });
+
+  it("records a failure without touching lastConfirmedAt", async () => {
+    await recordPhysiologyCheck("2026-08-22T09:00:00.000Z", "confirmed");
+    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "unavailable", "network timeout");
+    const s = await readPhysiologyStatus();
+    expect(s.status.lastAttemptAt).toBe("2026-08-23T10:00:00.000Z");
+    expect(s.status.lastOutcome).toBe("unavailable");
+    expect(s.status.lastDetail).toBe("network timeout");
+    expect(s.status.lastConfirmedAt).toBe("2026-08-22T09:00:00.000Z");
+  });
+
+  it("marks and manually clears obsolescence", async () => {
+    await markPhysiologyObsolete();
+    expect((await readPhysiologyStatus()).status.markedObsoleteAt).toBeTruthy();
+    await clearPhysiologyObsolete();
+    expect((await readPhysiologyStatus()).status.markedObsoleteAt).toBeUndefined();
+  });
+
+  it("survives a legacy status file missing newer fields", async () => {
+    await fs.writeFile(
+      p("physiology-status.json"),
+      JSON.stringify({ lastConfirmedAt: "2026-07-01T00:00:00.000Z" })
+    );
+    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "invalid", "no ride settings");
+    const s = await readPhysiologyStatus();
+    expect(s.status.lastConfirmedAt).toBe("2026-07-01T00:00:00.000Z");
+    expect(s.status.lastOutcome).toBe("invalid");
+    expect(s.status.lastDetail).toBe("no ride settings");
   });
 });

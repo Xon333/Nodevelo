@@ -26,6 +26,8 @@ const CRITICAL = new Set([
   "score-log.json",
   "intervention-log.json",
   "physiology.json",
+  // markedObsoleteAt is an athlete safety assertion, not regenerable telemetry.
+  "physiology-status.json",
   "current-block.json",
   "block-history.json",
   "athlete.json",
