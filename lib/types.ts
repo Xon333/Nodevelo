@@ -1196,6 +1196,35 @@ export interface PhysiologyStore {
   history: PhysiologySnapshot[]; // superseded snapshots, oldest→newest (current excluded)
 }
 
+// ---------- Physiology freshness (data/physiology-status.json) ----------
+// Sync-attempt bookkeeping + athlete obsolescence marker. All fields optional on purpose:
+// a status file (or absence of one) from before a field existed parses as undefined —
+// consumers use truthy checks, never === null (INVARIANT 3).
+
+export interface PhysiologyStatus {
+  lastAttemptAt?: string; // ISO instant of the last sport-settings check
+  lastOutcome?: "confirmed" | "unavailable" | "invalid";
+  lastDetail?: string; // human-readable reason when the last attempt didn't confirm
+  lastConfirmedAt?: string; // ISO instant of the last successful confirmation
+  markedObsoleteAt?: string; // athlete declared current physiology obsolete
+}
+
+// One computed verdict, derived from (store, status, today). Consumers never assemble
+// this themselves — always via assessPhysiologyFreshness (lib/physiology-freshness.ts).
+export type PhysiologyFreshness =
+  | { state: "fresh"; confirmedAt: string; effectiveFrom: string }
+  | {
+      state: "sync-failed";
+      lastAttemptAt: string;
+      lastDetail: string;
+      lastConfirmedAt: string | null;
+    }
+  | { state: "stale"; lastConfirmedAt: string | null; ageDays: number | null }
+  | { state: "obsolete"; markedObsoleteAt: string }
+  | { state: "inconsistent"; reason: string }
+  | { state: "malformed"; reason: string }
+  | { state: "missing" };
+
 // ---------- Rolling baselines (data/rolling-baselines.json) ----------
 
 export interface RollingBaselines {
