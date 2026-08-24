@@ -1206,6 +1206,7 @@ export interface PhysiologyStatus {
   lastOutcome?: "confirmed" | "unavailable" | "invalid";
   lastDetail?: string; // human-readable reason when the last attempt didn't confirm
   lastConfirmedAt?: string; // ISO instant of the last successful confirmation
+  lastConfirmedDate?: string; // athlete-local calendar date of the last successful confirmation
   markedObsoleteAt?: string; // athlete declared current physiology obsolete
 }
 
@@ -1220,9 +1221,9 @@ export type PhysiologyFreshness =
       lastConfirmedAt: string | null;
     }
   | { state: "stale"; lastConfirmedAt: string | null; ageDays: number | null }
-  | { state: "obsolete"; markedObsoleteAt: string }
-  | { state: "inconsistent"; reason: string }
-  | { state: "malformed"; reason: string }
+  | { state: "obsolete"; markedObsoleteAt: string; lastConfirmedAt?: string | null }
+  | { state: "inconsistent"; reason: string; lastConfirmedAt?: string | null }
+  | { state: "malformed"; reason: string; lastConfirmedAt?: string | null }
   | { state: "missing" };
 
 // ---------- Rolling baselines (data/rolling-baselines.json) ----------

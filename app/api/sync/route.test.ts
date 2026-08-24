@@ -970,7 +970,9 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
 
     expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
       expect.any(String),
-      "confirmed"
+      "confirmed",
+      undefined,
+      expect.any(String)
     );
     const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
     expect(json.physiologyFreshness.state).toBe("fresh");

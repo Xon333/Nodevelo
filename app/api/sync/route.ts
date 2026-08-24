@@ -261,6 +261,7 @@ export async function GET(req: Request) {
     corruptFallback: physRead.corruptFallback,
     fileExisted: physRead.fileExisted,
     statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
+    liveCorrupt: physRead.liveCorrupt,
     status: physStatusRead.status,
     today,
   });
@@ -461,7 +462,7 @@ export async function POST(req: Request) {
       // tabs) previously could each reconcile from the same stale prior store and clobber each other's
       // FTP/zone change or history entry.
         await updatePhysiology((prev) => reconcile(prev, incomingPhys.snapshot, today).store);
-        await recordPhysiologyCheck(physiologyCheckAt, "confirmed");
+        await recordPhysiologyCheck(physiologyCheckAt, "confirmed", undefined, today);
         physRead = await readPhysiologyWithStatus();
       } else {
         await recordPhysiologyCheck(physiologyCheckAt, "invalid", consistency.reason);

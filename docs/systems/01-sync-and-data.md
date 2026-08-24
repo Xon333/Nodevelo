@@ -64,7 +64,7 @@ Physiology is tracked in two files on purpose: `physiology.json` holds the effec
 | `malformed` | The physiology store or freshness file is unreadable or unusable | block | blocked |
 | `missing` | No usable physiology store exists yet | block | blocked |
 
-Only `sync-failed` and `stale` warn; the other five states hard-block generation. That is deliberate: generation can keep using the last confirmed physiology when the latest sync merely failed, but it must stop when the store is missing, malformed, inconsistent, or explicitly obsolete. See the accepted adversarial review's physiology-ownership rationale in [Intervals.icu ownership, privacy, and recovery](../reviews/2026-08-20-nodevelo-adversarial-investment-review.md#intervalsicu-ownership-privacy-and-recovery).
+Only `sync-failed` and `stale` warn; `fresh` allows generation, while `missing`, `malformed`, `inconsistent`, and `obsolete` hard-block it. That is deliberate: generation can keep using the last confirmed physiology when the latest sync merely failed, but it must stop when the store is missing, malformed, inconsistent, or explicitly obsolete. See the accepted adversarial review's physiology-ownership rationale in [Intervals.icu ownership, privacy, and recovery](../reviews/2026-08-20-nodevelo-adversarial-investment-review.md#intervalsicu-ownership-privacy-and-recovery).
 
 ## Calendar mirror (`lib/calendar-mirror.ts`)
 

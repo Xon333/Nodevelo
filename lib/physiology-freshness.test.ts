@@ -170,6 +170,7 @@ describe("assessPhysiologyFreshness", () => {
     expect(assessPhysiologyFreshness(baseInput({ corruptFallback: true }))).toEqual({
       state: "malformed",
       reason: "physiology.json does not parse",
+      lastConfirmedAt: iso(0, TODAY),
     });
   });
 
@@ -202,6 +203,7 @@ describe("assessPhysiologyFreshness", () => {
     ).toEqual({
       state: "obsolete",
       markedObsoleteAt: iso(1, TODAY),
+      lastConfirmedAt: iso(0, TODAY),
     });
   });
 

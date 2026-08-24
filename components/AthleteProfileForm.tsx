@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { describeFreshnessForAthlete } from "@/lib/physiology-freshness";
+import { describeFreshnessForAthlete } from "@/lib/physiology-freshness-display";
 import { Card, PrimaryButton, SectionDivider, Skeleton, SkeletonScreen } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";

@@ -168,6 +168,7 @@ export async function GET() {
     corruptFallback: physRead.corruptFallback,
     fileExisted: physRead.fileExisted,
     statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
+    liveCorrupt: physRead.liveCorrupt,
     status: physStatusRead.status,
     today,
   });

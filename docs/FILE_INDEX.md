@@ -153,7 +153,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 |---|---|---|---|
 | `athlete.json` | data-store | ✅ | Profile: performance (physiology-overlaid at read), goals, weakpoints, nutrition config |
 | `physiology.json` | physiology | ✅ | Effective-dated FTP/zone/LTHR history |
-| `physiology-status.json` | physiology-freshness | — | Sync attempts, last confirmation, and the obsolete marker |
+| `physiology-status.json` | physiology-freshness | ✅ | Sync attempts, last confirmation, and the obsolete marker |
 | `last-sync.json` | intervals-api | — | Full Intervals.icu snapshot (regenerable) |
 | `current-block.json` | data-store | ✅ | Active block + per-day prescription/eventId/execution |
 | `block-history.json` | data-store | ✅ | Archived blocks + retrospectives + reflections (cap 200) |

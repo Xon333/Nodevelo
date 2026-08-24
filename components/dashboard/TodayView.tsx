@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, isStale } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { describeFreshnessForAthlete } from "@/lib/physiology-freshness";
+import { describeFreshnessForAthlete } from "@/lib/physiology-freshness-display";
 import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
 import AskCoach from "../AskCoach";

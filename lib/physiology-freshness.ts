@@ -45,7 +45,7 @@ function parseDateValue(label: string, value: string): number | { reason: string
 }
 
 function ageDays(iso: string, today: string): number {
-  return Math.floor((Date.parse(today) - Date.parse(iso)) / 86_400_000);
+  return Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(iso.slice(0, 10) + "T00:00:00Z")) / 86_400_000);
 }
 
 export function isPhysiologySnapshot(value: unknown): value is PhysiologySnapshot {
@@ -80,6 +80,7 @@ export function isPhysiologyStatus(value: unknown): value is PhysiologyStatus {
       status.lastOutcome === "invalid") &&
     (status.lastDetail === undefined || typeof status.lastDetail === "string") &&
     (status.lastConfirmedAt === undefined || typeof status.lastConfirmedAt === "string") &&
+    (status.lastConfirmedDate === undefined || typeof status.lastConfirmedDate === "string") &&
     (status.markedObsoleteAt === undefined || typeof status.markedObsoleteAt === "string")
   );
 }
@@ -107,7 +108,8 @@ async function updatePhysiologyStatus(
 export async function recordPhysiologyCheck(
   now: string,
   outcome: "confirmed" | "unavailable" | "invalid",
-  detail?: string
+  detail?: string,
+  localDate?: string
 ): Promise<void> {
   await updatePhysiologyStatus((status) => {
     const next: PhysiologyStatus = {
@@ -115,7 +117,7 @@ export async function recordPhysiologyCheck(
       lastAttemptAt: now,
       lastOutcome: outcome,
       ...(detail !== undefined ? { lastDetail: detail } : {}),
-      ...(outcome === "confirmed" ? { lastConfirmedAt: now } : {}),
+      ...(outcome === "confirmed" ? { lastConfirmedAt: now, ...(localDate ? { lastConfirmedDate: localDate } : {}) } : {}),
     };
     if (outcome === "confirmed") delete next.markedObsoleteAt;
     return next;
@@ -138,6 +140,19 @@ export function validateSnapshotConsistency(
 ): { ok: true } | { ok: false; reason: string } {
   if (!isFiniteNumber(snapshot.ftp) || snapshot.ftp <= 0) {
     return { ok: false, reason: `FTP ${String(snapshot.ftp)} is not a positive number` };
+  }
+  for (const [label, value] of [["effectiveFrom", snapshot.effectiveFrom], ["capturedAt", snapshot.capturedAt]] as const) {
+    if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+      return { ok: false, reason: `${label} is not a valid date` };
+    }
+  }
+  for (const [label, value] of [["lthr", snapshot.lthr], ["maxHr", snapshot.maxHr]] as const) {
+    if (value !== null && (!isFiniteNumber(value) || value <= 0)) {
+      return { ok: false, reason: `${label} is not positive` };
+    }
+  }
+  if (snapshot.powerZonePct.some((value) => !isFiniteNumber(value) || value <= 0) || snapshot.hrZones.some((value) => !isFiniteNumber(value) || value <= 0)) {
+    return { ok: false, reason: "physiology zone bounds are not positive finite numbers" };
   }
   if (!isStrictlyAscendingFiniteNumberArray(snapshot.powerZonePct)) {
     return { ok: false, reason: "power-zone bounds are not strictly ascending" };
@@ -166,11 +181,12 @@ export function assessPhysiologyFreshness(input: {
   statusCorrupt: boolean;
   status: PhysiologyStatus | undefined;
   today: string;
+  liveCorrupt?: boolean;
 }): PhysiologyFreshness {
-  const { store, corruptFallback, fileExisted, statusCorrupt, status, today } = input;
+  const { store, corruptFallback, fileExisted, statusCorrupt, status, today, liveCorrupt = false } = input;
 
-  if (corruptFallback) {
-    return { state: "malformed", reason: "physiology.json does not parse" };
+  if (corruptFallback || liveCorrupt) {
+    return { state: "malformed", reason: "physiology.json does not parse", lastConfirmedAt: status?.lastConfirmedAt ?? null };
   }
   if (statusCorrupt) {
     return { state: "malformed", reason: "physiology freshness records are unreadable" };
@@ -205,18 +221,27 @@ export function assessPhysiologyFreshness(input: {
     return { state: "missing" };
   }
 
+  const confirmedAt = status?.lastConfirmedAt ?? null;
   const consistency = validateSnapshotConsistency(store.current);
   if (!consistency.ok) {
-    return { state: "inconsistent", reason: consistency.reason };
+    return { state: "inconsistent", reason: consistency.reason, lastConfirmedAt: confirmedAt };
+  }
+  for (const historical of store.history) {
+    const historicalConsistency = validateSnapshotConsistency(historical);
+    if (!historicalConsistency.ok) {
+      return { state: "inconsistent", reason: historicalConsistency.reason, lastConfirmedAt: confirmedAt };
+    }
   }
 
   if (status?.markedObsoleteAt) {
-    return { state: "obsolete", markedObsoleteAt: status.markedObsoleteAt };
+    return { state: "obsolete", markedObsoleteAt: status.markedObsoleteAt, lastConfirmedAt: confirmedAt };
   }
 
-  const confirmedAt = status?.lastConfirmedAt ?? null;
-  const confirmedAge = confirmedAt === null ? null : ageDays(confirmedAt, today);
+  const confirmedAge = confirmedAt === null ? null : ageDays(status?.lastConfirmedDate ?? confirmedAt, today);
   const attemptAge = status?.lastAttemptAt ? ageDays(status.lastAttemptAt, today) : null;
+  if ((status?.lastConfirmedDate !== undefined && confirmedAge !== null && confirmedAge < 0) || (attemptAge !== null && attemptAge < 0 && status?.lastAttemptAt?.slice(0, 10) === today)) {
+    return { state: "malformed", reason: "physiology freshness dates are in the future", lastConfirmedAt: confirmedAt };
+  }
 
   if (
     status?.lastOutcome &&
