@@ -207,6 +207,7 @@ describe("updatePhysiology", () => {
       store: null,
       corruptFallback: false,
       fileExisted: false,
+      liveCorrupt: false,
     });
 
     await fs.writeFile(p("physiology.json"), "{not json", "utf-8");
@@ -215,6 +216,7 @@ describe("updatePhysiology", () => {
       store: null,
       corruptFallback: true,
       fileExisted: true,
+      liveCorrupt: true,
     });
   });
 
@@ -225,6 +227,7 @@ describe("updatePhysiology", () => {
       store: null,
       corruptFallback: false,
       fileExisted: true,
+      liveCorrupt: false,
     });
     expect(await readPhysiology()).toBeNull();
   });

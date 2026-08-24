@@ -18,7 +18,7 @@ import type {
 // not the unit-tested internals.
 
 const physiologyIo = vi.hoisted(() => ({
-  readResult: { store: null as unknown, corruptFallback: false, fileExisted: false },
+  readResult: { store: null as unknown, corruptFallback: false, fileExisted: false, liveCorrupt: false },
   statusResult: { status: {} as Record<string, unknown>, corruptFallback: false, liveCorrupt: false },
 }));
 
@@ -58,6 +58,7 @@ vi.mock("@/lib/physiology", async (orig) => {
         ...physiologyIo.readResult,
         store: next,
         fileExisted: true,
+        liveCorrupt: false,
       };
       return next;
     }),
@@ -256,7 +257,7 @@ let calibration: CalibrationStore;
 beforeEach(() => {
   vi.clearAllMocks();
   scoreEntries = [];
-  physiologyIo.readResult = { store: null, corruptFallback: false, fileExisted: false };
+  physiologyIo.readResult = { store: null, corruptFallback: false, fileExisted: false, liveCorrupt: false };
   physiologyIo.statusResult = { status: {}, corruptFallback: false, liveCorrupt: false };
   calibration = {
     decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
@@ -336,6 +337,7 @@ describe("GET /api/sync", () => {
       store: { current: mkPhysSnapshot(), history: [] },
       corruptFallback: false,
       fileExisted: true,
+      liveCorrupt: false,
     };
     const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
     expect(json.physiologyFreshness).toEqual({
@@ -991,6 +993,49 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
       expect.any(String),
       "unavailable",
       "network timeout"
+    );
+  });
+
+  it("warns when physiology was recovered from .bak and keeps the recovered store untouched on an outage", async () => {
+    physiologyIo.readResult = {
+      store: { current: mkPhysSnapshot(), history: [] },
+      corruptFallback: false,
+      fileExisted: true,
+      liveCorrupt: true,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "unavailable",
+      reason: "network timeout",
+    });
+
+    const res = await postSync();
+    const json = await res.json();
+
+    expect(json.warnings.some((w: string) => w.includes("Recovered physiology from the backup file"))).toBe(true);
+    expect(phys.updatePhysiology).not.toHaveBeenCalled();
+  });
+
+  it("records invalid and warns plainly when sport-settings returns an invalid result", async () => {
+    physiologyIo.readResult = {
+      store: { current: mkPhysSnapshot(), history: [] },
+      corruptFallback: false,
+      fileExisted: true,
+      liveCorrupt: false,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "invalid",
+      reason: "sport settings contained no usable Ride FTP",
+    });
+
+    const res = await postSync();
+    const json = await res.json();
+
+    expect(json.warnings.join("\n")).toContain("Physiology not refreshed (sport settings contained no usable Ride FTP) — continuing with the previous store.");
+    expect(phys.updatePhysiology).not.toHaveBeenCalled();
+    expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
+      expect.any(String),
+      "invalid",
+      "sport settings contained no usable Ride FTP"
     );
   });
 

@@ -193,12 +193,14 @@ export async function readPhysiologyWithStatus(): Promise<{
   store: PhysiologyStore | null;
   corruptFallback: boolean;
   fileExisted: boolean;
+  liveCorrupt: boolean;
 }> {
-  const { value, corruptFallback, enoent } = await readJsonFileWithStatus<unknown>(FILE, null);
+  const { value, corruptFallback, enoent, liveCorrupt } = await readJsonFileWithStatus<unknown>(FILE, null);
   return {
     store: isPhysiologyStore(value) ? value : null,
     corruptFallback,
     fileExisted: !enoent,
+    liveCorrupt,
   };
 }
 

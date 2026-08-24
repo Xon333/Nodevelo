@@ -444,11 +444,16 @@ export async function POST(req: Request) {
       logWarn("/api/sync", "neat-calibration", e instanceof Error ? e.message : String(e));
     }
 
+    const physReadBeforeSync = await readPhysiologyWithStatus();
+    if (physReadBeforeSync.liveCorrupt) {
+      warnings.push("Recovered physiology from the backup file after the live store went corrupt — continuing with the recovered values until a clean confirmation replaces them.");
+    }
     // Reconcile the physiology store against Intervals.icu's current sport-settings (FTP,
     // zones, threshold/max HR). On a real change the old snapshot is archived with its own
     // effective date, so historical analyses stay anchored to the FTP that was live then.
     const incomingPhys = await fetchSportSettings(today);
     const physiologyCheckAt = new Date().toISOString();
+    let physRead = physReadBeforeSync;
     if (incomingPhys.status === "ok") {
       const consistency = validateSnapshotConsistency(incomingPhys.snapshot);
       if (consistency.ok) {
@@ -457,6 +462,7 @@ export async function POST(req: Request) {
       // FTP/zone change or history entry.
         await updatePhysiology((prev) => reconcile(prev, incomingPhys.snapshot, today).store);
         await recordPhysiologyCheck(physiologyCheckAt, "confirmed");
+        physRead = await readPhysiologyWithStatus();
       } else {
         await recordPhysiologyCheck(physiologyCheckAt, "invalid", consistency.reason);
         warnings.push(`Physiology check returned internally inconsistent data (${consistency.reason}) — keeping the previous store.`);
@@ -469,7 +475,6 @@ export async function POST(req: Request) {
           : `Physiology not refreshed (${incomingPhys.reason}) — continuing with the previous store.`
       );
     }
-    const physRead = await readPhysiologyWithStatus();
     const physStore = physRead.store;
     if (!physStore) {
       warnings.push("No usable physiology store — scoring is running on the athlete.json FTP fallback until Intervals.icu confirms physiology.");
