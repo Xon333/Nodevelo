@@ -48,6 +48,24 @@ flowchart TD
 
 Safety properties worth knowing: every Intervals.icu request has a 20s abort timeout; the all-time power curve merges **monotonically** so a partial fetch can't false-report a PR drop; a suspect-empty sync is refused, not written; the LLM step is deferred to `/api/analyze` so sync stays fast and an Anthropic hiccup is isolated ([ADR-0005](../DECISIONS.md)).
 
+### Physiology freshness
+
+Physiology is tracked in two files on purpose: `physiology.json` holds the effective-dated snapshot, while `physiology-status.json` holds sync bookkeeping plus the athlete's obsolete marker. That split keeps the last confirmed date available even when the latest check fails.
+
+`lib/physiology-freshness.ts` reduces those files plus "today" to one of seven states. The table below is the ship-time contract for both the profile panel and the generation gate.
+
+| State | Meaning | Athlete tone | Generation |
+|---|---|---|---|
+| `fresh` | Recent confirmation and a consistent current snapshot | ok | allowed |
+| `sync-failed` | The latest physiology check failed, but the last confirmed values are still recent | warn | allowed |
+| `stale` | The last confirmation is too old, or freshness tracking never recorded one | warn | allowed |
+| `obsolete` | The athlete marked physiology obsolete | block | blocked |
+| `inconsistent` | The current snapshot fails self-consistency checks | block | blocked |
+| `malformed` | The physiology store or freshness file is unreadable or unusable | block | blocked |
+| `missing` | No usable physiology store exists yet | block | blocked |
+
+Only `sync-failed` and `stale` warn; the other five states hard-block generation. That is deliberate: generation can keep using the last confirmed physiology when the latest sync merely failed, but it must stop when the store is missing, malformed, inconsistent, or explicitly obsolete. See Task 12's brief for the ship-time rationale.
+
 ## Calendar mirror (`lib/calendar-mirror.ts`)
 
 Invariant: **one NodeVelo-owned event per block date**, keyed `external_id = nodevelo-<date>` (idempotent upserts), tracked via `CurrentBlockDay.eventId`.

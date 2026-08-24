@@ -25,6 +25,7 @@ One line per file that matters. The authoritative per-file table — README keep
 |---|---|
 | `intervals-api.ts` | Intervals.icu client: pulls activities/wellness/curves/streams/settings, pushes calendar events (idempotent `nodevelo-<date>` upserts); 20s abort timeouts; suspect-empty-sync guard |
 | `sync-ledger.ts` | Idempotent ledger-schema backfill + one-shot rebuild gate |
+| `physiology-freshness.ts` | Physiology freshness state machine + `physiology-status.json` bookkeeping + generation gate copy |
 | `sync-analysis.ts` | The deferred LLM coach-note step (`addCoachNote`), idempotent, auto-post option |
 | `calendar-mirror.ts` | Outbound mirror (`persistMirroredMove`) + inbound reconcile of athlete moves |
 | `reschedule.ts` | Pure reactive/proactive reschedule engines (never raids rest days) |
@@ -137,6 +138,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 | `trends` | GET | Trends payload assembly (read-only) | — |
 | `history` | GET/POST | Block-history list; POST = the adoption action (flips `seeds_approved:` on the retro, stamps `reflectionsApprovedAt` on the entry) | — |
 | `profile` | GET/PUT | Athlete profile (physiology overlaid at read) | — |
+| `physiology` | POST | Mark or clear the physiology obsolete flag in `physiology-status.json` | — |
 | `settings` | GET/PUT | Block settings + calibration-band overrides | — |
 | `calibration` | GET/POST | Read/override calibrated parameters | — |
 | `knowledge` | GET/PUT | KB file read/write | — |
@@ -151,6 +153,7 @@ Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthrop
 |---|---|---|---|
 | `athlete.json` | data-store | ✅ | Profile: performance (physiology-overlaid at read), goals, weakpoints, nutrition config |
 | `physiology.json` | physiology | ✅ | Effective-dated FTP/zone/LTHR history |
+| `physiology-status.json` | physiology-freshness | — | Sync attempts, last confirmation, and the obsolete marker |
 | `last-sync.json` | intervals-api | — | Full Intervals.icu snapshot (regenerable) |
 | `current-block.json` | data-store | ✅ | Active block + per-day prescription/eventId/execution |
 | `block-history.json` | data-store | ✅ | Archived blocks + retrospectives + reflections (cap 200) |
