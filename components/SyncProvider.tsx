@@ -13,6 +13,7 @@ import type {
   IntensityDistribution,
   LoadRampAlert,
   NoBlockSummary,
+  PhysiologyFreshness,
   ReadinessSignal,
   CalibrationStore,
   RideScoreEntry,
@@ -49,6 +50,9 @@ export interface AppState {
   coachAccuracy?: { hitRatePct: number | null; evaluated: number; pending: number };
   // Signal fusion (§5): the glanceable "second brain's read on you now". Null with too little data.
   athleteState?: AthleteState | null;
+  // Task 10: same assessed physiology verdict GET /api/sync already exposes; POST /api/sync doesn't
+  // carry it, so the following GET refetch remains the source of truth.
+  physiologyFreshness?: PhysiologyFreshness | null;
   // ROADMAP #1: the resolved-numbers snapshot the LLM is handed, surfaced on Today so the athlete
   // sees the same figures the coach reasons from.
   coachSnapshot?: CoachSnapshot | null;

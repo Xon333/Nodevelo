@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { readAthleteProfile, readLastSync, updateAthleteProfile } from "@/lib/data-store";
 import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
-import { readPhysiology, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
+import { readPhysiologyWithStatus, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
+import { assessPhysiologyFreshness, readPhysiologyStatus } from "@/lib/physiology-freshness";
 import {
   calculateDailyTarget,
   calibrateNeat,
@@ -28,12 +29,14 @@ import type { Zone } from "@/lib/zones";
 // GET returns the parsed athlete_profile.md snapshot plus Intervals.icu auto-sync data.
 // Performance, goals and weakpoints all come from the markdown — no re-entry needed.
 export async function GET() {
-  const [profile, sync, athleteMd, physStore] = await Promise.all([
+  const [profile, sync, athleteMd, physRead, physStatusRead] = await Promise.all([
     readAthleteProfile(),
     readLastSync(),
     parseAthleteMd(),
-    readPhysiology(),
+    readPhysiologyWithStatus(),
+    readPhysiologyStatus(),
   ]);
+  const physStore = physRead.store;
 
   // FTP, threshold/max HR and zones are no longer in the markdown — project them from the
   // physiology store into the shape the profile UI already renders.
@@ -160,6 +163,14 @@ export async function GET() {
     profile.nutrition.targetWeightKg,
     profile.nutrition.targetRateKgPerWeek
   );
+  const physiologyFreshness = assessPhysiologyFreshness({
+    store: physRead.store,
+    corruptFallback: physRead.corruptFallback,
+    fileExisted: physRead.fileExisted,
+    statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
+    status: physStatusRead.status,
+    today,
+  });
 
   return NextResponse.json({
     nutrition: profile.nutrition,
@@ -175,6 +186,7 @@ export async function GET() {
       sex: profile.performance.sex,
     },
     ftpStaleDays: Number.isFinite(ftpStaleDays) ? ftpStaleDays : null,
+    physiologyFreshness,
     physiologyChange,
     physiologySource: physStore?.current.source ?? null,
     athleteMd,

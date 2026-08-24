@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("@/lib/client-api", () => ({ api: h.api }));
 
 // Minimal AppState fixture — only the fields the tests below actually inspect are meaningfully varied.
-const mkAppState = (createdAt: string | null): AppState =>
+const mkAppState = (createdAt: string | null, over: Partial<AppState> = {}): AppState =>
   ({
     configured: true,
     anthropicConfigured: false,
@@ -31,6 +31,7 @@ const mkAppState = (createdAt: string | null): AppState =>
     partialDates: [],
     completedDates: [],
     autoSyncOnOpen: true,
+    ...over,
   }) as AppState;
 
 function Harness() {
@@ -38,6 +39,7 @@ function Harness() {
   return (
     <div>
       <div data-testid="createdAt">{state?.currentBlock?.createdAt ?? "none"}</div>
+      <div data-testid="freshness">{state?.physiologyFreshness?.state ?? "none"}</div>
       <button onClick={() => void doSync()} disabled={syncing}>
         sync
       </button>
@@ -110,6 +112,49 @@ describe("SyncProvider — HR-45 (doSync refreshes currentBlock)", () => {
     // just because the POST response had no currentBlock field to merge.
     await waitFor(() => expect(screen.getByTestId("createdAt").textContent).toBe("createdAt-NEW"));
     expect(getCalls).toBe(3); // initial load + post-sync refetch + post-intent refetch
+  });
+
+  it("refreshes GET-only physiologyFreshness from the refetch instead of expecting the POST sync payload to carry it", async () => {
+    let getCalls = 0;
+    h.api.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (typeof url === "string" && url.startsWith("/api/sync?today=")) {
+        getCalls++;
+        return mkAppState(null, {
+          physiologyFreshness: getCalls === 1
+            ? { state: "stale", lastConfirmedAt: null, ageDays: null }
+            : { state: "fresh", confirmedAt: "2026-06-22T09:15:00.000Z", effectiveFrom: "2026-06-22" },
+        });
+      }
+      if (url === "/api/sync" && init?.method === "POST") {
+        return {
+          lastSync: { syncedAt: "now" },
+          todayAnalysis: null,
+          analysisPending: false,
+          warnings: [],
+          readiness: null,
+          fatigueAlert: null,
+          loadRamp: null,
+          acwr: null,
+          polarization: null,
+          scores: [],
+          compromisedDates: [],
+          partialDates: [],
+          completedDates: [],
+          athleteState: null,
+          coachSnapshot: null,
+          calibration: null,
+        };
+      }
+      throw new Error(`unexpected api call: ${url}`);
+    });
+
+    renderHarness();
+    await waitFor(() => expect(screen.getByTestId("freshness").textContent).toBe("stale"));
+
+    fireEvent.click(screen.getByText("sync"));
+
+    await waitFor(() => expect(screen.getByTestId("freshness").textContent).toBe("fresh"));
+    expect(getCalls).toBe(3);
   });
 });
 
