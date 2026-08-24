@@ -1,0 +1,27 @@
+import { NextResponse } from "next/server";
+import {
+  clearPhysiologyObsolete,
+  markPhysiologyObsolete,
+  readPhysiologyStatus,
+} from "@/lib/physiology-freshness";
+
+export async function POST(req: Request) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const action = (body as Record<string, unknown> | null)?.action;
+  if (action === "mark-obsolete") {
+    await markPhysiologyObsolete();
+  } else if (action === "clear-obsolete") {
+    await clearPhysiologyObsolete();
+  } else {
+    return NextResponse.json({ error: 'action must be "mark-obsolete" or "clear-obsolete".' }, { status: 400 });
+  }
+
+  const { status } = await readPhysiologyStatus();
+  return NextResponse.json({ ok: true, status });
+}
