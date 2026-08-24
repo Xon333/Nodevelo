@@ -5,7 +5,8 @@ import { createEvent, deleteEvents, fetchEvents, fetchHrStream, fetchIntervals, 
 import { blockEventIds } from "@/lib/block-events";
 import { blockChangedResponse } from "@/lib/block-version";
 import { dayToEventPayload, reconcileInboundMoves } from "@/lib/calendar-mirror";
-import { physiologyAsOf, readHrZones, readPhysiology, readPowerZones, reconcile, updatePhysiology } from "@/lib/physiology";
+import { physiologyAsOf, readHrZones, readPhysiologyWithStatus, readPowerZones, reconcile, updatePhysiology } from "@/lib/physiology";
+import { assessPhysiologyFreshness, readPhysiologyStatus, recordPhysiologyCheck, validateSnapshotConsistency } from "@/lib/physiology-freshness";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
 import { parsePrescription } from "@/lib/prescription";
@@ -146,7 +147,7 @@ export function resolveCarbsOptimumForPrompt(
 // (so the CoachSnapshot resolves against the calendar day the athlete sees); falls back to UTC.
 export async function GET(req: Request) {
   const today = resolveToday(new URL(req.url).searchParams.get("today"));
-  const [lastSync, currentBlock, todayAnalysis, scoreLog, intentStore, profile, settings, dispositions, interventionLog, baselines, morningChecks, physStore, calibration] =
+  const [lastSync, currentBlock, todayAnalysis, scoreLog, intentStore, profile, settings, dispositions, interventionLog, baselines, morningChecks, physRead, physStatusRead, calibration] =
     await Promise.all([
       readLastSync(),
       readCurrentBlock(),
@@ -159,9 +160,11 @@ export async function GET(req: Request) {
       readInterventionLog(),
       readRollingBaselines(),
       readMorningChecks(),
-      readPhysiology(),
+      readPhysiologyWithStatus(),
+      readPhysiologyStatus(),
       readCalibration(),
     ]);
+  const physStore = physRead.store;
   const readiness = lastSync
     ? computeReadiness(lastSync.fitness, lastSync.wellness)
     : null;
@@ -253,6 +256,14 @@ export async function GET(req: Request) {
       today
     ),
   });
+  const physiologyFreshness = assessPhysiologyFreshness({
+    store: physRead.store,
+    corruptFallback: physRead.corruptFallback,
+    fileExisted: physRead.fileExisted,
+    statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
+    status: physStatusRead.status,
+    today,
+  });
   return NextResponse.json({
     configured: isIntervalsConfigured(),
     anthropicConfigured: isAnthropicConfigured(),
@@ -286,6 +297,7 @@ export async function GET(req: Request) {
     athleteState,
     // ROADMAP #1: the resolved-numbers snapshot the LLM reads, surfaced so the athlete sees the same.
     coachSnapshot,
+    physiologyFreshness,
     // ROADMAP #2: the per-athlete calibration (read-only on Settings).
     calibration,
     // §10: the raw model + imbalance the Today tile needs for the under-fuelling streak alert and the
@@ -436,15 +448,32 @@ export async function POST(req: Request) {
     // zones, threshold/max HR). On a real change the old snapshot is archived with its own
     // effective date, so historical analyses stay anchored to the FTP that was live then.
     const incomingPhys = await fetchSportSettings(today);
+    const physiologyCheckAt = new Date().toISOString();
     if (incomingPhys.status === "ok") {
+      const consistency = validateSnapshotConsistency(incomingPhys.snapshot);
+      if (consistency.ok) {
       // HR-52: read-modify-write inside one locked critical section — two concurrent syncs (two open
       // tabs) previously could each reconcile from the same stale prior store and clobber each other's
       // FTP/zone change or history entry.
-      await updatePhysiology((prev) => reconcile(prev, incomingPhys.snapshot, today).store);
+        await updatePhysiology((prev) => reconcile(prev, incomingPhys.snapshot, today).store);
+        await recordPhysiologyCheck(physiologyCheckAt, "confirmed");
+      } else {
+        await recordPhysiologyCheck(physiologyCheckAt, "invalid", consistency.reason);
+        warnings.push(`Physiology check returned internally inconsistent data (${consistency.reason}) — keeping the previous store.`);
+      }
+    } else {
+      await recordPhysiologyCheck(physiologyCheckAt, incomingPhys.status, incomingPhys.reason);
+      warnings.push(
+        incomingPhys.status === "unavailable"
+          ? `Physiology not refreshed (${incomingPhys.reason}) — continuing with the last confirmed values.`
+          : `Physiology not refreshed (${incomingPhys.reason}) — continuing with the previous store.`
+      );
     }
-    // Task 7: surface `unavailable` vs `invalid` explicitly in sync warnings/status without changing
-    // this route's best-effort behavior in Task 6.
-    const physStore = await readPhysiology();
+    const physRead = await readPhysiologyWithStatus();
+    const physStore = physRead.store;
+    if (!physStore) {
+      warnings.push("No usable physiology store — scoring is running on the athlete.json FTP fallback until Intervals.icu confirms physiology.");
+    }
 
     let todayAnalysis: TodayAnalysis | null = null;
 
