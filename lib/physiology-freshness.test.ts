@@ -470,6 +470,13 @@ describe("physiology status IO", () => {
     });
   });
 
+  it("fails closed for primitive and invalid local-date status records", async () => {
+    await fs.writeFile(p("physiology-status.json"), "42");
+    expect((await readPhysiologyStatus()).corruptFallback).toBe(true);
+    await fs.writeFile(p("physiology-status.json"), JSON.stringify({ lastConfirmedDate: "not-a-date" }));
+    expect((await readPhysiologyStatus()).corruptFallback).toBe(true);
+  });
+
   it("records a confirmation: stamps attempt + confirmed and drops the obsolete marker", async () => {
     await markPhysiologyObsolete();
     await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "confirmed");
@@ -507,5 +514,12 @@ describe("physiology status IO", () => {
     expect(s.status.lastConfirmedAt).toBe("2026-07-01T00:00:00.000Z");
     expect(s.status.lastOutcome).toBe("invalid");
     expect(s.status.lastDetail).toBe("no ride settings");
+  });
+
+  it("does not overwrite a malformed status file during a failed check", async () => {
+    const raw = JSON.stringify({ lastConfirmedAt: "not-a-date" });
+    await fs.writeFile(p("physiology-status.json"), raw);
+    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "unavailable", "timeout");
+    await expect(fs.readFile(p("physiology-status.json"), "utf8")).resolves.toBe(raw);
   });
 });

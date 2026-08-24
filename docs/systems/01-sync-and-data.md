@@ -15,9 +15,11 @@ Per-file inventory: [../FILE_INDEX.md](../FILE_INDEX.md#data-files).
 Four mechanisms, all load-bearing (hardened by ~25 hostile-review fixes, HR-31..59):
 
 1. **Atomic write**: serialize → `<file>.tmp` → fsync → `rename()` (POSIX atomic). A crash can never produce truncated JSON. `updateJsonFile` skips the write entirely when `mutate` hands back the exact same reference it was given (a CAS no-op, or a `wrote: false` resolver path) — nothing changed, nothing to persist.
-2. **`.bak` rotation** — only for the `CRITICAL` set (score-log, intervention-log, physiology, current-block, block-history, athlete, block-settings, dispositions): current live content is copied to `.bak` before each write, *skipped if the live file doesn't parse* (a good `.bak` is never clobbered by corruption). Derived stores (baselines, calibration, quirks, ai-usage) get atomic writes but no `.bak` — they're re-derived on the next sync.
+2. **`.bak` rotation** — only for the `CRITICAL` set (score-log, intervention-log, physiology, physiology-status, current-block, block-history, athlete, block-settings, dispositions): current live content is copied to `.bak` before each write, *skipped if the live file doesn't parse* (a good `.bak` is never clobbered by corruption). Derived stores (baselines, calibration, quirks, ai-usage) get atomic writes but no `.bak` — they're re-derived on the next sync.
 3. **Recovery on read** (`readJsonFileWithStatus`): live → `.bak` → caller default, distinguishing "never written" (ENOENT) from corruption (`corruptFallback`) — self-healing callers refuse to persist a fallback born from double-corruption.
 4. **Per-file locking** (`withFileLock`): a promise chain serializes same-file operations; `updateJsonFile` reads *inside* the lock → genuinely transactional read-modify-write. This is what closes the sync-vs-disposition lost-update races.
+
+Physiology reads also expose `liveCorrupt` when malformed live content was recovered from `.bak`; freshness assessment treats that as malformed until a clean confirmation replaces it.
 
 `lib/data-store.ts` layers typed `read*/write*/update*` accessors on top, stamping `updatedAt` and shape-merging drifted files over defaults (`shapeMergeProfile` etc.) so an old file can't crash readers.
 

@@ -71,17 +71,20 @@ export function isPhysiologyStore(value: unknown): value is PhysiologyStore {
 }
 
 export function isPhysiologyStatus(value: unknown): value is PhysiologyStatus {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const status = asRecord(value);
+  const validDate = (candidate: unknown) => candidate === undefined || (typeof candidate === "string" && Number.isFinite(Date.parse(candidate)));
+  const validLocalDate = (candidate: unknown) => candidate === undefined || (typeof candidate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate) && Number.isFinite(Date.parse(`${candidate}T00:00:00Z`)));
   return (
-    (status.lastAttemptAt === undefined || typeof status.lastAttemptAt === "string") &&
+    validDate(status.lastAttemptAt) &&
     (status.lastOutcome === undefined ||
       status.lastOutcome === "confirmed" ||
       status.lastOutcome === "unavailable" ||
       status.lastOutcome === "invalid") &&
     (status.lastDetail === undefined || typeof status.lastDetail === "string") &&
-    (status.lastConfirmedAt === undefined || typeof status.lastConfirmedAt === "string") &&
-    (status.lastConfirmedDate === undefined || typeof status.lastConfirmedDate === "string") &&
-    (status.markedObsoleteAt === undefined || typeof status.markedObsoleteAt === "string")
+    validDate(status.lastConfirmedAt) &&
+    validLocalDate(status.lastConfirmedDate) &&
+    validDate(status.markedObsoleteAt)
   );
 }
 
@@ -102,7 +105,10 @@ export async function readPhysiologyStatus(): Promise<{
 async function updatePhysiologyStatus(
   mutate: (status: PhysiologyStatus) => PhysiologyStatus | Promise<PhysiologyStatus>
 ): Promise<PhysiologyStatus> {
-  return updateJsonFile<unknown>(STATUS_FILE, {}, (raw) => mutate(isPhysiologyStatus(raw) ? raw : {})) as Promise<PhysiologyStatus>;
+  return updateJsonFile<unknown>(STATUS_FILE, {}, (raw) => {
+    if (!isPhysiologyStatus(raw)) return raw;
+    return mutate(raw);
+  }) as Promise<PhysiologyStatus>;
 }
 
 export async function recordPhysiologyCheck(
