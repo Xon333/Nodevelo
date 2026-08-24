@@ -144,6 +144,18 @@ describe("buildAthleteModel — effective outcomes", () => {
     expect(buildAthleteModel([base, { ...unplanned, compromised: true }], [selfDirected("a2", unplanned.date, 9)]).sampleSize).toBe(1);
   });
 
+  // Migration-flag trap (#98, same defect class fixed in PR #96's sync-analysis guard): an overlay
+  // JSON written before effectiveExecutionScore existed parses the key back as `undefined`, and
+  // `undefined !== null` is true — so the ride was admitted to execution modelling as if scored,
+  // feeding `undefined` into the EWMA input set. Key-absent must exclude exactly like explicit null.
+  it("excludes a pre-migration overlay whose score field is absent rather than null", () => {
+    const base = scored("2026-01-01");
+    const unplanned = scored("2026-01-02", { planned: false, compliancePct: null, activityId: "a2" });
+    const legacy = selfDirected("a2", unplanned.date, 8);
+    delete (legacy as Partial<IntentOverlay>).effectiveExecutionScore;
+    expect(buildAthleteModel([base, unplanned], [legacy]).sampleSize).toBe(1);
+  });
+
   it("keeps a legacy ride out of execution modelling even with an active, coherent self-directed overlay", () => {
     // Before this branch, a legacy row (planned: false, legacy: true) could never enter execution
     // modelling at all, because legacy only occurs on rows with planned: false and the old admission

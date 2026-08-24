@@ -86,7 +86,12 @@ export function buildAthleteModel(scores: RideScoreEntry[], overlays: IntentOver
   const resolved = resolveAll(sorted, overlays);
   const prescribed = resolved.filter((r) => r.outcome.origin === "prescribed" && !r.entry.compromised);
   const overallScored = resolved.filter(
-    (r) => !r.entry.compromised && !r.entry.legacy && r.outcome.effectiveExecutionScore !== null &&
+    (r) => !r.entry.compromised && !r.entry.legacy &&
+      // Truthy, never `!== null`: an overlay JSON written before effectiveExecutionScore existed
+      // parses the key back as `undefined`, which passed the old equality guard and admitted a
+      // not-scored ride to the EWMA input set (#98 — same migration-flag trap fixed in PR #96).
+      // Safe as truthy because overlay scores are clamped 1-10; 0 is unrepresentable.
+      r.outcome.effectiveExecutionScore &&
       (r.outcome.origin === "prescribed" || r.outcome.origin === "self-directed")
   );
   const overallAlpha = autoEwmaAlpha(overallScored.length);
