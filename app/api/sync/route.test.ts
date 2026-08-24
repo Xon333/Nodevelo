@@ -14,7 +14,7 @@ vi.mock("@/lib/intervals-api", async (orig) => {
     ...actual, // IntervalsApiError + isSuspectEmptySync (pure) stay real
     isIntervalsConfigured: vi.fn(() => true),
     runFullSync: vi.fn(),
-    fetchSportSettings: vi.fn(async () => null),
+    fetchSportSettings: vi.fn(async () => ({ status: "invalid" as const, reason: "sport settings contained no usable Ride FTP" })),
     fetchIntervals: vi.fn(async () => []),
     fetchPowerStream: vi.fn(async () => []),
     fetchHrStream: vi.fn(async () => []),
@@ -200,7 +200,10 @@ beforeEach(() => {
   };
   vi.mocked(api.isIntervalsConfigured).mockReturnValue(true);
   vi.mocked(api.runFullSync).mockResolvedValue(mkSync());
-  vi.mocked(api.fetchSportSettings).mockResolvedValue(null);
+  vi.mocked(api.fetchSportSettings).mockResolvedValue({
+    status: "invalid",
+    reason: "sport settings contained no usable Ride FTP",
+  });
   vi.mocked(api.fetchIntervals).mockResolvedValue([]);
   vi.mocked(api.fetchPowerStream).mockResolvedValue([]);
   vi.mocked(api.fetchHrStream).mockResolvedValue([]);
@@ -878,7 +881,7 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
       powerZoneNames: [],
       hrZoneNames: [],
     };
-    vi.mocked(api.fetchSportSettings).mockResolvedValue(snapshot);
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({ status: "ok", snapshot });
     await postSync();
     // First-ever snapshot: reconcile (real) seeds the store with it as current, empty history.
     // HR-52: updatePhysiology's mutate is invoked with whatever the lock-held read hands it (here,

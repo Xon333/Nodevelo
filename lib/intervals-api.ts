@@ -32,6 +32,11 @@ export class IntervalsApiError extends Error {
   }
 }
 
+export type SportSettingsResult =
+  | { status: "ok"; snapshot: PhysiologySnapshot }
+  | { status: "unavailable"; reason: string }
+  | { status: "invalid"; reason: string };
+
 function getConfig(): { athleteId: string; apiKey: string } | null {
   const athleteId = process.env.INTERVALS_ATHLETE_ID;
   const apiKey = process.env.INTERVALS_API_KEY;
@@ -315,13 +320,21 @@ export async function fetchActivities(oldest: string, newest: string): Promise<A
 export async function fetchSportSettings(
   // HR-61: named helper, not an inline literal — see lib/score-log.ts's buildRideScores for why.
   today: string = utcToday()
-): Promise<PhysiologySnapshot | null> {
+): Promise<SportSettingsResult> {
+  let data: unknown;
   try {
-    const data = await icuFetch(athletePath(`/sport-settings`));
-    return parseSportSettings(data, today);
-  } catch {
-    return null;
+    data = await icuFetch(athletePath(`/sport-settings`));
+  } catch (e) {
+    return {
+      status: "unavailable",
+      reason: e instanceof Error ? e.message : String(e),
+    };
   }
+  const snapshot = parseSportSettings(data, today);
+  if (!snapshot) {
+    return { status: "invalid", reason: "sport settings contained no usable Ride FTP" };
+  }
+  return { status: "ok", snapshot };
 }
 
 export async function fetchWellness(oldest: string, newest: string): Promise<WellnessEntry[]> {

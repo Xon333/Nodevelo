@@ -436,12 +436,14 @@ export async function POST(req: Request) {
     // zones, threshold/max HR). On a real change the old snapshot is archived with its own
     // effective date, so historical analyses stay anchored to the FTP that was live then.
     const incomingPhys = await fetchSportSettings(today);
-    if (incomingPhys) {
+    if (incomingPhys.status === "ok") {
       // HR-52: read-modify-write inside one locked critical section — two concurrent syncs (two open
       // tabs) previously could each reconcile from the same stale prior store and clobber each other's
       // FTP/zone change or history entry.
-      await updatePhysiology((prev) => reconcile(prev, incomingPhys, today).store);
+      await updatePhysiology((prev) => reconcile(prev, incomingPhys.snapshot, today).store);
     }
+    // Task 7: surface `unavailable` vs `invalid` explicitly in sync warnings/status without changing
+    // this route's best-effort behavior in Task 6.
     const physStore = await readPhysiology();
 
     let todayAnalysis: TodayAnalysis | null = null;
