@@ -83,6 +83,13 @@ judged SOUND; PR #92 was reviewed at head `bfa2497` with no critical findings, s
   seed parsing/approval to frontmatter, preserved partial-adoption repair and retry semantics,
   and added approved-only generation-path regression coverage.
 
+- **Publication gate (PR #97, merged 2026-08-23):** `lib/publication-gate.ts` classifies validator
+  output into non-overridable blockers and explicit-acknowledgment preferences. Generation persists
+  a hash-bound verdict in `generation-gate.json`; `/api/write` rejects unknown, tampered, blocked,
+  or unacknowledged plans before any calendar mutation, and records override provenance on the
+  published block. Long-term prospective evidence remains open in the [publication-gate evidence
+  log](docs/reviews/2026-08-24-publication-gate-evidence.md).
+
 ---
 
 ## Whole-repo hostile review closeout — HR-60…HR-72 (2026-08-15; workflow closeout 2026-08-21)

@@ -29,8 +29,9 @@ when a real A-event exists.
 
 ### Phase 1 · Repair trust contracts
 
-- Block publication on malformed structure and clear protocol, spacing, or load-envelope hazards;
-  allow only lower-confidence coaching preferences through an explicit informed override.
+- Complete the prospective evidence follow-up for the shipped publication gate: [publication-gate
+  evidence log](docs/reviews/2026-08-24-publication-gate-evidence.md). The implementation is archived
+  under PR #97; the long-term checklist remains open until the charter's evidence gate is met.
 - Show physiology freshness; warn through temporary sync failure, but block missing, inconsistent,
   or explicitly obsolete physiology.
 - Remove causal accuracy language, unqualified individualized injury-risk language, claims that
