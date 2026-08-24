@@ -4,10 +4,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { EatToday, EnergyAvailabilityTile, NutritionTrendWarningBanner, PlanEaWarningBanner, PlannedToday, TodayRideCard } from "./today";
 import TodayView from "./TodayView";
 import type { AppState } from "../SyncProvider";
+import { localToday } from "@/lib/date";
 import type { NeatImbalanceContext, NutritionTrendWarning } from "@/lib/nutrition";
 import type { CurrentBlock, NoBlockSummary, SyncData, TodayAnalysis } from "@/lib/types";
 
-const h = vi.hoisted(() => ({ useSync: vi.fn() }));
+const h = vi.hoisted(() => ({ useSync: vi.fn(), localToday: vi.fn() }));
 
 vi.mock("../SyncProvider", () => ({ useSync: h.useSync }));
 vi.mock("../AskCoach", () => ({ default: () => null }));
@@ -16,7 +17,7 @@ vi.mock("../LoadingPrompt", () => ({ default: () => null }));
 vi.mock("../MorningCheckIn", () => ({ default: () => null }));
 vi.mock("@/lib/date", async (orig) => {
   const actual = await orig<typeof import("@/lib/date")>();
-  return { ...actual, localToday: () => "2026-08-24" };
+  return { ...actual, localToday: h.localToday };
 });
 
 afterEach(() => {
@@ -25,6 +26,10 @@ afterEach(() => {
 
 beforeEach(() => {
   h.useSync.mockReset();
+  vi.mocked(localToday).mockImplementation((d?: Date) => {
+    if (d && d.getTime() === Date.parse("2026-08-23T22:30:00.000Z")) return "2026-08-24";
+    return "2026-08-24";
+  });
 });
 
 const renderTodayView = (overrides: Partial<AppState> = {}) => {
@@ -73,6 +78,17 @@ describe("TodayView physiology freshness line", () => {
         state: "fresh",
         confirmedAt: "2026-08-24T09:15:00.000Z",
         effectiveFrom: "2026-08-24",
+      },
+    });
+    expect(screen.getByText("Physiology confirmed today — current.")).toBeTruthy();
+  });
+
+  it("treats a late-UTC confirmation as today when the athlete's local date has already rolled over", () => {
+    renderTodayView({
+      physiologyFreshness: {
+        state: "fresh",
+        confirmedAt: "2026-08-23T22:30:00.000Z",
+        effectiveFrom: "2026-08-23",
       },
     });
     expect(screen.getByText("Physiology confirmed today — current.")).toBeTruthy();

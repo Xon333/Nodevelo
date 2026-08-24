@@ -83,6 +83,7 @@ export default function TodayView() {
   // FTP + resolved fuel numbers from the coach snapshot — evidence-tier context inside the
   // supporting-signals disclosure (the old CoachSnapshotCard's non-form content).
   const snap = state.coachSnapshot;
+  const today = localToday();
   const coachContext = snap
     ? [
         snap.ftp !== null ? `FTP ${snap.ftp}W` : null,
@@ -97,12 +98,12 @@ export default function TodayView() {
     : "";
 
   // Mode detection (approved: auto-switch, no tabs — masterplan §4).
-  const todayRide = state.todayAnalysis?.activityDate === localToday() ? state.todayAnalysis : null;
+  const todayRide = state.todayAnalysis?.activityDate === today ? state.todayAnalysis : null;
   const mode: "pre" | "post" = todayRide && !flipped ? "post" : "pre";
   const freshness = state.physiologyFreshness ? describeFreshnessForAthlete(state.physiologyFreshness) : null;
   const freshnessText =
     state.physiologyFreshness?.state === "fresh" &&
-    state.physiologyFreshness.confirmedAt.slice(0, 10) === localToday()
+    localToday(new Date(state.physiologyFreshness.confirmedAt)) === today
       ? "Physiology confirmed today — current."
       : freshness?.text ?? null;
   const freshnessClasses =
