@@ -34,6 +34,13 @@ function isStrictlyAscendingFiniteNumberArray(value: unknown): value is number[]
 
 export const PHYSIOLOGY_STALE_DAYS = 90;
 
+function parseDateValue(label: string, value: string): number | { reason: string } {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed)
+    ? parsed
+    : { reason: `${label} "${value}" is not a valid date` };
+}
+
 function ageDays(iso: string, today: string): number {
   return Math.floor((Date.parse(today) - Date.parse(iso)) / 86_400_000);
 }
@@ -122,6 +129,26 @@ export function assessPhysiologyFreshness(input: {
       reason: "physiology.json parsed but has no usable current snapshot",
     };
   }
+
+  const parsedToday = parseDateValue("today", today);
+  if (typeof parsedToday !== "number") {
+    return { state: "malformed", reason: parsedToday.reason };
+  }
+
+  for (const [label, value] of [
+    ["lastAttemptAt", status?.lastAttemptAt],
+    ["lastConfirmedAt", status?.lastConfirmedAt],
+    ["markedObsoleteAt", status?.markedObsoleteAt],
+  ] as const) {
+    if (value === undefined) {
+      continue;
+    }
+    const parsed = parseDateValue(label, value);
+    if (typeof parsed !== "number") {
+      return { state: "malformed", reason: parsed.reason };
+    }
+  }
+
   if (store === null) {
     return { state: "missing" };
   }

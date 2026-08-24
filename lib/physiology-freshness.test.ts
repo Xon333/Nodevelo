@@ -224,6 +224,33 @@ describe("assessPhysiologyFreshness", () => {
     }
   });
 
+  it("treats invalid today and status timestamps as malformed before freshness math", () => {
+    expect(
+      assessPhysiologyFreshness(
+        baseInput({
+          today: "garbage",
+        })
+      )
+    ).toEqual({
+      state: "malformed",
+      reason: 'today "garbage" is not a valid date',
+    });
+
+    expect(
+      assessPhysiologyFreshness(
+        baseInput({
+          status: {
+            ...baseInput().status,
+            lastConfirmedAt: "garbage",
+          },
+        })
+      )
+    ).toEqual({
+      state: "malformed",
+      reason: 'lastConfirmedAt "garbage" is not a valid date',
+    });
+  });
+
   it("ignores history contents for the freshness verdict", () => {
     const withHistory = store();
     withHistory.history = [snap({ effectiveFrom: "2020-01-01", ftp: 999 })];
