@@ -22,12 +22,14 @@ vi.mock("@/lib/physiology-freshness", () => ({
     liveCorrupt: false,
   })),
 }));
+vi.mock("@/lib/log", () => ({ logError: vi.fn() }));
 
 import {
   clearPhysiologyObsolete,
   markPhysiologyObsolete,
   readPhysiologyStatus,
 } from "@/lib/physiology-freshness";
+import { logError } from "@/lib/log";
 import { POST } from "@/app/api/physiology/route";
 
 const post = (body: unknown) =>
@@ -84,5 +86,15 @@ describe("POST /api/physiology", () => {
     expect(res.status).toBe(400);
     expect(markPhysiologyObsolete).not.toHaveBeenCalled();
     expect(clearPhysiologyObsolete).not.toHaveBeenCalled();
+  });
+
+  it("returns and logs a storage error", async () => {
+    vi.mocked(markPhysiologyObsolete).mockRejectedValueOnce(new Error("disk full"));
+
+    const res = await post({ action: "mark-obsolete" });
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({ error: "Couldn't update physiology freshness." });
+    expect(logError).toHaveBeenCalledWith("/api/physiology", "update", expect.any(Error));
   });
 });

@@ -32,8 +32,8 @@ when a real A-event exists.
 - Complete the prospective evidence follow-up for the shipped publication gate: [publication-gate
   evidence log](docs/reviews/2026-08-24-publication-gate-evidence.md). The implementation is archived
   under PR #97; the long-term checklist remains open until the charter's evidence gate is met.
-- Show physiology freshness; warn through temporary sync failure or staleness, but block missing,
-  malformed, inconsistent, or explicitly obsolete physiology.
+- Show physiology freshness; warn through temporary sync failure, but block missing, inconsistent,
+  or explicitly obsolete physiology.
 - Remove causal accuracy language, unqualified individualized injury-risk language, claims that
   every plan constraint is hard, automatic reuse of AI-authored root causes, and Ask Coach from the
   active UI during the freeze. Replace AI criticism with deterministic prose wherever facts suffice.

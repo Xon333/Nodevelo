@@ -70,13 +70,14 @@ vi.mock("@/lib/physiology-freshness", async (orig) => {
   const actual = await orig<typeof import("@/lib/physiology-freshness")>();
   const readPhysiologyStatus = vi.fn(async () => physiologyIo.statusResult);
   const recordPhysiologyCheck = vi.fn(
-    async (now: string, outcome: "confirmed" | "unavailable" | "invalid", detail?: string) => {
+    async (now: string, outcome: "confirmed" | "unavailable" | "invalid", detail?: string, localDate?: string) => {
       const nextStatus: Record<string, unknown> = {
         ...physiologyIo.statusResult.status,
         lastAttemptAt: now,
+        ...(localDate ? { lastAttemptDate: localDate } : {}),
         lastOutcome: outcome,
         ...(detail !== undefined ? { lastDetail: detail } : {}),
-        ...(outcome === "confirmed" ? { lastConfirmedAt: now } : {}),
+        ...(outcome === "confirmed" ? { lastConfirmedAt: now, ...(localDate ? { lastConfirmedDate: localDate } : {}) } : {}),
       };
       if (outcome === "confirmed") delete nextStatus.markedObsoleteAt;
       physiologyIo.statusResult = { ...physiologyIo.statusResult, status: nextStatus };
@@ -994,7 +995,8 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
       expect.any(String),
       "unavailable",
-      "network timeout"
+      "network timeout",
+      TODAY
     );
   });
 
@@ -1037,7 +1039,8 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
       expect.any(String),
       "invalid",
-      "sport settings contained no usable Ride FTP"
+      "sport settings contained no usable Ride FTP",
+      TODAY
     );
   });
 
@@ -1056,7 +1059,8 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
       expect.any(String),
       "invalid",
-      expect.stringContaining("FTP")
+      expect.stringContaining("FTP"),
+      TODAY
     );
   });
 

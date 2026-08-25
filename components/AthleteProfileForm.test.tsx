@@ -123,6 +123,7 @@ describe("AthleteProfileForm physiology freshness panel", () => {
           return profileResponse({
             state: "stale",
             lastConfirmedAt: "2026-08-20T09:15:00.000Z",
+            lastConfirmedDate: "2026-08-20",
             ageDays: 4,
           });
         }
@@ -135,6 +136,7 @@ describe("AthleteProfileForm physiology freshness panel", () => {
         return profileResponse({
           state: "fresh",
           confirmedAt: "2026-08-24T09:15:00.000Z",
+          confirmedDate: "2026-08-24",
           effectiveFrom: "2026-08-24",
         });
       }
@@ -159,7 +161,7 @@ describe("AthleteProfileForm physiology freshness panel", () => {
       })
     );
     expect(
-      await screen.findByText("Physiology marked obsolete 2026-08-24 — generation blocked until re-synced.")
+      await screen.findByText("Physiology marked obsolete — generation blocked until re-synced.")
     ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));

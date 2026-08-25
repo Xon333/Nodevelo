@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logError } from "@/lib/log";
 import {
   clearPhysiologyObsolete,
   markPhysiologyObsolete,
@@ -14,14 +15,19 @@ export async function POST(req: Request) {
   }
 
   const action = (body as Record<string, unknown> | null)?.action;
-  if (action === "mark-obsolete") {
-    await markPhysiologyObsolete();
-  } else if (action === "clear-obsolete") {
-    await clearPhysiologyObsolete();
-  } else {
-    return NextResponse.json({ error: 'action must be "mark-obsolete" or "clear-obsolete".' }, { status: 400 });
-  }
+  try {
+    if (action === "mark-obsolete") {
+      await markPhysiologyObsolete();
+    } else if (action === "clear-obsolete") {
+      await clearPhysiologyObsolete();
+    } else {
+      return NextResponse.json({ error: 'action must be "mark-obsolete" or "clear-obsolete".' }, { status: 400 });
+    }
 
-  const { status } = await readPhysiologyStatus();
-  return NextResponse.json({ ok: true, status });
+    const { status } = await readPhysiologyStatus();
+    return NextResponse.json({ ok: true, status });
+  } catch (err) {
+    logError("/api/physiology", "update", err);
+    return NextResponse.json({ error: "Couldn't update physiology freshness." }, { status: 502 });
+  }
 }

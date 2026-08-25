@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, timeAgo } from "@/lib/client-api";
-import { describeFreshnessForAthlete } from "@/lib/physiology-freshness-display";
+import { describeFreshnessForAthlete, freshnessToneClasses } from "@/lib/physiology-freshness-display";
 import { Card, PrimaryButton, SectionDivider, Skeleton, SkeletonScreen } from "./ui";
 import PowerCurveChart from "./PowerCurveChart";
 import IfBandOffsets from "./IfBandOffsets";
@@ -547,18 +547,7 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
 
   const { athleteMd, autoSync, derivation, syncedPowerCurve, powerProfile, latestWeightKg } = data;
   const freshness = describeFreshnessForAthlete(data.physiologyFreshness);
-  const freshnessClasses =
-    freshness.tone === "warn"
-      ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/40"
-      : freshness.tone === "block"
-      ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/50"
-      : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900";
-  const freshnessTextClasses =
-    freshness.tone === "warn"
-      ? "text-amber-900 dark:text-amber-300"
-      : freshness.tone === "block"
-      ? "text-red-900 dark:text-red-300"
-      : "text-zinc-800 dark:text-zinc-100";
+  const freshnessClasses = freshnessToneClasses[freshness.tone];
 
   // Rider profile + Power PRs as standalone sections, composed below into a side-by-side row when both
   // are available (FB-2026-06-30): curve + PR grid in one half, the rider read in the other.
@@ -696,13 +685,13 @@ export default function AthleteProfileForm({ ifBandRows = [] }: { ifBandRows?: I
         </div>
       )}
 
-      <div className={`rounded-lg border px-4 py-3 ${freshnessClasses}`}>
+      <div className={`rounded-lg border px-4 py-3 ${freshnessClasses.panel}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               Physiology freshness
             </p>
-            <p className={`mt-1 text-sm ${freshnessTextClasses}`}>{freshness.text}</p>
+            <p className={`mt-1 text-sm ${freshnessClasses.text}`}>{freshness.text}</p>
           </div>
           <div className="flex items-center gap-2">
             <button

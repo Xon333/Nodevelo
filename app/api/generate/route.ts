@@ -46,7 +46,7 @@ import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, fo
 import { gatherFocusInputs } from "@/lib/season-signals";
 import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
 import {
-  assessPhysiologyFreshness,
+  assessPhysiologyFreshnessFromReads,
   physiologyGenerationBlock,
   physiologyGenerationWarning,
   readPhysiologyStatus,
@@ -120,20 +120,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: feasibilityConflict }, { status: 400 });
     }
 
-    const freshness = assessPhysiologyFreshness({
-      store: physRead.store,
-      corruptFallback: physRead.corruptFallback,
-      fileExisted: physRead.fileExisted,
-      statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
-      liveCorrupt: physRead.liveCorrupt,
-      status: physStatusRead.status,
-      today,
-    });
+    const freshness = assessPhysiologyFreshnessFromReads(physRead, physStatusRead, today);
     const blockReason = physiologyGenerationBlock(freshness);
     if (blockReason) {
       return NextResponse.json({ error: blockReason }, { status: 400 });
     }
     const warnings: string[] = [];
+    if (physRead.liveCorrupt) {
+      warnings.push("Recovered physiology from the backup file after the live store became unreadable; using the recovered values.");
+    }
     const freshnessWarning = physiologyGenerationWarning(freshness);
     if (freshnessWarning) warnings.push(freshnessWarning);
     const physStore = physRead.store;

@@ -77,6 +77,7 @@ describe("TodayView physiology freshness line", () => {
       physiologyFreshness: {
         state: "fresh",
         confirmedAt: "2026-08-24T09:15:00.000Z",
+        confirmedDate: "2026-08-24",
         effectiveFrom: "2026-08-24",
       },
     });
@@ -88,6 +89,7 @@ describe("TodayView physiology freshness line", () => {
       physiologyFreshness: {
         state: "fresh",
         confirmedAt: "2026-08-23T22:30:00.000Z",
+        confirmedDate: "2026-08-24",
         effectiveFrom: "2026-08-23",
       },
     });
@@ -99,6 +101,7 @@ describe("TodayView physiology freshness line", () => {
       physiologyFreshness: {
         state: "stale",
         lastConfirmedAt: "2026-05-01T09:15:00.000Z",
+        lastConfirmedDate: "2026-05-01",
         ageDays: 115,
       },
     });

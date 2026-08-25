@@ -26,6 +26,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `intervals-api.ts` | Intervals.icu client: pulls activities/wellness/curves/streams/settings, pushes calendar events (idempotent `nodevelo-<date>` upserts); 20s abort timeouts; suspect-empty-sync guard |
 | `sync-ledger.ts` | Idempotent ledger-schema backfill + one-shot rebuild gate |
 | `physiology-freshness.ts` | Physiology freshness state machine + `physiology-status.json` bookkeeping + generation gate copy |
+| `physiology-freshness-display.ts` | Browser-safe physiology freshness copy + shared tone styling |
 | `sync-analysis.ts` | The deferred LLM coach-note step (`addCoachNote`), idempotent, auto-post option |
 | `calendar-mirror.ts` | Outbound mirror (`persistMirroredMove`) + inbound reconcile of athlete moves |
 | `reschedule.ts` | Pure reactive/proactive reschedule engines (never raids rest days) |

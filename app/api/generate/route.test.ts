@@ -96,7 +96,7 @@ vi.mock("@/lib/physiology-freshness", async (orig) => {
       corruptFallback: false,
       liveCorrupt: false,
     })),
-    assessPhysiologyFreshness: vi.fn(() => ({
+    assessPhysiologyFreshnessFromReads: vi.fn(() => ({
       state: "fresh",
       confirmedAt: "2026-06-15T00:00:00.000Z",
       effectiveFrom: "2026-06-01",
@@ -123,6 +123,7 @@ import * as store from "@/lib/data-store";
 import * as anthropic from "@/lib/anthropic-api";
 import * as genCache from "@/lib/generate-cache";
 import * as kb from "@/lib/kb-loader";
+import * as physiology from "@/lib/physiology";
 import * as gate from "@/lib/publication-gate";
 import * as fresh from "@/lib/physiology-freshness";
 import { GENERATION_MODEL, PROMPT_VERSION } from "@/lib/anthropic-api";
@@ -335,7 +336,7 @@ describe("POST /api/generate — request validation", () => {
     ["inconsistent", { state: "inconsistent", reason: "FTP -1 is not positive" }],
     ["obsolete", { state: "obsolete", markedObsoleteAt: "2026-08-20T00:00:00.000Z" }],
   ])("400 on %s physiology before any LLM spend", async (_name, freshnessState) => {
-    vi.mocked(fresh.assessPhysiologyFreshness).mockReturnValueOnce(freshnessState as never);
+    vi.mocked(fresh.assessPhysiologyFreshnessFromReads).mockReturnValueOnce(freshnessState as never);
     const res = await gen("Build FTP");
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/physiology/i);
@@ -344,17 +345,32 @@ describe("POST /api/generate — request validation", () => {
   });
 
   it("generates through a temporary physiology sync failure with a visible warning", async () => {
-    vi.mocked(fresh.assessPhysiologyFreshness).mockReturnValueOnce({
+    vi.mocked(fresh.assessPhysiologyFreshnessFromReads).mockReturnValueOnce({
       state: "sync-failed",
       lastAttemptAt: "2026-06-15T00:00:00.000Z",
       lastDetail: "timeout",
       lastConfirmedAt: "2026-06-13T00:00:00.000Z",
+      lastConfirmedDate: "2026-06-13",
     } as never);
     const res = await gen("Build FTP");
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.plan.warnings[0]).toContain("last confirmed 2026-06-13");
     expect(genCache.dedupeGeneration).toHaveBeenCalledTimes(1);
+    expect(anthropic.generateTrainingBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it("generates from a valid backup with a visible recovery warning", async () => {
+    const baseline = await physiology.readPhysiologyWithStatus();
+    vi.mocked(physiology.readPhysiologyWithStatus).mockResolvedValueOnce({
+      ...baseline,
+      liveCorrupt: true,
+    });
+
+    const res = await gen("Build FTP");
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).plan.warnings).toContainEqual(expect.stringMatching(/backup/i));
     expect(anthropic.generateTrainingBlock).toHaveBeenCalledTimes(1);
   });
 });

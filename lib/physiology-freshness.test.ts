@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   assessPhysiologyFreshness,
   clearPhysiologyObsolete,
-  describeFreshnessForAthlete,
   markPhysiologyObsolete,
   physiologyGenerationBlock,
   physiologyGenerationWarning,
@@ -49,8 +48,10 @@ const baseInput = (
   statusCorrupt: false,
   status: {
     lastAttemptAt: iso(0, TODAY),
+    lastAttemptDate: TODAY,
     lastOutcome: "confirmed",
     lastConfirmedAt: iso(0, TODAY),
+    lastConfirmedDate: TODAY,
   } satisfies PhysiologyStatus,
   today: TODAY,
   ...over,
@@ -101,6 +102,7 @@ describe("assessPhysiologyFreshness", () => {
     expect(assessPhysiologyFreshness(baseInput())).toEqual({
       state: "fresh",
       confirmedAt: iso(0, TODAY),
+      confirmedDate: TODAY,
       effectiveFrom: "2026-08-01",
     });
   });
@@ -108,8 +110,10 @@ describe("assessPhysiologyFreshness", () => {
   it("is stale when the last confirmation exceeds 90 days", () => {
     const status: PhysiologyStatus = {
       lastAttemptAt: iso(120, TODAY),
+      lastAttemptDate: iso(120, TODAY).slice(0, 10),
       lastOutcome: "confirmed",
       lastConfirmedAt: iso(120, TODAY),
+      lastConfirmedDate: iso(120, TODAY).slice(0, 10),
     };
     const freshness = assessPhysiologyFreshness(baseInput({ status }));
     expect(freshness.state).toBe("stale");
@@ -126,15 +130,27 @@ describe("assessPhysiologyFreshness", () => {
     });
   });
 
+  it("does not infer an athlete-local day from a legacy UTC confirmation", () => {
+    expect(assessPhysiologyFreshness(baseInput({
+      status: {
+        lastAttemptAt: iso(0, TODAY),
+        lastOutcome: "confirmed",
+        lastConfirmedAt: iso(0, TODAY),
+      },
+    }))).toEqual({ state: "stale", lastConfirmedAt: iso(0, TODAY), ageDays: null });
+  });
+
   it("warns sync-failed when the latest check failed but the store was recently confirmed", () => {
     expect(
       assessPhysiologyFreshness(
         baseInput({
           status: {
             lastAttemptAt: iso(0, TODAY),
+            lastAttemptDate: TODAY,
             lastOutcome: "unavailable",
             lastDetail: "Intervals.icu request failed: network timeout",
             lastConfirmedAt: iso(2, TODAY),
+            lastConfirmedDate: iso(2, TODAY).slice(0, 10),
           },
         })
       )
@@ -143,6 +159,7 @@ describe("assessPhysiologyFreshness", () => {
       lastAttemptAt: iso(0, TODAY),
       lastDetail: "Intervals.icu request failed: network timeout",
       lastConfirmedAt: iso(2, TODAY),
+      lastConfirmedDate: iso(2, TODAY).slice(0, 10),
     });
   });
 
@@ -151,9 +168,11 @@ describe("assessPhysiologyFreshness", () => {
       baseInput({
         status: {
           lastAttemptAt: iso(200, TODAY),
+          lastAttemptDate: iso(200, TODAY).slice(0, 10),
           lastOutcome: "unavailable",
           lastDetail: "old outage",
           lastConfirmedAt: iso(200, TODAY),
+          lastConfirmedDate: iso(200, TODAY).slice(0, 10),
         },
       })
     );
@@ -171,6 +190,7 @@ describe("assessPhysiologyFreshness", () => {
       state: "malformed",
       reason: "physiology.json does not parse",
       lastConfirmedAt: iso(0, TODAY),
+      lastConfirmedDate: TODAY,
     });
   });
 
@@ -204,6 +224,7 @@ describe("assessPhysiologyFreshness", () => {
       state: "obsolete",
       markedObsoleteAt: iso(1, TODAY),
       lastConfirmedAt: iso(0, TODAY),
+      lastConfirmedDate: TODAY,
     });
   });
 
@@ -268,7 +289,7 @@ describe("assessPhysiologyFreshness", () => {
 
   it("ignores history contents for the freshness verdict", () => {
     const withHistory = store();
-    withHistory.history = [snap({ effectiveFrom: "2020-01-01", ftp: 999 })];
+    withHistory.history = [snap({ effectiveFrom: "not-a-date", ftp: -1 })];
     expect(assessPhysiologyFreshness(baseInput({ store: withHistory }))).toEqual(
       assessPhysiologyFreshness(baseInput())
     );
@@ -283,79 +304,6 @@ describe("assessPhysiologyFreshness", () => {
   it("uses only the supplied dates for deterministic UTC day math", () => {
     const input = baseInput();
     expect(assessPhysiologyFreshness(input)).toEqual(assessPhysiologyFreshness(input));
-  });
-});
-
-describe("describeFreshnessForAthlete", () => {
-  it("maps each freshness verdict to deterministic athlete-facing copy", () => {
-    expect(
-      describeFreshnessForAthlete({
-        state: "fresh",
-        confirmedAt: "2026-08-24T09:15:00.000Z",
-        effectiveFrom: "2026-08-24",
-      })
-    ).toEqual({
-      tone: "ok",
-      text: "Physiology confirmed 2026-08-24 — current.",
-    });
-
-    expect(
-      describeFreshnessForAthlete({
-        state: "sync-failed",
-        lastAttemptAt: "2026-08-24T09:15:00.000Z",
-        lastDetail: "Intervals.icu timeout",
-        lastConfirmedAt: "2026-08-22T09:15:00.000Z",
-      })
-    ).toEqual({
-      tone: "warn",
-      text: "Physiology check failed (Intervals.icu timeout); using values confirmed 2026-08-22.",
-    });
-
-    expect(
-      describeFreshnessForAthlete({
-        state: "stale",
-        lastConfirmedAt: null,
-        ageDays: null,
-      })
-    ).toEqual({
-      tone: "warn",
-      text: "Physiology has never been confirmed since freshness tracking began — re-sync to confirm.",
-    });
-
-    expect(
-      describeFreshnessForAthlete({
-        state: "obsolete",
-        markedObsoleteAt: "2026-08-24T09:15:00.000Z",
-      })
-    ).toEqual({
-      tone: "block",
-      text: "Physiology marked obsolete 2026-08-24 — generation blocked until re-synced.",
-    });
-
-    expect(
-      describeFreshnessForAthlete({
-        state: "inconsistent",
-        reason: "power-zone bounds are not strictly ascending",
-      })
-    ).toEqual({
-      tone: "block",
-      text: "Physiology inconsistent (power-zone bounds are not strictly ascending) — generation blocked until refreshed.",
-    });
-
-    expect(
-      describeFreshnessForAthlete({
-        state: "malformed",
-        reason: "physiology.json does not parse",
-      })
-    ).toEqual({
-      tone: "block",
-      text: "Physiology store is unreadable — restore its backup or re-sync. Generation blocked.",
-    });
-
-    expect(describeFreshnessForAthlete({ state: "missing" })).toEqual({
-      tone: "block",
-      text: "No physiology yet — connect Intervals.icu and sync. Generation blocked.",
-    });
   });
 });
 
@@ -375,7 +323,7 @@ describe("generation gate helpers", () => {
     ],
     [
       { state: "obsolete", markedObsoleteAt: "2026-08-20T00:00:00.000Z" } as const,
-      "Physiology was marked obsolete on 2026-08-20",
+      "Physiology was marked obsolete",
     ],
   ])("blocks %o with the expected message", (freshness, expected) => {
     expect(physiologyGenerationBlock(freshness)).toContain(expected);
@@ -401,6 +349,7 @@ describe("generation gate helpers", () => {
         lastAttemptAt: iso(0, TODAY),
         lastDetail: "timeout",
         lastConfirmedAt: iso(2, TODAY),
+        lastConfirmedDate: iso(2, TODAY).slice(0, 10),
       })
     ).toBe(
       `Generating on physiology last confirmed ${iso(2, TODAY).slice(0, 10)}; the latest check failed (timeout).`
@@ -489,11 +438,12 @@ describe("physiology status IO", () => {
 
   it("records a failure without touching lastConfirmedAt", async () => {
     await recordPhysiologyCheck("2026-08-22T09:00:00.000Z", "confirmed");
-    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "unavailable", "network timeout");
+    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "unavailable", "network timeout", "2026-08-23");
     const s = await readPhysiologyStatus();
     expect(s.status.lastAttemptAt).toBe("2026-08-23T10:00:00.000Z");
     expect(s.status.lastOutcome).toBe("unavailable");
     expect(s.status.lastDetail).toBe("network timeout");
+    expect(s.status.lastAttemptDate).toBe("2026-08-23");
     expect(s.status.lastConfirmedAt).toBe("2026-08-22T09:00:00.000Z");
   });
 

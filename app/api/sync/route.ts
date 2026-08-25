@@ -6,7 +6,7 @@ import { blockEventIds } from "@/lib/block-events";
 import { blockChangedResponse } from "@/lib/block-version";
 import { dayToEventPayload, reconcileInboundMoves } from "@/lib/calendar-mirror";
 import { physiologyAsOf, readHrZones, readPhysiologyWithStatus, readPowerZones, reconcile, updatePhysiology } from "@/lib/physiology";
-import { assessPhysiologyFreshness, readPhysiologyStatus, recordPhysiologyCheck, validateSnapshotConsistency } from "@/lib/physiology-freshness";
+import { assessPhysiologyFreshnessFromReads, readPhysiologyStatus, recordPhysiologyCheck, validateSnapshotConsistency } from "@/lib/physiology-freshness";
 import { bucketZones } from "@/lib/zones";
 import { matchPrescription } from "@/lib/interval-match";
 import { parsePrescription } from "@/lib/prescription";
@@ -256,15 +256,7 @@ export async function GET(req: Request) {
       today
     ),
   });
-  const physiologyFreshness = assessPhysiologyFreshness({
-    store: physRead.store,
-    corruptFallback: physRead.corruptFallback,
-    fileExisted: physRead.fileExisted,
-    statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
-    liveCorrupt: physRead.liveCorrupt,
-    status: physStatusRead.status,
-    today,
-  });
+  const physiologyFreshness = assessPhysiologyFreshnessFromReads(physRead, physStatusRead, today);
   return NextResponse.json({
     configured: isIntervalsConfigured(),
     anthropicConfigured: isAnthropicConfigured(),
@@ -465,11 +457,11 @@ export async function POST(req: Request) {
         await recordPhysiologyCheck(physiologyCheckAt, "confirmed", undefined, today);
         physRead = await readPhysiologyWithStatus();
       } else {
-        await recordPhysiologyCheck(physiologyCheckAt, "invalid", consistency.reason);
+        await recordPhysiologyCheck(physiologyCheckAt, "invalid", consistency.reason, today);
         warnings.push(`Physiology check returned internally inconsistent data (${consistency.reason}) — keeping the previous store.`);
       }
     } else {
-      await recordPhysiologyCheck(physiologyCheckAt, incomingPhys.status, incomingPhys.reason);
+      await recordPhysiologyCheck(physiologyCheckAt, incomingPhys.status, incomingPhys.reason, today);
       warnings.push(
         incomingPhys.status === "unavailable"
           ? `Physiology not refreshed (${incomingPhys.reason}) — continuing with the last confirmed values.`

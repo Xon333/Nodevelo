@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, isStale } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
-import { describeFreshnessForAthlete } from "@/lib/physiology-freshness-display";
+import { describeFreshnessForAthlete, freshnessToneClasses } from "@/lib/physiology-freshness-display";
 import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
 import AskCoach from "../AskCoach";
@@ -103,15 +103,10 @@ export default function TodayView() {
   const freshness = state.physiologyFreshness ? describeFreshnessForAthlete(state.physiologyFreshness) : null;
   const freshnessText =
     state.physiologyFreshness?.state === "fresh" &&
-    localToday(new Date(state.physiologyFreshness.confirmedAt)) === today
+    state.physiologyFreshness.confirmedDate === today
       ? "Physiology confirmed today — current."
       : freshness?.text ?? null;
-  const freshnessClasses =
-    freshness?.tone === "warn"
-      ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-      : freshness?.tone === "block"
-      ? "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300"
-      : "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300";
+  const freshnessClasses = freshnessToneClasses[freshness?.tone ?? "ok"].banner;
 
   // Collapsed evidence shared by both moments (hidden ≠ deleted, Constitution §6).
   const supportingSignals = state.lastSync ? (

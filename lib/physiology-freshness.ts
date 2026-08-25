@@ -77,6 +77,7 @@ export function isPhysiologyStatus(value: unknown): value is PhysiologyStatus {
   const validLocalDate = (candidate: unknown) => candidate === undefined || (typeof candidate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(candidate) && Number.isFinite(Date.parse(`${candidate}T00:00:00Z`)));
   return (
     validDate(status.lastAttemptAt) &&
+    validLocalDate(status.lastAttemptDate) &&
     (status.lastOutcome === undefined ||
       status.lastOutcome === "confirmed" ||
       status.lastOutcome === "unavailable" ||
@@ -121,6 +122,7 @@ export async function recordPhysiologyCheck(
     const next: PhysiologyStatus = {
       ...status,
       lastAttemptAt: now,
+      ...(localDate ? { lastAttemptDate: localDate } : {}),
       lastOutcome: outcome,
       ...(detail !== undefined ? { lastDetail: detail } : {}),
       ...(outcome === "confirmed" ? { lastConfirmedAt: now, ...(localDate ? { lastConfirmedDate: localDate } : {}) } : {}),
@@ -187,12 +189,11 @@ export function assessPhysiologyFreshness(input: {
   statusCorrupt: boolean;
   status: PhysiologyStatus | undefined;
   today: string;
-  liveCorrupt?: boolean;
 }): PhysiologyFreshness {
-  const { store, corruptFallback, fileExisted, statusCorrupt, status, today, liveCorrupt = false } = input;
+  const { store, corruptFallback, fileExisted, statusCorrupt, status, today } = input;
 
-  if (corruptFallback || liveCorrupt) {
-    return { state: "malformed", reason: "physiology.json does not parse", lastConfirmedAt: status?.lastConfirmedAt ?? null };
+  if (corruptFallback) {
+    return { state: "malformed", reason: "physiology.json does not parse", lastConfirmedAt: status?.lastConfirmedAt ?? null, ...(status?.lastConfirmedDate ? { lastConfirmedDate: status.lastConfirmedDate } : {}) };
   }
   if (statusCorrupt) {
     return { state: "malformed", reason: "physiology freshness records are unreadable" };
@@ -230,22 +231,15 @@ export function assessPhysiologyFreshness(input: {
   const confirmedAt = status?.lastConfirmedAt ?? null;
   const consistency = validateSnapshotConsistency(store.current);
   if (!consistency.ok) {
-    return { state: "inconsistent", reason: consistency.reason, lastConfirmedAt: confirmedAt };
+    return { state: "inconsistent", reason: consistency.reason, lastConfirmedAt: confirmedAt, ...(status?.lastConfirmedDate ? { lastConfirmedDate: status.lastConfirmedDate } : {}) };
   }
-  for (const historical of store.history) {
-    const historicalConsistency = validateSnapshotConsistency(historical);
-    if (!historicalConsistency.ok) {
-      return { state: "inconsistent", reason: historicalConsistency.reason, lastConfirmedAt: confirmedAt };
-    }
-  }
-
   if (status?.markedObsoleteAt) {
-    return { state: "obsolete", markedObsoleteAt: status.markedObsoleteAt, lastConfirmedAt: confirmedAt };
+    return { state: "obsolete", markedObsoleteAt: status.markedObsoleteAt, lastConfirmedAt: confirmedAt, ...(status.lastConfirmedDate ? { lastConfirmedDate: status.lastConfirmedDate } : {}) };
   }
 
-  const confirmedAge = confirmedAt === null ? null : ageDays(status?.lastConfirmedDate ?? confirmedAt, today);
-  const attemptAge = status?.lastAttemptAt ? ageDays(status.lastAttemptAt, today) : null;
-  if ((status?.lastConfirmedDate !== undefined && confirmedAge !== null && confirmedAge < 0) || (attemptAge !== null && attemptAge < 0 && status?.lastAttemptAt?.slice(0, 10) === today)) {
+  const confirmedAge = status?.lastConfirmedDate ? ageDays(status.lastConfirmedDate, today) : null;
+  const attemptAge = status?.lastAttemptDate ? ageDays(status.lastAttemptDate, today) : null;
+  if ((confirmedAge !== null && confirmedAge < 0) || (attemptAge !== null && attemptAge < 0)) {
     return { state: "malformed", reason: "physiology freshness dates are in the future", lastConfirmedAt: confirmedAt };
   }
 
@@ -262,18 +256,35 @@ export function assessPhysiologyFreshness(input: {
       lastAttemptAt: status.lastAttemptAt!,
       lastDetail: status.lastDetail ?? "the last physiology check did not succeed",
       lastConfirmedAt: confirmedAt,
+      ...(status.lastConfirmedDate ? { lastConfirmedDate: status.lastConfirmedDate } : {}),
     };
   }
 
   if (confirmedAge === null || confirmedAge > PHYSIOLOGY_STALE_DAYS) {
-    return { state: "stale", lastConfirmedAt: confirmedAt, ageDays: confirmedAge };
+    return { state: "stale", lastConfirmedAt: confirmedAt, ...(status?.lastConfirmedDate ? { lastConfirmedDate: status.lastConfirmedDate } : {}), ageDays: confirmedAge };
   }
 
   return {
     state: "fresh",
     confirmedAt: confirmedAt!,
+    ...(status?.lastConfirmedDate ? { confirmedDate: status.lastConfirmedDate } : {}),
     effectiveFrom: store.current.effectiveFrom,
   };
+}
+
+export function assessPhysiologyFreshnessFromReads(
+  physiology: Pick<Awaited<ReturnType<typeof import("./physiology").readPhysiologyWithStatus>>, "store" | "corruptFallback" | "fileExisted">,
+  statusRead: Awaited<ReturnType<typeof readPhysiologyStatus>>,
+  today: string
+): PhysiologyFreshness {
+  return assessPhysiologyFreshness({
+    store: physiology.store,
+    corruptFallback: physiology.corruptFallback,
+    fileExisted: physiology.fileExisted,
+    statusCorrupt: statusRead.corruptFallback || statusRead.liveCorrupt,
+    status: statusRead.status,
+    today,
+  });
 }
 
 export function physiologyGenerationBlock(f: PhysiologyFreshness): string | null {
@@ -285,59 +296,15 @@ export function physiologyGenerationBlock(f: PhysiologyFreshness): string | null
     case "inconsistent":
       return `Physiology data is internally inconsistent (${f.reason}). Refresh from Intervals.icu before generating a block.`;
     case "obsolete":
-      return `Physiology was marked obsolete on ${f.markedObsoleteAt.slice(0, 10)}. Re-sync from Intervals.icu (or clear the marker on Profile) before generating a block.`;
+      return "Physiology was marked obsolete. Re-sync from Intervals.icu (or clear the marker on Profile) before generating a block.";
     default:
       return null;
   }
 }
 
-export function describeFreshnessForAthlete(
-  f: PhysiologyFreshness
-): { tone: "ok" | "warn" | "block"; text: string } {
-  switch (f.state) {
-    case "fresh":
-      return { tone: "ok", text: `Physiology confirmed ${f.confirmedAt.slice(0, 10)} — current.` };
-    case "sync-failed":
-      return {
-        tone: "warn",
-        text: `Physiology check failed (${f.lastDetail}); using values confirmed ${f.lastConfirmedAt?.slice(0, 10) ?? "at an unknown time"}.`,
-      };
-    case "stale":
-      return {
-        tone: "warn",
-        text:
-          f.lastConfirmedAt === null
-            ? "Physiology has never been confirmed since freshness tracking began — re-sync to confirm."
-            : `Physiology last confirmed ${f.lastConfirmedAt.slice(0, 10)} — ${f.ageDays} days ago. Re-sync or re-test.`,
-      };
-    case "obsolete":
-      return {
-        tone: "block",
-        text: `Physiology marked obsolete ${f.markedObsoleteAt.slice(0, 10)} — generation blocked until re-synced.`,
-      };
-    case "inconsistent":
-      return {
-        tone: "block",
-        text: `Physiology inconsistent (${f.reason}) — generation blocked until refreshed.`,
-      };
-    case "malformed":
-      return {
-        tone: "block",
-        text: "Physiology store is unreadable — restore its backup or re-sync. Generation blocked.",
-      };
-    case "missing":
-      return {
-        tone: "block",
-        text: "No physiology yet — connect Intervals.icu and sync. Generation blocked.",
-      };
-  }
-}
-
 export function physiologyGenerationWarning(f: PhysiologyFreshness): string | null {
   if (f.state === "sync-failed") {
-    return `Generating on physiology last confirmed ${
-      f.lastConfirmedAt ? f.lastConfirmedAt.slice(0, 10) : "at an unknown time"
-    }; the latest check failed (${f.lastDetail}).`;
+    return `Generating on physiology last confirmed ${f.lastConfirmedDate ?? "at an unknown time"}; the latest check failed (${f.lastDetail}).`;
   }
   if (f.state === "stale") {
     return `Physiology has not been confirmed in ${f.ageDays ?? "an unknown number of"} days; zones and TSS may be outdated.`;

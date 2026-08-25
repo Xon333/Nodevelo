@@ -19,7 +19,7 @@ Four mechanisms, all load-bearing (hardened by ~25 hostile-review fixes, HR-31..
 3. **Recovery on read** (`readJsonFileWithStatus`): live → `.bak` → caller default, distinguishing "never written" (ENOENT) from corruption (`corruptFallback`) — self-healing callers refuse to persist a fallback born from double-corruption.
 4. **Per-file locking** (`withFileLock`): a promise chain serializes same-file operations; `updateJsonFile` reads *inside* the lock → genuinely transactional read-modify-write. This is what closes the sync-vs-disposition lost-update races.
 
-Physiology reads also expose `liveCorrupt` when malformed live content was recovered from `.bak`; freshness assessment treats that as malformed until a clean confirmation replaces it.
+Physiology reads also expose `liveCorrupt` when malformed live content was recovered from `.bak`. A valid `physiology.json.bak` remains usable: sync and generation warn but proceed with those recovered values. A corrupt freshness-status live file still fails closed even when its backup parses, because the live file may have contained a newer athlete obsolescence marker.
 
 `lib/data-store.ts` layers typed `read*/write*/update*` accessors on top, stamping `updatedAt` and shape-merging drifted files over defaults (`shapeMergeProfile` etc.) so an old file can't crash readers.
 
@@ -67,6 +67,8 @@ Physiology is tracked in two files on purpose: `physiology.json` holds the effec
 | `missing` | No usable physiology store exists yet | block | blocked |
 
 Only `sync-failed` and `stale` warn; `fresh` allows generation, while `missing`, `malformed`, `inconsistent`, and `obsolete` hard-block it. That is deliberate: generation can keep using the last confirmed physiology when the latest sync merely failed, but it must stop when the store is missing, malformed, inconsistent, or explicitly obsolete. See the accepted adversarial review's physiology-ownership rationale in [Intervals.icu ownership, privacy, and recovery](../reviews/2026-08-20-nodevelo-adversarial-investment-review.md#intervalsicu-ownership-privacy-and-recovery).
+
+Verification evidence and the explicitly deferred live Anthropic check are recorded in [the physiology freshness verification note](../reviews/2026-08-25-physiology-freshness-verification.md).
 
 ## Calendar mirror (`lib/calendar-mirror.ts`)
 

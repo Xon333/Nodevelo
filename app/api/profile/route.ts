@@ -3,7 +3,7 @@ import { readAthleteProfile, readLastSync, updateAthleteProfile } from "@/lib/da
 import { parseAthleteMd } from "@/lib/kb-loader";
 import { analyzePowerProfile } from "@/lib/power-profile";
 import { readPhysiologyWithStatus, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
-import { assessPhysiologyFreshness, readPhysiologyStatus } from "@/lib/physiology-freshness";
+import { assessPhysiologyFreshnessFromReads, readPhysiologyStatus } from "@/lib/physiology-freshness";
 import {
   calculateDailyTarget,
   calibrateNeat,
@@ -163,15 +163,7 @@ export async function GET() {
     profile.nutrition.targetWeightKg,
     profile.nutrition.targetRateKgPerWeek
   );
-  const physiologyFreshness = assessPhysiologyFreshness({
-    store: physRead.store,
-    corruptFallback: physRead.corruptFallback,
-    fileExisted: physRead.fileExisted,
-    statusCorrupt: physStatusRead.corruptFallback || physStatusRead.liveCorrupt,
-    liveCorrupt: physRead.liveCorrupt,
-    status: physStatusRead.status,
-    today,
-  });
+  const physiologyFreshness = assessPhysiologyFreshnessFromReads(physRead, physStatusRead, today);
 
   return NextResponse.json({
     nutrition: profile.nutrition,

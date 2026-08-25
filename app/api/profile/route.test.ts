@@ -147,7 +147,13 @@ describe("GET /api/profile — RMR floor transparency", () => {
         liveCorrupt: false,
       };
       physiologyIo.statusResult = {
-        status: { lastConfirmedAt: "2026-06-22T09:15:00.000Z" },
+        status: {
+          lastAttemptAt: "2026-06-22T09:15:00.000Z",
+          lastAttemptDate: "2026-06-22",
+          lastOutcome: "confirmed",
+          lastConfirmedAt: "2026-06-22T09:15:00.000Z",
+          lastConfirmedDate: "2026-06-22",
+        },
         corruptFallback: false,
         liveCorrupt: false,
       };
@@ -157,6 +163,7 @@ describe("GET /api/profile — RMR floor transparency", () => {
       expect(json.physiologyFreshness).toEqual({
         state: "fresh",
         confirmedAt: "2026-06-22T09:15:00.000Z",
+        confirmedDate: "2026-06-22",
         effectiveFrom: "2026-06-22",
       });
       expect(json.ftpStaleDays).toBe(0);

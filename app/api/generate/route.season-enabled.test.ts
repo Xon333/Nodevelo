@@ -86,7 +86,7 @@ vi.mock("@/lib/physiology-freshness", async (orig) => {
       corruptFallback: false,
       liveCorrupt: false,
     })),
-    assessPhysiologyFreshness: vi.fn(() => ({
+    assessPhysiologyFreshnessFromReads: vi.fn(() => ({
       state: "fresh",
       confirmedAt: "2026-06-15T00:00:00.000Z",
       effectiveFrom: "2026-06-01",
@@ -178,7 +178,7 @@ describe("POST /api/generate — season wiring with SEASON_SHAPES_GENERATION=tru
     ["inconsistent", { state: "inconsistent", reason: "FTP -1 is not positive" }],
     ["obsolete", { state: "obsolete", markedObsoleteAt: "2026-08-20T00:00:00.000Z" }],
   ])("400 on %s physiology before any LLM spend", async (_name, freshnessState) => {
-    vi.mocked(fresh.assessPhysiologyFreshness).mockReturnValueOnce(freshnessState as never);
+    vi.mocked(fresh.assessPhysiologyFreshnessFromReads).mockReturnValueOnce(freshnessState as never);
     const res = await genWithSeason();
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/physiology/i);
@@ -187,11 +187,12 @@ describe("POST /api/generate — season wiring with SEASON_SHAPES_GENERATION=tru
   });
 
   it("generates through a temporary physiology sync failure with a visible warning", async () => {
-    vi.mocked(fresh.assessPhysiologyFreshness).mockReturnValueOnce({
+    vi.mocked(fresh.assessPhysiologyFreshnessFromReads).mockReturnValueOnce({
       state: "sync-failed",
       lastAttemptAt: "2026-06-15T00:00:00.000Z",
       lastDetail: "timeout",
       lastConfirmedAt: "2026-06-13T00:00:00.000Z",
+      lastConfirmedDate: "2026-06-13",
     } as never);
     const res = await genWithSeason();
     expect(res.status).toBe(200);
