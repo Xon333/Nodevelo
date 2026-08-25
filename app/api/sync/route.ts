@@ -438,7 +438,7 @@ export async function POST(req: Request) {
     }
 
     const physReadBeforeSync = await readPhysiologyWithStatus();
-    if (physReadBeforeSync.liveCorrupt) {
+    if (physReadBeforeSync.liveCorrupt && !physReadBeforeSync.corruptFallback && physReadBeforeSync.store) {
       warnings.push("Recovered physiology from the backup file after the live store went corrupt — continuing with the recovered values until a clean confirmation replaces them.");
     }
     // Reconcile the physiology store against Intervals.icu's current sport-settings (FTP,

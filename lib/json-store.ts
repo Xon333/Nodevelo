@@ -115,11 +115,14 @@ export function writeJsonFile(file: string, value: unknown): Promise<void> {
 export function updateJsonFile<T>(
   file: string,
   fallback: T,
-  mutate: (current: T) => T | Promise<T>
+  mutate: (
+    current: T,
+    readStatus: { corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }
+  ) => T | Promise<T>
 ): Promise<T> {
   return withFileLock(file, async () => {
     // readJsonFileWithStatus takes no lock — safe to nest.
-    const { value: current, corruptFallback } = await readJsonFileWithStatus(file, fallback);
+    const { value: current, corruptFallback, enoent, liveCorrupt } = await readJsonFileWithStatus(file, fallback);
     // HR-42: refuse to persist a CRITICAL store's fallback born from genuine corruption (both the
     // live file and its `.bak` unreadable) as though it were real, legitimate content. `mutate`
     // deriving from a bare fallback (e.g. an empty ledger) and writing that back would silently
@@ -131,7 +134,7 @@ export function updateJsonFile<T>(
         `${file}: both the live file and its .bak are corrupt or unreadable — refusing to write a fallback value as truth. Manual recovery required.`
       );
     }
-    const nextValue = await mutate(current);
+    const nextValue = await mutate(current, { corruptFallback, enoent, liveCorrupt });
     // A mutate that hands back the exact same reference it was given (e.g. a CAS no-op, or
     // resolveWeeklyEnvelope's `wrote: false` path) has nothing new to persist — skip the write
     // instead of rewriting identical content to disk on every call.

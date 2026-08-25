@@ -1019,6 +1019,23 @@ describe("POST /api/sync — physiology reconcile + best-effort warnings", () =>
     expect(phys.updatePhysiology).not.toHaveBeenCalled();
   });
 
+  it("does not claim backup recovery when both physiology files are corrupt", async () => {
+    physiologyIo.readResult = {
+      store: null,
+      corruptFallback: true,
+      fileExisted: true,
+      liveCorrupt: true,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "unavailable",
+      reason: "network timeout",
+    });
+
+    const json = await (await postSync()).json();
+
+    expect(json.warnings.join("\n")).not.toContain("Recovered physiology from the backup file");
+  });
+
   it("records invalid and warns plainly when sport-settings returns an invalid result", async () => {
     physiologyIo.readResult = {
       store: { current: mkPhysSnapshot(), history: [] },

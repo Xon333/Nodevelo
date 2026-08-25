@@ -100,12 +100,8 @@ export default function TodayView() {
   // Mode detection (approved: auto-switch, no tabs — masterplan §4).
   const todayRide = state.todayAnalysis?.activityDate === today ? state.todayAnalysis : null;
   const mode: "pre" | "post" = todayRide && !flipped ? "post" : "pre";
-  const freshness = state.physiologyFreshness ? describeFreshnessForAthlete(state.physiologyFreshness) : null;
-  const freshnessText =
-    state.physiologyFreshness?.state === "fresh" &&
-    state.physiologyFreshness.confirmedDate === today
-      ? "Physiology confirmed today — current."
-      : freshness?.text ?? null;
+  const freshness = state.physiologyFreshness ? describeFreshnessForAthlete(state.physiologyFreshness, today) : null;
+  const freshnessText = freshness?.text ?? null;
   const freshnessClasses = freshnessToneClasses[freshness?.tone ?? "ok"].banner;
 
   // Collapsed evidence shared by both moments (hidden ≠ deleted, Constitution §6).

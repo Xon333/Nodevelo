@@ -19,15 +19,16 @@ export const freshnessToneClasses = {
 } as const;
 
 export function describeFreshnessForAthlete(
-  f: PhysiologyFreshness
+  f: PhysiologyFreshness,
+  today?: string
 ): { tone: "ok" | "warn" | "block"; text: string } {
   switch (f.state) {
     case "fresh":
-      return { tone: "ok", text: f.confirmedDate ? `Physiology confirmed ${f.confirmedDate} — current.` : "Physiology confirmed recently — current." };
+      return { tone: "ok", text: f.confirmedDate === today ? "Physiology confirmed today — current." : f.confirmedDate ? `Physiology confirmed ${f.confirmedDate} — current.` : "Physiology confirmed recently — current." };
     case "sync-failed":
       return { tone: "warn", text: `Physiology check failed (${f.lastDetail}); using values confirmed ${f.lastConfirmedDate ?? "at an unknown time"}.` };
     case "stale":
-      return { tone: "warn", text: f.lastConfirmedAt === null ? "Physiology has never been confirmed since freshness tracking began — re-sync to confirm." : `Physiology last confirmed ${f.lastConfirmedDate ?? "at an unknown time"} — ${f.ageDays} days ago. Re-sync or re-test.` };
+      return { tone: "warn", text: f.lastConfirmedAt === null ? "Physiology has never been confirmed since freshness tracking began — re-sync to confirm." : f.ageDays === null || !f.lastConfirmedDate ? "Physiology confirmation date is unavailable — re-sync to confirm freshness." : `Physiology last confirmed ${f.lastConfirmedDate} — ${f.ageDays} days ago. Re-sync or re-test.` };
     case "obsolete":
       return { tone: "block", text: "Physiology marked obsolete — generation blocked until re-synced." };
     case "inconsistent":

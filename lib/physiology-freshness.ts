@@ -104,9 +104,11 @@ export async function readPhysiologyStatus(): Promise<{
 }
 
 async function updatePhysiologyStatus(
-  mutate: (status: PhysiologyStatus) => PhysiologyStatus | Promise<PhysiologyStatus>
+  mutate: (status: PhysiologyStatus) => PhysiologyStatus | Promise<PhysiologyStatus>,
+  allowRecoveredLive: boolean
 ): Promise<PhysiologyStatus> {
-  return updateJsonFile<unknown>(STATUS_FILE, {}, (raw) => {
+  return updateJsonFile<unknown>(STATUS_FILE, {}, (raw, { liveCorrupt }) => {
+    if (liveCorrupt && !allowRecoveredLive) return raw;
     if (!isPhysiologyStatus(raw)) return raw;
     return mutate(raw);
   }) as Promise<PhysiologyStatus>;
@@ -129,18 +131,18 @@ export async function recordPhysiologyCheck(
     };
     if (outcome === "confirmed") delete next.markedObsoleteAt;
     return next;
-  });
+  }, outcome === "confirmed");
 }
 
 export async function markPhysiologyObsolete(): Promise<void> {
-  await updatePhysiologyStatus((status) => ({ ...status, markedObsoleteAt: new Date().toISOString() }));
+  await updatePhysiologyStatus((status) => ({ ...status, markedObsoleteAt: new Date().toISOString() }), true);
 }
 
 export async function clearPhysiologyObsolete(): Promise<void> {
   await updatePhysiologyStatus((status) => {
     const { markedObsoleteAt: _drop, ...rest } = status;
     return rest;
-  });
+  }, false);
 }
 
 export function validateSnapshotConsistency(

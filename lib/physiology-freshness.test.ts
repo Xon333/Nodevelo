@@ -472,4 +472,20 @@ describe("physiology status IO", () => {
     await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "unavailable", "timeout");
     await expect(fs.readFile(p("physiology-status.json"), "utf8")).resolves.toBe(raw);
   });
+
+  it("does not overwrite a corrupt live status recovered from backup after a failed check", async () => {
+    await fs.writeFile(
+      p("physiology-status.json.bak"),
+      JSON.stringify({
+        lastConfirmedAt: "2026-08-22T09:00:00.000Z",
+        lastConfirmedDate: "2026-08-22",
+      })
+    );
+    await fs.writeFile(p("physiology-status.json"), "{ corrupt");
+
+    await recordPhysiologyCheck("2026-08-23T10:00:00.000Z", "unavailable", "timeout", "2026-08-23");
+
+    await expect(fs.readFile(p("physiology-status.json"), "utf8")).resolves.toBe("{ corrupt");
+    expect((await readPhysiologyStatus()).liveCorrupt).toBe(true);
+  });
 });

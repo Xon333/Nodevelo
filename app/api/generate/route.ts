@@ -126,7 +126,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: blockReason }, { status: 400 });
     }
     const warnings: string[] = [];
-    if (physRead.liveCorrupt) {
+    if (physRead.liveCorrupt && !physRead.corruptFallback && physRead.store) {
       warnings.push("Recovered physiology from the backup file after the live store became unreadable; using the recovered values.");
     }
     const freshnessWarning = physiologyGenerationWarning(freshness);
