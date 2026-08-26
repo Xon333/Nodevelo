@@ -6,6 +6,7 @@ import {
   parseSportSettings,
   physiologyAsOf,
   readPhysiology,
+  readPhysiologyWithStatus,
   reconcile,
   resolveHrZones,
   resolvePowerZones,
@@ -199,5 +200,35 @@ describe("updatePhysiology", () => {
       return { current: snap(), history: [] };
     });
     expect(sawNull).toBe(true);
+  });
+
+  it("distinguishes a corrupt store from a never-written one", async () => {
+    expect(await readPhysiologyWithStatus()).toEqual({
+      store: null,
+      corruptFallback: false,
+      fileExisted: false,
+      liveCorrupt: false,
+    });
+
+    await fs.writeFile(p("physiology.json"), "{not json", "utf-8");
+
+    expect(await readPhysiologyWithStatus()).toEqual({
+      store: null,
+      corruptFallback: true,
+      fileExisted: true,
+      liveCorrupt: true,
+    });
+  });
+
+  it("treats a parsed but shapeless store as malformed data, not a missing file", async () => {
+    await fs.writeFile(p("physiology.json"), JSON.stringify({ current: {} }), "utf-8");
+
+    expect(await readPhysiologyWithStatus()).toEqual({
+      store: null,
+      corruptFallback: false,
+      fileExisted: true,
+      liveCorrupt: false,
+    });
+    expect(await readPhysiology()).toBeNull();
   });
 });

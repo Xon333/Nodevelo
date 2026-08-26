@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, isStale } from "@/lib/client-api";
 import { localToday } from "@/lib/date";
+import { describeFreshnessForAthlete, freshnessToneClasses } from "@/lib/physiology-freshness-display";
 import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
 import AskCoach from "../AskCoach";
@@ -82,6 +83,7 @@ export default function TodayView() {
   // FTP + resolved fuel numbers from the coach snapshot — evidence-tier context inside the
   // supporting-signals disclosure (the old CoachSnapshotCard's non-form content).
   const snap = state.coachSnapshot;
+  const today = localToday();
   const coachContext = snap
     ? [
         snap.ftp !== null ? `FTP ${snap.ftp}W` : null,
@@ -96,8 +98,11 @@ export default function TodayView() {
     : "";
 
   // Mode detection (approved: auto-switch, no tabs — masterplan §4).
-  const todayRide = state.todayAnalysis?.activityDate === localToday() ? state.todayAnalysis : null;
+  const todayRide = state.todayAnalysis?.activityDate === today ? state.todayAnalysis : null;
   const mode: "pre" | "post" = todayRide && !flipped ? "post" : "pre";
+  const freshness = state.physiologyFreshness ? describeFreshnessForAthlete(state.physiologyFreshness, today) : null;
+  const freshnessText = freshness?.text ?? null;
+  const freshnessClasses = freshnessToneClasses[freshness?.tone ?? "ok"].banner;
 
   // Collapsed evidence shared by both moments (hidden ≠ deleted, Constitution §6).
   const supportingSignals = state.lastSync ? (
@@ -136,6 +141,10 @@ export default function TodayView() {
       <h1 className="sr-only">Today</h1>
       {/* Triggered alarms outrank both moments (aviation rule, Constitution §4). */}
       <ReadinessAlerts fatigueAlert={state.fatigueAlert} loadRamp={state.loadRamp} />
+
+      {freshness && freshnessText && (
+        <p className={`rounded-lg border px-3 py-2 text-xs ${freshnessClasses}`}>{freshnessText}</p>
+      )}
 
       {/* Track C loading chip: day-before target / day-of loaded-or-skipped attribution. Its
           pre-ask fires the evening BEFORE a durability ride — when Today is typically already in

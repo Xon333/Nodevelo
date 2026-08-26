@@ -26,6 +26,8 @@ const CRITICAL = new Set([
   "score-log.json",
   "intervention-log.json",
   "physiology.json",
+  // markedObsoleteAt is an athlete safety assertion, not regenerable telemetry.
+  "physiology-status.json",
   "current-block.json",
   "block-history.json",
   "athlete.json",
@@ -46,25 +48,33 @@ const CRITICAL = new Set([
 // back to disk need this distinction: persisting a fallback born from a genuine double-corruption would
 // permanently enshrine that data loss as the new on-disk truth, whereas persisting one born from "this
 // store has simply never existed yet" is exactly the normal, desired first-write behavior.
-export async function readJsonFileWithStatus<T>(file: string, fallback: T): Promise<{ value: T; corruptFallback: boolean }> {
+export async function readJsonFileWithStatus<T>(
+  file: string,
+  fallback: T
+): Promise<{ value: T; corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }> {
   const full = path.join(dataDir(), file);
-  let corruptFallback = false;
-  for (const candidate of [full, `${full}.bak`]) {
+  let enoent = true;
+  let liveCorrupt = false;
+  for (const [index, candidate] of [full, `${full}.bak`].entries()) {
     try {
       const raw = await fs.readFile(candidate, "utf-8");
+      enoent = false;
       // A successful parse is trusted as-is, even when the value is `null` — that's the real,
       // intentional content for some stores (current-block.json's "no active block" after a
       // delete). Treating a legitimate `null` as a failed read fell through to `.bak`, which
       // always holds the pre-write snapshot — resurrecting the block a delete had just cleared.
       // Only a genuine read/parse failure (missing file, corrupt JSON) should reach `.bak`.
-      return { value: JSON.parse(raw) as T, corruptFallback: false };
+      return { value: JSON.parse(raw) as T, corruptFallback: false, enoent, liveCorrupt };
     } catch (err) {
       // ENOENT (this candidate was never written) is not corruption; anything else — a parse
       // failure (SyntaxError) or a real read error (EACCES/EIO) — means something existed but is broken.
-      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") corruptFallback = true;
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        enoent = false;
+        if (index === 0) liveCorrupt = true;
+      }
     }
   }
-  return { value: fallback, corruptFallback };
+  return { value: fallback, corruptFallback: !enoent, enoent, liveCorrupt };
 }
 
 export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
@@ -105,11 +115,14 @@ export function writeJsonFile(file: string, value: unknown): Promise<void> {
 export function updateJsonFile<T>(
   file: string,
   fallback: T,
-  mutate: (current: T) => T | Promise<T>
+  mutate: (
+    current: T,
+    readStatus: { corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }
+  ) => T | Promise<T>
 ): Promise<T> {
   return withFileLock(file, async () => {
     // readJsonFileWithStatus takes no lock — safe to nest.
-    const { value: current, corruptFallback } = await readJsonFileWithStatus(file, fallback);
+    const { value: current, corruptFallback, enoent, liveCorrupt } = await readJsonFileWithStatus(file, fallback);
     // HR-42: refuse to persist a CRITICAL store's fallback born from genuine corruption (both the
     // live file and its `.bak` unreadable) as though it were real, legitimate content. `mutate`
     // deriving from a bare fallback (e.g. an empty ledger) and writing that back would silently
@@ -121,7 +134,7 @@ export function updateJsonFile<T>(
         `${file}: both the live file and its .bak are corrupt or unreadable — refusing to write a fallback value as truth. Manual recovery required.`
       );
     }
-    const nextValue = await mutate(current);
+    const nextValue = await mutate(current, { corruptFallback, enoent, liveCorrupt });
     // A mutate that hands back the exact same reference it was given (e.g. a CAS no-op, or
     // resolveWeeklyEnvelope's `wrote: false` path) has nothing new to persist — skip the write
     // instead of rewriting identical content to disk on every call.

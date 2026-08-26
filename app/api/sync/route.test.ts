@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
-import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay, IntervalsCalendarEvent, RideScoreEntry, SyncData } from "@/lib/types";
+import type {
+  ActivitySummary,
+  BlockHistoryEntry,
+  CurrentBlock,
+  CurrentBlockDay,
+  IntervalsCalendarEvent,
+  PhysiologySnapshot,
+  RideScoreEntry,
+  SyncData,
+} from "@/lib/types";
 
 // Route tests for /api/sync (SUB-3): the 500-line orchestrator guarding the immutable ledger.
 // Network (intervals-api) + fs (data-store, physiology) are mocked at the module boundary; the
@@ -8,13 +17,18 @@ import type { ActivitySummary, BlockHistoryEntry, CurrentBlock, CurrentBlockDay,
 // runs for real — these prove the WIRING (immutability, rebuild one-shot, warning surfacing),
 // not the unit-tested internals.
 
+const physiologyIo = vi.hoisted(() => ({
+  readResult: { store: null as unknown, corruptFallback: false, fileExisted: false, liveCorrupt: false },
+  statusResult: { status: {} as Record<string, unknown>, corruptFallback: false, liveCorrupt: false },
+}));
+
 vi.mock("@/lib/intervals-api", async (orig) => {
   const actual = await orig<typeof import("@/lib/intervals-api")>();
   return {
     ...actual, // IntervalsApiError + isSuspectEmptySync (pure) stay real
     isIntervalsConfigured: vi.fn(() => true),
     runFullSync: vi.fn(),
-    fetchSportSettings: vi.fn(async () => null),
+    fetchSportSettings: vi.fn(async () => ({ status: "invalid" as const, reason: "sport settings contained no usable Ride FTP" })),
     fetchIntervals: vi.fn(async () => []),
     fetchPowerStream: vi.fn(async () => []),
     fetchHrStream: vi.fn(async () => []),
@@ -29,16 +43,50 @@ vi.mock("@/lib/anthropic-config", async (orig) => {
 });
 vi.mock("@/lib/physiology", async (orig) => {
   const actual = await orig<typeof import("@/lib/physiology")>();
-  const readPhysiology = vi.fn(async () => null);
+  const readPhysiology = vi.fn(async () => physiologyIo.readResult.store);
+  const readPhysiologyWithStatus = vi.fn(async () => physiologyIo.readResult);
   return {
     ...actual, // physiologyAsOf + reconcile (pure) stay real
     readPhysiology,
+    readPhysiologyWithStatus,
     // HR-52: mirrors the real updatePhysiology's contract — mutate is invoked with whatever the
     // lock-held read currently resolves to. Delegates to the SAME readPhysiology mock reference above,
     // so a test's `readPhysiology.mockResolvedValue(...)` override also flows into this.
-    updatePhysiology: vi.fn(async (mutate: (cur: unknown) => unknown) => mutate(await readPhysiology())),
+    updatePhysiology: vi.fn(async (mutate: (cur: unknown) => unknown) => {
+      const next = await mutate(await readPhysiology());
+      physiologyIo.readResult = {
+        ...physiologyIo.readResult,
+        store: next,
+        fileExisted: true,
+        liveCorrupt: false,
+      };
+      return next;
+    }),
     readPowerZones: vi.fn(async () => []),
     readHrZones: vi.fn(async () => []),
+  };
+});
+vi.mock("@/lib/physiology-freshness", async (orig) => {
+  const actual = await orig<typeof import("@/lib/physiology-freshness")>();
+  const readPhysiologyStatus = vi.fn(async () => physiologyIo.statusResult);
+  const recordPhysiologyCheck = vi.fn(
+    async (now: string, outcome: "confirmed" | "unavailable" | "invalid", detail?: string, localDate?: string) => {
+      const nextStatus: Record<string, unknown> = {
+        ...physiologyIo.statusResult.status,
+        lastAttemptAt: now,
+        ...(localDate ? { lastAttemptDate: localDate } : {}),
+        lastOutcome: outcome,
+        ...(detail !== undefined ? { lastDetail: detail } : {}),
+        ...(outcome === "confirmed" ? { lastConfirmedAt: now, ...(localDate ? { lastConfirmedDate: localDate } : {}) } : {}),
+      };
+      if (outcome === "confirmed") delete nextStatus.markedObsoleteAt;
+      physiologyIo.statusResult = { ...physiologyIo.statusResult, status: nextStatus };
+    }
+  );
+  return {
+    ...actual, // assessPhysiologyFreshness + validateSnapshotConsistency stay real
+    readPhysiologyStatus,
+    recordPhysiologyCheck,
   };
 });
 vi.mock("@/lib/data-store", () => ({
@@ -78,12 +126,28 @@ vi.mock("@/lib/data-store", () => ({
 import * as api from "@/lib/intervals-api";
 import * as anthropic from "@/lib/anthropic-config";
 import * as phys from "@/lib/physiology";
+import * as freshness from "@/lib/physiology-freshness";
 import * as store from "@/lib/data-store";
 import { DELETE, GET, POST, resolveCarbsOptimumForPrompt } from "@/app/api/sync/route";
 import { buildRideScores } from "@/lib/score-log";
 import type { CalibratedParameter, CalibrationStore } from "@/lib/types";
 
 const TODAY = "2026-06-22";
+
+const mkPhysSnapshot = (over: Partial<PhysiologySnapshot> = {}): PhysiologySnapshot => ({
+  effectiveFrom: TODAY,
+  capturedAt: "2026-06-22T08:00:00.000Z",
+  source: "intervals",
+  ftp: 260,
+  lthr: 165,
+  maxHr: 190,
+  powerZonePct: [55, 75, 90, 105, 120, 150],
+  hrZones: [120, 140, 155, 165, 175, 190],
+  hrZonesAreBpm: true,
+  powerZoneNames: [],
+  hrZoneNames: [],
+  ...over,
+});
 
 const profile = {
   performance: { ftp: 200, maxHr: 190, thresholdHr: 170, weightKg: 75, weeklyHoursMin: 6, weeklyHoursMax: 10 },
@@ -194,13 +258,18 @@ let calibration: CalibrationStore;
 beforeEach(() => {
   vi.clearAllMocks();
   scoreEntries = [];
+  physiologyIo.readResult = { store: null, corruptFallback: false, fileExisted: false, liveCorrupt: false };
+  physiologyIo.statusResult = { status: {}, corruptFallback: false, liveCorrupt: false };
   calibration = {
     decouplingGood: { value: 5, source: "default", confidence: "low", dataPoints: 0, lastUpdated: "", locked: false, manualOverride: null },
     updatedAt: "",
   };
   vi.mocked(api.isIntervalsConfigured).mockReturnValue(true);
   vi.mocked(api.runFullSync).mockResolvedValue(mkSync());
-  vi.mocked(api.fetchSportSettings).mockResolvedValue(null);
+  vi.mocked(api.fetchSportSettings).mockResolvedValue({
+    status: "invalid",
+    reason: "sport settings contained no usable Ride FTP",
+  });
   vi.mocked(api.fetchIntervals).mockResolvedValue([]);
   vi.mocked(api.fetchPowerStream).mockResolvedValue([]);
   vi.mocked(api.fetchHrStream).mockResolvedValue([]);
@@ -208,7 +277,6 @@ beforeEach(() => {
   vi.mocked(api.fetchEvents).mockResolvedValue([]);
   vi.mocked(api.createEvent).mockResolvedValue(null);
   vi.mocked(anthropic.isAnthropicConfigured).mockReturnValue(false);
-  vi.mocked(phys.readPhysiology).mockResolvedValue(null);
   vi.mocked(phys.readPowerZones).mockResolvedValue([]);
   vi.mocked(phys.readHrZones).mockResolvedValue([]);
 
@@ -263,6 +331,21 @@ describe("GET /api/sync", () => {
     expect(json.noBlockSummary).toBeNull();
     expect(json.polarization).toBeNull();
     expect(json.autoSyncOnOpen).toBe(true);
+  });
+
+  it("exposes stale freshness with a null confirmation clock for a legacy physiology store", async () => {
+    physiologyIo.readResult = {
+      store: { current: mkPhysSnapshot(), history: [] },
+      corruptFallback: false,
+      fileExisted: true,
+      liveCorrupt: false,
+    };
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.physiologyFreshness).toEqual({
+      state: "stale",
+      lastConfirmedAt: null,
+      ageDays: null,
+    });
   });
 
   // The default `profile` fixture omits performance.dateOfBirth/heightCm/sex, so
@@ -650,6 +733,7 @@ describe("POST /api/sync — ledger wiring", () => {
   it("persists the fresh sync + derived stores on a normal sync", async () => {
     const fresh = mkSync({ activities: [mkActivity({ id: "a21", date: "2026-06-21" })] });
     vi.mocked(api.runFullSync).mockResolvedValue(fresh);
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({ status: "ok", snapshot: mkPhysSnapshot() });
     const res = await postSync();
     expect(res.status).toBe(200);
     expect(store.writeLastSync).toHaveBeenCalledWith(fresh);
@@ -865,26 +949,153 @@ describe("POST /api/sync — ledger rebuild one-shot (LEDGER-3)", () => {
 
 describe("POST /api/sync — physiology reconcile + best-effort warnings", () => {
   it("reconciles incoming sport-settings into the physiology store", async () => {
-    const snapshot = {
-      effectiveFrom: TODAY,
-      capturedAt: "2026-06-22T08:00:00.000Z",
-      source: "intervals" as const,
-      ftp: 260,
-      lthr: 165,
-      maxHr: 190,
-      powerZonePct: [55, 75, 90, 105, 120, 150],
-      hrZones: [120, 140, 155, 165, 175, 190],
-      hrZonesAreBpm: true,
-      powerZoneNames: [],
-      hrZoneNames: [],
-    };
-    vi.mocked(api.fetchSportSettings).mockResolvedValue(snapshot);
+    const snapshot = mkPhysSnapshot();
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({ status: "ok", snapshot });
     await postSync();
     // First-ever snapshot: reconcile (real) seeds the store with it as current, empty history.
     // HR-52: updatePhysiology's mutate is invoked with whatever the lock-held read hands it (here,
     // readPhysiology's mocked null) — mirrors the real reconcile-inside-the-lock call.
     const mutate = vi.mocked(phys.updatePhysiology).mock.calls.at(-1)![0];
     expect(await mutate(null)).toEqual({ current: snapshot, history: [] });
+  });
+
+  it("records a confirmation, clears obsolescence, and exposes fresh physiology on GET after a good sync", async () => {
+    physiologyIo.statusResult = {
+      status: { markedObsoleteAt: "2026-06-20T00:00:00.000Z" },
+      corruptFallback: false,
+      liveCorrupt: false,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({ status: "ok", snapshot: mkPhysSnapshot() });
+
+    await postSync();
+
+    expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
+      expect.any(String),
+      "confirmed",
+      undefined,
+      expect.any(String)
+    );
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.physiologyFreshness.state).toBe("fresh");
+  });
+
+  it("pushes a visible warning, records the failure, and keeps scoring on fallback when sport-settings are unavailable", async () => {
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "unavailable",
+      reason: "network timeout",
+    });
+
+    const res = await postSync();
+    const json = await res.json();
+
+    expect(json.warnings.some((w: string) => w.includes("Physiology not refreshed"))).toBe(true);
+    expect(json.warnings.join("\n")).toContain("network timeout");
+    expect(json.warnings.join("\n")).toContain("No usable physiology store");
+    expect(phys.updatePhysiology).not.toHaveBeenCalled();
+    expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
+      expect.any(String),
+      "unavailable",
+      "network timeout",
+      TODAY
+    );
+  });
+
+  it("warns when physiology was recovered from .bak and keeps the recovered store untouched on an outage", async () => {
+    physiologyIo.readResult = {
+      store: { current: mkPhysSnapshot(), history: [] },
+      corruptFallback: false,
+      fileExisted: true,
+      liveCorrupt: true,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "unavailable",
+      reason: "network timeout",
+    });
+
+    const res = await postSync();
+    const json = await res.json();
+
+    expect(json.warnings.some((w: string) => w.includes("Recovered physiology from the backup file"))).toBe(true);
+    expect(phys.updatePhysiology).not.toHaveBeenCalled();
+  });
+
+  it("does not claim backup recovery when both physiology files are corrupt", async () => {
+    physiologyIo.readResult = {
+      store: null,
+      corruptFallback: true,
+      fileExisted: true,
+      liveCorrupt: true,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "unavailable",
+      reason: "network timeout",
+    });
+
+    const json = await (await postSync()).json();
+
+    expect(json.warnings.join("\n")).not.toContain("Recovered physiology from the backup file");
+  });
+
+  it("records invalid and warns plainly when sport-settings returns an invalid result", async () => {
+    physiologyIo.readResult = {
+      store: { current: mkPhysSnapshot(), history: [] },
+      corruptFallback: false,
+      fileExisted: true,
+      liveCorrupt: false,
+    };
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "invalid",
+      reason: "sport settings contained no usable Ride FTP",
+    });
+
+    const res = await postSync();
+    const json = await res.json();
+
+    expect(json.warnings.join("\n")).toContain("Physiology not refreshed (sport settings contained no usable Ride FTP) — continuing with the previous store.");
+    expect(phys.updatePhysiology).not.toHaveBeenCalled();
+    expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
+      expect.any(String),
+      "invalid",
+      "sport settings contained no usable Ride FTP",
+      TODAY
+    );
+  });
+
+  it("records invalid without overwriting the store when the incoming snapshot is internally inconsistent", async () => {
+    vi.mocked(api.fetchSportSettings).mockResolvedValue({
+      status: "ok",
+      snapshot: mkPhysSnapshot({ ftp: -1 }),
+    });
+
+    const res = await postSync();
+    const json = await res.json();
+
+    expect(json.warnings.some((w: string) => w.includes("internally inconsistent"))).toBe(true);
+    expect(json.warnings.join("\n")).toContain("No usable physiology store");
+    expect(phys.updatePhysiology).not.toHaveBeenCalled();
+    expect(vi.mocked(freshness.recordPhysiologyCheck)).toHaveBeenCalledWith(
+      expect.any(String),
+      "invalid",
+      expect.stringContaining("FTP"),
+      TODAY
+    );
+  });
+
+  it("recovers freshness to fresh after a failed streak once a later sync confirms physiology", async () => {
+    vi.mocked(api.fetchSportSettings).mockResolvedValueOnce({
+      status: "unavailable",
+      reason: "network timeout",
+    });
+    await postSync();
+
+    vi.mocked(api.fetchSportSettings).mockResolvedValueOnce({
+      status: "ok",
+      snapshot: mkPhysSnapshot(),
+    });
+    await postSync();
+
+    const json = await (await GET(new Request(`http://t/api/sync?today=${TODAY}`))).json();
+    expect(json.physiologyFreshness.state).toBe("fresh");
   });
 
   it("surfaces a quirk-extraction failure as a warning without failing the sync", async () => {

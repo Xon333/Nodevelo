@@ -42,17 +42,57 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
 });
 vi.mock("@/lib/generate-cache", () => ({
   generationKey: () => "k",
-  dedupeGeneration: async (_k: string, fn: () => Promise<unknown>) => ({ result: await fn() }),
+  dedupeGeneration: vi.fn(async (_k: string, fn: () => Promise<unknown>) => ({ result: await fn() })),
 }));
 vi.mock("@/lib/kb-loader", () => ({
   loadKnowledgeBaseContext: vi.fn(async () => "KB"),
   latestRetrospectiveSeeds: vi.fn(async () => []),
 }));
 vi.mock("@/lib/physiology", () => ({
-  readPhysiology: vi.fn(async () => null),
+  readPhysiologyWithStatus: vi.fn(async () => ({
+    store: {
+      current: {
+        effectiveFrom: "2026-06-01",
+        capturedAt: "2026-06-01T00:00:00.000Z",
+        source: "intervals",
+        ftp: 280,
+        lthr: 165,
+        maxHr: 185,
+        powerZonePct: [55, 75, 90, 105, 120, 150],
+        hrZones: [130, 150, 165, 180],
+        hrZonesAreBpm: true,
+        powerZoneNames: [],
+        hrZoneNames: [],
+      },
+      history: [],
+    },
+    corruptFallback: false,
+    fileExisted: true,
+    liveCorrupt: false,
+  })),
   resolvePowerZones: vi.fn(() => []),
   resolveHrZones: vi.fn(() => []),
 }));
+vi.mock("@/lib/physiology-freshness", async (orig) => {
+  const actual = await orig<typeof import("@/lib/physiology-freshness")>();
+  return {
+    ...actual,
+    readPhysiologyStatus: vi.fn(async () => ({
+      status: {
+        lastAttemptAt: "2026-06-15T00:00:00.000Z",
+        lastOutcome: "confirmed",
+        lastConfirmedAt: "2026-06-15T00:00:00.000Z",
+      },
+      corruptFallback: false,
+      liveCorrupt: false,
+    })),
+    assessPhysiologyFreshnessFromReads: vi.fn(() => ({
+      state: "fresh",
+      confirmedAt: "2026-06-15T00:00:00.000Z",
+      effectiveFrom: "2026-06-01",
+    })),
+  };
+});
 vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(),
   readBlockHistory: vi.fn(),
@@ -71,6 +111,8 @@ vi.mock("@/lib/data-store", () => ({
 
 import * as store from "@/lib/data-store";
 import * as anthropic from "@/lib/anthropic-api";
+import * as genCache from "@/lib/generate-cache";
+import * as fresh from "@/lib/physiology-freshness";
 import { POST } from "@/app/api/generate/route";
 
 const profile = {
@@ -128,6 +170,36 @@ describe("POST /api/generate — season wiring with SEASON_SHAPES_GENERATION=tru
     expect(dynamic).toContain("spans 2 season periods");
     expect(dynamic).toContain("focus aerobic-base");
     expect(dynamic).toContain("focus threshold");
+  });
+
+  it.each([
+    ["missing", { state: "missing" }],
+    ["malformed", { state: "malformed", reason: "does not parse" }],
+    ["inconsistent", { state: "inconsistent", reason: "FTP -1 is not positive" }],
+    ["obsolete", { state: "obsolete", markedObsoleteAt: "2026-08-20T00:00:00.000Z" }],
+  ])("400 on %s physiology before any LLM spend", async (_name, freshnessState) => {
+    vi.mocked(fresh.assessPhysiologyFreshnessFromReads).mockReturnValueOnce(freshnessState as never);
+    const res = await genWithSeason();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/physiology/i);
+    expect(genCache.dedupeGeneration).not.toHaveBeenCalled();
+    expect(anthropic.generateTrainingBlock).not.toHaveBeenCalled();
+  });
+
+  it("generates through a temporary physiology sync failure with a visible warning", async () => {
+    vi.mocked(fresh.assessPhysiologyFreshnessFromReads).mockReturnValueOnce({
+      state: "sync-failed",
+      lastAttemptAt: "2026-06-15T00:00:00.000Z",
+      lastDetail: "timeout",
+      lastConfirmedAt: "2026-06-13T00:00:00.000Z",
+      lastConfirmedDate: "2026-06-13",
+    } as never);
+    const res = await genWithSeason();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.plan.warnings[0]).toContain("last confirmed 2026-06-13");
+    expect(genCache.dedupeGeneration).toHaveBeenCalledTimes(1);
+    expect(anthropic.generateTrainingBlock).toHaveBeenCalledTimes(1);
   });
 
   it("flags a Season fit PREFERENCE when a generated day's intensity disagrees with its period", async () => {

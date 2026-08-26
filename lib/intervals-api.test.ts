@@ -1,5 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createLibraryWorkout, fetchActivities, fetchIntervals, fetchWellness, findOrCreateWorkoutFolder, findRemoteLibraryWorkout, IntervalsApiError, isSuspectEmptySync, resolveAllTimeCurve } from "./intervals-api";
+import {
+  createLibraryWorkout,
+  fetchActivities,
+  fetchIntervals,
+  fetchSportSettings,
+  fetchWellness,
+  findOrCreateWorkoutFolder,
+  findRemoteLibraryWorkout,
+  IntervalsApiError,
+  isSuspectEmptySync,
+  resolveAllTimeCurve,
+} from "./intervals-api";
 import type { PowerCurvePoint, SyncData } from "./types";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -335,6 +346,53 @@ describe("intervals-api network failure handling (CR-B)", () => {
     ) as unknown as typeof fetch;
     const [a] = await fetchActivities("2026-06-01", "2026-06-23");
     expect(a.hrrc).toBeNull();
+  });
+});
+
+describe("fetchSportSettings outcomes", () => {
+  const realFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    process.env.INTERVALS_API_KEY = "test-key";
+    process.env.INTERVALS_ATHLETE_ID = "i1";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    delete process.env.INTERVALS_API_KEY;
+    delete process.env.INTERVALS_ATHLETE_ID;
+    vi.restoreAllMocks();
+  });
+
+  it("reports ok with a parsed snapshot", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      jsonResponse([{ types: ["Ride"], ftp: 300, lthr: 165, power_zones: [55, 75, 90, 105, 120, 150] }])
+    ) as unknown as typeof fetch;
+
+    const result = await fetchSportSettings("2026-08-23");
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.snapshot.ftp).toBe(300);
+  });
+
+  it("reports unavailable when the request throws", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed")) as unknown as typeof fetch;
+
+    const result = await fetchSportSettings("2026-08-23");
+
+    expect(result.status).toBe("unavailable");
+    if (result.status === "unavailable") expect(result.reason).toMatch(/fetch failed/i);
+  });
+
+  it("reports invalid when the response carries no usable FTP", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse([{ types: ["Ride"] }])) as unknown as typeof fetch;
+
+    const result = await fetchSportSettings("2026-08-23");
+
+    expect(result).toEqual({
+      status: "invalid",
+      reason: "sport settings contained no usable Ride FTP",
+    });
   });
 });
 

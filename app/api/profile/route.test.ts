@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const physiologyIo = vi.hoisted(() => ({
+  readResult: { store: null as unknown, corruptFallback: false, fileExisted: false, liveCorrupt: false },
+  statusResult: { status: {} as Record<string, unknown>, corruptFallback: false, liveCorrupt: false },
+}));
+
 // Route test for PUT /api/profile (destructive-route sweep, extends SUB-3). GET is a heavy read-only
 // composition (physiology + power-profile + nutrition trend) with no data-integrity risk and is left to
 // its own unit-tested modules — this focuses on the one write path onto athlete.json. The risk: PUT
@@ -23,16 +28,28 @@ vi.mock("@/lib/data-store", () => ({
   updateAthleteProfile: vi.fn(),
 }));
 vi.mock("@/lib/kb-loader", () => ({ parseAthleteMd: vi.fn(async () => ({ performanceData: {}, trainingZones: [] })) }));
-vi.mock("@/lib/physiology", () => ({
-  readPhysiology: vi.fn(async () => null),
-  resolveHrZones: vi.fn(() => []),
-  resolvePowerZones: vi.fn(() => []),
-}));
+vi.mock("@/lib/physiology", async (orig) => {
+  const actual = await orig<typeof import("@/lib/physiology")>();
+  return {
+    ...actual,
+    readPhysiology: vi.fn(async () => physiologyIo.readResult.store),
+    readPhysiologyWithStatus: vi.fn(async () => physiologyIo.readResult),
+    resolveHrZones: vi.fn(() => []),
+    resolvePowerZones: vi.fn(() => []),
+  };
+});
+vi.mock("@/lib/physiology-freshness", async (orig) => {
+  const actual = await orig<typeof import("@/lib/physiology-freshness")>();
+  return {
+    ...actual,
+    readPhysiologyStatus: vi.fn(async () => physiologyIo.statusResult),
+  };
+});
 
 import * as store from "@/lib/data-store";
 import { GET, PUT } from "@/app/api/profile/route";
 import { DEFAULT_NEAT_MULTIPLIER, NEAT_PLAUSIBLE_MAX, NEAT_PLAUSIBLE_MIN } from "@/lib/nutrition";
-import type { AthleteProfile, ActivitySummary, WellnessEntry, DayTypeNeat } from "@/lib/types";
+import type { AthleteProfile, ActivitySummary, DayTypeNeat, PhysiologySnapshot, WellnessEntry } from "@/lib/types";
 
 // The route never touches `neat` (it's calibrateNeat's output, adopted on sync — Phase 2), so every
 // fixture/expectation below carries this same value through untouched.
@@ -40,6 +57,20 @@ const defaultNeat = {
   multiplier: 1.2, confidence: "low" as const, source: "default" as const,
   windowDays: null, loggedDays: null, weighIns: null, solvedAt: null, imbalance: null, stale: false,
 };
+const mkPhysSnapshot = (over: Partial<PhysiologySnapshot> = {}): PhysiologySnapshot => ({
+  effectiveFrom: "2026-06-22",
+  capturedAt: "2026-06-22T08:00:00.000Z",
+  source: "intervals",
+  ftp: 260,
+  lthr: 165,
+  maxHr: 190,
+  powerZonePct: [55, 75, 90, 105, 120, 150],
+  hrZones: [120, 140, 155, 165, 175, 190],
+  hrZonesAreBpm: true,
+  powerZoneNames: [],
+  hrZoneNames: [],
+  ...over,
+});
 
 const base = (over: Partial<AthleteProfile> = {}): AthleteProfile => ({
   performance: { ftp: 250, maxHr: 180, thresholdHr: 165, weightKg: 70, weeklyHoursMin: 6, weeklyHoursMax: 10, dateOfBirth: null, heightCm: null, sex: null },
@@ -96,9 +127,51 @@ const seedCurrentProfile = (current: AthleteProfile) => {
 };
 const put = (body: unknown) => PUT(new Request("http://x/api/profile", { method: "PUT", body: JSON.stringify(body) }));
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  physiologyIo.readResult = { store: null, corruptFallback: false, fileExisted: false, liveCorrupt: false };
+  physiologyIo.statusResult = { status: {}, corruptFallback: false, liveCorrupt: false };
+});
 
 describe("GET /api/profile — RMR floor transparency", () => {
+  it("exposes the assessed physiology freshness verdict alongside ftpStaleDays", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-22T12:00:00.000Z"));
+    try {
+      (store.readAthleteProfile as ReturnType<typeof vi.fn>).mockResolvedValue(base());
+      (store.readLastSync as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      physiologyIo.readResult = {
+        store: { current: mkPhysSnapshot(), history: [] },
+        corruptFallback: false,
+        fileExisted: true,
+        liveCorrupt: false,
+      };
+      physiologyIo.statusResult = {
+        status: {
+          lastAttemptAt: "2026-06-22T09:15:00.000Z",
+          lastAttemptDate: "2026-06-22",
+          lastOutcome: "confirmed",
+          lastConfirmedAt: "2026-06-22T09:15:00.000Z",
+          lastConfirmedDate: "2026-06-22",
+        },
+        corruptFallback: false,
+        liveCorrupt: false,
+      };
+
+      const json = await (await GET()).json();
+
+      expect(json.physiologyFreshness).toEqual({
+        state: "fresh",
+        confirmedAt: "2026-06-22T09:15:00.000Z",
+        confirmedDate: "2026-06-22",
+        effectiveFrom: "2026-06-22",
+      });
+      expect(json.ftpStaleDays).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns the authoritative floored target instead of duplicated UI arithmetic", async () => {
     const derived = {
       ...defaultNeat, multiplier: 1.2, source: "derived" as const, confidence: "high" as const,
