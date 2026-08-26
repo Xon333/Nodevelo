@@ -125,10 +125,10 @@ instantly (bit us once, 2026-08-05 — see `AGENTS.md` § Parallel agent integra
 | Skill | Use when |
 |---|---|
 | `/whats-next` | "What should we work on?" — reads ROADMAP + todo, ranks by leverage, can split across two sessions |
+| `/agent-orchestration` | Run independent tasks concurrently or execute a written plan with delegated reviews |
 | `/diagnosing-bugs` | A bug is broken, failing, or slow — establish a tight reproduction before theorising |
 | `/tdd` | Implement a feature or bug fix in red → green vertical slices |
-| `/code-review` | Review a branch or PR against both repository standards and its originating spec |
-| `/hostile-review` | The "senior dev who hates this implementation" review → assigns IDs → routes into todo.md |
+| `/code-review` | Review a branch or PR against standards/spec, run a skeptical defect hunt, or evaluate review feedback |
 | `/docs-sweep` | README/ROADMAP/ARCHIVE/todo have drifted or need restructuring |
 | `/triage-audit` | You pasted a big external AI review/audit and want it ground-truthed before acting on it |
 | `/handoff` | Wrapping up, or the session's getting long — hand off cleanly instead of losing state to a limit |

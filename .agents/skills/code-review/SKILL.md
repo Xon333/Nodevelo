@@ -1,9 +1,20 @@
 ---
 name: code-review
-description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+description: "Use when reviewing a branch, PR, work-in-progress diff, received review feedback, or a change that needs a skeptical defect hunt or pre-merge review."
 ---
 
-Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
+# Code Review
+
+Choose the mode from the request:
+
+- **Two-axis** (default): compare a diff with repository standards and its originating spec.
+- **Skeptical**: hunt production failures and edge cases, then optionally route findings into `todo.md`.
+- **Request**: dispatch an independent reviewer before continuing or merging.
+- **Feedback**: verify received comments against codebase reality before implementing them.
+
+## Two-axis mode
+
+Review the diff between `HEAD` and a fixed point the user supplies:
 
 - **Standards**: does the code conform to this repo's documented coding standards?
 - **Spec**: does the code faithfully implement the originating issue / spec?
@@ -85,3 +96,31 @@ A change can pass one axis and fail the other:
 - Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
 
 Reporting them separately stops one axis from masking the other.
+
+## Skeptical mode
+
+Use the two-axis process at high review effort, with additional attention to correctness, data loss,
+security, concurrency, migrations, date boundaries, stale pointers, and failures hidden by green unit
+tests. Report defects first with exact file references and reproduction evidence where available.
+
+When the user asks to create a backlog:
+
+1. Assign stable IDs. Append to an existing series instead of renumbering it.
+2. Write every accepted finding into `todo.md` using the repository's house format.
+3. Recount review findings and backlog entries; the counts must match.
+4. Propose a burn-down order with correctness and data-loss risks first.
+
+## Request mode
+
+Pin the base and head SHAs, then dispatch an independent reviewer with the change summary,
+requirements, diff range, and repository instructions. Review early after an independently testable
+task and once across the complete branch before integration. Inspect the returned evidence yourself;
+fix substantive findings and re-review the changed head.
+
+## Feedback mode
+
+Read all feedback, restate any unclear requirement, and verify each suggestion against the current
+code, tests, supported platforms, and recorded decisions. Implement accepted items one at a time with
+focused verification. Push back with technical evidence when a suggestion is incorrect, breaks an
+invariant, or adds unused scope. Resolve ambiguous or conflicting feedback with the user before making
+partial changes.
