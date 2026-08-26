@@ -13,12 +13,6 @@
       "skillPath": "skills/engineering/ask-matt/SKILL.md",
       "computedHash": "0cd14026efa0330083cbc7adf590976c162b60e02f696a8dcce96f0b4dab8a72"
     },
-    "best-practices": {
-      "source": "addyosmani/web-quality-skills",
-      "sourceType": "github",
-      "skillPath": "skills/best-practices/SKILL.md",
-      "computedHash": "2de17c9838c439f6ed12b9963d303e058cd46f1ba0c2700814fe4762e0e307b9"
-    },
     "claude-handoff": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -36,12 +30,6 @@
       "sourceType": "github",
       "skillPath": "skills/engineering/codebase-design/SKILL.md",
       "computedHash": "5a17552cc1482f1a40124bf4e6c9dbd90ac0dbb47e71c07d47369f9e5f2ae3b5"
-    },
-    "core-web-vitals": {
-      "source": "addyosmani/web-quality-skills",
-      "sourceType": "github",
-      "skillPath": "skills/core-web-vitals/SKILL.md",
-      "computedHash": "8e55888cc177e994e2cbfa0ee0a277e1273c6d43c8cf7649165f9e2f39489a48"
     },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",

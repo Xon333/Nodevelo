@@ -66,7 +66,7 @@ Deep performance optimization based on Lighthouse performance audits. Focuses on
 }
 </script>
 ```
-`moderate` triggers after a ~200ms hover — usually intent-correlated, rarely wasted. See [core-web-vitals → LCP](../core-web-vitals/SKILL.md#lcp-largest-contentful-paint) for the full discussion of eagerness tradeoffs and the `prerenderingchange` gating you'll need for analytics.
+`moderate` triggers after a ~200ms hover — usually intent-correlated, rarely wasted. The umbrella [web quality audit](../web-quality-audit/SKILL.md) owns Core Web Vitals thresholds and cross-category prioritization.
 
 **Defer non-critical CSS:**
 ```html
@@ -397,4 +397,4 @@ onCLS(console.log);
 
 ## References
 
-For Core Web Vitals specific optimizations, see [Core Web Vitals](../core-web-vitals/SKILL.md).
+For Core Web Vitals thresholds and cross-category prioritization, see the [web quality audit](../web-quality-audit/SKILL.md).
