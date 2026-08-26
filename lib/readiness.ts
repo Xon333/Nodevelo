@@ -172,7 +172,7 @@ export function computeLoadRamp(
       thisWeekTss,
       lastWeekTss,
       changePct,
-      reason: `Load jumped ${changePct}% over the previous 7 days (${thisWeekTss} vs ${lastWeekTss} TSS) — well past the ~10% safe ramp. High overreach/injury risk; ease the next day or two.`,
+      reason: `Load jumped ${changePct}% over the previous 7 days (${thisWeekTss} vs ${lastWeekTss} TSS) — well past the ~10% weekly step conventional planning heuristics suggest. Consider easing the next day or two.`,
     };
   }
   if (changePct > 10) {

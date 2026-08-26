@@ -93,7 +93,7 @@ export function ReadinessAlerts({
             <span className="font-semibold">Load ramp — </span>{loadRamp.reason}
           </p>
           <span className="ml-auto shrink-0 self-start text-xs opacity-40">ⓘ</span>
-          <MetricTip id={`${tipId}-ramp`} text="Flags when this week's training load jumps well above last week's — a common injury-risk signal." />
+          <MetricTip id={`${tipId}-ramp`} text="Flags when this week's training load jumps well above last week's — rapid ramps are a common overreaching signal in population training data." />
         </div>
       )}
     </div>
@@ -681,7 +681,7 @@ export function RecentDataSummary({
                 already the value shown beside this label, so it isn't repeated here. */}
             <MetricTip
               id={`${tipId}-acwr`}
-              text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Sweet spot is 0.8–1.3; below that you're detraining, above 1.5 is a spike with raised injury risk.`}
+              text={`Acute:chronic workload ratio — your last 7 days of load (${acwr.acute} TSS/day) vs the last 28 (${acwr.chronic} TSS/day). Population data suggests 0.8–1.3; below that tends to come with detraining, above 1.5 is conventionally treated as a load spike.`}
             />
           </p>
           <p className="mt-0.5 font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-100">

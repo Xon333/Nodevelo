@@ -77,6 +77,17 @@ describe("computeLoadRamp", () => {
     expect(r.changePct).toBe(100);
   });
 
+  it("frames the ramp alert as a heuristic, never an individualized injury forecast", () => {
+    const activities = [
+      { date: daysAgo(2), trainingLoad: 400 },
+      { date: daysAgo(9), trainingLoad: 200 },
+    ];
+    const ramp = computeLoadRamp(activities);
+
+    expect(ramp.reason).toMatch(/conventional/i);
+    expect(ramp.reason).not.toMatch(/injur/i);
+  });
+
   it("ignores activities with null training load", () => {
     const activities = [
       { date: daysAgo(1), trainingLoad: null },
