@@ -6,13 +6,12 @@ import {
   buildAthleteDataSection,
   buildSystemPrompt,
   buildUserMessage,
-  critiqueOverview,
   generateTrainingBlock,
   GENERATION_MODEL,
   isAnthropicConfigured,
   PROMPT_VERSION,
 } from "@/lib/anthropic-api";
-import { extractBlockFacts } from "@/lib/narrative-critic";
+import { checkOverviewAgainstFacts, extractBlockFacts } from "@/lib/overview-check";
 import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readIntentOverlays, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, saveGenerationVerdict, updateSeasonPlan } from "@/lib/data-store";
 import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
 import { formatReflectionsForPrompt, latestApprovedReflections } from "@/lib/retrospective-schema";
@@ -523,24 +522,15 @@ export async function POST(req: Request) {
     warnings.push(...nutritionRepair.repairs);
     warnings.push(...gate.advisories);
 
-    // Narrative-coherence critic (P3c, 2026-07-24): a cheap follow-up check that the written overview
-    // actually matches the generated schedule (the "escalate SIT" contradiction the reviewed block
-    // shipped, and the "4-hour ride" mis-description a live smoke test caught) — only ever corrects
-    // the overview string, never the schedule. Skipped for a truncated/incomplete block: there's
-    // already a bigger, known problem to fix first. Best-effort — never blocks the response.
-    let finalOverview = overview;
+    // Overview checks are warnings only and run only when the schedule is complete enough to compare.
     if (!truncated && days.length === expected.length) {
-      const critic = await critiqueOverview(overview, extractBlockFacts(days, weekTargets));
-      if (critic && !critic.accurate) {
-        finalOverview = critic.overview;
-        warnings.push("Overview auto-corrected: the written summary didn't match the generated schedule.");
-      }
+      warnings.push(...checkOverviewAgainstFacts(overview, extractBlockFacts(days, weekTargets)));
     }
 
     // Audit trail: store the structured tool JSON when present, else the raw text.
     const rawForAudit = toolInput != null ? JSON.stringify(toolInput, null, 2) : raw;
     const plan: GeneratedPlan = {
-      overview: finalOverview,
+      overview,
       days,
       warnings,
       // Publication-gate findings stamped sparse (absent entirely on a fully clean plan —
