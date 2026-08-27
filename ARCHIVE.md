@@ -47,12 +47,27 @@ whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment
   (schemaVersion 2, scoringVersion 2) scoring **9/10** from four separate `segment` objectives
   matching Rolling Terrain 1 / Flat 1 / Flat 2 / Short Effort, with segment evidence watts
    238/263, 220, 190/214, and 285/309 — the 220 W evidence marked precise (fully compliant per
-   component under shipped semantics: Flat 1's duration inside its 45–60m range and its 220 W average
-   watts inside its stated Z3) and zero whole-ride
+  component under shipped semantics: Flat 1's duration inside its 45–60m range and its 220 W average
+  watts inside its stated Z3) and zero whole-ride
   "min in Z" evidence strings. The ride resolved **`Recovery`**, not `Rest`: the live purpose
   paraphrase contained "Z2 recovery flat", which matches a designed purpose-pattern precedence —
   this is intended behavior, not a misclassification. Genuinely whole-ride zone objectives are
   unchanged.
+
+## Adversarial-review trust-contract closeout (2026-08-20 → 2026-08-27)
+
+The accepted [adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md)
+remains the freeze's master decision record. The following implementation risks are now closed in
+code; prospective effectiveness evidence remains open in ROADMAP FR-1.
+
+| Review decision/risk | Shipped resolution |
+|---|---|
+| [Calendar/local divergence](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#calendar-and-persistence-integrity) | PR #87 commits local state before best-effort calendar mirroring and preserves CAS conflicts. |
+| [Unsafe retrospective progression and self-reinforcing AI lessons](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#retrospective-and-turnover) | PRs #92/#94 separate deterministic closeout facts, optional AI prose, and explicitly adopted future seeds/reflections. |
+| [Named-segment false credit](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#named-segments-and-intent-parsing) | PR #95 makes the authoritative labelled lane deterministic and scored from matched interval evidence; the simpler adjacent-zone grading contract remains an explicit deferred decision. |
+| [Publishable structural/safety hazards](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#plan-safety-and-claudes-authority) | PR #97 adds the persisted publication gate: blockers refuse, preferences require acknowledgment, advisories remain informational. |
+| [Silent stale physiology](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#intervalsicu-ownership-privacy-and-recovery) | PR #101 exposes freshness, permits temporary sync failure with last-valid data, and blocks missing, malformed, inconsistent, or obsolete physiology. |
+| [Causal claims, redundant AI criticism, Ask Coach, and privacy ambiguity](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#disable-remove-or-rewrite) | PR #103 removes causal/injury-risk product claims and Ask Coach, replaces the narrative critic with deterministic overview checks, labels retained AI prose, and separates local persistence from remote Anthropic processing. |
 
 ---
 
