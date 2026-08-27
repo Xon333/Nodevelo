@@ -11,7 +11,6 @@ import type { CurrentBlock, NoBlockSummary, SyncData, TodayAnalysis } from "@/li
 const h = vi.hoisted(() => ({ useSync: vi.fn(), localToday: vi.fn() }));
 
 vi.mock("../SyncProvider", () => ({ useSync: h.useSync }));
-vi.mock("../AskCoach", () => ({ default: () => null }));
 vi.mock("../AthleteStateCard", () => ({ default: () => null }));
 vi.mock("../LoadingPrompt", () => ({ default: () => null }));
 vi.mock("../MorningCheckIn", () => ({ default: () => null }));

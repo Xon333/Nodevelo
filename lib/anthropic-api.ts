@@ -1,5 +1,5 @@
-// Anthropic API client + call layer for training-block generation, ride analysis, retrospectives and
-// ask-coach. Prompt assembly lives in ./anthropic-prompts (pure, unit-testable); this file is the thin
+// Anthropic API client + call layer for training-block generation, ride analysis, and retrospectives.
+// Prompt assembly lives in ./anthropic-prompts (pure, unit-testable); this file is the thin
 // shell over the SDK that sends those prompts and parses the responses (RV-8 split). The prompt builders
 // and their input types are re-exported below so callers can keep importing them from "@/lib/anthropic-api".
 import Anthropic from "@anthropic-ai/sdk";
@@ -11,11 +11,9 @@ import { RETROSPECTIVE_TOOL, RetrospectiveToolSchema } from "./retrospective-sch
 import { buildNarrativeCriticPrompt, NARRATIVE_CRITIC_TOOL, parseNarrativeCriticOutput, type NarrativeCriticOutput, type WeekFacts } from "./narrative-critic";
 import { recordUsage } from "./ai-usage";
 import {
-  buildAskCoachPrompt,
   buildRideAnalysisPrompt,
   buildRetrospectivePrompt,
   buildStructuredRetrospectivePrompt,
-  type AskCoachContext,
   type ReflectionInterventionInput,
   type RetrospectiveInput,
   type RideAnalysisInput,
@@ -30,8 +28,8 @@ export {
   buildUserMessage,
   buildRideAnalysisInput,
 } from "./anthropic-prompts";
-export { buildAskCoachPrompt, buildRideAnalysisPrompt, buildRetrospectivePrompt, buildStructuredRetrospectivePrompt };
-export type { AskCoachContext, ReflectionInterventionInput, RetrospectiveInput, RideAnalysisInput };
+export { buildRideAnalysisPrompt, buildRetrospectivePrompt, buildStructuredRetrospectivePrompt };
+export type { ReflectionInterventionInput, RetrospectiveInput, RideAnalysisInput };
 
 // Non-negotiable: in-app generation always uses claude-sonnet-4-6.
 export const GENERATION_MODEL = "claude-sonnet-4-6";
@@ -39,8 +37,7 @@ export const GENERATION_MODEL = "claude-sonnet-4-6";
 // id) onto every AI-produced artifact — GeneratedPlan, TodayAnalysis, BlockHistoryEntry — so a past
 // output stays reproducible/auditable when the model or prompt later changes.
 export const PROMPT_VERSION = 9; // 8→9: ride prose receives authoritative deterministic intent score/evidence
-// Cheap, fast model for the low-token "ask coach" spot-checks — these inject only today's
-// session + the question, never deep history, so a small model is the right cost/latency call.
+// Cheap, fast model for the low-token narrative critic.
 export const QUICK_MODEL = "claude-haiku-4-5";
 const TEMPERATURE = 0.3;
 
@@ -72,7 +69,7 @@ function getClient(): Anthropic {
 }
 
 // Concatenate the text blocks of a response into the trimmed reply. Shared by the prose calls
-// (ride analysis / retrospective / ask-coach) so the extraction isn't copy-pasted four times.
+// (ride analysis / retrospective) so the extraction isn't copy-pasted.
 function textOf(response: Anthropic.Message): string {
   return response.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -91,7 +88,7 @@ export interface GenerationResult {
 // NV-8 (2026-08-15): the prose-completion counterpart to GenerationResult above — analyseRide used to
 // return a bare string, discarding stop_reason entirely, so a token-limit cutoff mid-sentence was
 // indistinguishable from a genuinely finished note. Scoped to analyseRide only (the audit's exact
-// finding); the other prose calls sharing textOf() (retrospective, ask-coach) are untouched.
+// finding); the retrospective call sharing textOf() is untouched.
 export interface ProseResult {
   text: string;
   truncated: boolean;
@@ -245,40 +242,4 @@ export async function generateTrainingBlock(
     truncated: response.stop_reason === "max_tokens",
     stopReason: response.stop_reason,
   };
-}
-
-// ---------- Low-token "ask coach" spot-checks ----------
-
-export async function askCoach(ctx: AskCoachContext, query: string): Promise<string> {
-  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
-  const client = getClient();
-  const response = await client.messages.create({
-    model: QUICK_MODEL,
-    max_tokens: 320,
-    temperature: 0.4,
-    messages: [{ role: "user", content: buildAskCoachPrompt(ctx, query) }],
-  });
-  void recordUsage(QUICK_MODEL, response.usage); // fire-and-forget telemetry
-  return textOf(response);
-}
-
-// Streaming variant: yields text deltas as they arrive so the UI can render the reply
-// progressively instead of waiting for the whole message. Usage telemetry is recorded from the
-// final message once the stream completes.
-export async function* streamAskCoach(ctx: AskCoachContext, query: string): AsyncGenerator<string> {
-  if (!isAnthropicConfigured()) throw new Error("Anthropic API is not configured.");
-  const client = getClient();
-  const stream = client.messages.stream({
-    model: QUICK_MODEL,
-    max_tokens: 320,
-    temperature: 0.4,
-    messages: [{ role: "user", content: buildAskCoachPrompt(ctx, query) }],
-  });
-  for await (const event of stream) {
-    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-      yield event.delta.text;
-    }
-  }
-  const final = await stream.finalMessage();
-  void recordUsage(QUICK_MODEL, final.usage); // fire-and-forget telemetry
 }

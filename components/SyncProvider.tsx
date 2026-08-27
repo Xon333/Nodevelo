@@ -138,8 +138,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   // UXA-6: a ref-based re-entrancy guard, not just the `analyzing` state — a double-click races two
   // calls before the first setAnalyzing(true) has re-rendered; coach-note generation is billed and
-  // deterministic intent evaluation still must not race it. Mirrors
-  // AskCoach's own self-guard, which already gets this right independent of its button's disabled prop.
+  // deterministic intent evaluation still must not race it.
   const analyzingRef = useRef(false);
 
   // Deferred AI work. Shared by the post-sync auto-run (force=false, idempotent) and the manual

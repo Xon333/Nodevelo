@@ -202,7 +202,7 @@ export async function POST(req: Request) {
 
     // Signal fusion (§5): hand the generator the one fused-state read so the block respects current
     // systemic state, not just per-dimension execution history.
-    // Form/fuel/state signals via the shared resolver, so generation + Ask-Coach can't drift (CR-9);
+    // Form/fuel/state signals via the shared resolver, so generation + Today can't drift (CR-9);
     // the resolver owns the band resolution (RR-5).
     const signals = resolveCoachSignals(
       sync,
@@ -222,8 +222,8 @@ export async function POST(req: Request) {
       ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${signals.athleteState.headline} — state ${signals.athleteState.score}/100, recommendation: ${signals.athleteState.recommendation}.`
       : "";
 
-    // Shared CoachSnapshot (ROADMAP #1): hand the planner the same resolved form + fuel numbers
-    // Ask-Coach reads, so it can't invent current TSB/ACWR/readiness/fuel. State + directives are
+    // Shared CoachSnapshot (ROADMAP #1): hand the planner the resolved form + fuel numbers
+    // Today displays, so it can't invent current TSB/ACWR/readiness/fuel. State + directives are
     // already injected above; this adds only the compact resolved form/fuel line (today's single-ride
     // execution is intentionally omitted — generation plans forward).
     const snapshot = buildCoachSnapshot({
