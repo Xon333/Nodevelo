@@ -13,7 +13,7 @@ import type { TrendsData } from "./trends/types";
 // STANDING GUIDANCE (UX v2 §6 Model): the directives' sole owner, rendered from their structured
 // source (ranked insights + per-dimension validation — the same inputs lib/synthesis.ts folds into
 // the generator's directive block) instead of the synthesized text blob. One line per directive,
-// evidence behind "why", validation ✓ where earned, proven-poor nudges flagged by the same demote
+// evidence behind "why", validation ✓ where earned, demoted nudges flagged by the same demote
 // rule the generator applies. Reuses the /api/trends query key → shared cache with the Trends page.
 export default function StandingGuidance() {
   const { state } = useSync();
@@ -29,7 +29,7 @@ export default function StandingGuidance() {
     acc && (acc.hitRatePct !== null || acc.pending > 0) ? (
       acc.hitRatePct !== null ? (
         <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-          {acc.hitRatePct}% right ({acc.evaluated} checked)
+          {acc.evaluated} evaluated · {acc.pending} pending
         </span>
       ) : (
         <span className="text-[11px] text-zinc-500 dark:text-zinc-400">accruing · {acc.pending} pending</span>
@@ -52,7 +52,7 @@ export default function StandingGuidance() {
     );
   } else {
     // Group by dimension, preserving the overall severity ranking; the dimension's matured track
-    // record annotates its header (✓ where earned, proven-poor per the generator's demote rule).
+    // record annotates its header (✓ where earned, demoted per the generator's demote rule).
     const groups = new Map<string, Insight[]>();
     for (const ins of data.insights) {
       const g = groups.get(ins.dimension);
@@ -76,18 +76,22 @@ export default function StandingGuidance() {
                 {dimension}
                 {t?.hitRate != null && !demoted && (
                   <span
-                    title={`Acting on matured ${dimension} nudges proved right ${Math.round(t.hitRate * 100)}% of the time (${decisive} decisive).`}
-                    className="font-mono font-normal normal-case text-emerald-600 dark:text-emerald-400"
+                    title={`Matured ${dimension} directives so far: ${t.validated} validated, ${t.refuted} refuted (${decisive} decisive evaluations).`}
+                    className={`font-mono font-normal normal-case ${
+                      t.validated >= t.refuted
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-amber-700 dark:text-amber-400"
+                    }`}
                   >
-                    ✓ {Math.round(t.hitRate * 100)}%
+                    ✓ {t.validated}/{decisive}
                   </span>
                 )}
                 {demoted && (
                   <span
-                    title={`Past ${dimension} nudges worked only ${Math.round((t!.hitRate as number) * 100)}% across ${decisive} decisive blocks — the evidence stands; the coach reaches for a different lever.`}
+                    title={`Past ${dimension} directives: ${t!.validated} of ${decisive} decisive evaluations validated — the evidence stands; the coach reaches for a different lever.`}
                     className="rounded bg-amber-50 px-1.5 font-normal normal-case text-amber-700 dark:bg-amber-950/50 dark:text-amber-400"
                   >
-                    proven-poor lever
+                    demoted lever
                   </span>
                 )}
               </p>

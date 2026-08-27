@@ -190,7 +190,7 @@ export async function GET(req: Request) {
     loadRamp,
     acwr
   );
-  // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/ask, so the
+  // The resolved-numbers snapshot the LLM is handed (ROADMAP #1) — same builder as /api/generate, so the
   // Today card shows the exact figures the coach reasons from (FTP off the physiology SoT).
   const latestWeightKgForEnergy =
     (lastSync?.wellness ?? [])
@@ -1081,7 +1081,7 @@ export async function POST(req: Request) {
       resolveAthleteStateWeights((await readBlockSettings()).athleteStateWeights)
     );
     // Rebuild the CoachSnapshot on the fresh data so the Today card updates after a sync without a
-    // second round-trip (same builder as the GET + /api/ask — the athlete sees the LLM's numbers).
+    // second round-trip (same builder as the GET + /api/generate — the athlete sees the LLM's numbers).
     const [blockForSnap, interventionLogForSnap, profileForSnap, settingsForSnap, baselinesForSnap] = await Promise.all([
       readCurrentBlock(),
       readInterventionLog(),

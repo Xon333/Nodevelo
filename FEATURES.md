@@ -82,21 +82,25 @@ AI — and the AI only ever phrases numbers the code already computed.
   (A pure accumulation … E mixed density), picked limiter-driven from the athlete model else rotated,
   and stamped on the block. KB §12 + `lib/durability.ts`
 - **KB-grounded protocol validation** — every generated workout checked against KB interval bands
-  (SIT 4–6×20–30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); drift surfaces as a warning.
+  (SIT 4–6×20–30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); protocol breaches block publication.
   `lib/workout-validate.ts`
 - **Schedule-placement validation** — flags back-to-back hard days, any week over the quality budget,
   a capped/no-quality taper window ahead of a priority-B/C event (`validateEventTaper`), and
   freshness-dependent quality (VO2max/SIT) landing later in the week than fatigue-tolerant quality
-  (Threshold/RaceSim) (`validateWeekSequencing`). `lib/schedule-validate.ts`
+  (Threshold/RaceSim) (`validateWeekSequencing`); the publication gate classifies each emitter's
+  findings as blockers, preferences, or advisories. `lib/schedule-validate.ts`, `lib/publication-gate.ts`
 - **Nutrition auto-repair** — a generated day's kcal figure is checked against the deterministic
   formula; a mismatch is auto-corrected (not just warned), with a visible `repairs` note.
   `lib/nutrition-validate.ts`
-- **Narrative-coherence critic** — a cheap follow-up call fact-checks the written block overview
-  against deterministically-extracted per-week facts and rewrites it on disagreement; never touches
-  the schedule itself. `lib/narrative-critic.ts`, `lib/anthropic-api.ts: critiqueOverview`
+- **Deterministic overview check** — compares the written block overview with extracted per-week
+  facts and adds warnings for contradictions; it never rewrites prose or the schedule.
+  `lib/overview-check.ts`
 - **Execution cues** — each day can carry one KB-/weakpoint-grounded pacing or technique cue.
-- **Preview → write** — `PlanPreview` shows every day before anything is written; `POST /api/write`
-  posts to the Intervals.icu calendar and freezes the block (with the FTP used). `app/api/write`
+- **Preview → publication gate → write** — `PlanPreview` shows every day plus blockers,
+  preferences requiring acknowledgment, and the existing "Notes — for your awareness" warnings. `POST /api/write`
+  refuses blockers or an unknown persisted verdict before any write; accepted plans post to the
+  Intervals.icu calendar and freeze the block (with the FTP used). `lib/publication-gate.ts`,
+  `app/api/write`
 - **Generation dedupe** — a double-click / repeat request in a short window shares one Claude call.
   `lib/generate-cache.ts`
 
@@ -164,10 +168,6 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Power-PR trophy** — a new best vs the previous sync's curve is called out (banner + coach note). `lib/pr.ts`
 - **Session disposition** — attribute a ride completed/partial/compromised; only *compromised* changes scoring.
 - **Coach note** — AI 2–3 sentence narrative of today vs plan; re-analysable. `app/api/analyze`
-- **Ask-Coach** — a low-token spot-check that reads the resolved **CoachSnapshot** (block, today's
-  execution, form + TSB modifier, fuel, directives, the morning check, and the disposition guard).
-  `app/api/ask`, `lib/coach-snapshot.ts`
-
 ## Coaching intelligence & learning
 - **Immutable execution ledger** — every ride scored 1–10 once, frozen against that day's FTP.
   `lib/execution-score.ts`, `lib/score-log.ts`
@@ -178,8 +178,8 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Coaching directives + validation loop** — insights synthesised into one directive block for
   generation, snapshotted at write, then validated/refuted after a 28-day horizon. `lib/synthesis.ts`, `lib/intervention.ts`
 - **CoachSnapshot (#1)** — one deterministic resolved-numbers bundle (today execution · form + TSB-as-
-  actionable-modifier · fuel · fused state · directives · disposition · morning check) read by Ask-Coach
-  and generation, so the LLM can't invent numbers. `lib/coach-snapshot.ts`
+  actionable-modifier · fuel · fused state · directives · disposition · morning check) shared by
+  Today and generation, so the LLM can't invent numbers. `lib/coach-snapshot.ts`
 - **Per-athlete calibration (partial)** — sample-tiered EWMA α plus confidence-gated deep-fatigue,
   decoupling, endurance-carb, and per-type IF values. ACWR, the remaining TSB edges, durability, and
   athlete-state weights keep population defaults with manual overrides. `lib/calibration.ts`
@@ -191,8 +191,8 @@ Three stacked groups, reading order matching how the athlete actually asks:
 - **LEARNED** — one calibration card per learned value: number · provenance ("learned · N rides") ·
   confidence tier · override/contest inline with a "use learned value" escape.
 - **STANDING GUIDANCE** — directives grouped by dimension, evidence behind "why ▸", validation ✓
-  marks where earned; the group header also carries **coach accuracy** — how often matured
-  directives proved right (moved here from Today's retired Trend Pulse tile).
+  marks where earned; the group header also carries the **validation track record — validated/refuted
+  counts per dimension** (moved here from Today's retired Trend Pulse tile).
 Effort bands live on Profile; long-form metric explanations live here. `app/model/page.tsx`, `components/StandingGuidance.tsx`
 
 ## Adaptive scheduling

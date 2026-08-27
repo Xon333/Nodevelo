@@ -21,8 +21,8 @@ Five design decisions define the whole app — everything else follows from them
    coaching judgement on top — analysis, learning, generation — and defers to Intervals.icu as the
    source of truth for physiology.
 2. **Deterministic core, generative shell.** All the math — scoring, zones, load, nutrition,
-   readiness — is plain, unit-tested TypeScript. The LLM only does language: it phrases plans and
-   analysis from numbers the code already computed. **The AI never owns arithmetic or physiological
+   readiness — is plain, unit-tested TypeScript. Claude drafts sessions and prose inside numeric
+   limits the engines define and validators check. **The AI never owns arithmetic or physiological
    limits**, so it cannot hallucinate your FTP or invent a calorie target.
 3. **Two kinds of memory, treated oppositely.** *Owned intent* (goals, weak points, notes — what
    only you know) is hand-written and never recomputed. *Synced physiology* (FTP, zones, weight,
@@ -40,7 +40,7 @@ The full rationale behind these (and five more standing decisions) lives in
 
 ## How it works — one loop
 
-**Rides sync in → every ride is scored into an immutable ledger → the ledger teaches a per-athlete model → the season engine picks the next focus → Claude writes the training block (the plan) inside hard numeric constraints → validators check it → you accept → calendar events land on Intervals.icu → repeat.** The canonical diagram of this loop lives at the top of [docs/COMPASS.md](docs/COMPASS.md#the-mental-model-60-seconds).
+**Rides sync in → every ride is scored into an immutable ledger → the ledger teaches a per-athlete model → the season engine picks the next focus → Claude drafts the block's sessions and prose inside numeric limits the engines define and validators check → you accept → calendar events land on Intervals.icu → repeat.** The canonical diagram of this loop lives at the top of [docs/COMPASS.md](docs/COMPASS.md#the-mental-model-60-seconds).
 
 Each stage is one numbered doc in [docs/systems/](docs/systems/) — read them in order
 (`01-sync-and-data` → `06-generation`, plus cross-cutting `07-ai-layer` and `08-frontend`) and you
@@ -85,6 +85,16 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 > **Stack note.** Next.js 16 (App Router) / React 19 / TypeScript / Tailwind v4 — conventions
 > differ from older Next.js. See [AGENTS.md](AGENTS.md) and the bundled guides in
 > `node_modules/next/dist/docs/` before changing routing or server/client boundaries.
+
+## Data & privacy
+
+- **Stored locally.** Scores, plans, notes, settings, and the knowledge base live as JSON and
+  markdown files on this machine. There is no cloud database; backups are exported files.
+- **Processed remotely by Anthropic.** The four remote call categories are block generation, the
+  ride-analysis coach note, prose retrospectives, and structured retrospectives. Per-call spend is
+  tracked under AI usage & cost. Intent parsing is deterministic and does not contact Anthropic.
+- **Everything else.** Scoring, nutrition, readiness, scheduling, and backup run without Anthropic.
+  Intervals.icu is a one-way pull and the system of record; accepted plans mirror to its calendar.
 
 ## Development
 

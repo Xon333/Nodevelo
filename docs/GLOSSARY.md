@@ -53,7 +53,7 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 | **Ledger** | The append-only `RideScoreEntry[]` in `data/score-log.json`. Past entries are frozen with provenance stamps — see [02-scoring](systems/02-scoring-and-learning.md); only today keeps re-deriving. |
 | **Athlete model** | Slow-moving learned model from the whole ledger (`lib/athlete-model.ts`): per-type EWMA execution quality, trends, behaviour → ranked `Insight[]`. |
 | **Athlete state** | Fast "right now" 0–100 fused score (`lib/athlete-state.ts`): TSB + ACWR + execution EWMA + aerobic efficiency + behaviour, with a lived-signal override that caps a fresh-looking score when corroborated fatigue contradicts it. Spec: [specs/athlete-state.md](specs/athlete-state.md). |
-| **Coach snapshot** | The one resolved-numbers bundle (`lib/coach-snapshot.ts`) every LLM surface reads, so Ask-Coach and generation can't disagree and the model never invents a number. |
+| **Coach snapshot** | The one resolved-numbers bundle (`lib/coach-snapshot.ts`) every LLM surface reads, so Today and generation can't disagree and the model never invents a number. |
 | **Calibration** | Per-athlete parameter derivation (`lib/calibration.ts`): population default until the ledger *discriminates* (derived value must separate failures from successes by a margin); manual override always wins. |
 | **Intervention** | An insight-driven directive whose effect is measured after a 28-day horizon (`lib/intervention.ts`): validated / refuted / inconclusive → a coaching hit-rate that can demote repeat-failing directives. |
 | **Disposition** | Post-hoc self-attribution of a session (completed/partial/missed/**compromised**); only "compromised" changes what teaches the model. |

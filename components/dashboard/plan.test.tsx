@@ -81,10 +81,12 @@ describe("RetroSection — degraded (Claude-free) closeouts", () => {
     render(<RetroSection block={null} generating={false} result={retroResult(null)} error={null} onGenerate={() => {}} />);
     expect(screen.getByText(/Closed deterministically/i)).toBeTruthy();
     expect(screen.getByText(/evidence supports progressing/i)).toBeTruthy();
+    expect(screen.queryByText("AI-drafted narrative — optional enrichment; the evidence card above is deterministic")).toBeNull();
   });
 
   it("still renders the narrative when one exists", () => {
     render(<RetroSection block={null} generating={false} result={retroResult("Solid block overall.")} error={null} onGenerate={() => {}} />);
+    expect(screen.getByText("AI-drafted narrative — optional enrichment; the evidence card above is deterministic")).toBeTruthy();
     expect(screen.getByText("Solid block overall.")).toBeTruthy();
   });
 });
@@ -111,9 +113,10 @@ describe("BlockHistory — reflection adoption", () => {
   });
 
   it("shows the adopted stamp and no button once approved", () => {
-    render(<BlockHistory history={[histEntry({ structuredReflections: refl, reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" })]} />);
+    render(<BlockHistory history={[histEntry({ structuredReflections: [{ ...refl[0], observation: "Private reflection body" }], reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" })]} />);
     expect(screen.queryByRole("button", { name: /review & adopt/i })).toBeNull();
-    expect(screen.getByText(/adopted/i)).toBeTruthy();
+    expect(screen.getByText(/Adopted .* — these notes reach the next block/)).toBeTruthy();
+    expect(screen.queryByText("Private reflection body")).toBeNull();
   });
 
   it("entries without reflections render no adoption control", () => {

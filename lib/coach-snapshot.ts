@@ -1,5 +1,5 @@
 // CoachSnapshot — one deterministic, pre-computed bundle of resolved numbers that the LLM-facing
-// surfaces (Ask-Coach + block generation) read, so the model is handed facts instead of inventing
+// surfaces read, so the model is handed facts instead of inventing
 // them (ROADMAP #1, the "objective telemetry lens"). All math/decisions stay in TypeScript; the LLM
 // only phrases what's here.
 //
@@ -100,7 +100,7 @@ export interface CoachSnapshot {
   ftpRetest: FtpRetestSignal | null;
 }
 
-// The form/fuel/state half of the snapshot input — the signals both /api/ask and /api/generate
+// The form/fuel/state half of the snapshot input — the signals /api/sync and /api/generate
 // resolve identically from the loaded stores (via resolveCoachSignals). Extracted so the two routes
 // can't drift (CR-9). Deterministic; the route does the IO.
 export interface CoachSignals {
@@ -311,8 +311,8 @@ export function buildCoachSnapshot(input: CoachSnapshotInput): CoachSnapshot {
 }
 
 // The already-loaded stores a snapshot is assembled from. The caller does the IO; this owns the
-// deterministic assembly (model → signals → directives → snapshot) so /api/ask and the sync GET (the
-// Today card) build the *same* snapshot — the athlete sees exactly the numbers the LLM does (ROADMAP #1).
+// deterministic assembly (model → signals → directives → snapshot) so generation and the sync GET
+// (the Today card) build the *same* snapshot — the athlete sees exactly the numbers the LLM does (ROADMAP #1).
 export interface CoachSnapshotSources {
   date: string;
   ftp: number | null;
@@ -336,7 +336,7 @@ export interface CoachSnapshotSources {
 export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSnapshot {
   const athleteModel = buildAthleteModel(s.scoreEntries, s.intentOverlays);
   const signals = resolveCoachSignals(s.sync, athleteModel, s.baselines, s.acwrBandsOverride, s.athleteStateWeightsOverride, s.date, s.scoreEntries, s.ftp, s.weeklyBalance);
-  // Match /api/ask: only a real session (durationMin > 0) sets the type — a rest day stays null.
+  // Only a real session (durationMin > 0) sets the type — a rest day stays null.
   const todayDay = s.block?.days.find((d) => d.date === s.date && d.durationMin > 0) ?? null;
   return buildCoachSnapshot({
     date: s.date,
@@ -364,7 +364,7 @@ function dispositionGuard(d: CoachSnapshot["disposition"]): string | null {
   return null;
 }
 
-// Full resolved-numbers block for Ask-Coach. Lines whose data is absent are omitted; the reserved
+// Full resolved-numbers block for AI prompts. Lines whose data is absent are omitted; the reserved
 // fuel slots (intakeVsNeed/fuelingState) are intentionally not rendered while null.
 export function formatCoachSnapshot(s: CoachSnapshot): string {
   const lines: string[] = ["SITUATION (resolved numbers — treat as ground truth; do not invent or override):"];

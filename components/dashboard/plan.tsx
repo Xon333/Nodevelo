@@ -131,6 +131,11 @@ export function RetroSection({
           </span>
         }
       >
+        {result.retrospective && (
+          <p className="text-[10px] uppercase tracking-wider text-zinc-400">
+            AI-drafted narrative — optional enrichment; the evidence card above is deterministic
+          </p>
+        )}
         <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
           {result.retrospective ??
             "Closed deterministically — no AI narrative was produced for this block. The execution facts and proposed seeds below were still recorded."}

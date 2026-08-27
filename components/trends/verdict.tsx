@@ -82,8 +82,8 @@ export function InsightsFold({
   const ranked = [...insights].sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
   const top = ranked.slice(0, 3);
   const rest = ranked.slice(3);
-  // Validation mark: this dimension's matured hit rate, when any insight of its kind has been
-  // evaluated (Constitution §5: has this kind of advice been right before?).
+  // Validation mark: this dimension's matured record, when any insight of its kind has been
+  // evaluated (Constitution §5: what were the observed outcomes for this kind of advice?).
   const mark = (dimension: string) => {
     const d = validation?.byDimension.find((x) => x.dimension === dimension);
     return d && d.hitRate !== null ? d : null;
@@ -99,10 +99,14 @@ export function InsightsFold({
             {ins.title}
             {m && (
               <span
-                title={`How often acting on matured ${ins.dimension} insights proved right (${m.validated} validated of ${m.validated + m.refuted + m.inconclusive} evaluated).`}
-                className="ml-1.5 font-mono text-[10px] font-normal text-emerald-600 dark:text-emerald-400"
+                title={`Matured ${ins.dimension} directives so far: ${m.validated} validated, ${m.refuted} refuted, ${m.inconclusive} inconclusive.`}
+                className={`ml-1.5 font-mono text-[10px] font-normal ${
+                  m.validated >= m.refuted
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-amber-700 dark:text-amber-400"
+                }`}
               >
-                ✓ {Math.round(m.hitRate! * 100)}%
+                ✓ {m.validated}/{m.validated + m.refuted}
               </span>
             )}
           </p>

@@ -25,7 +25,7 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 ## AI output shape
 
 12. **Deterministic numbers, LLM phrasing.** The model never computes a training or nutrition figure; it copies from tables/snapshots the engines built ([DECISIONS](DECISIONS.md) ADR-0002).
-13. **Validators warn; they don't rewrite.** The only sanctioned mutations: `reconcileDurationMin` and `repairNutrition` (visible `repairs` note). The narrative critic may rewrite the **overview prose** only.
+13. **Validators warn; they don't rewrite.** 2026-08 amendment: the narrative critic was removed; deterministic overview checks append warnings and never rewrite prose. The only sanctioned mutations are `reconcileDurationMin` and `repairNutrition` (visible `repairs` note).
 14. **Per-block data never enters the cached system-prompt half** (`system-prompt.test.ts` is the executable contract).
 15. **`weeks` stays declared before `overview`** in `PlanToolSchema` — field order forces the model to commit the schedule before summarizing it.
 

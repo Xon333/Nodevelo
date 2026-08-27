@@ -29,7 +29,6 @@ Navigation (`components/Nav.tsx`): three tiers — primary (Today/Plan/Trends), 
 | Morning check-in | Today | `MorningCheckIn` | `/api/morning-check` |
 | Ride debrief (reps, trace, PRs, note) | Today | `dashboard/today.tsx` → `TodayRideCard`, `dashboard/ride-intent.tsx` → `RideIntentBlock`, `RideTrace` | `/api/sync`, `/api/analyze`, `/api/note` |
 | Session disposition | Today | `SessionDisposition` | `/api/disposition` |
-| Ask coach (streaming) | Today | `AskCoach` | `/api/ask` |
 | Carb-loading prompt | Today | `LoadingPrompt` | `/api/loading` |
 | Athlete state | Today + Model | `AthleteStateCard` / `StateDriversCard` (+ shared `athlete-state-ui.tsx`) | `/api/sync` |
 | Block generate/preview/accept | Plan | `dashboard/BlockGenerator`, `PlanPreview`, `dashboard/plan.tsx` | `/api/generate`, `/api/write` |
@@ -45,7 +44,7 @@ Navigation (`components/Nav.tsx`): three tiers — primary (Today/Plan/Trends), 
 
 ## Test coverage reality
 
-Component tests cover the Plan/generation flow plus the Today nutrition-trend warning (9 files: PlanPreview, PowerCurveChart, RescheduleBanner, SeasonRoadmap, SyncProvider, BlockGenerator, PlanView, dashboard/plan, dashboard/today). Model/Profile/Settings/Knowledge components have none — but their underlying `lib/` logic is thoroughly unit-tested. Component tests use per-file `/** @vitest-environment jsdom */` docblocks (infra added 2026-07-23).
+Component tests cover the Plan/generation flow, Today/debrief behavior, Standing Guidance, and Profile (11 files). Settings/Knowledge components have none — but their underlying `lib/` logic is thoroughly unit-tested. Component tests use per-file `/** @vitest-environment jsdom */` docblocks (infra added 2026-07-23).
 
 ## Known rough edges
 

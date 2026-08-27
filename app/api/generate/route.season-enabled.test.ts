@@ -37,7 +37,6 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
     ...actual,
     isAnthropicConfigured: vi.fn(() => true),
     generateTrainingBlock: vi.fn(async () => ({ toolInput: h.toolInput, raw: "", truncated: false, stopReason: null })),
-    critiqueOverview: vi.fn(async () => null), // P3c: explicitly mocked, see route.test.ts's own note
   };
 });
 vi.mock("@/lib/generate-cache", () => ({

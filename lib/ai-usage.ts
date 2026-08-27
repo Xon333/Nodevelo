@@ -1,5 +1,5 @@
-// Token/cost telemetry for every Anthropic call. Each generation / ride analysis / retrospective /
-// ask-coach call folds its `usage` into data/ai-usage.json (best-effort — never blocks or fails the
+// Token/cost telemetry for every Anthropic call. Each generation / ride analysis / retrospective
+// call folds its `usage` into data/ai-usage.json (best-effort — never blocks or fails the
 // real request). Cost is estimated from a per-model price table so the single user can see running
 // spend in Settings. Pairs with the P6 model/promptVersion stamping (provenance + cost together).
 //

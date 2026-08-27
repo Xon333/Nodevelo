@@ -90,6 +90,13 @@ test("a plan without findings renders no blocker/preference panels — informati
   expect(html).toContain("Season context degraded");
 });
 
+test("shows generation provenance when present and omits it from legacy plans", () => {
+  expect(render({ ...base, model: "claude-sonnet-4-6", promptVersion: 7 })).toContain(
+    "claude-sonnet-4-6 · prompt v7"
+  );
+  expect(render(base)).not.toContain("prompt v");
+});
+
 test("HR-34: shows writeError next to the Write button instead of nowhere", () => {
   const html = renderToStaticMarkup(
     <PlanPreview

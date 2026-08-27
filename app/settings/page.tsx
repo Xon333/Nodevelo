@@ -2,6 +2,7 @@ import BlockSettingsForm from "@/components/BlockSettingsForm";
 import PlatformBehaviorForm from "@/components/PlatformBehaviorForm";
 import BackupRestore from "@/components/BackupRestore";
 import AiUsageCard from "@/components/AiUsageCard";
+import DataPrivacyCard from "@/components/DataPrivacyCard";
 import { readAiUsage } from "@/lib/ai-usage";
 import { SectionDivider } from "@/components/ui";
 
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
       <SectionDivider label="Platform" />
       <PlatformBehaviorForm />
       <AiUsageCard usage={usage} />
+      <DataPrivacyCard />
       <BackupRestore />
     </div>
   );

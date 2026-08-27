@@ -4,7 +4,7 @@
 
 ## The mental model (60 seconds)
 
-NodeVelo is one loop: rides come in, get judged, teach a model of the athlete, and that model shapes the next plan. Deterministic TypeScript computes every number; Claude only arranges sessions and phrases prose inside hard constraints. Intervals.icu owns physiology (one-way pull); the athlete owns intent; JSON files on disk are the database.
+NodeVelo is one loop: rides come in, get judged, teach a model of the athlete, and that model shapes the next plan. Deterministic TypeScript computes every number; Claude drafts sessions and prose inside numeric limits the engines define and validators check. Intervals.icu owns physiology (one-way pull); the athlete owns intent; JSON files on disk are the database.
 
 ```mermaid
 flowchart LR
@@ -13,7 +13,7 @@ flowchart LR
   B --> D[4 · Knowledge: KB + retrospectives]
   D --> E[5 · Season: pick the next focus]
   B --> E
-  E --> F[6 · Generation: LLM writes the block,\nvalidators check it]
+  E --> F[6 · Generation: Claude drafts sessions + prose,\nvalidators check numeric limits]
   F --> G[Accept → calendar events on Intervals.icu]
   G --> A
 ```

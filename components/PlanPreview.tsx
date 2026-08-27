@@ -134,6 +134,11 @@ export default function PlanPreview({
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Plan preview</h2>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">{fmtHours(plan.days)} total · {plan.days.length} sessions</span>
           </div>
+          {(plan.model || plan.promptVersion != null) && (
+            <p className="mt-0.5 text-[10px] font-mono text-zinc-400 dark:text-zinc-500">
+              {plan.model}{plan.model && plan.promptVersion != null ? " · " : ""}{plan.promptVersion != null ? `prompt v${plan.promptVersion}` : ""}
+            </p>
+          )}
           <p className="mt-1 max-w-3xl text-xs leading-5 text-zinc-500 dark:text-zinc-400">{plan.overview}</p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 no-print">

@@ -40,6 +40,8 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 
 **Consequences.** Bad plans surface as informed choices, not silent edits. A structurally invalid tool response is a hard 502 with manual retry — deliberately no self-repair loop for structure. New validators must follow the warn-only contract or argue an ADR change.
 
+**Amendment (2026-08-27).** The narrative critic was removed. `lib/overview-check.ts` now appends deterministic warnings and never rewrites prose; the two repairs above remain the only sanctioned mutations.
+
 ---
 
 ## ADR-0005 · Fast sync; deferred LLM analysis

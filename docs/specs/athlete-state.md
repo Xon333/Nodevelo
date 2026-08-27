@@ -95,15 +95,13 @@ Tunable thresholds (one block):
 fitness + a recent ride); `low` when few signals are available. Down-weights a score built on thin
 data — ties to the calibration-confidence theme (ROADMAP §1).
 
-## Consumers (all three)
+## Consumers (both)
 
 - **Today** — a compact `AthleteStateCard`: the 0–100 score (ring/number) + a one-line headline;
   **hover reveals the band + the top drivers**. Computed in the `/api/sync` GET handler, carried on
   `AppState.athleteState`.
 - **Generation** — the state + top drivers fold into the synthesised directives so a new block
   respects current systemic state.
-- **Ask-Coach** — the state + drivers added to the coach context (grounded, can't be invented).
-
 ## AI containment
 
 `score`, `band`, `recommendation`, `drivers` are **all deterministic**. The AI only ever phrases the

@@ -15,7 +15,6 @@ import type {
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import { formatBlockSkeleton, formatWeekTargets, type BlockSkeleton, type WeekTarget } from "./block-skeleton";
 import { weightTrendFromWellness } from "./nutrition";
-import { formatCoachSnapshot, type CoachSnapshot } from "./coach-snapshot";
 import { prDurationLabel } from "./pr";
 import { isSteadyEnduranceRide } from "./aerobic";
 import { ACTIVITY_NOTE_MAX_CHARS } from "./intent-note-parser";
@@ -713,51 +712,4 @@ export function buildStructuredRetrospectivePrompt(
       "number. Keep `root_cause` and `adjusted_strategy` concrete and actionable for the next block; where " +
       "the rider's curve shape above is relevant to an intervention's dimension, factor it into `adjusted_strategy`.",
   ].join("\n");
-}
-
-// ---------- Low-token "ask coach" spot-checks ----------
-
-export interface AskCoachContext {
-  // Pre-computed resolved-numbers snapshot (block position, today's execution, form + TSB modifier,
-  // fuel, fused state, directives, disposition guard). The LLM reads facts, not guesses — see
-  // lib/coach-snapshot.ts.
-  snapshot: CoachSnapshot;
-  // Today's prescribed session (null on a rest/unplanned day) — the detailed prescription the
-  // snapshot's `today.sessionType` only names.
-  session: { name: string; type: string; durationMin: number; intervals: string[] } | null;
-  // The next planned session after today, so forward-looking questions ("how do I approach
-  // tomorrow's SIT?") see the real prescription instead of the coach inventing rep durations.
-  upcoming: { inDays: number; name: string; type: string; durationMin: number; intervals: string[] } | null;
-}
-
-// Pure prompt builder — injects the resolved CoachSnapshot plus the exact session prescriptions,
-// but NOT the full historical ledger, so spot-checks stay cheap. Deterministic + unit-testable.
-// AI: this call site sends no `system` param at all (persona lives in the user message below) --
-// inconsistent with every other call site in anthropic-api.ts, but intentional-ish. See
-// docs/systems/07-ai-layer.md#known-rough-edges before "fixing" the inconsistency.
-export function buildAskCoachPrompt(ctx: AskCoachContext, query: string): string {
-  const lines: string[] = [
-    "You are the athlete's cycling coach. Answer their question in 2–4 short, practical, decisive sentences. Use the situation below plus whatever they tell you in the question (e.g. weather, how they feel) — don't ask for more data.",
-    "",
-    formatCoachSnapshot(ctx.snapshot),
-  ];
-  lines.push(
-    ctx.session
-      ? `Today's session: ${ctx.session.type} — "${ctx.session.name}" (${ctx.session.durationMin} min)` +
-          (ctx.session.intervals.length > 0 ? `; intervals ${ctx.session.intervals.join(", ")}` : "")
-      : "No structured session is planned today."
-  );
-  // The next planned session, with its exact prescription, so the coach answers forward-looking
-  // questions from the real plan rather than guessing rep lengths/intensities.
-  if (ctx.upcoming) {
-    const when = ctx.upcoming.inDays === 1 ? "Tomorrow's session" : `Next session (in ${ctx.upcoming.inDays} days)`;
-    lines.push(
-      `${when}: ${ctx.upcoming.type} — "${ctx.upcoming.name}" (${ctx.upcoming.durationMin} min)` +
-        (ctx.upcoming.intervals.length > 0
-          ? `; intervals ${ctx.upcoming.intervals.join(", ")}. Use these exact reps/intensities — do not invent durations.`
-          : ".")
-    );
-  }
-  lines.push("", `Question: ${query.trim()}`);
-  return lines.join("\n");
 }

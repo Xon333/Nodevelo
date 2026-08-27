@@ -6,7 +6,6 @@ import { localToday } from "@/lib/date";
 import { describeFreshnessForAthlete, freshnessToneClasses } from "@/lib/physiology-freshness-display";
 import { useSync } from "../SyncProvider";
 import { Zone } from "../ui";
-import AskCoach from "../AskCoach";
 import AthleteStateCard from "../AthleteStateCard";
 import LoadingPrompt from "../LoadingPrompt";
 import MorningCheckIn from "../MorningCheckIn";
@@ -125,17 +124,6 @@ export default function TodayView() {
     </details>
   ) : null;
 
-  const askCoach = state.anthropicConfigured ? (
-    <details>
-      <summary className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-        Ask coach
-      </summary>
-      <div className="mt-2">
-        <AskCoach bare />
-      </div>
-    </details>
-  ) : null;
-
   return (
     <div className="flex flex-col gap-3">
       <h1 className="sr-only">Today</h1>
@@ -189,7 +177,6 @@ export default function TodayView() {
           <EatToday analysis={todayRide} />
           <div className="flex flex-col gap-2">
             {supportingSignals}
-            {askCoach}
           </div>
         </>
       ) : (
@@ -256,7 +243,6 @@ export default function TodayView() {
                 </div>
               </details>
             )}
-            {askCoach}
           </div>
         </>
       )}

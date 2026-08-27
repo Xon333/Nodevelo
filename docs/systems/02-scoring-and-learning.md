@@ -58,7 +58,7 @@ Rebuilt fresh from the whole ledger on demand: recency-weighted (EWMA, adaptive 
 
 ## The validation loop (`lib/intervention.ts`)
 
-When an insight actually drives a generated block, `buildInterventions` snapshots a baseline (execution + physiology markers). After a 28-day maturation horizon, `validateInterventions` re-measures: validated / refuted / inconclusive. `summariseValidation` turns the record into a hit-rate that (a) surfaces on Model/Trends as the coach's honesty score and (b) **demotes** directives with a proven-poor hit-rate (≤34% over ≥3 decisive blocks) in `lib/synthesis.ts` — reframed as "try a different lever," evidence never hidden.
+When an insight actually drives a generated block, `buildInterventions` snapshots a baseline (execution + physiology markers). After a 28-day maturation horizon, `validateInterventions` re-measures: validated / refuted / inconclusive. `summariseValidation` surfaces those counts per dimension on Model/Trends and **demotes** directives whose decisive record falls below the configured threshold (≤34% validated over ≥3 decisive blocks) in `lib/synthesis.ts` — shown as "try a different lever," evidence never hidden.
 
 ## Calibration (`lib/calibration.ts`, 533 lines)
 

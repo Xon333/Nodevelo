@@ -1,6 +1,6 @@
 # 06 · Generation — how a training block comes to exist
 
-**Why this exists:** this is where everything upstream converges — the model's insights, the season's focus, the knowledge base, the calibrated parameters — into one prompt, one forced-structure LLM call, and a validation gauntlet. The design bet: deterministic engines decide *what* the block must contain; the LLM only decides *arrangement and wording* ([DECISIONS](../DECISIONS.md) ADR-0002). **Where it sits:** the pipeline's last computational stage; its accepted output becomes calendar events ([01-sync](01-sync-and-data.md)'s mirror) and, once ridden, new input for [02-scoring](02-scoring-and-learning.md). **Tradeoff:** no self-repair loop for structural failures — a malformed response is a visible 502, never a silent patch.
+**Why this exists:** this is where everything upstream converges — the model's insights, the season's focus, the knowledge base, the calibrated parameters — into one prompt, one forced-structure LLM call, and a validation gauntlet. The design bet: deterministic engines define numeric limits; Claude drafts the block's sessions and prose inside them; validators check the result ([DECISIONS](../DECISIONS.md) ADR-0002). **Where it sits:** the pipeline's last computational stage; its accepted output becomes calendar events ([01-sync](01-sync-and-data.md)'s mirror) and, once ridden, new input for [02-scoring](02-scoring-and-learning.md). **Tradeoff:** no self-repair loop for structural failures — a malformed response is a visible 502, never a silent patch.
 
 The daily use loop is deliberately minimal — no manual markdown step survives: **sync → generate → review warnings → accept (write) → ride**. Companion docs: [07-ai-layer.md](07-ai-layer.md) (the Anthropic mechanics + all call sites), [05-season.md](05-season.md) (focus selection).
 
@@ -26,7 +26,7 @@ flowchart TD
   G --> H[zod parse PlanToolSchema]
   H --> I[Deterministic repair: reconcileDurationMin, repairNutrition]
   I --> J[Publication gate: evaluatePublicationGate runs every validator\nexactly once and buckets blockers / preferences / advisories]
-  J --> K[Narrative critic - haiku, best-effort,\nrewrites only the overview prose]
+  J --> K[Deterministic overview check - warn-only,\nnever rewrites prose]
   K --> L[GeneratedPlan returned; verdict + season re-plan persisted best-effort]
 ```
 
@@ -96,7 +96,7 @@ flowchart TD
   The one per-finding exception: with 3+ configured quality sessions per loading week the skeleton's canonical placement is best-effort and can produce adjacency **by design**, so the back-to-back finding degrades to a preference — regeneration cannot beat a deterministic placement limit.
 - **One fact, one owner.** These validators overlap by subject and were deliberately de-duplicated: `validateSkeletonConformance` owns *per-day* facts (missing day, type outside its slot, duration outside its envelope); `validateWeekHours` owns the *weekly total*; `validateRecoveryWeekDensity` owns recovery-week composition. Before adding a warning, check no existing validator already states that fact — a recovery week once produced three near-identical warnings for one problem, and this codebase treats redundant warnings as a real defect ("false warnings cause data fatigue", `workout-validate.ts`).
 - **Skeleton conformance is now gate-enforced.** The original staged decision (warn-only until real runs showed the model complies) resolved 2026-08-23: real generations showed compliance, and the publication gate made escalation meaningful — a locked-type mismatch now blocks publication as a blocker instead of shipping as an ignorable warning.
-- **Narrative critic** (`lib/narrative-critic.ts`, haiku, forced tool-use): checks the model's written overview against deterministically-extracted real facts of the schedule; may rewrite the **overview only**, never the schedule. Best-effort — a critic failure never blocks the response.
+- **Deterministic overview check** (`lib/overview-check.ts`): compares the model's written overview with extracted week totals, longest rides, and scheduled quality types. Contradictions append to `warnings[]`; the checker never rewrites prose and owns only overview-vs-schedule facts, complying with [INVARIANTS 13 and 33](../INVARIANTS.md). It runs only when the returned schedule is complete enough to compare.
 
 ## The publication gate
 
@@ -104,7 +104,7 @@ flowchart TD
 
 - **Blockers** refuse publication outright — no override exists for any of them.
 - **Preferences** are lower-confidence coaching heuristics; publishable only via an explicit informed athlete override, which `/api/write` stamps onto `CurrentBlock.publicationOverride` (findings + `acknowledgedAt`).
-- **Advisories** fold into the plan's ordinary `warnings[]`.
+- **Advisories** fold into the plan's ordinary `warnings[]`, alongside overview-consistency warnings, and retain the preview's existing **"Notes — for your awareness:"** heading and copy.
 
 The verdict is persisted server-side at generation time (best-effort, single slot in `data/generation-gate.json`, keyed by `verdictHash(days, blockParams)` = `sha256(canonical(...))` over the post-repair days exactly as placed in the response — canonicalisation makes the hash immune to client round-trip key reordering). `/api/write` does not re-run validators; it looks the submitted plan up against the persisted record and refuses anything else with 422. Recomputing at write time would score an unchanged plan against drifted context (score log, season plan) and raise false blockers — the classification is frozen when the evidence was fresh. A missing/corrupt verdict fails closed: no passport, no publish.
 

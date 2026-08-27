@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { estimateCostUsd, readAiUsage, recordUsage } from "./ai-usage";
-import { GENERATION_MODEL, QUICK_MODEL } from "./anthropic-api";
+import { GENERATION_MODEL } from "./anthropic-api";
 
 describe("estimateCostUsd", () => {
   it("prices sonnet input + output at the published rates ($3 / $15 per 1M)", () => {
@@ -30,7 +30,7 @@ describe("estimateCostUsd", () => {
   });
 
   it("prices every model id any call site actually uses (INVARIANT 18)", () => {
-    for (const model of [GENERATION_MODEL, QUICK_MODEL]) {
+    for (const model of [GENERATION_MODEL, "claude-haiku-4-5"]) {
       expect(estimateCostUsd(model, { input_tokens: 1_000_000, output_tokens: 0 })).toBeGreaterThan(0);
     }
   });

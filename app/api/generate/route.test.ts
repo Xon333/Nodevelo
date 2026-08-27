@@ -29,11 +29,6 @@ vi.mock("@/lib/anthropic-api", async (orig) => {
     ...actual,
     isAnthropicConfigured: vi.fn(() => true),
     generateTrainingBlock: vi.fn(async () => ({ toolInput: h.toolInput, raw: "", truncated: false, stopReason: null })),
-    // P3c: explicitly mocked (never the real network call — vitest has no ANTHROPIC_API_KEY anyway,
-    // but same-module internal calls bypass a vi.mock override, so critiqueOverview's own internal
-    // isAnthropicConfigured() check isn't actually exercising this file's `true` override above).
-    // Defaults to "no correction needed"; individual tests override per-case.
-    critiqueOverview: vi.fn(async () => null),
   };
 });
 vi.mock("@/lib/generate-cache", () => ({
@@ -458,13 +453,10 @@ describe("POST /api/generate — generation outcomes", () => {
 // nothing in week 2) undershoots any real loading target dramatically.
 // P3a (2026-07-24 block-generation redesign): a mismatched kcal figure is auto-corrected in the
 // returned plan, not just flagged.
-// P3c (2026-07-24 block-generation redesign): the critic's correction reaches the final plan, and its
-// call is skipped entirely for a truncated/incomplete block (a bigger, known problem already exists).
 // The shared `h.toolInput` fixture is deliberately incomplete (2 of 14 expected days) for the other
-// describe blocks' purposes — the critic is only ever called for a COMPLETE block, so these tests
-// supply their own full 2-week (14-day) fixture.
-describe("POST /api/generate — narrative-coherence critic (P3c)", () => {
-  const fullToolInput = () => {
+// describe blocks' purposes, so these tests supply their own full 2-week (14-day) fixture.
+describe("POST /api/generate — deterministic overview checks", () => {
+  const fullToolInput = (overview = "Test build block.") => {
     const dates = Array.from({ length: 14 }, (_, i) => {
       const d = new Date(Date.UTC(2026, 5, 15 + i));
       return d.toISOString().slice(0, 10);
@@ -472,7 +464,7 @@ describe("POST /api/generate — narrative-coherence critic (P3c)", () => {
     const days = (weekNumber: number, weekDates: string[]) =>
       weekDates.map((date) => ({ date, name: "Easy Z2", type: "Z2" as const, durationMin: 90, workout: "- 90m 65%", description: "x" }));
     return {
-      overview: "Test build block.",
+      overview,
       weeks: [
         { weekNumber: 1, theme: "Build", days: days(1, dates.slice(0, 7)) },
         { weekNumber: 2, theme: "Build", days: days(2, dates.slice(7, 14)) },
@@ -480,31 +472,29 @@ describe("POST /api/generate — narrative-coherence critic (P3c)", () => {
     };
   };
 
-  it("uses the critic's corrected overview and notes the correction when the critic flags a mismatch", async () => {
-    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(), raw: "", truncated: false, stopReason: null } as never);
-    vi.mocked(anthropic.critiqueOverview).mockResolvedValueOnce({ accurate: false, overview: "Corrected overview text." });
+  it("appends overview contradictions to warnings without rewriting the overview", async () => {
+    const overview = "Week 1 is a 16-hour building week.";
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(overview), raw: "", truncated: false, stopReason: null } as never);
     const json = await (await gen("Build FTP")).json();
-    expect(json.plan.overview).toBe("Corrected overview text.");
-    expect(json.plan.warnings).toContain("Overview auto-corrected: the written summary didn't match the generated schedule.");
+    expect(json.plan.overview).toBe(overview);
+    expect(json.plan.warnings).toContain("Overview says 16h for week 1, but the scheduled total is 10.5h.");
   });
 
-  it("keeps the original overview when the critic finds it accurate", async () => {
-    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(), raw: "", truncated: false, stopReason: null } as never);
-    vi.mocked(anthropic.critiqueOverview).mockResolvedValueOnce({ accurate: true, overview: "Test build block." });
+  it("skips overview checks for an incomplete block", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({
+      toolInput: { ...h.toolInput, overview: "Week 1 is a 16-hour building week." },
+      raw: "",
+      truncated: false,
+      stopReason: null,
+    } as never);
     const json = await (await gen("Build FTP")).json();
-    expect(json.plan.overview).toBe("Test build block.");
-    expect(json.plan.warnings.some((w: string) => /Overview auto-corrected/.test(w))).toBe(false);
+    expect(json.plan.warnings.some((w: string) => /^Overview says/.test(w))).toBe(false);
   });
 
-  it("skips the critic call entirely for an incomplete block (the shared fixture is 2 of 14 expected days)", async () => {
-    await gen("Build FTP");
-    expect(anthropic.critiqueOverview).not.toHaveBeenCalled();
-  });
-
-  it("skips the critic call entirely for a truncated response, even with a complete day count", async () => {
-    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput(), raw: "", truncated: true, stopReason: "max_tokens" } as never);
-    await gen("Build FTP");
-    expect(anthropic.critiqueOverview).not.toHaveBeenCalled();
+  it("skips overview checks for a truncated response with a complete day count", async () => {
+    vi.mocked(anthropic.generateTrainingBlock).mockResolvedValueOnce({ toolInput: fullToolInput("Week 1 is a 16-hour building week."), raw: "", truncated: true, stopReason: "max_tokens" } as never);
+    const json = await (await gen("Build FTP")).json();
+    expect(json.plan.warnings.some((w: string) => /^Overview says/.test(w))).toBe(false);
   });
 });
 
