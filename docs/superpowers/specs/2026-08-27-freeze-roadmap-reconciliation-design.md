@@ -2,7 +2,7 @@
 
 **Status:** Approved design  
 **Date:** 2026-08-27  
-**Decision source:** [NodeVelo adversarial investment review](../../reviews/2026-08-20-nodevelo-adversarial-investment-review.md)
+**Master decision record:** [NodeVelo adversarial investment review](../../reviews/2026-08-20-nodevelo-adversarial-investment-review.md)
 
 ## Problem
 
@@ -31,8 +31,14 @@ When sources disagree:
 4. The adversarial review supplies accepted rationale, risks, evidence gates, and scope boundaries.
 5. Immutable specs and plans preserve history but do not define current priority.
 
-The adversarial review is linked, not rewritten. Claims that were accurate at snapshot `d3dd228` but
-are now resolved must be marked shipped in the living docs rather than silently left as open work.
+The adversarial review is the master decision record for the freeze: its board judgment, target
+product thesis, ranked risks, decisions, feature disposition, evidence gate, and falsification
+criteria govern the living roadmap. The roadmap operationalizes those decisions; it does not
+reinterpret or override them. A future departure requires an explicit amendment in
+`docs/DECISIONS.md` that links back to the affected review decision.
+
+The review itself is linked, not rewritten. Claims that were accurate at snapshot `d3dd228` but are
+now resolved must be marked shipped in the living docs rather than silently left as open work.
 
 ## Documentation ownership
 
@@ -48,7 +54,8 @@ are now resolved must be marked shipped in the living docs rather than silently 
 
 Each package states:
 
-1. **Review basis** — direct links to the accepted finding, ranked risk, decision, or evidence gate.
+1. **Review basis** — direct anchor links to the relevant target thesis, ranked risk, accepted
+   decision, feature disposition, evidence gate, or falsification criterion in the master review.
 2. **Verified current state** — what is already shipped and the evidence proving it.
 3. **Remaining outcome** — one result suitable for one implementation plan.
 4. **Entry gate** — facts or earlier packages that must be complete before planning starts.
