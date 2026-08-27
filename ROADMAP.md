@@ -69,12 +69,13 @@ design spec and one implementation plan unless its text explicitly says evidence
 - **Verified current state:** `lib/backup.ts`, `app/api/export/route.ts`, and
   `app/api/import/route.ts` export/import the bundle; optional snapshots run from
   `app/api/sync/route.ts`. Restore is file-by-file, while `lib/json-store.ts` protects only its
-  critical JSON set and `lib/data-store.ts` defines typed stores.
+  critical JSON set, `lib/data-store.ts` defines typed stores, and `lib/kb-loader.ts` owns direct
+  knowledge-base and retrospective writes.
 - **Remaining outcome:** write one implementation plan that inventories athlete-owned state,
   defines partial-restore behavior, aligns knowledge-base restoration with atomic-store guarantees
   where justified, and makes UI/docs truthful about unrecoverable cases.
 - **Entry gate:** none.
-- **Plan scope:** `lib/backup.ts`, `lib/json-store.ts`, `lib/data-store.ts`,
+- **Plan scope:** `lib/backup.ts`, `lib/json-store.ts`, `lib/data-store.ts`, `lib/kb-loader.ts`,
   `app/api/export/route.ts`, `app/api/import/route.ts`, and `app/api/sync/route.ts`; their
   `*.test.ts` coverage; `components/BackupRestore.tsx` and `app/settings/page.tsx`; and
   `docs/systems/01-sync-and-data.md`, `docs/FILE_INDEX.md`, and `docs/RECIPES.md`.
@@ -213,8 +214,9 @@ design spec and one implementation plan unless its text explicitly says evidence
   independent adaptations, and at least one honest refutation recorded.
 - **Entry gate:** a real block begins; this package may accumulate while earlier phase gates close.
 - **Plan scope:** no implementation plan exists because this is attended prospective evidence. Record
-  each real block in the evidence-gate record, including `data/block-history.json`,
-  `data/intervention-log.json`, and the review's evidence-gate criteria.
+  each real block in the
+  [publication-gate evidence log](docs/reviews/2026-08-24-publication-gate-evidence.md), including
+  `data/block-history.json`, `data/intervention-log.json`, and the review's evidence-gate criteria.
 - **Exit evidence:** every evidence-gate row satisfied. A serious safety/integrity failure resets
   the clean-cycle count.
 - **Non-goals:** counting test generations, repaired history, manually seeded workouts, or

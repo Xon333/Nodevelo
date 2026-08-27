@@ -58,7 +58,8 @@ whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment
 
 The accepted [adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md)
 remains the freeze's master decision record. The following implementation risks are now closed in
-code; prospective effectiveness evidence remains open in ROADMAP FR-1.
+code; prospective effectiveness evidence remains open in
+[ROADMAP FR-9](ROADMAP.md#fr-9--prospective-cycle-evidence--evidence-accumulates-throughout-the-freeze).
 
 | Review decision/risk | Shipped resolution |
 |---|---|
