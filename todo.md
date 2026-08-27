@@ -24,15 +24,9 @@ HR-67, HR-68, HR-70…HR-72 are recorded in [ARCHIVE.md](ARCHIVE.md).
   brain' spec work" while the repo is well past that (adaptive-coach P3c, NV-1…14 closed).
   INVARIANT #28: only `/handoff` may write this file — **run `/handoff` or ask to clear it.**
 
-**Block-generation live verification.** One check remains:
-
-- ☐ P2 `bug` **Confirm loading weeks now hit their hour target.** Phase B took them from 1/4 inside
-  the 30-min tolerance to 3/4 (measured −20/−34/−10 min vs 12h; recovery week −4). The residual cause
-  — a flat quality-slot size that flagged correct ~55min SIT sessions every week — was fixed *after*
-  that measurement, and replaying the last run's plan against the corrected skeleton drops its
-  conformance warnings 3→0. **Unverified for hours:** needs one live 4-week generation to confirm the
-  freed minutes actually land. If a week still misses, read the `SKELETON:` warnings first — they name
-  the exact day and slot.
+- ☐ P2 `audit` **FR-1 live generation:** run the attended four-week current-code generation defined
+  by [ROADMAP FR-1](ROADMAP.md#fr-1--current-generation-evidence-run--evidence-next-action), then
+  record the loading-week deltas and close or refine this item from observed evidence.
 
 ---
 

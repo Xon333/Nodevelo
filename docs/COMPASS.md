@@ -53,7 +53,7 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 | **know** what I must never break | [INVARIANTS.md](INVARIANTS.md) — scan the numbered contracts | — |
 | **understand** why it's built this way | [DECISIONS.md](DECISIONS.md) — all decision records, one file | — |
 | **know** what the app can do (user-facing) | [../FEATURES.md](../FEATURES.md) | — |
-| **know** what to work on next | [../ROADMAP.md](../ROADMAP.md) active order, then [../todo.md](../todo.md); phase boundary: [accepted investment review](reviews/2026-08-20-nodevelo-adversarial-investment-review.md) | — |
+| **know** what to work on next | [../ROADMAP.md](../ROADMAP.md#freeze-implementation-plan-queue): select the first READY `FR-*` package; evidence-only packages use their linked run log; phase law comes from the [master adversarial review](reviews/2026-08-20-nodevelo-adversarial-investment-review.md) | — |
 | **find** something that already shipped | [../ARCHIVE.md](../ARCHIVE.md) — grep by ID (HR-nn, UXA-nn, P1–P7, SUB-n) | — |
 | **run** / verify / commands | [../WORKFLOW.md](../WORKFLOW.md) cheat sheet | `npm run dev` · `npm run check` · `npm test` |
 | **work with Codex + opencode** | [../WORKFLOW.md § Codex + opencode workflow](../WORKFLOW.md#codex--opencode-workflow) | isolated worktrees · reciprocal review · `npm run merge:agent-task` |
