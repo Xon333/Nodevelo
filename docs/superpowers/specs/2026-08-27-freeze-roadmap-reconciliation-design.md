@@ -1,7 +1,7 @@
 # Freeze-roadmap reconciliation design
 
-**Status:** Approved design  
-**Date:** 2026-08-27  
+**Status:** Approved design
+**Date:** 2026-08-27
 **Master decision record:** [NodeVelo adversarial investment review](../../reviews/2026-08-20-nodevelo-adversarial-investment-review.md)
 
 ## Problem
