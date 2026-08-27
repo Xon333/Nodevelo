@@ -27,9 +27,9 @@
 
 `planRecoveryWeeks` places deloads every 3–4 weeks based on `realWeeksSinceLastRecovery` — derived from actual ride history, not a cross-call counter (a stale counter was a shipped-bug class). Recovery-week hour targets come from `block-skeleton.ts` (retention % of loading weeks).
 
-## Validators (all warn-only, post-generation)
+## Validators (post-generation, publication-gated)
 
-`validateBlockFocus` / `validatePrimaryQualityCadence` (rolling) or `validateSeasonFit` / `validateFocusMatch` (event-anchored) check the generated block agrees with the chosen focus/arc. They only run if the season re-plan succeeded; season context assembly in `/api/generate` is try/catch-wrapped — best-effort, never blocks generation.
+`validateBlockFocus` / `validatePrimaryQualityCadence` (rolling) or `validateSeasonFit` / `validateFocusMatch` (event-anchored) check the generated block agrees with the chosen focus/arc. The publication gate classifies these season-fit findings as preferences requiring explicit acknowledgment before write. They only run if the season re-plan succeeded; season context assembly in `/api/generate` is try/catch-wrapped — best-effort, never blocks generation.
 
 ## Persistence rules
 
@@ -54,13 +54,14 @@ evaluation → [ARCHIVE.md](../../ARCHIVE.md) "Block-generation architecture red
 - **P1 — A-priority events get no phase text.** `formatSeasonContext` is the only channel for the
   backward-scheduled taper arc, and it stays behind `SEASON_SHAPES_GENERATION` by design — latent
   since no A-event exists yet.
-- **P2 — recovery-week depth and hour-target precision are narrowed, not exact.** Live smoke: a
-  loading week landed ~9% under a 12h target; a recovery week ranged from 12min under to 1.5h over
-  its derived target across runs. Now visible (`validateWeekHours`), not solved.
-- **P3c — the narrative critic doesn't reliably catch approximate duration language.** Fired and
-  corrected a real overview on one smoke run; a later run let a "4-hour" mis-description of a
-  200-minute ride through. Inconsistent, not proven broken — worth sharpening the prompt if it
-  recurs.
+- **P2 — generation may still miss an hour target, but it cannot publish that miss.** Historical
+  live smoke found a loading week ~9% under 12h and recovery weeks from 12min under to 1.5h over.
+  The deterministic skeleton now sets exact nominal totals, and `validateWeekHours` classifies any
+  post-generation miss as a publication blocker.
+- **P3c — RESOLVED 2026-08.** The narrative critic was removed after it inconsistently corrected one
+  overview but missed a "4-hour" mis-description of a 200-minute ride. `lib/overview-check.ts` now
+  compares overview duration and quality-type claims with extracted schedule facts, appends warnings,
+  and never rewrites prose.
 - **P3d — consequence forecast.** Deliberately not built: needs new forward-projection code
   (`lib/readiness.ts`'s `computeAcwr`/`computeLoadRamp` only analyze past activity; nothing projects
   CTL/ATL/TSB forward from a hypothetical block) and no live smoke run has yet shown a dangerous
@@ -90,7 +91,8 @@ evaluation → [ARCHIVE.md](../../ARCHIVE.md) "Block-generation architecture red
 #### Decision log (full evaluations in ARCHIVE.md)
 
 - **Tripwire:** if a future block reproduces a structural defect (a missed hour target, a missing
-  limiter session, an escalation the narrative critic misses), that's real evidence the LLM
+  limiter session, an overview contradiction the deterministic check misses), that's real evidence
+  the LLM
   shouldn't author structure at all — next step would be a fully deterministic skeleton with
   parameterized protocol templates, LLM narrating only.
   **Fired 2026-07-29, and the response has now SHIPPED.** A reviewed 2-week block's "recovery" week

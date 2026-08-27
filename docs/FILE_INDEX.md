@@ -103,7 +103,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `tool-schema.ts` | The one zod→tool-schema bridge. No test file |
 | `plan-schema.ts` | Block tool schema (`weeks` before `overview` — deliberate) |
 | `retrospective-schema.ts` | Structured-reflection tool schema + re-injection formatter |
-| `narrative-critic.ts` | Overview-vs-facts critic (haiku, overview-only rewrites) |
+| `overview-check.ts` | Deterministic, warn-only overview-vs-schedule consistency checks; never rewrites prose |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
 | `workout-validate.ts` | KB-grounded protocol validator (`splitPlanProtocol` → violations/hazards/advisories) |
 | `publication-gate.ts` | The one publication gate: runs every generation validator exactly once, buckets findings by emitter into blockers/preferences/advisories; `canonical` + `verdictHash` behind the persisted verdict. Change when a validator's severity needs classifying ([RECIPES § validators](RECIPES.md#add-or-change-a-validator)) |
@@ -118,18 +118,15 @@ One line per file that matters. The authoritative per-file table — README keep
 | `kb-loader.ts` | KB read/write/fallback, athlete-md parsing, retrospective seeds |
 | `synthesis.ts` | Insights + validation → ONE ranked directives block |
 
-Note: `system-prompt.test.ts` and `ask-coach.test.ts` test functions in `anthropic-prompts.ts` — no such modules exist.
-
 ## `app/api/` — routes
 
 | Route | Methods | Purpose | LLM |
 |---|---|---|---|
 | `sync` | GET/POST/DELETE | The sync orchestrator; DELETE removes the current block (the largest route, ~905 lines) | config-check only |
 | `analyze` | POST | Deferred coach-note generation for today's ride | ✅ sonnet |
-| `intent` | POST | Deferred self-directed intent parsing and deterministic overlay scoring | ✅ sonnet |
-| `generate` | POST | Block generation (proposal only) | ✅ sonnet + haiku critic |
+| `intent` | POST | Deferred self-directed intent parsing and deterministic overlay scoring | — |
+| `generate` | POST | Block generation (proposal only), publication gate, deterministic overview warnings | ✅ sonnet |
 | `write` | POST | Accept a plan: publication-gate verdict check (422 refusals before any write), calendar writes w/ rollback, archive, interventions | — |
-| `ask` | POST | Streaming ask-coach | ✅ haiku, streamed |
 | `retrospective` | GET/POST | Block retrospective (prose + structured) + archive + clear block | ✅ sonnet ×2 |
 | `season` | GET/PUT | Season objective/events CRUD + outlook projection | — |
 | `reschedule` | GET/POST/PUT/PATCH | Make-up / manual move / swap + calendar mirror | — |
