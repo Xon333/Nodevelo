@@ -1,11 +1,10 @@
 # NodeVelo roadmap
 
-*Last reconciled 2026-08-23.* The forward backlog — open work only.
+*Last reconciled 2026-08-27.* The forward backlog — open work only.
 
 Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
-The review is an immutable point-in-time decision record; this file is its living operating backlog.
-Live bugs → [todo.md](todo.md) · shipped detail → [ARCHIVE.md](ARCHIVE.md) · decisions →
-[docs/DECISIONS.md](docs/DECISIONS.md) · architecture → [docs/COMPASS.md](docs/COMPASS.md).
+The adversarial review is the **master decision record for the freeze**. Its board judgment, target product thesis, ranked risks, accepted decisions, feature disposition, evidence gate, and falsification criteria govern this roadmap. Each package below links to the exact governing section; the roadmap operationalizes those decisions and does not replace them.
+Live bugs → [todo.md](todo.md) · shipped detail → [ARCHIVE.md](ARCHIVE.md) · decisions → [docs/DECISIONS.md](docs/DECISIONS.md) · architecture → [docs/COMPASS.md](docs/COMPASS.md).
 
 IDs (`#1–4`, `§5–7`, `Track A–C`) are stable cross-reference handles. Never renumber them.
 
@@ -13,114 +12,116 @@ IDs (`#1–4`, `§5–7`, `Track A–C`) are stable cross-reference handles. Nev
 
 ## State of the app
 
-NodeVelo remains a personal, localhost-only cycling decision-support system for one informed
-athlete. It is under a feature freeze while it repairs trust contracts and earns prospective
-evidence. It is not a proven self-correcting coach and is not being productized.
+NodeVelo remains a personal, localhost-only cycling decision-support system for one informed athlete. It is under a feature freeze while it earns prospective evidence. It is not a proven self-correcting coach and is not being productized.
 
-The mechanical rides → score → model → generation → approval loop is real, but only one complete
-turnover has occurred. Six intervention outcomes cover two repeated hypothesis families: four
-validated, two inconclusive, none refuted. That is thin, correlated evidence—not a causal accuracy
-rate. Trust, safety, integrity, and evidence outrank feature work.
+The main mechanical trust-contract repairs are shipped and recorded in [the archive closeout](ARCHIVE.md#adversarial-review-trust-contract-closeout-2026-08-20--2026-08-27). The freeze remains active because prospective evidence, restore honesty, core-journey validation, Claude-authority reduction, library completion, nutrition validation, and real block cycles remain open. Shipped mechanics are not evidence that NodeVelo improves decisions.
 
-## Active order
+## Freeze implementation-plan queue
 
-Do these phases in order. The only permitted overlap is Phase 7 after Phase 5; Phase 8 starts only
-when a real A-event exists.
+Status: **READY** may be planned now · **EVIDENCE** is an attended run/record, not a code plan · **BLOCKED** waits for its entry gate. Select the first READY package. One package produces one design spec and one implementation plan unless its text explicitly says evidence-only.
 
-### Phase 1 · Repair trust contracts
+### Phase 1 · Finish trust evidence and recovery honesty
 
-- Complete the prospective evidence follow-up for the shipped publication gate: [publication-gate
-  evidence log](docs/reviews/2026-08-24-publication-gate-evidence.md). The implementation is archived
-  under PR #97; the long-term checklist remains open until the charter's evidence gate is met.
-- Show physiology freshness; warn through temporary sync failure, but block missing, inconsistent,
-  or explicitly obsolete physiology.
-- Remove causal accuracy language, unqualified individualized injury-risk language, claims that
-  every plan constraint is hard, automatic reuse of AI-authored root causes, and Ask Coach from the
-  active UI during the freeze. Replace AI criticism with deterministic prose wherever facts suffice.
-- Disclose local persistence and remote Anthropic processing separately.
-- Make restore behavior and critical-state coverage honest about partial recovery risk. Off-machine
-  backup remains deliberately deferred to Phase 9.
+#### FR-1 · Current-generation evidence run — EVIDENCE, next action
 
-Optional within this phase: **Adaptive self-directed coach — Phase 4**, a one-time, human-reviewed,
-provenance-bearing historical repair through overlays. The original ledger remains untouched; the
-repair may improve current state but never counts as prospective effectiveness evidence.
+- **Review basis:** [evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate), [plan safety](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#plan-safety-and-claudes-authority), and [physiology ownership](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#intervalsicu-ownership-privacy-and-recovery).
+- **Current state:** publication and physiology gates are shipped; the evidence checklist remains open. `todo.md` still requires one live four-week generation to confirm loading-week hours.
+- **Outcome:** run one attended, current-code four-week generation and append the structural result, loading-week hour deltas, publication findings/verdict, physiology status, manual repairs, overview warnings, and Anthropic usage to the publication-gate evidence log.
+- **Entry gate:** current Anthropic credit and synthetic or explicitly approved athlete data.
+- **Exit evidence:** one dated evidence-log entry plus the loading-hours todo disposition. This run may count toward varied-input structural evidence; it does not count as a completed real block.
+- **Non-goals:** prompt/model/provider tuning, feature work, or treating one successful run as coaching effectiveness.
+
+#### FR-2 · Restore and critical-state honesty — READY, first implementation plan
+
+- **Review basis:** [calendar and persistence integrity](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#calendar-and-persistence-integrity), ranked risks [#8 and #10](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ranked-risks), and decision [Q20/Q31](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Current state:** export/import and optional off-machine snapshots exist; restore remains file-by-file and the critical set/recovery promise needs an explicit current audit.
+- **Outcome:** write one implementation plan that inventories athlete-owned state, defines partial-restore behavior, aligns knowledge-base restoration with atomic store guarantees where justified, and makes UI/docs truthful about unrecoverable cases.
+- **Entry gate:** none.
+- **Exit evidence:** destructive-path tests for the accepted recovery contract, current critical-state coverage table, and user-facing copy matching actual guarantees.
+- **Non-goals:** transactional database migration, hosted backup, authentication, or automatically configuring off-machine storage.
 
 ### Phase 2 · Make the core journey excellent
 
-Make Today → Plan → ride → deterministic closeout → adaptive week reliable without lost plans,
-developer intervention, unexplained figures, avoidable prose, or confusing information placement.
-Show provenance and confidence clearly throughout the UI. Judge changes through repeated task
-completion. Keep all seven pages until Phase 7's task-based audit. **P9 · Stream `/api/generate`**
-belongs here only if it removes measured core-journey latency; it is not a prerequisite for
-conversational refinement.
+#### FR-3 · Core-journey task audit — BLOCKED until FR-1 and FR-2 close
+
+- **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces), [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now), and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** observe Today → Plan → ride → closeout → adaptive week as tasks; record failures, confusion, avoidable prose, lost-state risks, and latency before proposing changes.
+- **Exit evidence:** task-by-task findings ranked by correctness, completion failure, and repeated friction. No aesthetic-only backlog.
+- **Non-goals:** page consolidation, new surfaces, or implementation during the audit.
+
+#### FR-4 · Core-journey fixes — BLOCKED on FR-3 evidence
+
+- **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces), [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now), and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** write one implementation plan per independently evidenced journey failure; never bundle unrelated UI polish.
+- **Exit evidence:** repeated task completion without the targeted failure and no regression to publication/turnover gates.
+- **Non-goals:** scope not supported by FR-3 evidence.
 
 ### Phase 3 · Reduce Claude's generation authority
 
-Move workout syntax, arithmetic, protocol templates, progression, and enforceable safety constraints
-into deterministic code. Claude may interpret genuinely free-form language and phrase concise,
-grounded suggestions inside those limits. Audit every AI call and keep the deterministic core useful
-when Anthropic is unavailable. Validate five consecutive structurally valid test generations across
-varied inputs before advancing.
+#### FR-5 · Deterministic-authority audit and replacement plan — BLOCKED until Phase 2 closes
+
+- **Review basis:** [plan safety and Claude authority](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#plan-safety-and-claudes-authority), [decision Q26/Q36/Q42](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53), and [falsification criteria](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#falsification-criteria).
+- **Current state:** exactly four Anthropic call categories remain: block generation, ride-analysis coach note, prose retrospective, and structured retrospective. The critic and Ask Coach calls are gone.
+- **Outcome:** classify each remaining output as deterministic fact/process, constrained composition, free-form interpretation, or optional explanation; plan replacements only where code can own the result more reliably.
+- **Exit evidence:** five consecutive structurally valid varied-input generations, deterministic core useful without Anthropic, and no arithmetic/protocol/progression authority left solely to prose.
+- **Non-goals:** replacing genuinely linguistic interpretation, broad prompt rewrites, or adding another AI call.
+
+#### FR-6 · Provider/model/cost experiment — SEPARATE, BLOCKED on FR-5 baseline
+
+- **Review basis:** [maintainability](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#maintainability) and decision [Q5/Q11](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** hold inputs and prompts constant; compare validity, publication findings, usefulness, latency, and cost. Change a live route only if measured results justify it.
+- **Non-goals:** mixing vendor/model tuning into deterministic cleanup.
 
 ### Phase 4 · Complete the narrow workout-library loop
 
-Finish explicit manual curation, deterministic selection, generation-time reuse, management UI, and
-accepted-use recording. Existing domain, persistence, export, API, and deterministic-template work
-is recorded in [ARCHIVE.md](ARCHIVE.md#proven-workout-library--foundation-tasks-15-2026-08-031120).
-Automatic promotion and broad historical bootstrapping remain deferred until the manual lane proves
-useful. Any curated older workout used to bootstrap the lane is labeled as a manual import. The
-immutable execution record remains
-[the existing plan](docs/superpowers/plans/2026-08-02-proven-workout-library-generation.md).
+#### FR-7 · Manual curated-library completion — BLOCKED until Phase 3 closes
+
+- **Review basis:** [feature disposition](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now) and decisions [Q17/Q45](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** one plan covering explicit curation, deterministic selection, generation reuse, management, and accepted-use recording.
+- **Exit evidence:** athlete can curate, reuse, inspect provenance, accept a generated use, and see that use recorded.
+- **Non-goals:** automatic promotion or broad historical bootstrapping.
 
 ### Phase 5 · Validate nutrition prospectively
 
-Judge personalized energy-balance guidance against the athlete's existing acceptable monthly weight
-range. Track energy, recovery, adherence, and workout quality separately. Automatic changes require
-long-window evidence, capped movement, visible reasoning, immediate pause/override, and the RMR
-floor. **Track C** and **§6** work is allowed only where it supports this validation; the daily
-carbohydrate target is the remaining narrow product slice. Do not add calibration dimensions that
-cannot discriminate outcomes.
+#### FR-8 · Nutrition evidence contract and daily carbohydrate slice — BLOCKED until Phase 4 closes
+
+- **Review basis:** [nutrition findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#nutrition), ranked risk [#5](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ranked-risks), and decisions [Q18/Q27/Q28/Q35](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** plan prospective validation against the accepted monthly weight range while tracking energy, recovery, adherence, and workout quality separately; implement only the remaining narrow daily-carbohydrate product slice needed for that validation.
+- **Exit evidence:** long-window results, capped movement, visible reasoning, immediate pause/override, and RMR floor retained.
+- **Non-goals:** metabolic-truth claims or new calibration dimensions without discriminating evidence.
 
 ### Phase 6 · Run four real block cycles
 
-Each block closes cleanly through the adaptive bridge and records usefulness, trust, edits, retained
-prescriptions, and adaptations. Repaired history, manually seeded workouts, and test generations do not count.
-The first real turnover after 2026-08-23 also owes the deferred PR #92 live smoke run —
-[RECIPES § block turnover](docs/RECIPES.md#turn-over-a-block-end--retrospective--next-block), step 9.
+#### FR-9 · Prospective cycle evidence — EVIDENCE, accumulates throughout the freeze
 
-The feature freeze ends only when the [charter's evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate)
-is fully met:
-
-- five consecutive structurally valid varied-input test generations;
-- four completed real blocks without manual structural repair;
-- at least 80% of prescribed sessions retained substantially as generated;
-- at least three independent athlete-specific adaptations reaching later decisions;
-- at least one genuine refutation handled honestly;
-- no unresolved calendar, data-integrity, or serious safety failures; and
-- usefulness and trust feedback recorded after every block.
-
-A serious safety or integrity failure resets the clean-cycle count. After six clean prospective
-cycles, apply the charter's [falsification criteria](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#falsification-criteria)
-instead of adding another subsystem.
+- **Review basis:** [evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate) and [falsification criteria](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#falsification-criteria).
+- **Outcome:** four clean real blocks with retention, usefulness, trust, edits, independent adaptations, and at least one honest refutation recorded.
+- **Exit evidence:** every evidence-gate row satisfied. A serious safety/integrity failure resets the clean-cycle count.
+- **Non-goals:** counting test generations, repaired history, manually seeded workouts, or correlated intervention rows as independent evidence.
 
 ### Phase 7 · Consolidate secondary-page UX
 
-After Phase 5, audit the real tasks on Trends, Profile, Model, Settings, and Knowledge; then merge,
-move, or remove only what the evidence supports. This phase may run while Phase 6 accumulates cycles.
+#### FR-10 · Task-based secondary-page audit — BLOCKED until Phase 5; may overlap FR-9
+
+- **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces) and decision [Q34](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** audit real tasks on Trends, Profile, Model, Settings, and Knowledge; merge, move, retain, or remove only from observed evidence.
+- **Non-goals:** pre-deciding page deletion or aesthetic redesign.
 
 ### Phase 8 · Activate event work from reality
 
-When a real A-event exists, build and live-test the smallest deterministic taper, event scoring
-exceptions, and race-fueling support required. Until then, **6a**, event-anchored season mode, P1
-event text, P4/P5 event-week overstack, and dormant event validators remain unscheduled.
+#### FR-11 · Real A-event minimum slice — BLOCKED until a real A-event exists
 
-### Phase 9 · Deliberately scheduled recovery and conveniences
+- **Review basis:** [deferred feature disposition](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#defer) and decisions [Q22/Q32/Q38](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** plan the smallest deterministic taper, event scoring exceptions, and race fueling required by the actual event.
+- **Non-goals:** speculative event architecture or dormant validators without live requirements.
 
-Schedule off-machine backup and any convenience work only after the earlier evidence sequence or in
-response to an accepted risk change. Hosting, authentication, accounts, multi-athlete support,
-wearables, and productization remain out of scope. After stabilization, maintenance is capped at
-roughly two Codex sessions or four hours monthly; simplify, freeze, or remove a subsystem that
-repeatedly exceeds it.
+### Phase 9 · Deliberately schedule recovery and conveniences
+
+#### FR-12 · Off-machine recovery and accepted conveniences — DEFERRED
+
+- **Review basis:** ranked risk [#10](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ranked-risks) and decisions [Q20/Q31](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
+- **Outcome:** schedule off-machine recovery or convenience work only after an explicit accepted-risk change or the earlier freeze sequence.
+- **Non-goals:** hosting, accounts, multi-athlete support, wearables, or productization.
 
 ## Stable handles now deferred or evidence-gated
 
@@ -134,14 +135,16 @@ repeatedly exceeds it.
 | **§5 · athlete-state slivers** | Phase 2 only when a measured core-journey problem requires them. |
 | **#3 · proactive reschedule slivers** | Frozen unless required to repair a demonstrated safety or core-journey failure. |
 | **P8 · AI-route cost guard** | Phase 9 convenience unless actual cost becomes a trust or availability problem. |
+| **P9 · stream `/api/generate`** | Phase 2 only if it removes measured core-journey latency. |
 | **SUB-2 · legacy backfill importer** | Paused; revisit only if manual relabeling proves painful. |
 | **§6 · nutrition remainder** | Phase 5 only. |
 | **§7 · calendar flexibility remainder** | Deferred; Phase 1 fixes integrity at the existing boundary only. |
 | **P3d / P3e / P6** | Deliberately not built; no evidence yet justifies new code. |
 | **P7 · urgency before app history** | Documented limitation; reopen only if goal-driven blocks stop masking it in real use. |
-| **Event-date validator exclusion** | Accepted priority-blind limitation; remains dormant with event mode. |
+| **6a, P1 event text, P4/P5 event-week overstack, event-date validator exclusion** | Dormant until a real A-event; the validator exclusion remains an accepted priority-blind limitation. |
 | **Compound climb+descent matching** | Blocked on a trustworthy gradient data source and design review. |
-| **Segment grading fidelity** | `gradeSegment` (`lib/intent-scoring.ts`) ships binary zone matching with per-component full-compliance precision; the design spec's adjacent-zone partial credit and middle-half-of-band precision criterion ([§ Component grading](docs/superpowers/specs/2026-08-19-segment-aware-intent-scoring-design.md#component-grading)) is not implemented. Either implement it or formally re-decide the simpler shipped semantics via a [decision record](docs/DECISIONS.md). |
+| **Segment grading fidelity** | `gradeSegment` (`lib/intent-scoring.ts`) ships binary zone matching with per-component full-compliance precision; [adjacent-zone partial credit and middle-half precision](docs/superpowers/specs/2026-08-19-segment-aware-intent-scoring-design.md#component-grading) remain an implement-or-re-decide boundary via [a decision record](docs/DECISIONS.md). |
 | **Subjective-wellness follow-ons** | Form retirement needs measured Phase 2 friction; strain derivation needs motivation provenance and discriminating evidence. |
+| **Adaptive self-directed coach — Phase 4** | One-time human-reviewed, provenance-bearing historical repair through overlays only; never rewrites the ledger or counts as prospective effectiveness evidence. |
 
 Mobile density polish remains evidence-gated. Rejected alternatives stay in [ADR-0012](docs/DECISIONS.md#adr-0012--rejected-alternatives-a-running-log).
