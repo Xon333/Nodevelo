@@ -46,9 +46,9 @@ whole-ride claims like "31.6 min in Z3 vs 65" instead of its four actual segment
   superseded its schema-1 overlay transactionally and persisted overlay `edfc5d9d`
   (schemaVersion 2, scoringVersion 2) scoring **9/10** from four separate `segment` objectives
   matching Rolling Terrain 1 / Flat 1 / Flat 2 / Short Effort, with segment evidence watts
-  238/263, 220, 190/214, and 285/309 — the 220 W evidence marked precise (fully compliant per
-  component under shipped semantics: Flat 1's duration inside its 45–60m range and its 220 W average
-  watts inside its stated Z3) and zero whole-ride
+   238/263, 220, 190/214, and 285/309 — the 220 W evidence marked precise (fully compliant per
+   component under shipped semantics: Flat 1's duration inside its 45–60m range and its 220 W average
+   watts inside its stated Z3) and zero whole-ride
   "min in Z" evidence strings. The ride resolved **`Recovery`**, not `Rest`: the live purpose
   paraphrase contained "Z2 recovery flat", which matches a designed purpose-pattern precedence —
   this is intended behavior, not a misclassification. Genuinely whole-ride zone objectives are
