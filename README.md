@@ -86,6 +86,16 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 > differ from older Next.js. See [AGENTS.md](AGENTS.md) and the bundled guides in
 > `node_modules/next/dist/docs/` before changing routing or server/client boundaries.
 
+## Data & privacy
+
+- **Stored locally.** Scores, plans, notes, settings, and the knowledge base live as JSON and
+  markdown files on this machine. There is no cloud database; backups are exported files.
+- **Processed remotely by Anthropic.** The four remote call categories are block generation, the
+  ride-analysis coach note, prose retrospectives, and structured retrospectives. Per-call spend is
+  tracked under AI usage & cost. Intent parsing is deterministic and does not contact Anthropic.
+- **Everything else.** Scoring, nutrition, readiness, scheduling, and backup run without Anthropic.
+  Intervals.icu is a one-way pull and the system of record; accepted plans mirror to its calendar.
+
 ## Development
 
 ```bash
