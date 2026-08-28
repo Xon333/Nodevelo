@@ -211,7 +211,7 @@ describe("json-store critical inventory and barrier wrapping", () => {
     for (const file of EXPECTED_CRITICAL) {
       await fs.writeFile(p(file), "{ broken", "utf-8");
       await fs.writeFile(p(`${file}.bak`), "{ broken", "utf-8");
-      await expect(updateJsonFile(file, {}, () => ({ replaced: true }))).rejects.toThrow(/refusing to write/);
+      await expect(updateJsonFile(file, { replaced: false }, () => ({ replaced: true }))).rejects.toThrow(/refusing to write/);
     }
   });
 });
