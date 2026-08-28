@@ -482,8 +482,36 @@ describe("restoreBackupBundle", () => {
         recoveryConfirmed: true,
         message: "Restore failed. Your previous data was put back.",
       });
+      expect(io.rmCalls.some((target) => target.includes(".stage-"))).toBe(true);
+      expect(io.rmCalls.some((target) => target.includes(".previous-"))).toBe(true);
       expect(await treeSnapshot(roots.dataDir)).toEqual(beforeData);
       expect(await treeSnapshot(roots.knowledgeBaseDir)).toEqual(beforeKb);
+      expect(await fs.readdir(workspace)).not.toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/\.stage-/),
+          expect.stringMatching(/\.previous-/),
+        ])
+      );
+    } finally {
+      await removeWorkspace(workspace);
+    }
+  });
+
+  it("tries every recorded rollback rename before reporting unconfirmed recovery", async () => {
+    const workspace = await mkdtemp("fr2-backup-restore-rollback-aggregate-");
+    const roots = restoreRoots(workspace);
+    useRestoreRoots(roots);
+    await writeLiveState(roots);
+    const io = makeRestoreFs({ failRenameAt: [4, 5] });
+
+    try {
+      await expect(restoreBackupBundle(backupBundle(), { roots, fs: io })).rejects.toMatchObject({
+        recoveryConfirmed: false,
+      });
+      expect(io.renameCalls).toHaveLength(7);
+      expect(io.renameCalls[4]?.dest).toBe(roots.dataDir);
+      expect(io.renameCalls[5]?.dest).toContain(".stage-");
+      expect(io.renameCalls[6]?.dest).toContain("knowledge-base");
     } finally {
       await removeWorkspace(workspace);
     }

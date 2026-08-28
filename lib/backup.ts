@@ -127,6 +127,14 @@ async function cleanupPath(target: string, io: Pick<typeof fs, "rm">, warnings: 
   }
 }
 
+async function cleanupRecoveryPaths(
+  targets: string[],
+  io: Pick<typeof fs, "rm">,
+  warnings: string[]
+): Promise<void> {
+  await Promise.all(targets.map((target) => cleanupPath(target, io, warnings)));
+}
+
 async function writeStageTree(
   root: string,
   entries: Record<string, string>,
@@ -162,8 +170,8 @@ type CommitAction =
 async function rollbackActions(
   actions: CommitAction[],
   io: Pick<typeof fs, "rename" | "stat">,
-  paths: string[]
-): Promise<boolean> {
+  failures: string[]
+): Promise<void> {
   for (const action of [...actions].reverse()) {
     try {
       if (action.type === "promoted-stage") {
@@ -173,17 +181,10 @@ async function rollbackActions(
       } else if (await pathExists(action.previous, io)) {
         await io.rename(action.previous, action.live);
       }
-    } catch {
-      return false;
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
     }
   }
-
-  paths.push(
-    ...actions.flatMap((action) =>
-      action.type === "promoted-stage" ? [action.stage] : [action.previous]
-    )
-  );
-  return true;
 }
 
 async function existingRecoveryPaths(
@@ -329,18 +330,19 @@ export async function restoreBackupBundle(
         await cleanupPath(kbStage, io, cleanupWarnings);
         await cleanupPath(dataStage, io, cleanupWarnings);
       } catch {
-        const recoveryPaths: string[] = [];
-        const recovered = await rollbackActions(actions, io, recoveryPaths);
-        if (!recovered) {
+        const rollbackFailures: string[] = [];
+        await rollbackActions(actions, io, rollbackFailures);
+        if (rollbackFailures.length > 0) {
           throw new BackupRestoreError(
             "Restore could not confirm recovery. Keep the uploaded backup and recover manually.",
             false,
             await existingRecoveryPaths(
-              [...recoveryCandidates, ...recoveryPaths.filter((candidate) => candidate.includes(".stage-") || candidate.includes(".previous-"))],
+              recoveryCandidates,
               io
             )
           );
         }
+        await cleanupRecoveryPaths(recoveryCandidates, io, []);
         throw new BackupRestoreError("Restore failed. Your previous data was put back.", true);
       }
     });
