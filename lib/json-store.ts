@@ -14,6 +14,7 @@
 
 import { promises as fs } from "fs";
 import path from "path";
+import { withPersistenceAccess } from "./persistence-gate";
 
 // Resolved per call (not a module const) so tests can point at a throwaway directory via
 // NODEVELO_DATA_DIR without re-importing, and so the app always reads the env in force at runtime.
@@ -21,8 +22,7 @@ function dataDir(): string {
   return process.env.NODEVELO_DATA_DIR || path.join(process.cwd(), "data");
 }
 
-// Stores that cannot be re-derived from a fresh sync → keep a one-deep backup.
-const CRITICAL = new Set([
+export const CRITICAL_JSON_FILES = [
   "score-log.json",
   "intervention-log.json",
   "physiology.json",
@@ -39,7 +39,19 @@ const CRITICAL = new Set([
   // An athlete-promoted workout library entry (evidence, provenance, export state) is exactly as
   // irreplaceable as the ledgers above — nothing re-derives it from a fresh sync.
   "workout-library.json",
-]);
+  "ledger-rebuild.json",
+  "morning-check.json",
+  "loading-log.json",
+  "season-plan.json",
+  "calibration.json",
+  "weekly-envelope.json",
+] as const;
+
+const CRITICAL = new Set<string>(CRITICAL_JSON_FILES);
+
+export function isCriticalJsonFile(file: string): boolean {
+  return CRITICAL.has(file);
+}
 
 // HR-42: like readJsonFile, but also signals WHY the fallback fired — specifically, whether at least
 // one candidate (live or `.bak`) actually existed but was unreadable/unparseable (`corruptFallback:
@@ -48,7 +60,7 @@ const CRITICAL = new Set([
 // back to disk need this distinction: persisting a fallback born from a genuine double-corruption would
 // permanently enshrine that data loss as the new on-disk truth, whereas persisting one born from "this
 // store has simply never existed yet" is exactly the normal, desired first-write behavior.
-export async function readJsonFileWithStatus<T>(
+async function readJsonFileWithStatusUnlocked<T>(
   file: string,
   fallback: T
 ): Promise<{ value: T; corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }> {
@@ -77,8 +89,15 @@ export async function readJsonFileWithStatus<T>(
   return { value: fallback, corruptFallback: !enoent, enoent, liveCorrupt };
 }
 
-export async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
-  return (await readJsonFileWithStatus(file, fallback)).value;
+export function readJsonFileWithStatus<T>(
+  file: string,
+  fallback: T
+): Promise<{ value: T; corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }> {
+  return withPersistenceAccess(() => readJsonFileWithStatusUnlocked(file, fallback));
+}
+
+export function readJsonFile<T>(file: string, fallback: T): Promise<T> {
+  return withPersistenceAccess(async () => (await readJsonFileWithStatusUnlocked(file, fallback)).value);
 }
 
 // Per-file critical section. Two concurrent operations on the same store (e.g. a sync and a
@@ -105,7 +124,7 @@ function withFileLock<T>(file: string, op: () => Promise<T>): Promise<T> {
 }
 
 export function writeJsonFile(file: string, value: unknown): Promise<void> {
-  return withFileLock(file, () => atomicWrite(file, value));
+  return withPersistenceAccess(() => withFileLock(file, () => atomicWrite(file, value)));
 }
 
 // Read → transform → write as ONE critical section. The read happens while the lock is held, so two
@@ -120,27 +139,31 @@ export function updateJsonFile<T>(
     readStatus: { corruptFallback: boolean; enoent: boolean; liveCorrupt: boolean }
   ) => T | Promise<T>
 ): Promise<T> {
-  return withFileLock(file, async () => {
-    // readJsonFileWithStatus takes no lock — safe to nest.
-    const { value: current, corruptFallback, enoent, liveCorrupt } = await readJsonFileWithStatus(file, fallback);
-    // HR-42: refuse to persist a CRITICAL store's fallback born from genuine corruption (both the
-    // live file and its `.bak` unreadable) as though it were real, legitimate content. `mutate`
-    // deriving from a bare fallback (e.g. an empty ledger) and writing that back would silently
-    // enshrine the data loss as the new on-disk truth — a routine sync would then treat "no history"
-    // as real from that point on. Throwing here surfaces it loudly instead (the caller's own error
-    // handling — e.g. a sync's 502 — reports it rather than a routine operation silently nuking data).
-    if (corruptFallback && CRITICAL.has(file)) {
-      throw new Error(
-        `${file}: both the live file and its .bak are corrupt or unreadable — refusing to write a fallback value as truth. Manual recovery required.`
+  return withPersistenceAccess(() =>
+    withFileLock(file, async () => {
+      const { value: current, corruptFallback, enoent, liveCorrupt } = await readJsonFileWithStatusUnlocked(
+        file,
+        fallback
       );
-    }
-    const nextValue = await mutate(current, { corruptFallback, enoent, liveCorrupt });
-    // A mutate that hands back the exact same reference it was given (e.g. a CAS no-op, or
-    // resolveWeeklyEnvelope's `wrote: false` path) has nothing new to persist — skip the write
-    // instead of rewriting identical content to disk on every call.
-    if (nextValue !== current) await atomicWrite(file, nextValue);
-    return nextValue;
-  });
+      // HR-42: refuse to persist a CRITICAL store's fallback born from genuine corruption (both the
+      // live file and its `.bak` unreadable) as though it were real, legitimate content. `mutate`
+      // deriving from a bare fallback (e.g. an empty ledger) and writing that back would silently
+      // enshrine the data loss as the new on-disk truth — a routine sync would then treat "no history"
+      // as real from that point on. Throwing here surfaces it loudly instead (the caller's own error
+      // handling — e.g. a sync's 502 — reports it rather than a routine operation silently nuking data).
+      if (corruptFallback && isCriticalJsonFile(file)) {
+        throw new Error(
+          `${file}: both the live file and its .bak are corrupt or unreadable — refusing to write a fallback value as truth. Manual recovery required.`
+        );
+      }
+      const nextValue = await mutate(current, { corruptFallback, enoent, liveCorrupt });
+      // A mutate that hands back the exact same reference it was given (e.g. a CAS no-op, or
+      // resolveWeeklyEnvelope's `wrote: false` path) has nothing new to persist — skip the write
+      // instead of rewriting identical content to disk on every call.
+      if (nextValue !== current) await atomicWrite(file, nextValue);
+      return nextValue;
+    })
+  );
 }
 
 async function atomicWrite(file: string, value: unknown): Promise<void> {
@@ -155,7 +178,7 @@ async function atomicWrite(file: string, value: unknown): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   const full = path.join(dir, file);
 
-  if (CRITICAL.has(file)) {
+  if (isCriticalJsonFile(file)) {
     // Snapshot the previous good version before overwriting. HR-41: two failure modes this used to
     // swallow silently via a blanket `.catch(() => {})`:
     //  (a) a real copy failure (EACCES/EIO/ENOSPC during disk pressure) voided the backup guarantee

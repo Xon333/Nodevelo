@@ -1,8 +1,10 @@
 // Knowledge base loader. Files are read fresh on every call (never cached in
 // memory) so edits made via the Knowledge Base Manager take effect on the
 // very next generation.
+import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
+import { withPersistenceAccess } from "./persistence-gate";
 import type { Zone } from "./zones";
 
 // ---------- athlete_profile.md parser ----------
@@ -52,10 +54,10 @@ function parseRows(text: string): string[][] {
     .filter((row) => row.length >= 2);
 }
 
-export async function parseAthleteMd(): Promise<AthleteMdSnapshot> {
+async function parseAthleteMdUnlocked(): Promise<AthleteMdSnapshot> {
   let content = "";
   try {
-    content = await fs.readFile(path.join(KB_DIR, "athlete_profile.md"), "utf-8");
+    content = await fs.readFile(path.join(kbDir(), "athlete_profile.md"), "utf-8");
   } catch {
     return { personalData: {}, performanceData: {}, powerProfile: [], trainingZones: [] };
   }
@@ -85,17 +87,21 @@ export async function parseAthleteMd(): Promise<AthleteMdSnapshot> {
   };
 }
 
+export function parseAthleteMd(): Promise<AthleteMdSnapshot> {
+  return withPersistenceAccess(parseAthleteMdUnlocked);
+}
+
 // One-time migration source (Goals/Weakpoints centralization): re-parses whatever GOALS/WEAKPOINTS content
 // currently exists in athlete_profile.md, in the NEW structured shape. Migrated goals always get
 // focus: "general" — the markdown table never had a Focus column, so there's no tag to recover; the athlete
 // re-tags through the new form afterward if they want finer filtering. Never throws on a missing file.
-export async function parseGoalsWeakpointsForMigration(): Promise<{
+async function parseGoalsWeakpointsForMigrationUnlocked(): Promise<{
   goals: Array<{ goal: string; target: string; focus: "general" }>;
   weakpoints: Array<{ weakpoint: string; detail: string }>;
 }> {
   let content = "";
   try {
-    content = await fs.readFile(path.join(KB_DIR, "athlete_profile.md"), "utf-8");
+    content = await fs.readFile(path.join(kbDir(), "athlete_profile.md"), "utf-8");
   } catch {
     return { goals: [], weakpoints: [] };
   }
@@ -109,32 +115,41 @@ export async function parseGoalsWeakpointsForMigration(): Promise<{
   };
 }
 
+export function parseGoalsWeakpointsForMigration(): Promise<{
+  goals: Array<{ goal: string; target: string; focus: "general" }>;
+  weakpoints: Array<{ weakpoint: string; detail: string }>;
+}> {
+  return withPersistenceAccess(parseGoalsWeakpointsForMigrationUnlocked);
+}
+
 // Numeric performance values parsed from athlete_profile.md — the athlete-edited
 // source of truth. Used to keep athlete.json's FTP/HR consistent with the markdown
 // (e.g. so Intensity Factor uses the same FTP the athlete sees and generation uses).
 // Returns only the fields that parse cleanly; missing/garbled values are omitted.
-export async function readMdPerformance(): Promise<{ ftp?: number; thresholdHr?: number; maxHr?: number }> {
-  const { performanceData } = await parseAthleteMd();
-  const firstInt = (val: string | undefined): number | undefined => {
-    const m = val?.match(/\d+/);
-    return m ? parseInt(m[0], 10) : undefined;
-  };
-  const findValue = (pred: (key: string) => boolean): string | undefined => {
-    const key = Object.keys(performanceData).find((k) => pred(k.trim().toLowerCase()));
-    return key ? performanceData[key] : undefined;
-  };
-  return {
-    ftp: firstInt(findValue((k) => k === "ftp")),
-    thresholdHr: firstInt(findValue((k) => k.includes("threshold") && k.includes("hr"))),
-    maxHr: firstInt(findValue((k) => k.includes("max") && k.includes("hr"))),
-  };
+export function readMdPerformance(): Promise<{ ftp?: number; thresholdHr?: number; maxHr?: number }> {
+  return withPersistenceAccess(async () => {
+    const { performanceData } = await parseAthleteMdUnlocked();
+    const firstInt = (val: string | undefined): number | undefined => {
+      const m = val?.match(/\d+/);
+      return m ? parseInt(m[0], 10) : undefined;
+    };
+    const findValue = (pred: (key: string) => boolean): string | undefined => {
+      const key = Object.keys(performanceData).find((k) => pred(k.trim().toLowerCase()));
+      return key ? performanceData[key] : undefined;
+    };
+    return {
+      ftp: firstInt(findValue((k) => k === "ftp")),
+      thresholdHr: firstInt(findValue((k) => k.includes("threshold") && k.includes("hr"))),
+      maxHr: firstInt(findValue((k) => k.includes("max") && k.includes("hr"))),
+    };
+  });
 }
 
 // Parse one column ("power" or "hr") of athlete_profile.md's TRAINING ZONES table
 // into ordered zones. Handles "< 170W", "170–216W" (en-dash or hyphen), "> 432W";
 // skips rows with no range (e.g. a "Max" HR cell). Ordered low→high.
-async function parseMdZones(field: "power" | "hr"): Promise<Zone[]> {
-  const { trainingZones } = await parseAthleteMd();
+async function parseMdZonesUnlocked(field: "power" | "hr"): Promise<Zone[]> {
+  const { trainingZones } = await parseAthleteMdUnlocked();
   const out: Zone[] = [];
   for (const z of trainingZones) {
     const s = z[field] ?? "";
@@ -160,19 +175,43 @@ async function parseMdZones(field: "power" | "hr"): Promise<Zone[]> {
   return out;
 }
 
-export async function readMdHrZones(): Promise<Zone[]> {
-  return parseMdZones("hr");
+export function readMdHrZones(): Promise<Zone[]> {
+  return withPersistenceAccess(() => parseMdZonesUnlocked("hr"));
 }
 
-export async function readMdPowerZones(): Promise<Zone[]> {
-  return parseMdZones("power");
+export function readMdPowerZones(): Promise<Zone[]> {
+  return withPersistenceAccess(() => parseMdZonesUnlocked("power"));
 }
 
-const KB_DIR = path.join(process.cwd(), "knowledge-base");
+function kbDir(): string {
+  return process.env.NODEVELO_KB_DIR || path.join(process.cwd(), "knowledge-base");
+}
+
+function retroDir(): string {
+  return path.join(kbDir(), "block-retrospectives");
+}
+
 // Committed skeleton (schema + the section anchors the prompt cites). The real KB under
 // knowledge-base/ is gitignored personal data and overrides this per-file; the defaults only fill
 // gaps, so a fresh clone / CI doesn't hard-fail and the repo documents the expected structure.
 const KB_DEFAULTS_DIR = path.join(process.cwd(), "knowledge-base-defaults");
+
+async function atomicWriteMarkdown(file: string, content: string): Promise<void> {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  try {
+    handle = await fs.open(tmp, "wx");
+    await handle.writeFile(content, "utf-8");
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fs.rename(tmp, file);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    await fs.rm(tmp, { force: true }).catch(() => {});
+  }
+}
 
 // .md files in a dir, or [] if the dir is absent (a fresh clone has no knowledge-base/).
 async function listMd(dir: string): Promise<string[]> {
@@ -185,7 +224,7 @@ async function listMd(dir: string): Promise<string[]> {
 
 // Read a KB file, preferring the user's local copy and falling back to the committed default.
 async function readKbWithFallback(name: string): Promise<string | null> {
-  for (const dir of [KB_DIR, KB_DEFAULTS_DIR]) {
+  for (const dir of [kbDir(), KB_DEFAULTS_DIR]) {
     try {
       return await fs.readFile(path.join(dir, name), "utf-8");
     } catch {
@@ -210,12 +249,12 @@ function assertSafeName(name: string): void {
   }
 }
 
-export async function listKnowledgeFiles(): Promise<string[]> {
+async function listKnowledgeFilesUnlocked(): Promise<string[]> {
   // Union of the user's local files (any .md) and the committed defaults — so the editor + generation
   // see the full set even before a coach has dropped in their own KB, and never throw on a missing
   // dir. The defaults contribution is restricted to the canonical KB names so the defaults' README
   // (and any non-KB file) never lands in the prompt or the editor list.
-  const local = await listMd(KB_DIR);
+  const local = await listMd(kbDir());
   const defaults = (await listMd(KB_DEFAULTS_DIR)).filter((f) => KB_ORDER.includes(f));
   const names = new Set([...local, ...defaults]);
   return [...names].sort((a, b) => {
@@ -228,23 +267,32 @@ export async function listKnowledgeFiles(): Promise<string[]> {
   });
 }
 
-export async function readKnowledgeFile(name: string): Promise<string> {
+export function listKnowledgeFiles(): Promise<string[]> {
+  return withPersistenceAccess(listKnowledgeFilesUnlocked);
+}
+
+async function readKnowledgeFileUnlocked(name: string): Promise<string> {
   assertSafeName(name);
   const content = await readKbWithFallback(name);
   if (content === null) throw new Error(`Knowledge base file not found: ${name}`);
   return content;
 }
 
+export function readKnowledgeFile(name: string): Promise<string> {
+  return withPersistenceAccess(() => readKnowledgeFileUnlocked(name));
+}
+
 // Editing only — the manager deliberately supports no create/delete. Editing a file that currently
 // exists only as a default writes a local override (the first local file may need the dir created).
-export async function writeKnowledgeFile(name: string, content: string): Promise<void> {
-  assertSafeName(name);
-  const existing = await listKnowledgeFiles();
-  if (!existing.includes(name)) {
-    throw new Error(`Unknown knowledge base file: ${name}. Creating new files is not supported.`);
-  }
-  await fs.mkdir(KB_DIR, { recursive: true });
-  await fs.writeFile(path.join(KB_DIR, name), content, "utf-8");
+export function writeKnowledgeFile(name: string, content: string): Promise<void> {
+  return withPersistenceAccess(async () => {
+    assertSafeName(name);
+    const existing = await listKnowledgeFilesUnlocked();
+    if (!existing.includes(name)) {
+      throw new Error(`Unknown knowledge base file: ${name}. Creating new files is not supported.`);
+    }
+    await atomicWriteMarkdown(path.join(kbDir(), name), content);
+  });
 }
 
 // Strip the GOALS/WEAKPOINTS sections from athlete_profile.md's raw text before it's inlined into the
@@ -283,8 +331,8 @@ export function stripObsidianSyntax(content: string): string {
 
 // Full knowledge base as one string for prompt injection, each file prefixed
 // with its filename as a section header.
-export async function loadKnowledgeBaseContext(): Promise<string> {
-  const files = await listKnowledgeFiles();
+async function loadKnowledgeBaseContextUnlocked(): Promise<string> {
+  const files = await listKnowledgeFilesUnlocked();
   const ordered = KB_ORDER.filter((f) => files.includes(f)).concat(
     files.filter((f) => !KB_ORDER.includes(f))
   );
@@ -299,6 +347,10 @@ export async function loadKnowledgeBaseContext(): Promise<string> {
   return sections.join("\n\n");
 }
 
+export function loadKnowledgeBaseContext(): Promise<string> {
+  return withPersistenceAccess(loadKnowledgeBaseContextUnlocked);
+}
+
 // ---------- Block retrospectives ----------
 // Stored under knowledge-base/block-retrospectives/. They are NOT pulled into
 // loadKnowledgeBaseContext() (listKnowledgeFiles only matches flat .md files),
@@ -306,33 +358,36 @@ export async function loadKnowledgeBaseContext(): Promise<string> {
 // next_block_seeds are injected at generation time — gated on the athlete's
 // `seeds_approved: true` stamp (see parseRetroSeeds below).
 
-const RETRO_DIR = path.join(KB_DIR, "block-retrospectives");
-
-async function ensureRetroDir(): Promise<void> {
-  await fs.mkdir(RETRO_DIR, { recursive: true });
-}
-
 // Newest-first (filenames start with the block start date, so a reverse
 // lexicographic sort is chronological).
-export async function listRetrospectives(): Promise<string[]> {
+async function listRetrospectivesUnlocked(): Promise<string[]> {
   try {
-    const entries = await fs.readdir(RETRO_DIR);
+    const entries = await fs.readdir(retroDir());
     return entries.filter((f) => f.endsWith(".md")).sort((a, b) => b.localeCompare(a));
   } catch {
     return [];
   }
 }
 
-export async function readRetrospective(name: string): Promise<string> {
+export function listRetrospectives(): Promise<string[]> {
+  return withPersistenceAccess(listRetrospectivesUnlocked);
+}
+
+async function readRetrospectiveUnlocked(name: string): Promise<string> {
   assertSafeName(name);
-  return fs.readFile(path.join(RETRO_DIR, name), "utf-8");
+  return fs.readFile(path.join(retroDir(), name), "utf-8");
+}
+
+export function readRetrospective(name: string): Promise<string> {
+  return withPersistenceAccess(() => readRetrospectiveUnlocked(name));
 }
 
 // Unlike core KB files, retrospectives can be created (one per completed block).
-export async function writeRetrospective(name: string, content: string): Promise<void> {
-  assertSafeName(name);
-  await ensureRetroDir();
-  await fs.writeFile(path.join(RETRO_DIR, name), content, "utf-8");
+export function writeRetrospective(name: string, content: string): Promise<void> {
+  return withPersistenceAccess(async () => {
+    assertSafeName(name);
+    await atomicWriteMarkdown(path.join(retroDir(), name), content);
+  });
 }
 
 // Moved verbatim from app/api/retrospective/route.ts (which now imports this) so filename
@@ -405,23 +460,27 @@ export function approveSeedsInMarkdown(content: string): string {
 
 // Parse the `next_block_seeds:` YAML list out of the newest retrospective's frontmatter,
 // gated on the athlete's `seeds_approved: true` stamp.
-export async function latestRetrospectiveSeeds(): Promise<string[]> {
-  const all = await listRetrospectives();
-  const dated = all.filter((f) => /^\d{4}-\d{2}-\d{2}_/.test(f));
-  if (dated.length === 0) return [];
-  try {
-    return parseRetroSeeds(await fs.readFile(path.join(RETRO_DIR, dated[0]), "utf-8"));
-  } catch {
-    return [];
-  }
+export function latestRetrospectiveSeeds(): Promise<string[]> {
+  return withPersistenceAccess(async () => {
+    const all = await listRetrospectivesUnlocked();
+    const dated = all.filter((f) => /^\d{4}-\d{2}-\d{2}_/.test(f));
+    if (dated.length === 0) return [];
+    try {
+      return parseRetroSeeds(await readRetrospectiveUnlocked(dated[0]));
+    } catch {
+      return [];
+    }
+  });
 }
 
-export async function markRetroSeedsApproved(name: string): Promise<boolean> {
-  assertSafeName(name);
-  const file = path.join(RETRO_DIR, name);
-  const content = await fs.readFile(file, "utf-8");
-  if (!retroFrontmatterBounds(content)) return false;
-  const next = approveSeedsInMarkdown(content);
-  if (next !== content) await fs.writeFile(file, next, "utf-8");
-  return true;
+export function markRetroSeedsApproved(name: string): Promise<boolean> {
+  return withPersistenceAccess(async () => {
+    assertSafeName(name);
+    const file = path.join(retroDir(), name);
+    const content = await fs.readFile(file, "utf-8");
+    if (!retroFrontmatterBounds(content)) return false;
+    const next = approveSeedsInMarkdown(content);
+    if (next !== content) await atomicWriteMarkdown(file, next);
+    return true;
+  });
 }

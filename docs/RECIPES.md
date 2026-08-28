@@ -35,7 +35,7 @@ The first turnover happened and was confirmed clean (2026-07-22 → ARCHIVE.md) 
 and `intervention-log.json` both exist with real entries. Kept as a reusable reference for any
 future turnover, attended or not.
 
-1. **Backup first:** `GET /api/export` → save the bundle off-machine. The retro clears `current-block.json` — this is the undo.
+1. **Backup first:** `GET /api/export` → save the bundle off-machine. `POST /api/import` is the exact restore path for the managed `data/` + `knowledge-base/` trees if you need to undo the turnover.
 2. Sync (`POST /api/sync`) so the final rides are scored into the ledger.
 3. **Wrap up on `/plan`:** a finished block proceeds straight to closeout; an unfinished one requires
    typing an explicit early-end reason first (the reason is stamped on the retro frontmatter and the

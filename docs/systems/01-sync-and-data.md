@@ -87,7 +87,7 @@ The version token is `CurrentBlock.createdAt` itself, not a dedicated version/et
 ## Cross-cutting
 
 - **CSRF** (`lib/csrf.ts` via root `proxy.ts` — Next 16's renamed middleware): same-origin guard on all `/api/*` writes. This is the app's **only** request-level defense — there is no auth; the app binds to localhost.
-- **Backup**: `/api/export` (bundle download: all `data/*.json` + `knowledge-base/**/*.md`), `/api/import` (path-traversal-guarded restore through json-store), `snapshotBackup` auto-snapshots on sync when `NODEVELO_BACKUP_DIR` is set.
+- **Backup**: `/api/export` (bundle download: all `data/*.json` + `knowledge-base/**/*.md`), `/api/import` (validated exact restore of the managed `data/` + `knowledge-base/` trees; rejects partial success and preserves the accepted crash boundary), `snapshotBackup` auto-snapshots on sync when `NODEVELO_BACKUP_DIR` is set.
 - **Logging**: `lib/log.ts` — one JSON line per error/warn with `{route, step, status}`; no framework.
 - **Client fetch**: `lib/client-api.ts` (`api<T>()` unwraps `{error}` payloads into thrown Errors).
 

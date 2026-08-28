@@ -278,9 +278,9 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
 ### Settings (Wave 5, two labelled groups)
 - **GENERATION** — weekly volume targets, weekly structure, training philosophy & equipment.
 - **PLATFORM** — platform-behavior toggles (auto-sync-on-open, auto-post-coach-note), AI usage &
-  cost, backup & restore. (Fixed a mis-grouping bug: these previously rendered under GENERATION.)
+  cost, exact backup & restore. (Fixed a mis-grouping bug: these previously rendered under GENERATION.)
 
 ## Platform & reliability (local-first)
 - **TanStack Query** client (focus/reconnect refetch, dedup) · **observability + cost** tracking ·
-  **export/import** backup · **error boundaries** · model + `promptVersion` provenance stamping ·
-  atomic JSON writes with `.bak` recovery. (See ARCHIVE P-series.)
+  **export/import backup & restore** · **error boundaries** · model + `promptVersion` provenance
+  stamping · atomic JSON writes with `.bak` recovery. (See ARCHIVE P-series.)

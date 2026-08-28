@@ -1,10 +1,37 @@
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
-import { describe, expect, it } from "vitest";
-import { listKnowledgeFiles, loadKnowledgeBaseContext, stripObsidianSyntax, parseGoalsWeakpointsForMigration, stripGoalsWeakpointsSections } from "./kb-loader";
-import { approveSeedsInMarkdown, markRetroSeedsApproved, parseRetroSeeds, retroFileId } from "./kb-loader";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { withExclusivePersistence, withPersistenceAccess } from "./persistence-gate";
+import {
+  listKnowledgeFiles,
+  loadKnowledgeBaseContext,
+  parseGoalsWeakpointsForMigration,
+  readKnowledgeFile,
+  stripGoalsWeakpointsSections,
+  stripObsidianSyntax,
+  writeKnowledgeFile,
+} from "./kb-loader";
+import {
+  approveSeedsInMarkdown,
+  markRetroSeedsApproved,
+  parseRetroSeeds,
+  retroFileId,
+  writeRetrospective,
+} from "./kb-loader";
 
-const RETRO_DIR = path.join(process.cwd(), "knowledge-base", "block-retrospectives");
+let kbTestDir: string;
+const retroDir = () => path.join(kbTestDir, "block-retrospectives");
+
+beforeAll(async () => {
+  kbTestDir = await fs.mkdtemp(path.join(os.tmpdir(), "nodevelo-kb-loader-"));
+  process.env.NODEVELO_KB_DIR = kbTestDir;
+});
+
+afterAll(async () => {
+  delete process.env.NODEVELO_KB_DIR;
+  await fs.rm(kbTestDir, { recursive: true, force: true });
+});
 
 // CR-4: the loader must never hard-fail when knowledge-base/ is absent (a fresh clone / CI) — it
 // falls back to the committed knowledge-base-defaults/ skeleton. These invariants hold whether or not
@@ -61,6 +88,40 @@ describe("parseGoalsWeakpointsForMigration", () => {
     expect(Array.isArray(result.goals)).toBe(true);
     expect(Array.isArray(result.weakpoints)).toBe(true);
     for (const g of result.goals) expect(g.focus).toBe("general");
+  });
+});
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+describe("knowledge-base persistence access", () => {
+  it("allows a nested public KB read while exclusive persistence is queued", async () => {
+    const outerStarted = deferred();
+    const enterNested = deferred();
+    const events: string[] = [];
+
+    const outer = withPersistenceAccess(async () => {
+      events.push("shared-start");
+      outerStarted.resolve();
+      await enterNested.promise;
+      await parseGoalsWeakpointsForMigration();
+      events.push("nested-read");
+    });
+    await outerStarted.promise;
+
+    const exclusive = withExclusivePersistence(async () => {
+      events.push("exclusive");
+    });
+    enterNested.resolve();
+
+    await outer;
+    await exclusive;
+    expect(events).toEqual(["shared-start", "nested-read", "exclusive"]);
   });
 });
 
@@ -246,13 +307,52 @@ describe("retroFileId", () => {
   });
 });
 
+describe("atomic knowledge-base writes", () => {
+  const core = () => path.join(process.env.NODEVELO_KB_DIR as string, "training_knowledge.md");
+  const retro = (name: string) => path.join(retroDir(), name);
+
+  it("replaces an existing knowledge file through a temp rename", async () => {
+    await fs.writeFile(core(), "old", "utf-8");
+    await writeKnowledgeFile("training_knowledge.md", "new");
+    expect(await readKnowledgeFile("training_knowledge.md")).toBe("new");
+    expect((await fs.readdir(process.env.NODEVELO_KB_DIR as string)).some((name) => name.endsWith(".tmp"))).toBe(
+      false
+    );
+  });
+
+  it.each([
+    ["knowledge", async () => writeKnowledgeFile("training_knowledge.md", "lost"), core],
+    [
+      "retrospective",
+      async () => writeRetrospective("2099-01-01_atomic.md", "lost"),
+      () => retro("2099-01-01_atomic.md"),
+    ],
+    ["seed approval", async () => markRetroSeedsApproved("2099-01-01_atomic.md"), () => retro("2099-01-01_atomic.md")],
+  ])("keeps the prior %s file when rename fails", async (_label, mutate, target) => {
+    await fs.mkdir(path.dirname(target()), { recursive: true });
+    const original = _label === "seed approval" ? md("seeds_approved: false\nstatus: completed") : "intact";
+    await fs.writeFile(target(), original, "utf-8");
+    const rename = vi.spyOn(fs, "rename").mockRejectedValueOnce(new Error("rename failed"));
+    await expect(mutate()).rejects.toThrow("rename failed");
+    rename.mockRestore();
+    expect(await fs.readFile(target(), "utf-8")).toBe(original);
+  });
+
+  it("atomically writes retrospectives and approved seed changes", async () => {
+    await writeRetrospective("2099-01-01_atomic.md", md("seeds_approved: false\nstatus: completed"));
+    await expect(markRetroSeedsApproved("2099-01-01_atomic.md")).resolves.toBe(true);
+    expect(await fs.readFile(retro("2099-01-01_atomic.md"), "utf-8")).toContain("seeds_approved: true");
+    expect((await fs.readdir(retroDir())).some((name) => name.endsWith(".tmp"))).toBe(false);
+  });
+});
+
 describe("markRetroSeedsApproved", () => {
   it("returns false for malformed or missing frontmatter", async () => {
     const name = "2099-01-01_mark-retro-seeds-approved-malformed.md";
-    await fs.mkdir(RETRO_DIR, { recursive: true });
-    await fs.writeFile(path.join(RETRO_DIR, name), "# no frontmatter here", "utf-8");
+    await fs.mkdir(retroDir(), { recursive: true });
+    await fs.writeFile(path.join(retroDir(), name), "# no frontmatter here", "utf-8");
     await expect(markRetroSeedsApproved(name)).resolves.toBe(false);
-    await fs.unlink(path.join(RETRO_DIR, name));
+    await fs.unlink(path.join(retroDir(), name));
   });
 
   it("rejects on storage failures instead of collapsing them into false", async () => {

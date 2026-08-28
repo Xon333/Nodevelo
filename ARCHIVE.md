@@ -72,6 +72,16 @@ code; prospective effectiveness evidence remains open in
 
 ---
 
+## FR-2 restore and critical-state honesty (2026-08-28)
+
+Exact version-1 whole-tree restore now ships as a staged replacement of the managed `data/` and
+`knowledge-base/` trees: validation happens before mutation, partial success is rejected, ordinary
+swap failures roll back, the accepted crash boundary is stated plainly, and the critical JSON set is
+owned in one code list. `lib/kb-loader.ts` now uses atomic temp-file + `fsync` + rename writes for
+Markdown mutations, and the final docs sync landed in `16d68a9`.
+
+---
+
 ## Trust-contract repairs — calendar mirroring + retrospective closeout (2026-08-22/23, PRs #87/#92/#94)
 
 Two Phase 1 trust contracts shipped back-to-back. PR #87 was reviewed shallow post-merge and

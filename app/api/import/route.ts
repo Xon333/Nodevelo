@@ -1,74 +1,44 @@
 import { NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
+import { BackupRestoreError, BackupValidationError, restoreBackupBundle } from "@/lib/backup";
 import { logWarn } from "@/lib/log";
-import { writeJsonFile } from "@/lib/json-store";
 
-// Restore from a bundle produced by GET /api/export. Destructive — it overwrites the only source
-// of truth — so it is heavily guarded: the payload must self-identify as a NodeVelo backup, every
-// target path is confined to data/ or knowledge-base/ (no traversal), and data files go through
-// writeJsonFile so the CRITICAL stores keep their .bak snapshot of the pre-import state.
-
-const DATA_DIR = process.env.NODEVELO_DATA_DIR || path.join(process.cwd(), "data");
-const KB_DIR = path.join(process.cwd(), "knowledge-base");
-
-// Resolve `rel` under `baseDir`, returning null if it escapes the base (path traversal / absolute).
-function safeResolve(baseDir: string, rel: string): string | null {
-  const full = path.resolve(baseDir, rel);
-  if (full !== baseDir && !full.startsWith(baseDir + path.sep)) return null;
-  return full;
-}
+const STAGING_FAILURE_MESSAGE = "Restore staging failed. Your current data was not changed.";
 
 export async function POST(req: Request) {
-  let bundle: unknown;
+  let input: unknown;
   try {
-    bundle = await req.json();
+    input = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const b = bundle as Record<string, unknown> | null;
-  if (!b || b.app !== "nodevelo" || b.kind !== "backup") {
-    return NextResponse.json({ error: "Not a NodeVelo backup file." }, { status: 400 });
+  try {
+    const result = await restoreBackupBundle(input);
+    for (const warning of result.cleanupWarnings) logWarn("/api/import", "restore-cleanup", warning);
+    return NextResponse.json({ ok: true, restored: result.restored });
+  } catch (error) {
+    if (error instanceof BackupValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (error instanceof BackupRestoreError && error.recoveryConfirmed) {
+      if (error.message === STAGING_FAILURE_MESSAGE) {
+        logWarn("/api/import", "restore-staging", error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      logWarn("/api/import", "restore-failed", error.message);
+      return NextResponse.json({ error: "Restore failed. Your previous data was put back." }, { status: 500 });
+    }
+    if (error instanceof BackupRestoreError) {
+      logWarn("/api/import", "restore-unconfirmed", error.message, { recoveryPaths: error.recoveryPaths });
+    } else {
+      logWarn("/api/import", "restore-unconfirmed", error instanceof Error ? error.message : String(error));
+    }
+    return NextResponse.json(
+      {
+        error:
+          "Restore was interrupted and recovery could not be confirmed. Keep the backup file and restore it again before using NodeVelo.",
+      },
+      { status: 500 }
+    );
   }
-
-  const data = (b.data ?? {}) as Record<string, unknown>;
-  const kb = (b.knowledgeBase ?? {}) as Record<string, unknown>;
-  let restored = 0;
-  const skipped: string[] = [];
-
-  // Data stores: parse then write through json-store (atomic + .bak for critical ledgers). A file
-  // is data/-flat, so `rel` is just a filename — still range-checked for safety.
-  for (const [rel, content] of Object.entries(data)) {
-    if (typeof content !== "string" || !rel.endsWith(".json") || !safeResolve(DATA_DIR, rel)) {
-      skipped.push(rel);
-      continue;
-    }
-    try {
-      await writeJsonFile(rel, JSON.parse(content));
-      restored++;
-    } catch (err) {
-      logWarn("/api/import", "restore-data-file", err instanceof Error ? err.message : String(err), { rel });
-      skipped.push(rel); // malformed JSON in the bundle — leave the live file untouched
-    }
-  }
-
-  // Knowledge-base markdown (may be nested, e.g. block-retrospectives/): write raw.
-  for (const [rel, content] of Object.entries(kb)) {
-    const full = typeof content === "string" && rel.endsWith(".md") ? safeResolve(KB_DIR, rel) : null;
-    if (!full) {
-      skipped.push(rel);
-      continue;
-    }
-    try {
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.writeFile(full, content as string, "utf-8");
-      restored++;
-    } catch (err) {
-      logWarn("/api/import", "restore-kb-file", err instanceof Error ? err.message : String(err), { rel });
-      skipped.push(rel);
-    }
-  }
-
-  return NextResponse.json({ ok: true, restored, skipped });
 }
