@@ -447,6 +447,69 @@ describe("restoreBackupBundle", () => {
     }
   });
 
+  it("accepts a valid backup with an empty data map and restores an empty data root", async () => {
+    const workspace = await mkdtemp("fr2-backup-restore-empty-data-map-");
+    const roots = restoreRoots(workspace);
+    useRestoreRoots(roots);
+    await writeLiveState(roots);
+
+    try {
+      const result = await restoreBackupBundle(
+        validateBackupBundle({
+          app: "nodevelo",
+          kind: "backup",
+          version: 1,
+          exportedAt: "2026-08-28T00:00:00.000Z",
+          data: {},
+          knowledgeBase: {
+            "nutrition.md": "# New nutrition",
+          },
+        }),
+        { roots, fs }
+      );
+      expect(result.restored).toBe(1);
+      expect(await exists(roots.dataDir)).toBe(true);
+      expect(await treeSnapshot(roots.dataDir)).toEqual({});
+      expect(await treeSnapshot(roots.knowledgeBaseDir)).toEqual({
+        "nutrition.md": "# New nutrition",
+      });
+    } finally {
+      await removeWorkspace(workspace);
+    }
+  });
+
+  it("accepts a valid backup with an empty knowledge map and restores an empty knowledge root", async () => {
+    const workspace = await mkdtemp("fr2-backup-restore-empty-kb-map-");
+    const roots = restoreRoots(workspace);
+    useRestoreRoots(roots);
+    await writeLiveState(roots);
+
+    try {
+      const result = await restoreBackupBundle(
+        validateBackupBundle({
+          app: "nodevelo",
+          kind: "backup",
+          version: 1,
+          exportedAt: "2026-08-28T00:00:00.000Z",
+          data: {
+            "athlete.json": '{"ftp":260}',
+          },
+          knowledgeBase: {},
+        }),
+        { roots, fs }
+      );
+      expect(result.restored).toBe(1);
+      expect(await exists(roots.knowledgeBaseDir)).toBe(true);
+      expect(await treeSnapshot(roots.knowledgeBaseDir)).toEqual({});
+      expect(await treeSnapshot(roots.dataDir)).toEqual({
+        "athlete.json": '{\n  "ftp": 260\n}\n',
+        "athlete.json.bak": '{\n  "ftp": 260\n}\n',
+      });
+    } finally {
+      await removeWorkspace(workspace);
+    }
+  });
+
   it("leaves originals byte-identical when staging fails", async () => {
     const workspace = await mkdtemp("fr2-backup-restore-stage-fail-");
     const roots = restoreRoots(workspace);

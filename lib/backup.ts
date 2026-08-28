@@ -140,6 +140,7 @@ async function writeStageTree(
   entries: Record<string, string>,
   io: Pick<typeof fs, "mkdir" | "writeFile">
 ): Promise<void> {
+  await io.mkdir(root, { recursive: true });
   for (const [rel, raw] of Object.entries(entries)) {
     const full = safeJoin(root, rel);
     await io.mkdir(path.dirname(full), { recursive: true });
@@ -152,6 +153,7 @@ async function writeStageJsonTree(
   entries: Record<string, string>,
   io: Pick<typeof fs, "mkdir" | "writeFile">
 ): Promise<void> {
+  await io.mkdir(root, { recursive: true });
   for (const [rel, raw] of Object.entries(entries)) {
     const full = safeJoin(root, rel);
     const pretty = JSON.stringify(JSON.parse(raw), null, 2) + "\n";
