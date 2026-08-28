@@ -185,8 +185,8 @@ export async function writeLastSync(sync: SyncData): Promise<void> {
 // fresh sync" (ledgers, human decisions like intent-overlays/workout-library). A verdict is fully
 // re-derivable — re-running the gate on the same days/blockParams reproduces it byte-for-byte from
 // canonical hashing — and is only ever valid for one generation cycle anyway. Same treatment as the
-// other single-slot ephemeral stores (last-sync.json, today-analysis.json, weekly-envelope.json):
-// atomic writes via the per-file lock, no .bak rotation, corrupt file reads back as null.
+// other single-slot ephemeral stores (last-sync.json, today-analysis.json): atomic writes via the
+// per-file lock, no .bak rotation, corrupt file reads back as null.
 export async function readGenerationVerdict(): Promise<GenerationVerdict | null> {
   return readJson<GenerationVerdict | null>("generation-gate.json", null);
 }
@@ -232,9 +232,10 @@ export async function updateCurrentBlock(
   });
 }
 
-// Phase 3a §8. Read-compute-write as ONE atomic operation — resolveWeeklyEnvelope's own read of
-// `current` happens INSIDE updateJson's lock, so two concurrent syncs can never both read the same
-// base and clobber each other's midweek reduction (external review, 2026-08-12).
+// Phase 3a §8. Read-compute-write as ONE atomic operation. weekly-envelope.json is CRITICAL-backed
+// because it preserves the athlete's current week envelope across partial updates; resolveWeeklyEnvelope's
+// own read of `current` happens INSIDE updateJson's lock, so two concurrent syncs can never both read the
+// same base and clobber each other's midweek reduction (external review, 2026-08-12).
 export async function updateWeeklyEnvelope(
   mutate: (current: WeeklyEnvelope | null) => WeeklyEnvelope
 ): Promise<WeeklyEnvelope> {
@@ -357,7 +358,8 @@ export async function writeRollingBaselines(baselines: RollingBaselines): Promis
   await writeJson("rolling-baselines.json", baselines);
 }
 
-// Per-athlete calibration (ROADMAP #2). Derived store — regenerated on sync, like rolling-baselines.
+// Mixed derived + athlete-owned store: sync can regenerate derived values, but manualOverride cannot
+// be reconstructed, so calibration.json is CRITICAL-backed.
 export async function readCalibration(): Promise<CalibrationStore> {
   return readJson<CalibrationStore>("calibration.json", emptyCalibration());
 }
@@ -401,8 +403,9 @@ export async function updateScoreLog(
   }));
 }
 
-// One-shot marker for the SYNC-2 ledger rebuild (LEDGER-3) — persisted so a destructive re-score can't
-// silently repeat on every sync. Tiny dedicated file; default = never rebuilt.
+// One-shot marker for the SYNC-2 ledger rebuild (LEDGER-3). CRITICAL-backed because a destructive
+// re-score cannot be inferred from current sync data; the marker itself is the only record that the
+// rebuild already happened.
 const DEFAULT_LEDGER_REBUILD: LedgerRebuildMarker = { rebuiltAt: null };
 
 export async function readLedgerRebuild(): Promise<LedgerRebuildMarker> {
@@ -462,6 +465,8 @@ export function updateWorkoutLibrary(
 
 const DEFAULT_MORNING_CHECKS: MorningCheckLog = { entries: [], updatedAt: new Date(0).toISOString() };
 
+// Morning checks are CRITICAL-backed because they preserve the athlete's own per-day confirmation
+// history; a fresh sync cannot reconstruct those answers.
 export async function readMorningChecks(): Promise<MorningCheckLog> {
   return readJson<MorningCheckLog>("morning-check.json", DEFAULT_MORNING_CHECKS);
 }
@@ -472,6 +477,8 @@ export async function writeMorningChecks(log: MorningCheckLog): Promise<void> {
 
 const DEFAULT_LOADING_LOG: LoadingLogStore = { entries: [] };
 
+// Loading logs are CRITICAL-backed because they capture athlete-owned loading history and notes that
+// are not derivable from the synced ride data.
 export async function readLoadingLog(): Promise<LoadingLogStore> {
   return readJson<LoadingLogStore>("loading-log.json", DEFAULT_LOADING_LOG);
 }
@@ -514,6 +521,8 @@ const DEFAULT_SEASON_PLAN: SeasonPlan = {
   updatedAt: new Date(0).toISOString(),
 };
 
+// Season plans are CRITICAL-backed because they hold the athlete's chosen season structure; sync
+// cannot recreate that intent if it is lost.
 export async function readSeasonPlan(): Promise<SeasonPlan> {
   return readJson<SeasonPlan>("season-plan.json", DEFAULT_SEASON_PLAN);
 }

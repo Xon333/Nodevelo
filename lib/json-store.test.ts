@@ -1,8 +1,17 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { readJsonFile, readJsonFileWithStatus, updateJsonFile, writeJsonFile } from "./json-store";
+import { CRITICAL_JSON_FILES, isCriticalJsonFile, readJsonFile, readJsonFileWithStatus, updateJsonFile, writeJsonFile } from "./json-store";
+import { withPersistenceAccess } from "./persistence-gate";
+
+vi.mock("./persistence-gate", async () => {
+  const actual = await vi.importActual<typeof import("./persistence-gate")>("./persistence-gate");
+  return {
+    ...actual,
+    withPersistenceAccess: vi.fn((operation: () => Promise<unknown>) => actual.withPersistenceAccess(operation)),
+  };
+});
 
 // Point the store at a throwaway dir so tests never touch real ledger data.
 let dir: string;
@@ -21,7 +30,28 @@ afterAll(async () => {
 afterEach(async () => {
   // Wipe between tests so filenames can be reused without bleed-through.
   for (const f of await fs.readdir(dir)) await fs.rm(p(f), { force: true });
+  vi.clearAllMocks();
 });
+
+const EXPECTED_CRITICAL = [
+  "score-log.json",
+  "intervention-log.json",
+  "physiology.json",
+  "physiology-status.json",
+  "current-block.json",
+  "block-history.json",
+  "athlete.json",
+  "block-settings.json",
+  "dispositions.json",
+  "intent-overlays.json",
+  "workout-library.json",
+  "ledger-rebuild.json",
+  "morning-check.json",
+  "loading-log.json",
+  "season-plan.json",
+  "calibration.json",
+  "weekly-envelope.json",
+] as const;
 
 describe("json-store (atomic + recovery)", () => {
   it("round-trips and leaves no temp file behind", async () => {
@@ -135,6 +165,53 @@ describe("json-store (atomic + recovery)", () => {
       // afterEach's cleanup uses a plain (non-recursive) rm — remove the directory ourselves so it
       // doesn't break subsequent tests.
       await fs.rm(p("score-log.json.bak"), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("json-store critical inventory and barrier wrapping", () => {
+  it("exports the full critical JSON inventory and classifies only those files as critical", async () => {
+    expect(CRITICAL_JSON_FILES).toEqual(EXPECTED_CRITICAL);
+    for (const file of EXPECTED_CRITICAL) expect(isCriticalJsonFile(file)).toBe(true);
+    for (const file of ["last-sync.json", "generation-gate.json", "today-analysis.json", "rolling-baselines.json", "athlete-quirks.json", "ai-usage.json"]) {
+      expect(isCriticalJsonFile(file)).toBe(false);
+    }
+  });
+
+  it("acquires shared persistence access once per public json-store operation", async () => {
+    await writeJsonFile("wrap.json", { v: 1 });
+    await readJsonFile("wrap.json", null);
+    await readJsonFileWithStatus("wrap.json", null);
+    await updateJsonFile("wrap.json", { v: 1 }, (current) => ({ v: current.v + 1 }));
+    expect(withPersistenceAccess).toHaveBeenCalledTimes(4);
+  });
+
+  it("updates a file without re-entering the barrier or deadlocking its own read", async () => {
+    await writeJsonFile("nested.json", { n: 0 });
+    vi.clearAllMocks();
+    const done = Promise.race([
+      updateJsonFile("nested.json", { n: 0 }, (current) => ({ n: current.n + 1 })),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("timed out")), 1000);
+      }),
+    ]);
+    await expect(done).resolves.toEqual({ n: 1 });
+    expect(withPersistenceAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("rotates .bak for every critical store", async () => {
+    for (const file of EXPECTED_CRITICAL) {
+      await writeJsonFile(file, { version: 1 });
+      await writeJsonFile(file, { version: 2 });
+      expect(JSON.parse(await fs.readFile(p(`${file}.bak`), "utf-8"))).toEqual({ version: 1 });
+    }
+  });
+
+  it("refuses double-corrupt fallback updates for every critical store", async () => {
+    for (const file of EXPECTED_CRITICAL) {
+      await fs.writeFile(p(file), "{ broken", "utf-8");
+      await fs.writeFile(p(`${file}.bak`), "{ broken", "utf-8");
+      await expect(updateJsonFile(file, {}, () => ({ replaced: true }))).rejects.toThrow(/refusing to write/);
     }
   });
 });
