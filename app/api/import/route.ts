@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { BackupRestoreError, BackupValidationError, restoreBackupBundle } from "@/lib/backup";
 import { logWarn } from "@/lib/log";
 
+const STAGING_FAILURE_MESSAGE = "Restore staging failed. Your current data was not changed.";
+
 export async function POST(req: Request) {
   let input: unknown;
   try {
@@ -19,6 +21,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     if (error instanceof BackupRestoreError && error.recoveryConfirmed) {
+      if (error.message === STAGING_FAILURE_MESSAGE) {
+        logWarn("/api/import", "restore-staging", error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
       logWarn("/api/import", "restore-failed", error.message);
       return NextResponse.json({ error: "Restore failed. Your previous data was put back." }, { status: 500 });
     }

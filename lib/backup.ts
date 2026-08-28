@@ -281,7 +281,7 @@ export async function buildBackupBundle(): Promise<BackupBundle> {
 export type SnapshotResult = { ok: true; path: string } | { ok: false; reason: string };
 
 export async function restoreBackupBundle(
-  bundle: BackupBundle,
+  bundle: unknown,
   options?: {
     roots?: { dataDir: string; knowledgeBaseDir: string };
     fs?: Pick<typeof fs, "mkdir" | "writeFile" | "rename" | "rm" | "stat">;

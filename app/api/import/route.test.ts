@@ -90,6 +90,24 @@ describe("POST /api/import", () => {
     );
   });
 
+  it("returns the staging failure message when the restore never reached commit", async () => {
+    h.restoreBackupBundle.mockRejectedValueOnce(
+      new h.BackupRestoreError("Restore staging failed. Your current data was not changed.", true)
+    );
+
+    const res = await post({ app: "nodevelo" });
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Restore staging failed. Your current data was not changed.",
+    });
+    expect(h.logWarn).toHaveBeenCalledWith(
+      "/api/import",
+      "restore-staging",
+      "Restore staging failed. Your current data was not changed."
+    );
+  });
+
   it("returns the unconfirmed restore failure message for unconfirmed BackupRestoreError failures", async () => {
     h.restoreBackupBundle.mockRejectedValueOnce(
       new h.BackupRestoreError(
