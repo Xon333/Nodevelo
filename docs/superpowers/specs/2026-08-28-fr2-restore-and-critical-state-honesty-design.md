@@ -48,10 +48,10 @@ Validation is pure and completes before any filesystem mutation. The envelope mu
 - `app: "nodevelo"`
 - `kind: "backup"`
 - `version: 1`
-- an ISO timestamp string `exportedAt` accepted by `Date.parse`
+- a canonical UTC timestamp `exportedAt` whose parsed date serializes back to the same `toISOString()` value
 - plain-object `data` and `knowledgeBase` maps
 
-Every map value must be a string. Data paths must be flat `.json` filenames because `data-store.ts` owns a flat store. Knowledge-base paths may be nested and must end in `.md` so block retrospectives round-trip. Both path classes reject empty names, absolute paths, `.` or `..` segments, backslashes, NUL bytes, and any resolved path outside the intended root. Every JSON string must parse successfully. One invalid entry rejects the entire bundle; there is no `skipped` result.
+Those six keys are the complete version-1 envelope; unknown top-level keys are rejected. Every map value must be a string. Data paths must be flat `.json` filenames because `data-store.ts` owns a flat store. Knowledge-base paths may be nested and must end in `.md` so block retrospectives round-trip. Both path classes reject empty names, absolute paths, `.` or `..` segments, backslashes, NUL bytes, and any resolved path outside the intended root. Every JSON string must parse successfully. One invalid entry rejects the entire bundle; there is no `skipped` result.
 
 Validation checks structure and parseability, not every store's evolving TypeScript shape. Existing read boundaries remain responsible for shape merging and compatibility with older version-1 snapshots.
 
@@ -80,7 +80,8 @@ A small in-process shared/exclusive barrier coordinates persistence:
 - Normal JSON and knowledge-base reads and writes run as shared operations.
 - Restore's live directory swaps run as one exclusive operation.
 - A pending exclusive operation prevents new shared operations, waits for current ones to finish, then releases all waiters after commit or rollback.
-- `updateJsonFile` uses private unlocked read helpers while already inside the barrier and per-file lock, avoiding nested-lock deadlocks.
+- Each top-level persistence operation acquires shared access exactly once. `json-store.ts` and `kb-loader.ts` use private unlocked helpers for nested work, avoiding deadlocks when an exclusive waiter is pending.
+- Composite knowledge-base operations stay inside one shared scope. In particular, `markRetroSeedsApproved` reads, transforms, and atomically writes without allowing restore between those steps.
 
 This barrier matches NodeVelo's existing single-process assumption. It does not claim safety across multiple Node processes.
 
@@ -92,7 +93,7 @@ The commit order is knowledge-base first, then data. This minimizes the harmful 
 
 For each root, the service records whether a live directory existed, renames it to its unique previous path, and promotes the staged directory to the live path. Every successful rename is recorded.
 
-If any promotion fails, rollback unwinds successful operations in reverse order:
+If any commit-phase rename fails—including a live-to-previous rename or a staged-tree promotion—rollback unwinds every recorded successful rename in reverse order:
 
 1. Move a promoted replacement out of the live path.
 2. Restore the previous live directory when one existed.
@@ -128,7 +129,7 @@ Exact restore is likewise the sole destructive recovery exception to frozen-ledg
 `POST /api/import` becomes a thin boundary:
 
 - malformed request JSON or bundle validation failure: `400 { error }`
-- committed restore: `200 { ok: true, restored: number }`
+- committed restore: `200 { ok: true, restored: number }`, where `restored` counts bundle data entries plus knowledge-base entries and excludes generated `.bak` files
 - operational failure with confirmed rollback: `500 { error: "Restore failed. Your previous data was put back." }`
 - failed or unconfirmed rollback: `500` with a distinct error instructing the athlete to keep the uploaded backup and retry/manual-recover; never claim unchanged state
 
@@ -153,7 +154,7 @@ Tests exercise public behavior, not private helpers:
 - `validateBackupBundle` / `restoreBackupBundle`: strict envelope/version/map/path/content rejection; one invalid entry causes zero live mutation; nested Markdown accepted.
 - Restore integration in temporary directories: exact removal of omitted files, nested retrospective round-trip, matching `.bak` for all critical restored JSON, none for non-critical JSON, initially missing roots, and successful cleanup.
 - Injected filesystem operations at the restore seam: staging failure, each rename position, reverse rollback, rollback failure with retained recovery paths, and cleanup failure after commit.
-- Persistence barrier: active shared work delays restore; restore blocks new JSON and knowledge-base access until both trees are committed or rolled back.
+- Persistence barrier: active shared work delays restore; restore blocks new JSON and knowledge-base access until both trees are committed or rolled back; a pending exclusive operation cannot deadlock nested JSON or knowledge-base callers because top-level operations use private unlocked helpers.
 - `json-store`: table-driven `.bak` rotation and double-corrupt refusal across the complete critical list, plus representative non-critical files.
 - `kb-loader`: atomic replacement and failure-before-rename preservation across the three mutation call sites.
 - Import route: parse/validation mapping, success shape, confirmed-rollback error, and unconfirmed-state error.
