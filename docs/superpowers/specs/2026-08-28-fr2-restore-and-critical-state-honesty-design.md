@@ -80,7 +80,8 @@ A small in-process shared/exclusive barrier coordinates persistence:
 - Normal JSON and knowledge-base reads and writes run as shared operations.
 - Restore's live directory swaps run as one exclusive operation.
 - A pending exclusive operation prevents new shared operations, waits for current ones to finish, then releases all waiters after commit or rollback.
-- Each top-level persistence operation acquires shared access exactly once. `json-store.ts` and `kb-loader.ts` use private unlocked helpers for nested work, avoiding deadlocks when an exclusive waiter is pending.
+- The barrier uses Node's `AsyncLocalStorage` so shared access is re-entrant within one asynchronous call chain. This covers existing cross-module nesting such as athlete-profile migration reading Markdown from inside a JSON-store update, even when an exclusive restore is queued.
+- Each top-level persistence operation acquires shared access exactly once where practical. `json-store.ts` and `kb-loader.ts` still use private unlocked helpers for local nested work so the ownership remains obvious.
 - Composite knowledge-base operations stay inside one shared scope. In particular, `markRetroSeedsApproved` reads, transforms, and atomically writes without allowing restore between those steps.
 
 This barrier matches NodeVelo's existing single-process assumption. It does not claim safety across multiple Node processes.
@@ -99,7 +100,7 @@ If any commit-phase rename fails—including a live-to-previous rename or a stag
 2. Restore the previous live directory when one existed.
 3. Restore the originally absent state when no live directory existed.
 
-Rollback success returns an ordinary restore failure that states the previous snapshot was put back. Rollback failure returns a separate unconfirmed-state error and retains all unique previous/staging paths for manual recovery. The implementation must never delete those paths after an unconfirmed rollback.
+Rollback success returns an ordinary restore failure that states the previous snapshot was put back. Rollback failure returns a separate unconfirmed-state error and reports every still-existing previous/staging recovery path. The implementation must never delete those paths after an unconfirmed rollback.
 
 After both promotions succeed, the restore is committed. Cleanup of previous and unused staging paths is best-effort; cleanup failure is logged as a warning and never rolls back a committed restore.
 
@@ -154,7 +155,7 @@ Tests exercise public behavior, not private helpers:
 - `validateBackupBundle` / `restoreBackupBundle`: strict envelope/version/map/path/content rejection; one invalid entry causes zero live mutation; nested Markdown accepted.
 - Restore integration in temporary directories: exact removal of omitted files, nested retrospective round-trip, matching `.bak` for all critical restored JSON, none for non-critical JSON, initially missing roots, and successful cleanup.
 - Injected filesystem operations at the restore seam: staging failure, each rename position, reverse rollback, rollback failure with retained recovery paths, and cleanup failure after commit.
-- Persistence barrier: active shared work delays restore; restore blocks new JSON and knowledge-base access until both trees are committed or rolled back; a pending exclusive operation cannot deadlock nested JSON or knowledge-base callers because top-level operations use private unlocked helpers.
+- Persistence barrier: active shared work delays restore; restore blocks new JSON and knowledge-base access until both trees are committed or rolled back; a pending exclusive operation cannot deadlock a real nested public JSON-to-knowledge-base call because shared scope is re-entrant.
 - `json-store`: table-driven `.bak` rotation and double-corrupt refusal across the complete critical list, plus representative non-critical files.
 - `kb-loader`: atomic replacement and failure-before-rename preservation across the three mutation call sites.
 - Import route: parse/validation mapping, success shape, confirmed-rollback error, and unconfirmed-state error.
