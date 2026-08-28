@@ -1,6 +1,6 @@
 # NodeVelo roadmap
 
-*Last reconciled 2026-08-27.* The forward backlog — open work only.
+*Last reconciled 2026-08-28.* The forward backlog — open work only.
 
 Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
 The adversarial review is the **master decision record for the freeze**. Its
@@ -28,9 +28,9 @@ self-correcting coach and is not being productized.
 
 The main mechanical trust-contract repairs are shipped and recorded in
 [the archive closeout](ARCHIVE.md#adversarial-review-trust-contract-closeout-2026-08-20--2026-08-27).
-The freeze remains active because prospective evidence, restore honesty, core-journey validation,
-Claude-authority reduction, library completion, nutrition validation, and real block cycles remain
-open. Shipped mechanics are not evidence that NodeVelo improves decisions.
+The freeze remains active because prospective evidence, core-journey validation, Claude-authority
+reduction, library completion, nutrition validation, and real block cycles remain open. Shipped
+mechanics are not evidence that NodeVelo improves decisions.
 
 ## Freeze implementation-plan queue
 
@@ -38,7 +38,7 @@ Status: **READY** may be planned now · **EVIDENCE** is an attended run/record, 
 **BLOCKED** waits for its entry gate. Select the first READY package. One package produces one
 design spec and one implementation plan unless its text explicitly says evidence-only.
 
-### Phase 1 · Finish trust evidence and recovery honesty
+### Phase 1 · Finish trust evidence
 
 #### FR-1 · Current-generation evidence run — EVIDENCE, next action
 
@@ -61,41 +61,18 @@ design spec and one implementation plan unless its text explicitly says evidence
 - **Non-goals:** prompt/model/provider tuning, feature work, or treating one successful run as
   coaching effectiveness.
 
-#### FR-2 · Restore and critical-state honesty — READY, first implementation plan
-
-- **Review basis:** [calendar and persistence integrity](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#calendar-and-persistence-integrity),
-  ranked risks [#8 and #10](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ranked-risks),
-  and decision [Q20/Q31](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
-- **Verified current state:** `lib/backup.ts`, `app/api/export/route.ts`, and
-  `app/api/import/route.ts` export/import the bundle; optional snapshots run from
-  `app/api/sync/route.ts`. Restore is file-by-file, while `lib/json-store.ts` protects only its
-  critical JSON set, `lib/data-store.ts` defines typed stores, and `lib/kb-loader.ts` owns direct
-  knowledge-base and retrospective writes.
-- **Remaining outcome:** write one implementation plan that inventories athlete-owned state,
-  defines partial-restore behavior, aligns knowledge-base restoration with atomic-store guarantees
-  where justified, and makes UI/docs truthful about unrecoverable cases.
-- **Entry gate:** none.
-- **Plan scope:** `lib/backup.ts`, `lib/json-store.ts`, `lib/data-store.ts`, `lib/kb-loader.ts`,
-  `app/api/export/route.ts`, `app/api/import/route.ts`, and `app/api/sync/route.ts`; their
-  `*.test.ts` coverage; `components/BackupRestore.tsx` and `app/settings/page.tsx`; and
-  `docs/systems/01-sync-and-data.md`, `docs/FILE_INDEX.md`, and `docs/RECIPES.md`.
-- **Exit evidence:** destructive-path tests for the accepted recovery contract, a current
-  critical-state coverage table, and user-facing copy matching actual guarantees.
-- **Non-goals:** transactional database migration, hosted backup, authentication, or automatically
-  configuring off-machine storage.
-
 ### Phase 2 · Make the core journey excellent
 
-#### FR-3 · Core-journey task audit — BLOCKED until FR-1 and FR-2 close
+#### FR-3 · Core-journey task audit — BLOCKED until FR-1 closes
 
 - **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
   [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
   and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
 - **Verified current state:** Today, Plan, the ride closeout, and the adaptive-week path are live;
-  FR-1 and FR-2 are still open, so their evidence and recovery boundaries are not yet closed.
+  FR-1 is still open, so its evidence boundary is not yet closed.
 - **Remaining outcome:** observe Today → Plan → ride → closeout → adaptive week as tasks; record
   failures, confusion, avoidable prose, lost-state risks, and latency before proposing changes.
-- **Entry gate:** FR-1 and FR-2 closed.
+- **Entry gate:** FR-1 closed.
 - **Plan scope:** no implementation plan exists until this audit selects a failure. The audit covers
   `app/today/page.tsx`, `app/plan/page.tsx`, `app/api/retrospective/route.ts`, and the adaptive
   path in `lib/season.ts`; its findings record is the decision surface for FR-4.

@@ -5,7 +5,7 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 ## Data integrity
 
 1. **The ledger is append-only.** Past `score-log.json` entries are frozen with their provenance stamps (FTP-used, calibration, fuel, form state). Only today's entry re-derives. LEDGER-1: a rebuild can never un-plan a frozen entry. LEDGER-2: normal merges never rewrite history. Scoring-logic changes apply forward, never retroactively. Diff check: `score-log.ts` merges must treat past dates as read-only; backfills in `sync-ledger.ts` must be idempotent (fixture: old entries + resync ⇒ byte-identical).
-2. **All persistence goes through `json-store.ts`** — atomic write, `.bak` rotation for the CRITICAL set, per-file locks. Never raw `fs` for `data/`. Concurrent read-modify-writes go through `updateJsonFile` (reads inside the lock).
+2. **All persistence goes through `json-store.ts`** — atomic write, `.bak` rotation for the CRITICAL set, per-file locks. Never raw `fs` for `data/`, except the validated whole-tree restore path in `lib/backup.ts`, which stages and swaps the managed `data/` + `knowledge-base/` trees under the shared persistence barrier while still reusing the critical-file predicate. Concurrent read-modify-writes go through `updateJsonFile` (reads inside the lock).
 3. **Migration flags use truthy checks, never `=== null`.** A JSON file written before the field existed parses back as `undefined`. (Shipped-bug class; see AGENTS.md.)
 4. **A corrupt live file's `.bak` is sacred** — rotation skips when live content doesn't parse; a fallback born from double-corruption is never persisted as truth.
 5. **Suspect-empty syncs are refused.** Zero activities + zero wellness after a non-empty sync = upstream hiccup, keep previous data.

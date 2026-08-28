@@ -1,6 +1,6 @@
 # FR-2 Restore and Critical-State Honesty Design
 
-**Status:** Approved for implementation planning on 2026-08-28
+**Status:** Shipped on 2026-08-28
 
 ## Purpose
 
