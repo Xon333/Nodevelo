@@ -12,7 +12,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `json-store.ts` | Atomic write + `.bak` rotation + per-file locks + corruption-aware recovery |
 | `data-store.ts` | Typed accessors over json-store; `updatedAt` stamping; self-healing shape merges (31 importers) |
 | `date.ts` | `localToday()` / `resolveToday()` — the ONLY sanctioned "what day is it for the athlete" source (27 importers) |
-| `backup.ts` | Backup bundle build + auto-snapshot rotation (14 kept) |
+| `backup.ts` | Backup bundle build + validated exact restore of managed `data/` + `knowledge-base/` trees, plus auto-snapshot rotation (14 kept) |
 | `csrf.ts` | Same-origin write guard; enforced app-wide by root `proxy.ts` |
 | `log.ts` | One-line JSON `logError`/`logWarn` |
 | `client-api.ts` | Client fetch wrapper `api<T>()` + `timeAgo`/`isStale`/`nextMonday` (17 importers) |
@@ -115,7 +115,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `nutrition-validate.ts` | Kcal check + the ONLY auto-repairing validator |
 | `generate-cache.ts` | 60s in-flight dedupe |
 | `ai-usage.ts` | Token/cost telemetry (PRICING table duplicates model ids — keep in sync) |
-| `kb-loader.ts` | KB read/write/fallback, athlete-md parsing, retrospective seeds |
+| `kb-loader.ts` | KB read/write/fallback, athlete-md parsing, retrospective seeds; Markdown writes are atomic temp-file + `fsync` + rename |
 | `synthesis.ts` | Insights + validation → ONE ranked directives block |
 
 ## `app/api/` — routes
@@ -141,7 +141,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `calibration` | GET/POST | Read/override calibrated parameters | — |
 | `knowledge` | GET/PUT | KB file read/write | — |
 | `note` | POST | Manual coach-note post to Intervals.icu | — |
-| `export` / `import` | GET / POST | Backup bundle down/up | — |
+| `export` / `import` | GET / POST | Backup bundle down/up; `POST /api/import` performs validated exact restore of the managed snapshot | — |
 | `dev/reset-today` | POST | Dev-only: clear today's analysis (`npm run reset:today`) | — |
 | `workout-library` / `workout-library/[id]` | GET/POST / PATCH | Manual promotion + retire/restore/retry-export (app's first dynamic route segment). No management UI yet | — |
 
