@@ -339,7 +339,7 @@ describe("snapshotBackup", () => {
       await seedFile(path.join(kbDir, "nutrition.md"), "# Nutrition");
 
       const original = fs.writeFile;
-      const writeFile = vi.fn(async (...args: Parameters<typeof fs.writeFile>) => {
+      const writeFile = vi.fn(async () => {
         throw new Error("ENOSPC");
       });
       vi.spyOn(fs, "writeFile").mockImplementation(writeFile as typeof fs.writeFile);
