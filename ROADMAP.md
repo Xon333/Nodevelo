@@ -35,41 +35,20 @@ mechanics are not evidence that NodeVelo improves decisions.
 ## Freeze implementation-plan queue
 
 Status: **READY** may be planned now · **EVIDENCE** is an attended run/record, not a code plan ·
-**BLOCKED** waits for its entry gate. Select the first READY package. One package produces one
-design spec and one implementation plan unless its text explicitly says evidence-only.
-
-### Phase 1 · Finish trust evidence
-
-#### FR-1 · Current-generation evidence run — EVIDENCE, next action
-
-- **Review basis:** [evidence gate](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#evidence-gate),
-  [plan safety](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#plan-safety-and-claudes-authority),
-  and [physiology ownership](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#intervalsicu-ownership-privacy-and-recovery).
-- **Verified current state:** publication and physiology gates are shipped; the evidence checklist
-  remains open. `todo.md` still requires one live four-week generation to confirm loading-week
-  hours.
-- **Remaining outcome:** run one attended, current-code four-week generation and append its
-  structural result, loading-week hour deltas, publication findings/verdict, physiology status,
-  manual repairs, overview warnings, and Anthropic usage to the publication-gate evidence log.
-- **Entry gate:** current Anthropic credit and synthetic or explicitly approved athlete data.
-- **Plan scope:** no implementation plan exists because this is an attended evidence run, not code
-  work. Run the current generation and record it in
-  `docs/reviews/2026-08-24-publication-gate-evidence.md`.
-- **Exit evidence:** one dated evidence-log entry plus the loading-hours todo disposition. This
-  run may count toward varied-input structural evidence; it does not count as a completed real
-  block.
-- **Non-goals:** prompt/model/provider tuning, feature work, or treating one successful run as
-  coaching effectiveness.
+**BLOCKED** waits for its entry gate. Select the first READY package that is not explicitly
+owner-deferred. One package produces one design spec and one implementation plan unless its text
+explicitly says evidence-only.
 
 ### Phase 2 · Make the core journey excellent
 
-#### FR-3 · Core-journey task audit — BLOCKED until FR-1 closes
+#### FR-3 · Core-journey task audit — READY, owner-deferred behind FR-5
 
 - **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
   [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
   and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
 - **Verified current state:** Today, Plan, the ride closeout, and the adaptive-week path are live;
-  FR-1 is still open, so its evidence boundary is not yet closed.
+  FR-1's attended evidence run is closed, but the owner explicitly deferred this audit behind FR-5
+  on 2026-08-28.
 - **Remaining outcome:** observe Today → Plan → ride → closeout → adaptive week as tasks; record
   failures, confusion, avoidable prose, lost-state risks, and latency before proposing changes.
 - **Entry gate:** FR-1 closed.
@@ -100,18 +79,21 @@ design spec and one implementation plan unless its text explicitly says evidence
 
 ### Phase 3 · Reduce Claude's generation authority
 
-#### FR-5 · Deterministic-authority audit and replacement plan — BLOCKED until Phase 2 closes
+#### FR-5 · Deterministic-authority audit and replacement plan — READY, next action
 
 - **Review basis:** [plan safety and Claude authority](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#plan-safety-and-claudes-authority),
   [decision Q26/Q36/Q42](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53),
   and [falsification criteria](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#falsification-criteria).
 - **Verified current state:** four Anthropic call categories remain: block generation,
   ride-analysis coach note, prose retrospective, and structured retrospective. The critic and Ask
-  Coach calls are gone.
+  Coach calls are gone. FR-1's attended run exposed a 33-minute loading-week shortfall after
+  duration reconciliation and a deterministic skeleton/validator sequencing conflict.
 - **Remaining outcome:** classify each remaining output as deterministic fact/process, constrained
   composition, free-form interpretation, or optional explanation; plan replacements only where code
   can own the result more reliably.
-- **Entry gate:** Phase 2 closed.
+- **Entry gate:** the owner explicitly waived the still-open Phase 2 gate on 2026-08-28 so FR-1's
+  falsifying evidence can feed this audit now. This sequencing exception does not close Phase 2:
+  FR-3 remains READY but deferred, and FR-4 remains blocked on FR-3 evidence.
 - **Plan scope:** `app/api/generate/route.ts`, `app/api/analyze/route.ts`, and
   `app/api/retrospective/route.ts`; `lib/anthropic-api.ts`, `lib/anthropic-prompts.ts`,
   `lib/plan-schema.ts`, and `lib/retrospective-schema.ts`; and the authority boundary in

@@ -24,10 +24,6 @@ HR-67, HR-68, HR-70…HR-72 are recorded in [ARCHIVE.md](ARCHIVE.md).
   brain' spec work" while the repo is well past that (adaptive-coach P3c, NV-1…14 closed).
   INVARIANT #28: only `/handoff` may write this file — **run `/handoff` or ask to clear it.**
 
-- ☐ P2 `audit` **FR-1 live generation:** run the attended four-week current-code generation defined
-  by [ROADMAP FR-1](ROADMAP.md#fr-1--current-generation-evidence-run--evidence-next-action), then
-  record the loading-week deltas and close or refine this item from observed evidence.
-
 ---
 
 **Post-2026-07-22-audit: shipped but not exercised live yet.** Not bugs — just never run against real
