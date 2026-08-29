@@ -93,11 +93,11 @@ function NumberInput({
 }
 
 // UXA-20: the route clamps an out-of-range number to its floor/ceiling rather than rejecting it —
-// unlike the min>max pair (UXA-3, a real 400), a single out-of-range field saves "successfully" with
+// unlike conflicting hour bounds (a real 400), a single out-of-range field saves "successfully" with
 // no indication anything changed. Diffing the sent vs. returned numeric fields catches that silently.
 const FIELD_LABELS = {
-  weeklyHoursMin: "loading week minimum hours",
-  weeklyHoursMax: "loading week maximum hours",
+  targetWeeklyHours: "target weekly hours",
+  maxAvailableHours: "maximum available hours",
   recoveryWeekHoursMin: "recovery week minimum hours",
   recoveryWeekHoursMax: "recovery week maximum hours",
   qualitySessionsPerLoadingWeek: "quality sessions per loading week",
@@ -161,9 +161,9 @@ export default function BlockSettingsForm() {
     );
   }
 
-  // UXA-3: catch a min > max range before it ever reaches the server (which now rejects it too).
+  // Catch conflicting target/availability and recovery bounds before they reach the server.
   const hoursInvalid =
-    settings.weeklyHoursMin > settings.weeklyHoursMax || settings.recoveryWeekHoursMin > settings.recoveryWeekHoursMax;
+    settings.targetWeeklyHours > settings.maxAvailableHours || settings.recoveryWeekHoursMin > settings.recoveryWeekHoursMax;
 
   return (
     // UXA-21: wrapping in <form> gives Enter-to-submit from any field — previously every save
@@ -179,28 +179,28 @@ export default function BlockSettingsForm() {
       <Card title="Weekly volume targets">
         <div className="grid gap-5 sm:grid-cols-2">
           <Field
-            label="Loading week: minimum hours"
-            hint="Blocks won't generate below this for loading weeks"
+            label="Target weekly hours"
+            hint="Intended total for each loading week"
           >
             <NumberInput
-              value={settings.weeklyHoursMin}
+              value={settings.targetWeeklyHours}
               min={4}
               max={25}
               step={0.5}
-              onChange={(v) => set("weeklyHoursMin", v)}
+              onChange={(v) => set("targetWeeklyHours", v)}
               suffix="h"
             />
           </Field>
           <Field
-            label="Loading week: maximum hours"
-            hint="Upper ceiling for loading weeks"
+            label="Maximum available hours"
+            hint="Hard weekly time ceiling"
           >
             <NumberInput
-              value={settings.weeklyHoursMax}
+              value={settings.maxAvailableHours}
               min={4}
               max={30}
               step={0.5}
-              onChange={(v) => set("weeklyHoursMax", v)}
+              onChange={(v) => set("maxAvailableHours", v)}
               suffix="h"
             />
           </Field>
@@ -306,6 +306,14 @@ export default function BlockSettingsForm() {
             ))}
           </div>
         </Field>
+        <div className="mt-4">
+          <ToggleRow
+            label="Allow Press lap steps"
+            hint="Only enable for a proven Garmin/Suunto outdoor workflow. Leave off for Wahoo."
+            checked={settings.lapButtonSteps}
+            onChange={(value) => set("lapButtonSteps", value)}
+          />
+        </div>
       </Card>
 
       {/* Save */}
@@ -317,7 +325,7 @@ export default function BlockSettingsForm() {
         {error && <span role="alert" className="text-sm text-red-600">{error}</span>}
       </div>
       {hoursInvalid && (
-        <p role="alert" className="text-xs text-red-600">Minimum hours can&apos;t be more than maximum hours — fix the highlighted range above before saving.</p>
+        <p role="alert" className="text-xs text-red-600">Target hours can&apos;t exceed available time, and recovery minimum can&apos;t exceed its maximum.</p>
       )}
       {adjusted && (
         <p role="status" className="text-xs text-amber-600 dark:text-amber-400">

@@ -73,12 +73,12 @@ describe("PUT /api/settings — calibration override persistence (SET-1)", () =>
   });
 });
 
-describe("PUT /api/settings — weekly-hours min<=max guard (UXA-3)", () => {
-  it("rejects a loading-week min greater than max, without writing", async () => {
+describe("PUT /api/settings — weekly target and ceiling", () => {
+  it("rejects a target above available time, without writing", async () => {
     seedCurrentSettings(base());
-    const res = await put({ weeklyHoursMin: 20, weeklyHoursMax: 6 });
+    const res = await put({ targetWeeklyHours: 20, maxAvailableHours: 6 });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/minimum hours can't be more than maximum/i);
+    expect((await res.json()).error).toMatch(/target weekly hours can't exceed maximum available hours/i);
   });
 
   it("rejects a recovery-week min greater than max, without writing", async () => {
@@ -88,10 +88,16 @@ describe("PUT /api/settings — weekly-hours min<=max guard (UXA-3)", () => {
     expect((await res.json()).error).toMatch(/minimum hours can't be more than maximum/i);
   });
 
-  it("accepts a valid range where min <= max", async () => {
+  it("accepts a valid target at or below the ceiling", async () => {
     seedCurrentSettings(base());
-    const res = await put({ weeklyHoursMin: 6, weeklyHoursMax: 20 });
+    const res = await put({ targetWeeklyHours: 6, maxAvailableHours: 20 });
     expect(res.status).toBe(200);
+  });
+
+  it("preserves lapButtonSteps across an unrelated PUT", async () => {
+    seedCurrentSettings(base({ lapButtonSteps: true }));
+    const json = await (await put({ restDaysPerWeek: 2 })).json();
+    expect(json.lapButtonSteps).toBe(true);
   });
 });
 

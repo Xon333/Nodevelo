@@ -261,21 +261,30 @@ export async function mergeCurrentBlockDays(
   }, expectedCreatedAt);
 }
 
-// HR-54(d): an old block-settings.json predating a boolean field parses back with it entirely absent
-// (`undefined`), not `false` — a plain truthy check at a consumer would then silently disable a
-// toggle whose documented default is `true`, even though nothing ever set it. Only the true-by-default
-// booleans need this (a false-by-default field's `undefined` already reads correctly as falsy) —
-// `autoPostCoachNote` defaults to `false`, so it's untouched here.
-function healBlockSettingsBooleans(settings: BlockSettings): BlockSettings {
+type StoredBlockSettings = Partial<BlockSettings> & {
+  weeklyHoursMin?: number;
+  weeklyHoursMax?: number;
+};
+
+// Shape-normalize legacy settings in one place. Missing fields parse as `undefined`, so every fallback
+// is nullish rather than an `=== null` migration check. The legacy loading range is read-compatible
+// only: neither old field survives the returned shape or the next locked update.
+function normalizeBlockSettings(stored: StoredBlockSettings): BlockSettings {
+  const legacyTarget = stored.weeklyHoursMax ?? DEFAULT_BLOCK_SETTINGS.targetWeeklyHours;
+  const { weeklyHoursMin: _legacyMin, weeklyHoursMax: _legacyMax, ...current } = stored;
   return {
-    ...settings,
-    autoSyncOnOpen: settings.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
-    polarisedApproach: settings.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
+    ...DEFAULT_BLOCK_SETTINGS,
+    ...current,
+    targetWeeklyHours: stored.targetWeeklyHours ?? legacyTarget,
+    maxAvailableHours: stored.maxAvailableHours ?? legacyTarget,
+    lapButtonSteps: stored.lapButtonSteps ?? false,
+    autoSyncOnOpen: stored.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
+    polarisedApproach: stored.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
   };
 }
 
 export async function readBlockSettings(): Promise<BlockSettings> {
-  return healBlockSettingsBooleans(await readJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS));
+  return normalizeBlockSettings(await readJson<StoredBlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS));
 }
 
 // HR-52: transactional read-modify-write on block-settings.json — the read happens inside the
@@ -287,7 +296,7 @@ export async function updateBlockSettings(
   mutate: (current: BlockSettings) => BlockSettings | Promise<BlockSettings>
 ): Promise<BlockSettings> {
   return updateJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS, async (current) => ({
-    ...(await mutate(healBlockSettingsBooleans(current))),
+    ...(await mutate(normalizeBlockSettings(current))),
     updatedAt: new Date().toISOString(),
   }));
 }

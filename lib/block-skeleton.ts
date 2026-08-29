@@ -1,10 +1,9 @@
 // Deterministic per-block skeleton (P2, 2026-07-24 block-generation redesign). The LLM was free-
 // forming weekly volume from a min-max range and a fixed absolute recovery band, and it undershot its
 // own explicit floor in every non-recovery week of a real reviewed block. This computes ONE exact
-// hour figure per week — loading weeks target the top of the configured range (making today's
-// aspirational "plan toward the top" prose literal), recovery weeks target a figure DERIVED from that
-// loading target (not a fixed absolute band blind to it) — plus a pre-generation feasibility check and
-// a post-generation check that the generated hours actually landed near the target.
+// hour figure per week — loading weeks use the configured target while availability remains a hard
+// ceiling; recovery weeks derive from that loading target (not a fixed absolute band blind to it) —
+// plus a pre-generation feasibility check and a post-generation check that the hours landed near target.
 //
 // Pure + deterministic, same contract as workout-validate.ts/schedule-validate.ts: computation and
 // prompt-formatting never throw or invent data; the post-generation check only warns, never rewrites.
@@ -24,10 +23,10 @@ const MIN_EASY_DAY_MIN = 60;
 // impossible ask — the one useful idea from a full constraint solver (rejected as too heavy for a
 // solo-maintained app), without the solver. Returns a human-readable conflict, or null if feasible.
 export function checkBlockFeasibility(settings: BlockSettings): string | null {
-  const { qualitySessionsPerLoadingWeek, longRideDurationMinutes, restDaysPerWeek, weeklyHoursMin, weeklyHoursMax } = settings;
+  const { qualitySessionsPerLoadingWeek, longRideDurationMinutes, restDaysPerWeek, targetWeeklyHours, maxAvailableHours } = settings;
 
-  if (weeklyHoursMin > weeklyHoursMax) {
-    return `Settings conflict: weeklyHoursMin (${weeklyHoursMin}h) is greater than weeklyHoursMax (${weeklyHoursMax}h).`;
+  if (targetWeeklyHours > maxAvailableHours) {
+    return `Settings conflict: target weekly hours (${targetWeeklyHours}h) exceed available time (${maxAvailableHours}h).`;
   }
 
   // (a) Day-count: quality sessions + the long ride's own day + rest days must fit in a 7-day week —
@@ -41,9 +40,9 @@ export function checkBlockFeasibility(settings: BlockSettings): string | null {
   // (b) Minimum realistic time: even sized as small as protocol allows, does a loading week fit under
   // the configured ceiling?
   const minMinutes = qualitySessionsPerLoadingWeek * MIN_QUALITY_SESSION_MIN + longRideDurationMinutes + easyDays * MIN_EASY_DAY_MIN;
-  const maxAvailableMinutes = weeklyHoursMax * 60;
+  const maxAvailableMinutes = maxAvailableHours * 60;
   if (minMinutes > maxAvailableMinutes) {
-    return `Settings conflict: a loading week's minimum realistic content (${qualitySessionsPerLoadingWeek} quality session(s) at ~${MIN_QUALITY_SESSION_MIN}min + a ${longRideDurationMinutes}min long ride + ${easyDays} easy day(s) at ~${MIN_EASY_DAY_MIN}min) is ~${round1(minMinutes / 60)}h — already over the ${weeklyHoursMax}h weekly ceiling. Raise weeklyHoursMax, or lower the quality-session count / long-ride duration.`;
+    return `Settings conflict: a loading week's minimum realistic content (${qualitySessionsPerLoadingWeek} quality session(s) at ~${MIN_QUALITY_SESSION_MIN}min + a ${longRideDurationMinutes}min long ride + ${easyDays} easy day(s) at ~${MIN_EASY_DAY_MIN}min) is ~${round1(minMinutes / 60)}h — already over the ${maxAvailableHours}h weekly ceiling. Raise maximum available hours, or lower the quality-session count / long-ride duration.`;
   }
 
   return null;
@@ -71,14 +70,18 @@ const RECOVERY_RETENTION_PCT = 0.6;
 // "recovery" week, just trimmed. Imported by schedule-validate.ts and season.ts.
 export const RECOVERY_QUALITY_CAP = 1;
 
-// One exact hour figure per week: loading weeks target the TOP of the configured range (literal, not
-// aspirational); recovery weeks (already correctly placed by realWeeksSinceLastRecovery/
+// One exact hour figure per week: loading weeks use the configured target; recovery weeks (already
+// correctly placed by realWeeksSinceLastRecovery/
 // planRecoveryWeeks — see lib/season.ts) target a derived fraction of that loading figure, clamped to
 // the configured recovery band as an outer sanity bound rather than the primary source of truth.
 export function computeWeekTargets(lengthWeeks: number, settings: BlockSettings, recoveryWeekIndices: number[]): WeekTarget[] {
   const recoverySet = new Set(recoveryWeekIndices);
-  const loadingTarget = settings.weeklyHoursMax;
-  const derivedRecoveryTarget = clamp(loadingTarget * RECOVERY_RETENTION_PCT, settings.recoveryWeekHoursMin, settings.recoveryWeekHoursMax);
+  const loadingTarget = settings.targetWeeklyHours;
+  const derivedRecoveryTarget = clamp(
+    loadingTarget * RECOVERY_RETENTION_PCT,
+    settings.recoveryWeekHoursMin,
+    Math.min(settings.recoveryWeekHoursMax, settings.maxAvailableHours)
+  );
   return Array.from({ length: lengthWeeks }, (_, i) => {
     const isRecovery = recoverySet.has(i);
     return {
@@ -275,7 +278,7 @@ export function computeBlockSkeleton(
     let easyTotal = totalMin - (longRideMin + qualityNominalTotal);
 
     // ---- I3 fix: the fixed content (long ride + quality) can legitimately exceed the week's target
-    // on its own — e.g. a tiny weeklyHoursMax paired with a long-ride duration that alone eats the
+    // on its own — e.g. a tiny targetWeeklyHours paired with a long-ride duration that alone eats the
     // whole week. Shrink the fixed slots down to fit exactly — long ride first (it's already this
     // function's designated "absorb the residual" lever below), then quality if the long ride alone
     // can't cover it — instead of silently discarding the overshoot via Math.max(0, ...). Floor at 0
@@ -296,7 +299,7 @@ export function computeBlockSkeleton(
     // delta on the long ride — UNLESS doing so would push the long ride below zero (I4), in which
     // case skip the cosmetic clamp and keep the raw, unclamped split: it still sums exactly and never
     // goes negative, which is the only thing this function actually promises. A combination extreme
-    // enough to hit this branch (e.g. longRideDurationMinutes: 10 with weeklyHoursMax: 2) has already
+    // enough to hit this branch (e.g. longRideDurationMinutes: 10 with targetWeeklyHours: 2) has already
     // given up on "realistic day shapes" the moment Step 2 had to shrink the long ride to 0 above.
     let easyMins: number[];
     if (easyCount > 0) {

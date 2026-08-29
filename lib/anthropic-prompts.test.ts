@@ -261,10 +261,10 @@ describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
     expect(p).not.toMatch(/must total \d+–\d+ hours/); // no more min-max ranges for volume
   });
 
-  it("falls back to sensible range-based prose when no skeleton is supplied", () => {
+  it("falls back to the exact target and hard ceiling when no skeleton is supplied", () => {
     const p = userMessage(); // no weekTargets — e.g. a caller that hasn't computed one yet
     expect(p).toContain("no per-week targets supplied");
-    expect(p).toContain("must total 10–12 hours");
+    expect(p).toContain("must total exactly 12 hours within the 12-hour hard ceiling");
   });
 
   it("sizes easy Z2 sessions to the per-week hour target instead of capping them at 60–90 min", () => {

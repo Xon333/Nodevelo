@@ -609,8 +609,8 @@ export interface SeasonPlan {
 // ---------- Block generation settings (data/block-settings.json) ----------
 
 export interface BlockSettings {
-  weeklyHoursMin: number; // loading weeks minimum
-  weeklyHoursMax: number; // loading weeks maximum
+  targetWeeklyHours: number; // intended loading-week total
+  maxAvailableHours: number; // hard weekly availability ceiling
   recoveryWeekHoursMin: number;
   recoveryWeekHoursMax: number;
   qualitySessionsPerLoadingWeek: number; // threshold / VO2max / SIT sessions
@@ -620,6 +620,7 @@ export interface BlockSettings {
   // Platform behaviour
   autoSyncOnOpen: boolean; // auto-sync the Today view when cached data is stale
   autoPostCoachNote: boolean; // auto-post the coach note to Intervals.icu on each sync
+  lapButtonSteps: boolean; // allow device-supported Press lap workout steps
   // Optional manual calibration override for the ACWR injury-risk bands. Absent = population
   // defaults; set to personalise the optimal/danger thresholds (the hybrid calibration hook).
   acwrBands?: { optimalLow: number; optimalHigh: number; dangerHigh: number };
@@ -647,8 +648,8 @@ export interface BlockSettings {
 }
 
 export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
-  weeklyHoursMin: 10,
-  weeklyHoursMax: 12,
+  targetWeeklyHours: 12,
+  maxAvailableHours: 12,
   recoveryWeekHoursMin: 6,
   // P2b (2026-07-24 block-generation redesign): widened from 7 to 8 so the derived recovery target
   // (60% of a 12h loading target = 7.2h, lib/block-skeleton.ts) governs instead of being immediately
@@ -662,6 +663,7 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   polarisedApproach: true,
   autoSyncOnOpen: true,
   autoPostCoachNote: false,
+  lapButtonSteps: false,
   updatedAt: new Date(0).toISOString(),
 };
 

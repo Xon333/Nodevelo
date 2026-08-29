@@ -24,9 +24,18 @@ describe("checkBlockFeasibility", () => {
     expect(checkBlockFeasibility(DEFAULT_BLOCK_SETTINGS)).toBeNull();
   });
 
-  it("flags weeklyHoursMin greater than weeklyHoursMax", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMin: 13, weeklyHoursMax: 12 };
-    expect(checkBlockFeasibility(settings)).toMatch(/weeklyHoursMin.*greater than weeklyHoursMax/);
+  it("uses targetWeeklyHours for loading load and maxAvailableHours only as a ceiling", () => {
+    const settings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 10, maxAvailableHours: 14 };
+    expect(computeWeekTargets(2, settings, [])).toEqual([
+      { weekNumber: 1, isRecovery: false, targetHours: 10 },
+      { weekNumber: 2, isRecovery: false, targetHours: 10 },
+    ]);
+    expect(checkBlockFeasibility(settings)).toBeNull();
+  });
+
+  it("rejects a target above available time", () => {
+    expect(checkBlockFeasibility({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 13, maxAvailableHours: 12 }))
+      .toMatch(/target.*available/i);
   });
 
   it("flags too many fixed-shape days for a 7-day week", () => {
@@ -36,21 +45,21 @@ describe("checkBlockFeasibility", () => {
   });
 
   it("flags a weekly hour ceiling too low for the required content", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 5, weeklyHoursMin: 4, qualitySessionsPerLoadingWeek: 3, longRideDurationMinutes: 180 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 5, maxAvailableHours: 5, qualitySessionsPerLoadingWeek: 3, longRideDurationMinutes: 180 };
     expect(checkBlockFeasibility(settings)).toMatch(/already over the 5h weekly ceiling/);
   });
 
   it("passes a tight but genuinely feasible configuration", () => {
     // 2 quality (45min floor each) + 1 long ride (180min) + 1 rest + 3 easy days (60min floor each)
     // = 90 + 180 + 180 = 450min = 7.5h, under an 8h ceiling.
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 8, weeklyHoursMin: 6, qualitySessionsPerLoadingWeek: 2, longRideDurationMinutes: 180, restDaysPerWeek: 1 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 8, maxAvailableHours: 8, qualitySessionsPerLoadingWeek: 2, longRideDurationMinutes: 180, restDaysPerWeek: 1 };
     expect(checkBlockFeasibility(settings)).toBeNull();
   });
 });
 
 describe("computeWeekTargets", () => {
-  it("targets weeklyHoursMax flat for every non-recovery week", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 12 };
+  it("targets targetWeeklyHours flat for every non-recovery week", () => {
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 12 };
     const targets = computeWeekTargets(3, settings, []);
     expect(targets).toEqual([
       { weekNumber: 1, isRecovery: false, targetHours: 12 },
@@ -60,19 +69,19 @@ describe("computeWeekTargets", () => {
   });
 
   it("derives recovery-week depth from the loading target, clamped to the configured band", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
     const targets = computeWeekTargets(4, settings, [3]); // 0-indexed week 3 = weekNumber 4
     expect(targets[3]).toEqual({ weekNumber: 4, isRecovery: true, targetHours: 7.2 }); // 60% of 12h
   });
 
   it("clamps the derived recovery figure down when the configured max is tighter", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 7 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 7 };
     const targets = computeWeekTargets(1, settings, [0]);
     expect(targets[0].targetHours).toBe(7); // 60% of 12 = 7.2, clamped down to the 7h ceiling
   });
 
   it("clamps the derived recovery figure up when the configured min is higher", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 8, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 8, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
     const targets = computeWeekTargets(1, settings, [0]);
     expect(targets[0].targetHours).toBe(6); // 60% of 8 = 4.8, clamped up to the 6h floor
   });
@@ -225,7 +234,7 @@ describe("computeBlockSkeleton", () => {
   // real protocol length) and its flexible second slot takes the 75min middle figure — 130min total.
   it("clamps easy days DOWN to the ceiling and grows the long ride by exactly what they gave up", () => {
     // easyTotal = 1200 - 180 - 130 = 890min / 3 easy days = ~297min each, over the 150min ceiling.
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 20 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 20, maxAvailableHours: 20 };
     const target = computeWeekTargets(1, settings, [])[0];
     const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
     const days = sk.weeks[0].days;
@@ -240,7 +249,7 @@ describe("computeBlockSkeleton", () => {
 
   it("clamps easy days UP to the floor and shrinks the long ride by exactly what they took", () => {
     // easyTotal = 360 - 180 - 130 = 50min / 3 easy days = ~17min each, under the 45min floor.
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 6 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 6 };
     const target = computeWeekTargets(1, settings, [])[0];
     const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
     const days = sk.weeks[0].days;
@@ -329,7 +338,7 @@ describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => 
   // filtered through checkBlockFeasibility first — this function's contract does not state "assumes
   // pre-validated settings" as a precondition, so the sweep includes combinations feasibility would
   // reject (that's exactly how I3 and I4 were reproduced) as well as ones it passes (C2's shape).
-  const WEEKLY_HOURS_MAX = [2, 6, 10, 12, 20, 30];
+  const MAX_AVAILABLE_HOURS = [2, 6, 10, 12, 20, 30];
   const LONG_RIDE_MIN = [10, 120, 180, 300];
   const REST_DAYS = [0, 1, 2, 3];
   const QUALITY_SESSIONS = [0, 1, 2, 3, 4];
@@ -340,34 +349,39 @@ describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => 
   it("holds for every combination in the matrix (no events)", () => {
     const failures: string[] = [];
     let combos = 0;
-    for (const weeklyHoursMax of WEEKLY_HOURS_MAX) {
-      for (const longRideDurationMinutes of LONG_RIDE_MIN) {
-        for (const restDaysPerWeek of REST_DAYS) {
-          for (const qualitySessionsPerLoadingWeek of QUALITY_SESSIONS) {
-            for (const lengthWeeks of BLOCK_LENGTHS) {
-              for (const recoveryPresent of RECOVERY_PRESENT) {
-                for (const focus of FOCI) {
-                  combos++;
-                  // recoveryWeekHoursMin/Max relaxed to [0, weeklyHoursMax] so a low weeklyHoursMax
-                  // extreme actually propagates into the recovery week's target too, instead of being
-                  // floor-clamped back up by the population-default recovery band.
-                  const settings: BlockSettings = {
-                    ...DEFAULT_BLOCK_SETTINGS,
-                    weeklyHoursMax,
-                    longRideDurationMinutes,
-                    restDaysPerWeek,
-                    qualitySessionsPerLoadingWeek,
-                    recoveryWeekHoursMin: 0,
-                    recoveryWeekHoursMax: weeklyHoursMax,
-                  };
-                  const recoveryIdx = recoveryPresent ? [lengthWeeks - 1] : [];
-                  const targets = computeWeekTargets(lengthWeeks, settings, recoveryIdx);
-                  const sk = computeBlockSkeleton("2026-08-03", targets, settings, focus, []);
-                  assertWeekInvariants(
-                    sk,
-                    `hrs=${weeklyHoursMax} ride=${longRideDurationMinutes} rest=${restDaysPerWeek} q=${qualitySessionsPerLoadingWeek} len=${lengthWeeks} rec=${recoveryPresent} focus=${focus}`,
-                    failures
-                  );
+    for (const [ceilingIndex, maxAvailableHours] of MAX_AVAILABLE_HOURS.entries()) {
+      // Reuse the original sweep's target values while covering both target=ceiling and target<ceiling.
+      const lowerTarget = MAX_AVAILABLE_HOURS[Math.max(0, ceilingIndex - 1)];
+      for (const targetWeeklyHours of [maxAvailableHours, lowerTarget]) {
+        for (const longRideDurationMinutes of LONG_RIDE_MIN) {
+          for (const restDaysPerWeek of REST_DAYS) {
+            for (const qualitySessionsPerLoadingWeek of QUALITY_SESSIONS) {
+              for (const lengthWeeks of BLOCK_LENGTHS) {
+                for (const recoveryPresent of RECOVERY_PRESENT) {
+                  for (const focus of FOCI) {
+                    combos++;
+                    // recoveryWeekHoursMin/Max relaxed to [0, maxAvailableHours] so a low ceiling
+                    // extreme actually propagates into the recovery week's target too, instead of being
+                    // floor-clamped back up by the population-default recovery band.
+                    const settings: BlockSettings = {
+                      ...DEFAULT_BLOCK_SETTINGS,
+                      targetWeeklyHours,
+                      maxAvailableHours,
+                      longRideDurationMinutes,
+                      restDaysPerWeek,
+                      qualitySessionsPerLoadingWeek,
+                      recoveryWeekHoursMin: 0,
+                      recoveryWeekHoursMax: maxAvailableHours,
+                    };
+                    const recoveryIdx = recoveryPresent ? [lengthWeeks - 1] : [];
+                    const targets = computeWeekTargets(lengthWeeks, settings, recoveryIdx);
+                    const sk = computeBlockSkeleton("2026-08-03", targets, settings, focus, []);
+                    assertWeekInvariants(
+                      sk,
+                      `target=${targetWeeklyHours} ceiling=${maxAvailableHours} ride=${longRideDurationMinutes} rest=${restDaysPerWeek} q=${qualitySessionsPerLoadingWeek} len=${lengthWeeks} rec=${recoveryPresent} focus=${focus}`,
+                      failures
+                    );
+                  }
                 }
               }
             }
@@ -375,8 +389,8 @@ describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => 
         }
       }
     }
-    // 6 * 4 * 4 * 5 * 3 * 2 * 2 = 5760 settings combinations, each producing 2/4/8 weeks.
-    expect(combos).toBe(WEEKLY_HOURS_MAX.length * LONG_RIDE_MIN.length * REST_DAYS.length * QUALITY_SESSIONS.length * BLOCK_LENGTHS.length * RECOVERY_PRESENT.length * FOCI.length);
+    // 6 * 2 * 4 * 4 * 5 * 3 * 2 * 2 = 11520 settings combinations, each producing 2/4/8 weeks.
+    expect(combos).toBe(MAX_AVAILABLE_HOURS.length * 2 * LONG_RIDE_MIN.length * REST_DAYS.length * QUALITY_SESSIONS.length * BLOCK_LENGTHS.length * RECOVERY_PRESENT.length * FOCI.length);
     if (failures.length > 0) {
       throw new Error(`${failures.length} invariant violation(s) across ${combos} combos (showing up to 25):\n${failures.slice(0, 25).join("\n")}`);
     }
@@ -390,7 +404,7 @@ describe("computeBlockSkeleton invariants — events on every day (C1 sweep)", (
   const SETTINGS_VARIANTS: { label: string; settings: BlockSettings }[] = [
     { label: "default", settings: DEFAULT_BLOCK_SETTINGS },
     { label: "C2 collision shape", settings: { ...DEFAULT_BLOCK_SETTINGS, restDaysPerWeek: 2, qualitySessionsPerLoadingWeek: 3 } },
-    { label: "I3/I4 overshoot shape", settings: { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 2, longRideDurationMinutes: 10 } },
+    { label: "I3/I4 overshoot shape", settings: { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 2, maxAvailableHours: 2, longRideDurationMinutes: 10 } },
   ];
 
   it("an event on each of the seven days, loading and recovery, holds both invariants for every settings shape", () => {
