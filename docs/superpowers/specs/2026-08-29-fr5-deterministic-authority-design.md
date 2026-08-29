@@ -1,7 +1,7 @@
 # FR-5 deterministic authority design
 
 **Date:** 2026-08-29  
-**Status:** Proposed — amended syntax design awaiting owner approval
+**Status:** Approved by owner on 2026-08-29
 
 ## Outcome
 
