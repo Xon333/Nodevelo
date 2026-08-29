@@ -167,3 +167,26 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 The one per-finding exception to hard-blocking: with ≥3 configured quality sessions per loading week, the day-slot skeleton's canonical placement is best-effort and can produce back-to-back hard days **by design** — regeneration cannot beat a deterministic placement limit — so adjacency degrades to a preference (informed override) instead of a blocker. Decided in the classifier by emitter + settings; at the default budget it stays a blocker.
 
 **Consequences.** Publication is server-authoritative without write-time revalidation drift; regeneration is the only remedy for blockers. Cost: the verdict is a single slot — generating plan B invalidates plan A's passport (deliberate: latest-wins). Known soft edge, accepted and documented: the hash envelope covers only `{days, blockParams}`, so plan-level fields outside it — chiefly the `overview` prose (plus the `seasonFocus`/`durabilityTemplate` provenance stamps) — are client-tamperable between preview and publish, and `/api/write` stamps them verbatim onto `current-block.json`. These carry no training numbers — every load, duration, and nutrition figure lives inside the hashed `days`/`blockParams` envelope or is recomputed deterministically at write time — so tampering can only deface prose the athlete themselves submits for their own calendar, never corrupt what gets scored or written to Intervals.icu. Revisit if any plan-level field ever becomes a scoring input.
+
+---
+
+## ADR-0016 · FR-1 falsifying evidence advances FR-5 ahead of Phase 2
+
+**Status.** Accepted by owner 2026-08-28.
+
+**Context.** FR-1's attended current-code synthetic generation produced the required evidence but a
+blocked publication verdict: duration reconciliation left one loading week 33 minutes short, and
+the deterministic skeleton's placement conflicted with the sequencing validator in two weeks.
+Repeating paid generation before examining the authority boundary would ask the model to work
+around deterministic constraints that FR-5 exists to audit. The roadmap originally gated FR-5 on
+Phase 2 completion.
+
+**Decision.** Close FR-1 as an evidence task and use its blocked result as input to FR-5. The owner
+explicitly waives FR-5's Phase 2 entry gate for this sequencing only. FR-5 becomes the next READY
+package; FR-3 is independently READY but deferred behind it, FR-4 remains blocked on FR-3 evidence,
+and FR-6 remains blocked on the FR-5 baseline.
+
+**Consequences.** This exception does not claim Phase 2 is complete, weaken or override publication
+blockers, or turn the failed run into structural-validity evidence. FR-5 retains its original exit
+evidence, including five consecutive structurally valid varied-input generations. The waiver changes
+work order only; publication safety and downstream evidence gates remain intact.

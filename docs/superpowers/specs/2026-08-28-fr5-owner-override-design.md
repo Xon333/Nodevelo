@@ -1,6 +1,6 @@
 # FR-5 owner-override design
 
-**Status:** Approved 2026-08-28
+**Status:** Shipped 2026-08-28
 
 ## Purpose
 

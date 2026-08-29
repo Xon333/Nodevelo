@@ -82,6 +82,18 @@ Markdown mutations, and the final docs sync landed in `16d68a9`.
 
 ---
 
+## FR-1 current-generation evidence run (2026-08-28)
+
+The attended current-code synthetic four-week generation completed and was inspected end to end;
+its [evidence entry](docs/reviews/2026-08-24-publication-gate-evidence.md#2026-08-28--fr-1-current-code-synthetic-four-week-generation)
+records complete structure, fresh physiology, no manual repairs, and a blocked publication verdict.
+The run falsified readiness rather than proving it: duration reconciliation left week 1 33 minutes
+short, and deterministic skeleton placement conflicted with the sequencing validator in weeks 1–2.
+It does not count toward the five structurally valid generations. By explicit owner decision, FR-1
+closes as an evidence task and those findings now feed FR-5's deterministic-authority audit.
+
+---
+
 ## Trust-contract repairs — calendar mirroring + retrospective closeout (2026-08-22/23, PRs #87/#92/#94)
 
 Two Phase 1 trust contracts shipped back-to-back. PR #87 was reviewed shallow post-merge and
