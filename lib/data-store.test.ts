@@ -592,17 +592,17 @@ describe("updateBlockSettings", () => {
   it("migrates legacy weeklyHoursMax to target and ceiling and defaults lap steps off", async () => {
     await fs.writeFile(
       p("block-settings.json"),
-      JSON.stringify({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: undefined, maxAvailableHours: undefined, lapButtonSteps: undefined, weeklyHoursMax: 12 }),
+      JSON.stringify({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: undefined, maxAvailableHours: undefined, lapButtonSteps: undefined, weeklyHoursMax: 30 }),
       "utf-8"
     );
     const settings = await readBlockSettings();
-    expect(settings.targetWeeklyHours).toBe(12);
-    expect(settings.maxAvailableHours).toBe(12);
+    expect(settings.targetWeeklyHours).toBe(30);
+    expect(settings.maxAvailableHours).toBe(30);
     expect(settings.lapButtonSteps).toBe(false);
 
     const updated = await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 }));
-    expect(updated.targetWeeklyHours).toBe(12);
-    expect(updated.maxAvailableHours).toBe(12);
+    expect(updated.targetWeeklyHours).toBe(30);
+    expect(updated.maxAvailableHours).toBe(30);
     const persisted = JSON.parse(await fs.readFile(p("block-settings.json"), "utf-8"));
     expect(persisted).not.toHaveProperty("weeklyHoursMin");
     expect(persisted).not.toHaveProperty("weeklyHoursMax");

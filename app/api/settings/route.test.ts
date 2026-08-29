@@ -114,6 +114,13 @@ describe("PUT /api/settings — weekly target and ceiling", () => {
 });
 
 describe("PUT /api/settings — HR-52 (locked read-modify-write)", () => {
+  it("preserves normalized numeric values outside current input bounds on an unrelated PUT", async () => {
+    seedCurrentSettings(base({ targetWeeklyHours: 30, maxAvailableHours: 30 }));
+    const json = await (await put({ lapButtonSteps: true })).json();
+    expect(json.targetWeeklyHours).toBe(30);
+    expect(json.maxAvailableHours).toBe(30);
+  });
+
   it("merges onto whatever updateBlockSettings' lock actually hands it, not a value the route captured earlier", async () => {
     // Simulates the real guarantee: the settings inside the lock at mutate-time can differ from
     // anything the route itself might have read before calling updateBlockSettings (it doesn't read

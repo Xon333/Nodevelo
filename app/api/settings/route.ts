@@ -48,6 +48,7 @@ export async function PUT(req: Request) {
     // another's unrelated field changes.
     const updated = await updateBlockSettings((current) => {
       const num = (key: keyof BlockSettings, min: number, max: number): number => {
+        if (!(key in b)) return current[key] as number;
         const v = b[key] ?? current[key] ?? DEFAULT_BLOCK_SETTINGS[key];
         const n = Number(v);
         if (!Number.isFinite(n)) return current[key] as number;
