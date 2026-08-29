@@ -88,6 +88,18 @@ describe("PUT /api/settings — weekly target and ceiling", () => {
     expect((await res.json()).error).toMatch(/minimum hours can't be more than maximum/i);
   });
 
+  it("rejects a recovery minimum above maximum available hours", async () => {
+    seedCurrentSettings(base());
+    const res = await put({
+      targetWeeklyHours: 4,
+      maxAvailableHours: 4,
+      recoveryWeekHoursMin: 6,
+      recoveryWeekHoursMax: 8,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/recovery.*minimum.*available/i);
+  });
+
   it("accepts a valid target at or below the ceiling", async () => {
     seedCurrentSettings(base());
     const res = await put({ targetWeeklyHours: 6, maxAvailableHours: 20 });

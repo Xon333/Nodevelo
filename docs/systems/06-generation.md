@@ -35,7 +35,7 @@ flowchart TD
 | Step | Module | Output |
 |---|---|---|
 | Focus selection | `season-signals.gatherFocusInputs` → `season.chooseNextFocus` (or event arc) | The block's `seasonFocus` + season context text |
-| Week targets | `block-skeleton.computeWeekTargets` (+ `checkBlockFeasibility` pre-gate) | One **exact** hour figure per week (loading = top of range; recovery = derived retention %) |
+| Week targets | `block-skeleton.computeWeekTargets` (+ `checkBlockFeasibility` pre-gate) | One **exact** hour figure per week (loading = `targetWeeklyHours` within the `maxAvailableHours` hard ceiling; recovery = derived retention %) |
 | **Week skeleton** | `block-skeleton.computeBlockSkeleton` → `formatBlockSkeleton` | Seven typed day-slots per week — see below. This supersedes the bare hour figure in the prompt |
 | Durability template | `durability.selectDurabilityTemplate` (limiter → goal text → rotation) | Template A–E for the long ride |
 | Session requirements | `session-requirements.deriveSessionRequirements` | e.g. "≥1 RaceSim" from goal/terrain text |

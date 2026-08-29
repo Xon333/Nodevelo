@@ -244,8 +244,10 @@ describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
     expect(cached).toContain("realistic duration"); // duration still required for time/load estimates
   });
 
-  const userMessage = (weekTargets?: ReturnType<typeof computeWeekTargets>) =>
-    buildUserMessage(blockParams, blockDates("2026-07-20", 4), "| table |", DEFAULT_BLOCK_SETTINGS, weekTargets);
+  const userMessage = (
+    weekTargets?: ReturnType<typeof computeWeekTargets>,
+    settings = DEFAULT_BLOCK_SETTINGS
+  ) => buildUserMessage(blockParams, blockDates("2026-07-20", 4), "| table |", settings, weekTargets);
 
   // P2b (2026-07-24 block-generation redesign): a live block undershot its own stated 10-12h range in
   // every non-recovery week — a range the model could satisfy anywhere inside. Replaced with one exact
@@ -262,9 +264,11 @@ describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
   });
 
   it("falls back to the exact target and hard ceiling when no skeleton is supplied", () => {
-    const p = userMessage(); // no weekTargets — e.g. a caller that hasn't computed one yet
+    const settings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 7, maxAvailableHours: 7 };
+    const p = userMessage(undefined, settings); // no weekTargets — e.g. a caller that hasn't computed one yet
     expect(p).toContain("no per-week targets supplied");
-    expect(p).toContain("must total exactly 12 hours within the 12-hour hard ceiling");
+    expect(p).toContain("must total exactly 7 hours within the 7-hour hard ceiling");
+    expect(p).toContain("recovery weeks reduce to 6–7 hours");
   });
 
   it("sizes easy Z2 sessions to the per-week hour target instead of capping them at 60–90 min", () => {

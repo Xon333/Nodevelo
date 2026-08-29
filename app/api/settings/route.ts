@@ -72,6 +72,9 @@ export async function PUT(req: Request) {
       if (next.targetWeeklyHours > next.maxAvailableHours) {
         throw new SettingsValidationError("Target weekly hours can't exceed maximum available hours.");
       }
+      if (next.recoveryWeekHoursMin > next.maxAvailableHours) {
+        throw new SettingsValidationError("Recovery-week minimum hours can't exceed maximum available hours.");
+      }
       if (next.recoveryWeekHoursMin > next.recoveryWeekHoursMax) {
         throw new SettingsValidationError("Recovery week: minimum hours can't be more than maximum hours.");
       }

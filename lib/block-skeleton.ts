@@ -28,6 +28,9 @@ export function checkBlockFeasibility(settings: BlockSettings): string | null {
   if (targetWeeklyHours > maxAvailableHours) {
     return `Settings conflict: target weekly hours (${targetWeeklyHours}h) exceed available time (${maxAvailableHours}h).`;
   }
+  if (settings.recoveryWeekHoursMin > maxAvailableHours) {
+    return `Settings conflict: recovery-week minimum (${settings.recoveryWeekHoursMin}h) exceeds available time (${maxAvailableHours}h).`;
+  }
 
   // (a) Day-count: quality sessions + the long ride's own day + rest days must fit in a 7-day week —
   // zero days left for easy fill is legal (tight, not broken); a negative count is not.
@@ -37,12 +40,12 @@ export function checkBlockFeasibility(settings: BlockSettings): string | null {
   }
   const easyDays = DAYS_PER_WEEK - fixedDays;
 
-  // (b) Minimum realistic time: even sized as small as protocol allows, does a loading week fit under
-  // the configured ceiling?
+  // (b) Minimum realistic time: even sized as small as protocol allows, does a loading week fit its
+  // configured target? Availability may leave headroom, but the skeleton still has to hit the target.
   const minMinutes = qualitySessionsPerLoadingWeek * MIN_QUALITY_SESSION_MIN + longRideDurationMinutes + easyDays * MIN_EASY_DAY_MIN;
-  const maxAvailableMinutes = maxAvailableHours * 60;
-  if (minMinutes > maxAvailableMinutes) {
-    return `Settings conflict: a loading week's minimum realistic content (${qualitySessionsPerLoadingWeek} quality session(s) at ~${MIN_QUALITY_SESSION_MIN}min + a ${longRideDurationMinutes}min long ride + ${easyDays} easy day(s) at ~${MIN_EASY_DAY_MIN}min) is ~${round1(minMinutes / 60)}h — already over the ${maxAvailableHours}h weekly ceiling. Raise maximum available hours, or lower the quality-session count / long-ride duration.`;
+  const targetMinutes = targetWeeklyHours * 60;
+  if (minMinutes > targetMinutes) {
+    return `Settings conflict: a loading week's minimum realistic content (${qualitySessionsPerLoadingWeek} quality session(s) at ~${MIN_QUALITY_SESSION_MIN}min + a ${longRideDurationMinutes}min long ride + ${easyDays} easy day(s) at ~${MIN_EASY_DAY_MIN}min) is ~${round1(minMinutes / 60)}h — already over the ${targetWeeklyHours}h weekly target. Raise target weekly hours, or lower the quality-session count / long-ride duration.`;
   }
 
   return null;
@@ -77,11 +80,12 @@ export const RECOVERY_QUALITY_CAP = 1;
 export function computeWeekTargets(lengthWeeks: number, settings: BlockSettings, recoveryWeekIndices: number[]): WeekTarget[] {
   const recoverySet = new Set(recoveryWeekIndices);
   const loadingTarget = settings.targetWeeklyHours;
-  const derivedRecoveryTarget = clamp(
+  const recoveryBandTarget = clamp(
     loadingTarget * RECOVERY_RETENTION_PCT,
     settings.recoveryWeekHoursMin,
-    Math.min(settings.recoveryWeekHoursMax, settings.maxAvailableHours)
+    settings.recoveryWeekHoursMax
   );
+  const derivedRecoveryTarget = Math.min(recoveryBandTarget, settings.maxAvailableHours);
   return Array.from({ length: lengthWeeks }, (_, i) => {
     const isRecovery = recoverySet.has(i);
     return {

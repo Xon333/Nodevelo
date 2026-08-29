@@ -38,15 +38,38 @@ describe("checkBlockFeasibility", () => {
       .toMatch(/target.*available/i);
   });
 
+  it("rejects a loading target below the minimum realistic content even when availability fits", () => {
+    expect(checkBlockFeasibility({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 6, maxAvailableHours: 12 }))
+      .toMatch(/minimum realistic content.*6h weekly target/i);
+  });
+
+  it("rejects a recovery minimum above available time", () => {
+    expect(checkBlockFeasibility({
+      ...DEFAULT_BLOCK_SETTINGS,
+      targetWeeklyHours: 4,
+      maxAvailableHours: 4,
+      recoveryWeekHoursMin: 6,
+      recoveryWeekHoursMax: 8,
+    })).toMatch(/recovery.*minimum.*available/i);
+  });
+
   it("flags too many fixed-shape days for a 7-day week", () => {
     const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, qualitySessionsPerLoadingWeek: 5, restDaysPerWeek: 2 };
     // 5 quality + 1 long ride + 2 rest = 8 > 7
     expect(checkBlockFeasibility(settings)).toMatch(/more than a 7-day week holds/);
   });
 
-  it("flags a weekly hour ceiling too low for the required content", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 5, maxAvailableHours: 5, qualitySessionsPerLoadingWeek: 3, longRideDurationMinutes: 180 };
-    expect(checkBlockFeasibility(settings)).toMatch(/already over the 5h weekly ceiling/);
+  it("flags a weekly target too low for the required content", () => {
+    const settings: BlockSettings = {
+      ...DEFAULT_BLOCK_SETTINGS,
+      targetWeeklyHours: 5,
+      maxAvailableHours: 5,
+      recoveryWeekHoursMin: 2,
+      recoveryWeekHoursMax: 5,
+      qualitySessionsPerLoadingWeek: 3,
+      longRideDurationMinutes: 180,
+    };
+    expect(checkBlockFeasibility(settings)).toMatch(/already over the 5h weekly target/);
   });
 
   it("passes a tight but genuinely feasible configuration", () => {
@@ -84,6 +107,17 @@ describe("computeWeekTargets", () => {
     const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 8, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
     const targets = computeWeekTargets(1, settings, [0]);
     expect(targets[0].targetHours).toBe(6); // 60% of 8 = 4.8, clamped up to the 6h floor
+  });
+
+  it("caps a recovery target to availability when the recovery band starts above it", () => {
+    const settings: BlockSettings = {
+      ...DEFAULT_BLOCK_SETTINGS,
+      targetWeeklyHours: 4,
+      maxAvailableHours: 4,
+      recoveryWeekHoursMin: 6,
+      recoveryWeekHoursMax: 8,
+    };
+    expect(computeWeekTargets(1, settings, [0])[0].targetHours).toBe(4);
   });
 });
 
