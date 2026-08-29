@@ -1,7 +1,7 @@
 # FR-5 deterministic authority design
 
 **Date:** 2026-08-29  
-**Status:** Proposed — awaiting owner approval
+**Status:** Proposed — amended syntax design awaiting owner approval
 
 ## Outcome
 
@@ -20,7 +20,9 @@ and preserves the contracts in [INVARIANTS](../../INVARIANTS.md).
 
 - Generate every work and rest day. There is no optional-extra-day concept.
 - Treat intended weekly load and available time as different inputs.
-- Emit cycling-power workouts only, using a narrow typed prescription and canonical Intervals text.
+- Emit cycling workouts only, using a narrow typed prescription and canonical Intervals text. Power
+  remains the authority for quality work; HR zones may govern pure easy/recovery work, and a resolved
+  HR ceiling may appear as a visible cue where power remains primary.
 - Generate no workout, week, or block explanation with AI.
 - Generate one deterministic title, for example `4-week Threshold Build`.
 - Keep Intervals' graph, calculated duration/load, and projected fitness views as external inspection
@@ -51,6 +53,12 @@ does not add a parser that converts prose back into authority.
 3. Let Anthropic choose template parameters while code renders them. This constrains syntax but leaves
    progression and protocol composition probabilistic, so it does not meet FR-5.
 
+For the Intervals grammar, FR-5 selects a **layered useful subset**: portable prescription semantics
+in the core type, plus explicit annotations whose device limits are known. Modeling every accepted
+token would make the interface as complex as the external format; excluding every device-dependent
+feature would throw away useful execution controls. The selected type therefore represents targets,
+roles, cues, and lap endings, while templates decide which are safe to emit.
+
 ## Deep module and seam
 
 The new deep module is the deterministic block compiler. Its external interface is one pure call:
@@ -60,8 +68,9 @@ compileTrainingBlock(input: DeterministicBlockInput): DeterministicBlockResult
 ```
 
 The input contains only already-resolved facts: block parameters, week skeleton, selected focus,
-selected durability template, session requirements, block settings, and deterministic nutrition
-values. It does not accept prompt text, an Anthropic client, or raw knowledge-base prose.
+selected durability template, session requirements, block settings (including lap-button capability),
+and deterministic nutrition values. It does not accept prompt text, an Anthropic client, or raw
+knowledge-base prose.
 
 The result contains the existing `GeneratedPlan` shape plus the typed prescriptions used to render
 its ride days. The route remains responsible for reads, physiology freshness, season persistence,
@@ -78,6 +87,7 @@ calculation, and the publication gate remain their own authorities and are calle
 
 ```ts
 interface CyclingPrescription {
+  targetMode: "power" | "heartRate";
   sections: PrescriptionSection[];
 }
 
@@ -87,37 +97,107 @@ interface PrescriptionSection {
   steps: PrescriptionStep[];
 }
 
+type StepRole = "warmup" | "active" | "recovery" | "cooldown";
+
+type StepTarget =
+  | { kind: "power-percent"; minPctFtp: number; maxPctFtp: number }
+  | { kind: "power-ramp"; fromPctFtp: number; toPctFtp: number }
+  | { kind: "power-zone"; minZone: 1 | 2 | 3 | 4 | 5 | 6; maxZone: 1 | 2 | 3 | 4 | 5 | 6 }
+  | { kind: "hr-percent"; basis: "max" | "lthr"; minPct: number; maxPct: number }
+  | { kind: "hr-zone"; minZone: 1 | 2 | 3 | 4 | 5; maxZone: 1 | 2 | 3 | 4 | 5 };
+
 interface PrescriptionStep {
   cue?: string;
   durationSec: number;
-  power:
-    | { kind: "steady"; minPctFtp: number; maxPctFtp: number }
-    | { kind: "ramp"; fromPctFtp: number; toPctFtp: number };
-  cadenceRpm?: { min: number; max: number };
+  end: "timer" | "lapButton";
+  role: StepRole;
+  target: StepTarget;
+  hrCeilingBpm?: number;
 }
 ```
 
 `repeats` is at least one; nested repeats do not exist. A point target is represented by equal min
-and max values. The model deliberately excludes fixed watts, zones, heart rate, pace, distance,
-MMP, freeride, lap-button endings, timed prompts, device display settings, and decoration.
+and max values. `durationSec` is always the planned duration used for weekly arithmetic, including a
+lap-button step. `hrCeilingBpm` is a deterministic guardrail resolved from current physiology; it is not
+misrepresented as a second device-controlled target.
 
 The canonical renderer emits:
 
 ```text
 Warmup
-- 10m ramp 50%-75% 90rpm
+- Settle in 10m ramp 50%-75% intensity=warmup
 
 Main Set 5x
-- Work 3m 115%-120% 100rpm
-- Recovery 2m 50% 85rpm
+- Smooth power 3m 115%-120% intensity=active
+- HR cap 145bpm 2m 50%-60% intensity=recovery
 
 Cooldown
-- 8m ramp 50%-40% 80rpm
+- Spin easy 10m 50%-60% intensity=cooldown
 ```
 
-It uses `h`, `m`, and `s`, includes the final unit in combined durations, emits lowercase `ramp`,
-uses `%FTP` points/ranges only, and places one blank line around sections. The parser continues to
-accept legacy duration spellings already stored by NodeVelo.
+With `lapButtonSteps` enabled on a proven Garmin/Suunto path, an eligible readiness step may instead
+render `- Press lap when safely positioned 10m 50%-60% intensity=warmup`. The owner's default Wahoo
+output never emits that variant.
+
+It uses `h`, `m`, and `s`, includes every unit in combined durations, emits lowercase `ramp`, and
+places one blank line around sections. Power percentages remain canonical for quality work. Standard
+power and HR zones, `% HR`, and `% LTHR` are available where the protocol calls for them. A zone range
+uses `Z1-Z2`; HR zones append `HR`. Per-step roles render as `intensity=<role>` so FIT/device exports
+can classify warmup, work, recovery, and cooldown instead of guessing from prose.
+
+The [ZonePace grammar](https://zonepace.cc/intervals-workout-format) establishes steps, target
+families, ramps, repeats, cues, and timed prompts. The [Intervals Workout Builder](https://www.intervals.icu/features/workout-builder/)
+confirms power/HR/pace/zone targets and device export, while the first-party
+[builder guide](https://forum.intervals.icu/t/workout-builder/1163) records the actual export behavior.
+The detailed source and portability findings are recorded in the
+[FR-5 expanded syntax research](../../reviews/2026-08-29-fr5-expanded-intervals-syntax-research.md).
+The parser continues to accept legacy duration spellings and cadence tokens already stored by
+NodeVelo, but the deterministic renderer emits no cadence target.
+
+### Target-family and cap rules
+
+Intervals can parse power and HR targets on one step, but a synced workout executes under one chosen
+target family. FR-5 therefore never claims that a dual-target line enforces power plus a secondary HR
+ceiling.
+
+- `targetMode` is explicit, and every generated step must match it.
+- Threshold, VO2max, SIT, RaceSim, and durability B–E use power targets.
+- Pure Z2, Recovery, and durability A may use `Z1-Z2 HR` when current HR physiology is available;
+  otherwise they use a power-zone or `%FTP` target.
+- On a power-led workout, `hrCeilingBpm` renders as a short step cue such as `HR cap 145bpm`. It is visible
+  guidance, not a device alert. A cap derived from a zone is resolved to bpm before rendering so `Z2`
+  is not accidentally parsed as a second structured target.
+- Numeric quality protocols continue to use `%FTP`, not zone labels, because their validators require
+  exact deterministic bands. Zone targets are for easy/recovery control, not a way to blur protocol
+  edges.
+
+### Lap-button and device annotations
+
+`Press lap` is useful but is export behavior, not a portable duration primitive. Intervals retains the
+stated duration for planned time/load; Garmin and Suunto can instead advance when the athlete presses
+lap. Wahoo does not support that end condition.
+
+- `end: "lapButton"` renders `Press lap` in the step cue and still requires a realistic
+  `durationSec`.
+- It is allowed only for outdoor positioning, readiness, or easy recovery transitions.
+- It is forbidden on prescribed SIT/VO2max/Threshold work and excluded from Wahoo output.
+- `BlockSettings.lapButtonSteps` is the only capability switch. It defaults to `false` for the
+  owner's Wahoo and may be enabled only when the athlete explicitly selects a proven Garmin/Suunto
+  outdoor path. That switch is both capability and execution intent, so no brand abstraction,
+  indoor-mode field, or device matrix is introduced.
+- `intensity=<role>` is emitted because the role is already known; it is export metadata, never a
+  substitute for a target.
+- Ordinary step cues are supported. Timed `seconds^prompt <!>` cues remain excluded because they are
+  chiefly a Zwift export feature and no selected NodeVelo protocol needs them.
+
+Ramps remain in the core type for power-percent warmup/cooldown progression. The Intervals graph must
+parse their direction and endpoints; device execution is inspected separately because some head units
+flatten a ramp to a band or midpoint.
+
+The model deliberately excludes cadence generation, absolute watts, MMP, custom zones, pace,
+distance, freeride, timed prompts, power-display averaging, HTML/Markdown decoration, and nested
+repeats. Those features either duplicate a current target, weaken deterministic load, or are tied to
+an unselected device workflow.
 
 For every newly generated ride, this invariant must pass before publication:
 
@@ -125,8 +205,9 @@ For every newly generated ride, this invariant must pass before publication:
 typed prescription -> render -> parse -> semantic equality
 ```
 
-Semantic equality covers total duration, expanded step order, repeat count, power endpoints, ramp
-direction, cadence endpoints, and cues. `walkWorkoutSteps`, `parsePrescription`, and
+Semantic equality covers total duration, expanded step order, repeat count, target family and
+endpoints, zones, ramp direction, step role, lap-button ending, resolved HR cap, and cues.
+`walkWorkoutSteps`, `parsePrescription`, and
 `totalPrescribedMinutes` are extended rather than replaced. Existing callers keep their current
 work-only or duration-only views over the richer parsed result.
 
@@ -200,6 +281,7 @@ Existing settings migrate without changing current generated load:
 
 - `targetWeeklyHours = old weeklyHoursMax`
 - `maxAvailableHours = old weeklyHoursMax`
+- `lapButtonSteps = false`
 - existing recovery settings are retained
 
 The athlete can then add headroom by raising `maxAvailableHours`; migration does not silently lower
@@ -241,7 +323,12 @@ render/parse interface.
 
 Required automated checks:
 
-- semantic round trips for points, ranges, ramps, cadence, cues, repeats, and legacy durations;
+- semantic round trips for power/HR points, ranges and zones; ramps; cues; roles; lap-button endings;
+  resolved HR caps; repeats; and legacy durations/cadence tolerance;
+- one primary target family per generated workout, with power plus HR-cap cues never misclassified as
+  dual device targets;
+- lap-button misuse rejected unless the capability switch and an eligible readiness/recovery step
+  both permit it;
 - exact per-day and per-week duration sums;
 - deterministic output for identical inputs;
 - progression monotonicity within protocol bands;
@@ -260,8 +347,11 @@ Record five consecutive varied-input generations with zero publication blockers:
 5. long block with event displacement and constrained availability.
 
 Then publish one owner-approved result to Intervals and inspect the parsed workout graph, calculated
-duration/load, repeat order, cadence/ramp interpretation, and explicit rest days. Record any parser or
-device discrepancy rather than widening the grammar speculatively.
+duration/load, power-led and HR-led targets, zone ranges, repeat order, role classification, ramp
+interpretation, and explicit rest days. Execute representative power and HR workouts on the owner's
+Wahoo, confirm expected ramp degradation, and confirm no `Press lap` step was emitted. Record parser
+behavior and device execution separately; a correct Intervals graph is not proof that Garmin, Suunto,
+Wahoo, and Zwift execute identically.
 
 Any retained Anthropic route whose prompt or output handling changes during implementation also gets
 one live smoke run. Removing the block-generation call requires no replacement AI smoke; its proof is
@@ -269,9 +359,11 @@ successful generation with Anthropic unconfigured.
 
 ## Explicit non-goals
 
-- No UI redesign beyond the settings labels/fields required by target versus ceiling.
+- No UI redesign beyond the settings fields required by target versus ceiling and the lap-button
+  capability switch.
 - No new workout library behavior.
 - No second parser, template system, validator family, or AI call.
 - No free-form explanation feeding deterministic planning.
 - No automatic calendar publication.
-- No attempt to model every Intervals.icu workout feature.
+- No attempt to model every Intervals.icu workout feature or hide device-specific behavior behind a
+  false portability claim.
