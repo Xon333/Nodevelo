@@ -22,17 +22,17 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
 10. **"Today" is the athlete's local day** — `localToday()`/`resolveToday()` from `lib/date.ts`; the client sends its local date to sync. Never inline `new Date().toISOString().slice(0,10)` for user-facing "today" (UTC drifts near midnight). Pure day-math may stay UTC-anchored.
 11. **Form (TSB) is read from the prior day** — today's ride must never leak into "form going in".
 
-## AI output shape
+## Generation and AI output shape
 
-12. **Deterministic numbers, LLM phrasing.** The model never computes a training or nutrition figure; it copies from tables/snapshots the engines built ([DECISIONS](DECISIONS.md) ADR-0002).
-13. **Validators warn; they don't rewrite.** 2026-08 amendment: the narrative critic was removed; deterministic overview checks append warnings and never rewrite prose. The only sanctioned mutations are `reconcileDurationMin` and `repairNutrition` (visible `repairs` note).
-14. **Per-block data never enters the cached system-prompt half** (`system-prompt.test.ts` is the executable contract).
-15. **`weeks` stays declared before `overview`** in `PlanToolSchema` — field order forces the model to commit the schedule before summarizing it.
+12. **Block generation is deterministic; AI is optional language only.** TypeScript owns schedule, progression, protocol, workout syntax, nutrition, and publication eligibility. Anthropic remains only for ride-note and retrospective phrasing ([DECISIONS](DECISIONS.md) ADR-0002 amendment).
+13. **Validators never rewrite compiler output.** The compiler must create publishable typed days directly; gate findings classify them without mutation. Legacy `reconcileDurationMin` and `repairNutrition` remain compatibility helpers, not active generation stages.
+14. **Every generated cycling prescription round-trips semantically.** Typed prescription → canonical render → parse must compare equal before the publication gate sees it.
+15. **Loading target and availability are separate.** `targetWeeklyHours` sets intended loading load; `maxAvailableHours` is only a hard ceiling, and target may never exceed it.
 
 ## AI provenance & cost
 
-16. **Every AI artifact carries `model` + `promptVersion`.** Bump `PROMPT_VERSION` on structural prompt changes.
-17. **The three-copy sync**: interval-protocol bands live in KB prose + `buildUserMessage` hard rules + `workout-validate.PROTOCOL`. A change to one is a change to all three.
+16. **Every genuine AI artifact carries `model` + `promptVersion`; deterministic plans do not.** Historical plans keep optional provenance fields readable. Bump `PROMPT_VERSION` on structural language-prompt changes.
+17. **Catalogue and validator protocol bands stay synchronized.** A change to `workout-templates.ts` quality recipes must stay inside `workout-validate.PROTOCOL`; KB prose is explanatory, never execution authority.
 18. **Model ids are duplicated** in `anthropic-api.ts` and `ai-usage.ts`'s PRICING keys; an unknown id silently records $0 cost.
 19. **Changed AI paths get one live smoke run** before being called done (AGENTS.md).
 
@@ -164,7 +164,7 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     gains a meaning for rides that currently have none.
 54. **Intent interpretation is deterministic and independently versioned.** `POST /api/intent` must
     not call an LLM. `DETERMINISTIC_INTENT_VERSION` stamps parser provenance; `PROMPT_VERSION` remains
-    reserved for generated plans, today analyses, and block-history entries.
+    reserved for genuine AI artifacts such as today analyses and block-history language.
 55. **The debrief never displays the raw ledger/analysis score once an overlay applies.**
     `RideIntentBlock`/`TodayRideCard` (`components/dashboard/ride-intent.tsx`,
     `components/dashboard/today.tsx`) read `todayOutcome.effectiveExecutionScore` — resolved

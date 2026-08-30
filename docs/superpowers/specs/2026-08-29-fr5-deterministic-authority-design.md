@@ -1,7 +1,7 @@
 # FR-5 deterministic authority design
 
 **Date:** 2026-08-29  
-**Status:** Approved by owner on 2026-08-29
+**Status:** Implemented on 2026-08-30; owner-attended acceptance pending
 
 ## Outcome
 
@@ -13,7 +13,7 @@ Anthropic remains only where language earns its cost: an optional ride-analysis 
 retrospective interpretation. Neither may change a score, prescription, publication verdict, or
 future plan.
 
-This design implements [ROADMAP FR-5](../../../ROADMAP.md#fr-5--deterministic-authority-audit-and-replacement-plan--ready-next-action)
+This design implements [ARCHIVE FR-5](../../../ARCHIVE.md#fr-5-deterministic-generation-authority-2026-08-30)
 and preserves the contracts in [INVARIANTS](../../INVARIANTS.md).
 
 ## Settled scope

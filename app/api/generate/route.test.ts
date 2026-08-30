@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { DEFAULT_BLOCK_SETTINGS, type GenerationVerdict } from "@/lib/types";
 
 vi.mock("@/lib/block-compiler", async (original) => {
@@ -85,6 +87,11 @@ const gen = (goal = "Improve threshold power") => POST(new Request("http://t/api
 }));
 
 describe("POST /api/generate — deterministic preview", () => {
+  it("has no block-generation Anthropic or tool-schema dependency", async () => {
+    const source = await readFile(join(process.cwd(), "app/api/generate/route.ts"), "utf8");
+    expect(source).not.toMatch(/generateTrainingBlock|PlanToolSchema|buildSystemPrompt|buildUserMessage|dedupeGeneration|isAnthropicConfigured/);
+  });
+
   it("generates without Anthropic configuration and omits AI provenance", async () => {
     delete process.env.ANTHROPIC_API_KEY;
     const res = await gen();

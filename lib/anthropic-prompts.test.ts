@@ -1,18 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  blockDates,
   buildRideAnalysisPrompt,
   buildRetrospectivePrompt,
   buildStructuredRetrospectivePrompt,
-  buildSystemPrompt,
-  buildUserMessage,
   type ReflectionInterventionInput,
   type RetrospectiveInput,
   type RideAnalysisInput,
 } from "./anthropic-prompts";
-import { computeBlockSkeleton, computeWeekTargets } from "./block-skeleton";
 import { ACTIVITY_NOTE_MAX_CHARS } from "./intent-note-parser";
-import { DEFAULT_BLOCK_SETTINGS, type BlockParams, type IntervalComparison } from "./types";
+import { type IntervalComparison } from "./types";
 
 // These prompt builders were inlined in the SDK call functions before the RV-8 split, so they couldn't
 // be tested without mocking the network. Now pure, they're asserted directly.
@@ -220,82 +216,6 @@ describe("buildRideAnalysisPrompt", () => {
     const p = buildRideAnalysisPrompt(rideInput({ activityDescription: "Easy spin, legs felt flat." }));
     expect(p).toContain('Athlete note: "Easy spin, legs felt flat."');
     expect(p).not.toContain("[note truncated]");
-  });
-});
-
-const blockParams: BlockParams = {
-  lengthWeeks: 4,
-  goal: "Hilly KOM build",
-  weakpoints: ["VO2max"],
-  startDate: "2026-07-20",
-};
-
-describe("buildSystemPrompt / buildUserMessage (block generation)", () => {
-  // The Intervals.icu "press lap" convention: the phrase makes a step open-ended (lap-button end)
-  // on Garmin/Suunto via Garmin Connect. The guide must teach it WITH its guardrails — positioning/
-  // readiness steps only, never the prescribed work interval, never indoor/ERG.
-  it("teaches the press-lap open-ended step syntax with its misuse guardrails", () => {
-    const { cached } = buildSystemPrompt("KB", "", "ATHLETE CURRENT DATA", blockParams);
-    expect(cached).toContain('the phrase "Press lap"');
-    expect(cached).toContain("- Press lap when ready 20m 50%"); // the concrete example step
-    expect(cached).toMatch(/Garmin\/Suunto/); // device-scoped, not universal
-    expect(cached).toMatch(/NEVER on a prescribed work interval/);
-    expect(cached).toMatch(/NEVER\s+in indoor\/ERG sessions/);
-    expect(cached).toContain("realistic duration"); // duration still required for time/load estimates
-  });
-
-  const userMessage = (
-    weekTargets?: ReturnType<typeof computeWeekTargets>,
-    settings = DEFAULT_BLOCK_SETTINGS
-  ) => buildUserMessage(blockParams, blockDates("2026-07-20", 4), "| table |", settings, weekTargets);
-
-  // P2b (2026-07-24 block-generation redesign): a live block undershot its own stated 10-12h range in
-  // every non-recovery week — a range the model could satisfy anywhere inside. Replaced with one exact
-  // figure per week from the deterministic skeleton (lib/block-skeleton.ts), computed from real
-  // recovery-week placement, not a min-max prose rule.
-  it("renders one exact hour figure per week from the computed skeleton, not a range", () => {
-    const targets = computeWeekTargets(4, DEFAULT_BLOCK_SETTINGS, [3]); // week 4 (0-indexed 3) is recovery
-    const p = userMessage(targets);
-    expect(p).toContain("WEEK-BY-WEEK HOUR TARGETS");
-    expect(p).toContain("Week 1 (LOADING): target 12h total");
-    expect(p).toContain("Week 4 (RECOVERY): target 7.2h total"); // 60% of the 12h loading target
-    expect(p).toMatch(/LENGTHEN the easy Z2 sessions/);
-    expect(p).not.toMatch(/must total \d+–\d+ hours/); // no more min-max ranges for volume
-  });
-
-  it("falls back to the exact target and hard ceiling when no skeleton is supplied", () => {
-    const settings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 7, maxAvailableHours: 7 };
-    const p = userMessage(undefined, settings); // no weekTargets — e.g. a caller that hasn't computed one yet
-    expect(p).toContain("no per-week targets supplied");
-    expect(p).toContain("must total exactly 7 hours within the 7-hour hard ceiling");
-    expect(p).toContain("recovery weeks reduce to 6–7 hours");
-  });
-
-  it("sizes easy Z2 sessions to the per-week hour target instead of capping them at 60–90 min", () => {
-    const targets = computeWeekTargets(4, DEFAULT_BLOCK_SETTINGS, []);
-    const p = userMessage(targets);
-    expect(p).not.toContain("(60–90 min each)"); // the old fixed cap that produced compact weeks
-    expect(p).toContain("size them UP, typically 90–120 min, until the week's total hits its WEEK-BY-WEEK HOUR TARGET");
-    // The rest-day clause still renders correctly after the structure-line rewrite.
-    expect(p).toContain("+ 1 rest day per week");
-  });
-
-  // Phase B task 4: the per-day skeleton table supersedes the single weekly hour figure entirely —
-  // when a skeleton is supplied it replaces WEEK-BY-WEEK HOUR TARGETS rather than sitting alongside it.
-  it("renders the per-day skeleton table when a skeleton is supplied", () => {
-    const targets = computeWeekTargets(2, DEFAULT_BLOCK_SETTINGS, [0]);
-    const sk = computeBlockSkeleton("2026-08-03", targets, DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
-    const p = buildUserMessage(
-      { lengthWeeks: 2, goal: "g", startDate: "2026-08-03", weakpoints: [] },
-      [["2026-08-03"], ["2026-08-10"]],
-      "",
-      DEFAULT_BLOCK_SETTINGS,
-      targets,
-      sk
-    );
-    expect(p).toContain("WEEK SKELETON (FIXED");
-    expect(p).toContain("2026-08-04");
-    expect(p).not.toContain("WEEK-BY-WEEK HOUR TARGETS"); // superseded by the table
   });
 });
 

@@ -22,12 +22,12 @@ One recipe per change type: the files, the order, the trap. (Distinct from root 
 ## Change generation behavior (prompt, rules, output shape)
 
 Read [systems/06-generation.md](systems/06-generation.md) first.
-- **Wording/rules** → `lib/anthropic-prompts.ts` (pure — iterate offline in its tests). Bump `PROMPT_VERSION` in `anthropic-api.ts` for structural changes.
-- **Output shape** → `lib/plan-schema.ts` (`weeks` stays before `overview`).
-- **Interval-protocol numbers** → the three-copy trap: KB + hard rules + `workout-validate.PROTOCOL`, together ([INVARIANTS #17](INVARIANTS.md)).
+- **Workout syntax/shape** → `lib/prescription.ts`; preserve typed render/parse semantic equality and legacy stored-plan parsing.
+- **Protocol recipes/progression** → `lib/workout-templates.ts`; keep output inside `workout-validate.PROTOCOL` and test through `buildTemplateDay`.
+- **Block composition** → `lib/block-compiler.ts`; preserve every date, exact nominal duration, freshness ordering, and one publication-gate call.
 - **Volume/week logic** → `lib/block-skeleton.ts` (keep the feasibility gate and `validateWeekHours` in agreement).
-- **Which day gets which session type/duration/ceiling** → `lib/block-skeleton.ts`'s `computeBlockSkeleton` (deterministic — the model fills the slots, it doesn't choose them). The two invariants (durations sum exactly to target; every envelope satisfies `min ≤ nominal ≤ max`) are property-swept across settings combinations in `block-skeleton.test.ts` — an example test alone won't catch a broken allocation, several real bugs only showed up under adversarial settings.
-- Finish with **one live generation** and read the output (AGENTS.md rule).
+- **Which day gets which slot/duration/ceiling** → `lib/block-skeleton.ts`'s `computeBlockSkeleton`. The exact-sum and ordered-envelope invariants are property-swept in `block-skeleton.test.ts`.
+- Finish with route/compiler tests and a deterministic repeated-input comparison. No Anthropic smoke run applies unless an optional language path changed.
 
 ## Turn over a block (end → retrospective → next block)
 
@@ -42,7 +42,7 @@ future turnover, attended or not.
    history entry, and not-yet-lived days are cut from the archive). Closeout is deterministic-first —
    Claude's narrative + structured reflections are best-effort enrichment, never a gate.
 4. Verify: `data/block-history.json` has a new entry, its newest entry carries a `closeout` evidence object, `days` non-empty, `nextBlockSeeds` non-empty.
-5. **Review & adopt on `/plan` before generating the next block.** Nothing AI-written reaches generation until adoption (`POST /api/history`) flips `seeds_approved: true` on the retro markdown and stamps `reflectionsApprovedAt` on the history entry — unadopted seeds/reflections inject as empty. Degraded mode (Anthropic key unset or the narrative call fails): the facts + deterministic seeds still land; only the prose narrative is absent.
+5. **Review & adopt on `/plan` before generating the next block.** Adoption records the athlete's decision for history; deterministic block compilation does not consume AI-written seeds/reflections. Degraded mode (Anthropic key unset or the narrative call fails) still persists closeout facts and deterministic seeds.
 6. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` land on the NEW
    block's `current-block.json` here, not on the retrospective's `block-history.json` entry.
 7. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.
@@ -77,7 +77,7 @@ Read [systems/02-scoring-and-learning.md](systems/02-scoring-and-learning.md). S
 
 ## Debug a bad generation
 
-[systems/07-ai-layer.md#debugging-a-bad-generation](systems/07-ai-layer.md#debugging-a-bad-generation). Short version: check `warnings` and the publication-gate buckets on `plan.findings` (blockers / preferences; advisories fold into warnings) → inspect `GeneratedPlan.raw` → reproduce the prompt offline in a test → remember the 60s dedupe window. No trace module exists.
+[systems/07-ai-layer.md#debugging-a-bad-generation](systems/07-ai-layer.md#debugging-a-bad-generation). Short version: check the publication-gate buckets → inspect `GeneratedPlan.raw` and days → reproduce the compiler input. Identical inputs are deterministic; there is no prompt, model, or dedupe window.
 
 ## Debug a sync
 
@@ -99,7 +99,6 @@ Follow the closing ritual's ownership table in [COMPASS.md](COMPASS.md#session-r
 
 1. `lib/types.ts` — extend the `WorkoutType` union (widest blast radius in the repo; `npm run check` will surface every switch that needs a case).
 2. `lib/workout-types.ts` — add its `TYPE_STYLES` entry (badge/cell/accent classes; literal Tailwind strings).
-3. `lib/workout-validate.ts` — a `PROTOCOL` entry if it's a quality type with intensity/duration bands. Remember the three-copy rule: the same bands must appear in the KB prose and `buildUserMessage`'s hard rules ([INVARIANTS #17](INVARIANTS.md)).
-4. `lib/anthropic-prompts.ts` — teach the generation rules when/how to prescribe it; bump `PROMPT_VERSION`.
-5. Check the type-sensitive engines: `execution-score.ts` (how is it graded?), `schedule-validate.ts` (freshness class for sequencing), `ride-classify.ts` (off-plan inference), `session-requirements.ts` (can goals require it?).
-6. One live generation smoke run; verify the new type renders on Plan/Today with its styles.
+3. `lib/workout-templates.ts` — add the deterministic recipe and progression stages; if it is a quality type, keep it inside `lib/workout-validate.ts`'s `PROTOCOL` band ([INVARIANTS #17](INVARIANTS.md)).
+4. Check the type-sensitive engines: `block-compiler.ts` (selection/freshness), `execution-score.ts` (grading), `schedule-validate.ts` (sequencing), `ride-classify.ts` (off-plan inference), and `session-requirements.ts` (goal requirements).
+5. Run catalogue/compiler/route tests, compare a repeated deterministic generation, and verify the new type renders on Plan/Today with its styles.

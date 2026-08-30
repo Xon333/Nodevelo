@@ -4,7 +4,7 @@
 
 ## The mental model (60 seconds)
 
-NodeVelo is one loop: rides come in, get judged, teach a model of the athlete, and that model shapes the next plan. Deterministic TypeScript computes every number; Claude drafts sessions and prose inside numeric limits the engines define and validators check. Intervals.icu owns physiology (one-way pull); the athlete owns intent; JSON files on disk are the database.
+NodeVelo is one loop: rides come in, get judged, teach a model of the athlete, and that model shapes the next plan. Deterministic TypeScript compiles training blocks and computes every number; Claude is optional language for ride notes and retrospectives. Intervals.icu owns physiology (one-way pull); the athlete owns intent; JSON files on disk are the database.
 
 ```mermaid
 flowchart LR
@@ -13,12 +13,12 @@ flowchart LR
   B --> D[4 · Knowledge: KB + retrospectives]
   D --> E[5 · Season: pick the next focus]
   B --> E
-  E --> F[6 · Generation: Claude drafts sessions + prose,\nvalidators check numeric limits]
+  E --> F[6 · Generation: deterministic schedule,\nprotocol, syntax + publication gate]
   F --> G[Accept → calendar events on Intervals.icu]
   G --> A
 ```
 
-The numbers are the doc files: [systems/](systems/) is this pipeline in order — `01-sync-and-data` → `02-scoring-and-learning` → `03-daily-loop` → `04-knowledge` → `05-season` → `06-generation`, plus the three cross-cutting layers `07-ai-layer` (the Claude machinery step 6 uses), `08-frontend` (the surface over everything) and `09-nutrition` (what to eat, fed by the same sync and surfaced on the same pages).
+The numbers are the doc files: [systems/](systems/) is this pipeline in order — `01-sync-and-data` → `02-scoring-and-learning` → `03-daily-loop` → `04-knowledge` → `05-season` → `06-generation`, plus the three cross-cutting layers `07-ai-layer` (optional language paths), `08-frontend` (the surface over everything) and `09-nutrition` (what to eat, fed by the same sync and surfaced on the same pages).
 
 ## I need to…
 
@@ -28,9 +28,9 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 | **rebuild** context after weeks away | Away >2 weeks: re-read the mental model + diagram above (~2 min), then `git log --oneline -20`. Shorter gaps: the Opening ritual below | — |
 | **find** where anything lives / who imports it | [FILE_INDEX.md](FILE_INDEX.md), Ctrl+F | — |
 | **debug / understand** a bad generated block | [07-ai-layer § Debugging](systems/07-ai-layer.md#debugging-a-bad-generation) | `GeneratedPlan.raw`, `warnings[]`, `app/api/generate/route.ts` |
-| **change** prompts / prompt rules | [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape) | `lib/anthropic-prompts.ts` (+ bump `PROMPT_VERSION`) |
+| **change** AI language prompts | [07-ai-layer](systems/07-ai-layer.md) | `lib/anthropic-prompts.ts` (+ bump `PROMPT_VERSION`) |
 | **change** season logic | [05-season](systems/05-season.md) | `lib/season.ts`, `lib/season-signals.ts` |
-| **modify** block generation | [06-generation](systems/06-generation.md) | `app/api/generate/route.ts`, `lib/block-skeleton.ts`, `lib/plan-schema.ts` |
+| **modify** block generation | [06-generation](systems/06-generation.md) | `app/api/generate/route.ts`, `lib/block-skeleton.ts`, `lib/block-compiler.ts`, `lib/workout-templates.ts`, `lib/prescription.ts` |
 | **understand** why season picked this focus | [05-season § coverage selector](systems/05-season.md#the-coverage-selector) | `lib/season.ts`, `lib/season-signals.ts` |
 | **add** a workout type | [RECIPES § workout type](RECIPES.md#add-a-workout-type) | `lib/types.ts`, `lib/workout-types.ts`, `lib/workout-validate.ts` |
 | **understand** the athlete model / learning | [02-scoring-and-learning](systems/02-scoring-and-learning.md) | `lib/athlete-model.ts`, `lib/score-log.ts`, `lib/calibration.ts` |
@@ -88,7 +88,7 @@ Repo layout: the seven-line table in [../README.md](../README.md). Folder rules:
 
 **Widest blast radius** (sizes/importers: [FILE_INDEX.md](FILE_INDEX.md)): `lib/types.ts` · `lib/json-store.ts` + `data-store.ts` · `lib/execution-score.ts` + `score-log.ts` (the frozen ledger) · `lib/season.ts` · `app/api/sync/route.ts` · `lib/anthropic-prompts.ts` · `lib/coach-snapshot.ts`.
 
-**Scan [INVARIANTS.md](INVARIANTS.md) before touching:** the ledger · migration flags · "today" dates · prompts (three-copy rule) · `types.ts` · `data/` shapes.
+**Scan [INVARIANTS.md](INVARIANTS.md) before touching:** the ledger · migration flags · "today" dates · generation contracts · `types.ts` · `data/` shapes.
 
 ## For AI agents
 
