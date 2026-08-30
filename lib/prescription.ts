@@ -61,6 +61,13 @@ export function assertPrescriptionValid(
     if (!section.steps.length) syntaxError("Prescription sections must not be empty");
 
     for (const step of section.steps) {
+      if (step.cue !== undefined && (
+        !step.cue.trim()
+        || step.cue !== step.cue.trim()
+        || /[\r\n]/.test(step.cue)
+        || /^Press lap(?:\s|$)/i.test(step.cue)
+        || /(?:^|\s)HR cap [1-9]\d*bpm$/i.test(step.cue)
+      )) syntaxError("Cue must be nonempty, trimmed, single-line, and must not use reserved lap/cap grammar");
       if (!Number.isInteger(step.durationSec) || step.durationSec <= 0) syntaxError("Step duration must be a positive integer");
       const targetMode = step.target.kind.startsWith("power-") ? "power" : "heartRate";
       if (targetMode !== value.targetMode) syntaxError("Step target does not match prescription target mode");
@@ -161,12 +168,12 @@ function parseRichStep(line: string, sectionName: PrescriptionSectionName): Pres
   if (!durationMatch) return syntaxError(`Step is missing a duration: ${line}`);
   const durationSec = durationToSec(durationMatch[1]);
   let cue = head.slice(0, durationMatch.index).trim();
-  if (/(?:\d+\s*(?:h|m|s|'|")\s*)+(?:\d+(?:\.\d+)?%?(?:\s*-\s*\d+(?:\.\d+)?)?%|Z[1-6](?:\s*-\s*Z[1-6])?(?:\s+HR)?)/i.test(cue)) {
+  if (/(?:\d+\s*(?:h|m|s|'|")\s*)+(?:ramp\s+)?(?:\d+(?:\.\d+)?%?(?:\s*-\s*\d+(?:\.\d+)?)?%|Z[1-6](?:\s*-\s*Z[1-6])?(?:\s+HR)?)/i.test(cue)) {
     syntaxError(`Step must contain exactly one target: ${line}`);
   }
 
   let hrCeilingBpm: number | undefined;
-  const capMatch = cue.match(/(?:^|\s)HR cap (\d+)bpm$/i);
+  const capMatch = cue.match(/(?:^|\s)HR cap ([1-9]\d*)bpm$/i);
   if (capMatch) {
     hrCeilingBpm = Number(capMatch[1]);
     cue = cue.slice(0, capMatch.index).trim();
@@ -273,13 +280,13 @@ function durationToSec(head: string): number {
 // above). Each clause's duration is read from the text since the PREVIOUS clause ended (or the line
 // start, for the first).
 function parseStep(line: string): Array<{ durationSec: number; pct: number }> {
-  const re = /(\d+)\s*(?:%\s*-\s*(\d+)|-\s*(\d+))?\s*%/gi;
+  const re = /(\d+(?:\.\d+)?)\s*(?:%\s*-\s*(\d+(?:\.\d+)?)|-\s*(\d+(?:\.\d+)?))?\s*%/gi;
   const steps: Array<{ durationSec: number; pct: number }> = [];
   let cursor = 0;
   let pm: RegExpExecArray | null;
   while ((pm = re.exec(line)) !== null) {
     const after = line.slice(pm.index + pm[0].length);
-    if (/^\s*(?:-\s*\d+\s*%)?\s*(?:HR|LTHR)\b/i.test(after)) {
+    if (/^\s*(?:-\s*\d+(?:\.\d+)?\s*%)?\s*(?:HR|LTHR)\b/i.test(after)) {
       cursor = pm.index + pm[0].length;
       continue;
     }

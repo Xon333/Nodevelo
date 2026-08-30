@@ -105,16 +105,30 @@ describe("typed prescription round trip", () => {
     expect(totalPrescribedMinutes(text)).toBe(28);
   });
 
-  it("compares cue and HR-cap semantics instead of only rendered text", () => {
-    const ambiguous: CyclingPrescription = {
+  it.each([
+    "Press lap when ready",
+    "press LAP when ready",
+    "Watch HR cap 145bpm",
+    "watch hr CAP 145BPM",
+    "",
+    "   ",
+    " Leading",
+    "Trailing ",
+    "Two\nlines",
+  ])("rejects non-canonical cue %j", (cue) => {
+    const value: CyclingPrescription = {
       targetMode: "power",
-      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 100, maxPctFtp: 100 }, cue: "Watch HR cap 145bpm" }] }],
+      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 100, maxPctFtp: 100 }, cue }] }],
     };
-    expect(prescriptionsEqual(parseCyclingPrescription(renderPrescription(ambiguous, { lapButtonSteps: false })), ambiguous)).toBe(false);
+    expect(() => renderPrescription(value, { lapButtonSteps: false })).toThrow(/cue/i);
   });
 
   it("rejects a second target instead of silently treating it as a cue", () => {
     expect(() => parseCyclingPrescription("Main Set\n- 5m 80% then 5m 90% intensity=active")).toThrow(/exactly one target/i);
+  });
+
+  it("rejects an earlier ramp target instead of silently treating it as a cue", () => {
+    expect(() => parseCyclingPrescription("Main Set\n- 5m ramp 50-75% then 2m 95% intensity=active")).toThrow(/exactly one target/i);
   });
 
   it("preserves ordinary cues that mention a zone", () => {
@@ -270,6 +284,16 @@ describe("parsePrescription", () => {
     });
     expect(parsePrescription("Main Set\n- 5m 95%-100% LTHR intensity=active", FTP)).toEqual([]);
     expect(parsePrescription("Main Set\n- 5m 95%-100% HR intensity=active", FTP)).toEqual([]);
+  });
+
+  it("preserves decimal power targets while still excluding decimal HR ranges", () => {
+    expect(parsePrescription("Main Set\n- 5m 95.5% intensity=active", FTP)[0]).toMatchObject({
+      durationSec: 300,
+      targetPctFtp: 95.5,
+      targetWatts: 275,
+    });
+    expect(parsePrescription("Main Set\n- 5m 95.5%-100.5% LTHR intensity=active", FTP)).toEqual([]);
+    expect(parsePrescription("Main Set\n- 5m 95.5%-100.5% HR intensity=active", FTP)).toEqual([]);
   });
 });
 
