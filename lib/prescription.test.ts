@@ -1,8 +1,134 @@
 import { describe, expect, it } from "vitest";
-import { carriesEmbeddedIntensity, formatPrescriptionLabel, parsePrescription, reconcileDurationMin, totalPrescribedMinutes } from "./prescription";
+import {
+  assertPrescriptionValid,
+  carriesEmbeddedIntensity,
+  formatPrescriptionLabel,
+  parseCyclingPrescription,
+  parsePrescription,
+  prescriptionsEqual,
+  reconcileDurationMin,
+  renderPrescription,
+  totalPrescribedMinutes,
+} from "./prescription";
+import type { CyclingPrescription } from "./prescription";
 import type { PlannedDay, PrescribedInterval } from "./types";
 
 const FTP = 288;
+
+describe("typed prescription round trip", () => {
+  it.each<CyclingPrescription>([
+    { targetMode: "power", sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 95, maxPctFtp: 100 }, cue: "Smooth power", hrCeilingBpm: 145 }] }] },
+    { targetMode: "power", sections: [{ name: "Warmup", repeats: 1, steps: [{ durationSec: 600, end: "timer", role: "warmup", target: { kind: "power-ramp", fromPctFtp: 50, toPctFtp: 75 }, cue: "Settle in" }] }] },
+    { targetMode: "power", sections: [{ name: "Cooldown", repeats: 1, steps: [{ durationSec: 600, end: "timer", role: "cooldown", target: { kind: "power-ramp", fromPctFtp: 75, toPctFtp: 50 }, cue: "Ease down" }] }] },
+    { targetMode: "power", sections: [{ name: "Cooldown", repeats: 1, steps: [{ durationSec: 600, end: "timer", role: "cooldown", target: { kind: "power-zone", minZone: 1, maxZone: 2 } }] }] },
+    { targetMode: "heartRate", sections: [{ name: "Main Set", repeats: 3, steps: [{ durationSec: 240, end: "timer", role: "active", target: { kind: "hr-percent", basis: "lthr", minPct: 95, maxPct: 100 } }, { durationSec: 120, end: "timer", role: "recovery", target: { kind: "hr-zone", minZone: 1, maxZone: 2 } }] }] },
+    { targetMode: "heartRate", sections: [{ name: "Warmup", repeats: 1, steps: [{ durationSec: 600, end: "lapButton", role: "warmup", target: { kind: "hr-zone", minZone: 1, maxZone: 2 }, cue: "When safely positioned" }] }] },
+  ])("round-trips %#", (value) => {
+    const text = renderPrescription(value, { lapButtonSteps: true });
+    expect(prescriptionsEqual(parseCyclingPrescription(text), value)).toBe(true);
+  });
+
+  it("renders the canonical token order and duration units", () => {
+    const value: CyclingPrescription = {
+      targetMode: "power",
+      sections: [{
+        name: "Main Set",
+        repeats: 2,
+        steps: [{ durationSec: 3661, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 100, maxPctFtp: 100 }, cue: "Hold steady", hrCeilingBpm: 145 }],
+      }],
+    };
+    expect(renderPrescription(value, { lapButtonSteps: false })).toBe(
+      "Main Set 2x\n- Hold steady HR cap 145bpm 1h1m1s 100% intensity=active"
+    );
+  });
+
+  it("keeps legacy cadence and duration quotes parseable but never renders cadence", () => {
+    const parsed = parseCyclingPrescription("Main Set 2x\n- 5'30\" 95%-100% 90-100rpm intensity=active");
+    expect(parsed.sections[0].steps[0].durationSec).toBe(330);
+    expect(renderPrescription(parsed, { lapButtonSteps: false })).not.toMatch(/rpm|cadence/i);
+  });
+
+  it("accepts stored range targets that put the percent sign only at the end", () => {
+    expect(parseCyclingPrescription("Warmup\n- 10' ramp 50-75%").sections[0].steps[0].target).toEqual({
+      kind: "power-ramp",
+      fromPctFtp: 50,
+      toPctFtp: 75,
+    });
+    expect(parseCyclingPrescription("Main Set\n- 5m 95-100% LTHR").sections[0].steps[0].target).toEqual({
+      kind: "hr-percent",
+      basis: "lthr",
+      minPct: 95,
+      maxPct: 100,
+    });
+  });
+
+  it("rejects invalid target families, ramps and lap endings", () => {
+    const valid: CyclingPrescription = {
+      targetMode: "power",
+      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 60, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 95, maxPctFtp: 100 } }] }],
+    };
+    expect(() => assertPrescriptionValid({ ...valid, targetMode: "heartRate" }, { lapButtonSteps: false })).toThrow(/target mode/i);
+    expect(() => assertPrescriptionValid({ ...valid, sections: [{ ...valid.sections[0], steps: [{ ...valid.sections[0].steps[0], target: { kind: "power-ramp", fromPctFtp: 50, toPctFtp: 75 } }] }] }, { lapButtonSteps: false })).toThrow(/ramp/i);
+    expect(() => assertPrescriptionValid({ ...valid, sections: [{ ...valid.sections[0], steps: [{ ...valid.sections[0].steps[0], end: "lapButton", role: "recovery" }] }] }, { lapButtonSteps: false })).toThrow(/capability/i);
+    expect(() => assertPrescriptionValid({ ...valid, sections: [{ ...valid.sections[0], steps: [{ ...valid.sections[0].steps[0], end: "lapButton" }] }] }, { lapButtonSteps: true })).toThrow(/warmup or recovery/i);
+  });
+
+  it("rejects mixed parsed targets and invalid semantic ranges", () => {
+    expect(() => parseCyclingPrescription("Main Set\n- 5m 100% intensity=active\n- 5m Z2 HR intensity=recovery")).toThrow(/mixed target families/i);
+    const value: CyclingPrescription = {
+      targetMode: "heartRate",
+      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 60, end: "timer", role: "active", target: { kind: "hr-percent", basis: "max", minPct: 100, maxPct: 95 } }] }],
+    };
+    expect(() => assertPrescriptionValid(value, { lapButtonSteps: false })).toThrow(/ascending order/i);
+    expect(() => assertPrescriptionValid({ ...value, sections: [] }, { lapButtonSteps: false })).toThrow(/at least one section/i);
+    expect(() => assertPrescriptionValid({ ...value, sections: [{ ...value.sections[0], repeats: 0 }] }, { lapButtonSteps: false })).toThrow(/repeats/i);
+    expect(() => assertPrescriptionValid({ ...value, sections: [{ ...value.sections[0], steps: [] }] }, { lapButtonSteps: false })).toThrow(/must not be empty/i);
+    expect(() => assertPrescriptionValid({ ...value, sections: [{ ...value.sections[0], steps: [{ ...value.sections[0].steps[0], durationSec: 0 }] }] }, { lapButtonSteps: false })).toThrow(/duration/i);
+    expect(() => assertPrescriptionValid({ ...value, sections: [{ ...value.sections[0], steps: [{ ...value.sections[0].steps[0], target: { kind: "hr-zone", minZone: 1, maxZone: 2 }, hrCeilingBpm: 145 }] }] }, { lapButtonSteps: false })).toThrow(/HR-led/i);
+  });
+
+  it("rejects noncanonical and nested repeat headers", () => {
+    expect(() => parseCyclingPrescription("2x\n- 5m 100% intensity=active")).toThrow(/section header/i);
+    expect(() => parseCyclingPrescription("Main Set 2x 3x\n- 5m 100% intensity=active")).toThrow(/section header/i);
+  });
+
+  it("infers roles for legacy unlabelled steps", () => {
+    const parsed = parseCyclingPrescription("- 5m 70%\n- 5m 95%");
+    expect(parsed.sections).toEqual([{ name: "Main Set", repeats: 1, steps: [
+      { durationSec: 300, end: "timer", role: "recovery", target: { kind: "power-percent", minPctFtp: 70, maxPctFtp: 70 } },
+      { durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 95, maxPctFtp: 95 } },
+    ] }]);
+  });
+
+  it("uses rich duration for canonical HR repeats", () => {
+    const text = "Warmup\n- 10m Z1-Z2 HR intensity=warmup\n\nMain Set 3x\n- 4m 95%-100% LTHR intensity=active\n- 2m Z1-Z2 HR intensity=recovery";
+    expect(totalPrescribedMinutes(text)).toBe(28);
+  });
+
+  it("compares cue and HR-cap semantics instead of only rendered text", () => {
+    const ambiguous: CyclingPrescription = {
+      targetMode: "power",
+      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 100, maxPctFtp: 100 }, cue: "Watch HR cap 145bpm" }] }],
+    };
+    expect(prescriptionsEqual(parseCyclingPrescription(renderPrescription(ambiguous, { lapButtonSteps: false })), ambiguous)).toBe(false);
+  });
+
+  it("rejects a second target instead of silently treating it as a cue", () => {
+    expect(() => parseCyclingPrescription("Main Set\n- 5m 80% then 5m 90% intensity=active")).toThrow(/exactly one target/i);
+  });
+
+  it("preserves ordinary cues that mention a zone", () => {
+    const value: CyclingPrescription = {
+      targetMode: "power",
+      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 70, maxPctFtp: 70 }, cue: "Start in Z2" }] }],
+    };
+    expect(prescriptionsEqual(parseCyclingPrescription(renderPrescription(value, { lapButtonSteps: false })), value)).toBe(true);
+  });
+
+  it("routes case-insensitive canonical roles through rich duration parsing", () => {
+    expect(totalPrescribedMinutes("Main Set\n- 5m Z2 HR intensity=ACTIVE")).toBe(5);
+  });
+});
 
 describe("formatPrescriptionLabel", () => {
   // Derives the chip from structural fields so a stale stored `label` (pre-3801d6b blocks showed 30s as
@@ -136,6 +262,15 @@ describe("parsePrescription", () => {
       { durationSec: 25, targetPctFtp: 140 },
     ]);
   });
+
+  it("keeps canonical role/cap cues out of legacy power work and never reads HR percentages as FTP", () => {
+    expect(parsePrescription("Main Set\n- HR cap 145bpm 5m 95%-100% intensity=active", FTP)[0]).toMatchObject({
+      durationSec: 300,
+      targetPctFtp: 100,
+    });
+    expect(parsePrescription("Main Set\n- 5m 95%-100% LTHR intensity=active", FTP)).toEqual([]);
+    expect(parsePrescription("Main Set\n- 5m 95%-100% HR intensity=active", FTP)).toEqual([]);
+  });
 });
 
 describe("parsePrescription — warmup/cooldown sections never count as work (section fix)", () => {
@@ -218,6 +353,9 @@ describe("totalPrescribedMinutes — the REAL duration Intervals.icu's own step-
       "Warmup\n- 15m ramp 50-72%\n- 3m 55%\n\nMain Set\n- Move 3: Seated climb 2m30s 108%, then standing attack 25s 140%\n\nCooldown\n- 12m 50%";
     // warmup 15+3=18, move 2.5+25/60=2.91666.., cooldown 12 → 18 + 2.91666.. + 12 = 32.91666..
     expect(totalPrescribedMinutes(text)).toBeCloseTo(18 + 2.5 + 25 / 60 + 12, 5);
+  });
+  it("falls back to the legacy multi-clause scanner when stored prose also carries role metadata", () => {
+    expect(totalPrescribedMinutes("Main Set\n- 2m 100%, then 30s 150% intensity=active")).toBe(2.5);
   });
   it("HR-27: a repeat header on an excluded (warmup/cooldown) section is not multiplied", () => {
     // "Warmup 2x" is malformed prose no real KB workout would intentionally write, but if the model
