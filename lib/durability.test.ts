@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DURABILITY_TEMPLATES, formatDurabilityForPrompt, selectDurabilityTemplate } from "./durability";
+import { DURABILITY_RECIPES, DURABILITY_TEMPLATES, formatDurabilityForPrompt, selectDurabilityTemplate } from "./durability";
 import type { Insight } from "./types";
 
 const insight = (dimension: string, severity: Insight["severity"]): Insight => ({
@@ -8,6 +8,16 @@ const insight = (dimension: string, severity: Insight["severity"]): Insight => (
   title: `${dimension} ${severity}`,
   evidence: "",
   suggestion: "",
+});
+
+it("defines the fixed deterministic durability mechanisms", () => {
+  expect(DURABILITY_RECIPES).toEqual({
+    A: { kind: "steady" },
+    B: { kind: "late-repeats", reps: 2, workSec: 600, workPct: 90, recoverySec: 300 },
+    C: { kind: "late-repeats", reps: 4, workSec: 180, workPct: 110, recoverySec: 180 },
+    D: { kind: "late-repeats", reps: 8, workSec: 15, workPct: 150, recoverySec: 225 },
+    E: { kind: "distributed", reps: 6, workSec: 60, workPct: 105, recoverySec: 840 },
+  });
 });
 
 describe("selectDurabilityTemplate — limiter-driven", () => {

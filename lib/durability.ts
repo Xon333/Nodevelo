@@ -9,6 +9,14 @@ import { tagPresent } from "./session-requirements";
 
 export type DurabilityTemplateId = "A" | "B" | "C" | "D" | "E";
 
+export const DURABILITY_RECIPES = {
+  A: { kind: "steady" },
+  B: { kind: "late-repeats", reps: 2, workSec: 600, workPct: 90, recoverySec: 300 },
+  C: { kind: "late-repeats", reps: 4, workSec: 180, workPct: 110, recoverySec: 180 },
+  D: { kind: "late-repeats", reps: 8, workSec: 15, workPct: 150, recoverySec: 225 },
+  E: { kind: "distributed", reps: 6, workSec: 60, workPct: 105, recoverySec: 840 },
+} as const;
+
 export interface DurabilityTemplate {
   id: DurabilityTemplateId;
   name: string;
