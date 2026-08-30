@@ -747,6 +747,12 @@ describe("generation verdict store (generation-gate.json)", () => {
     expect(stored).toEqual(verdict("second-hash", { blockers: ["STRUCTURE: duplicate dates"] }));
   });
 
+  it("can invalidate the single verdict slot before a new generation", async () => {
+    await saveGenerationVerdict(verdict("old-hash"));
+    await saveGenerationVerdict(null);
+    expect(await readGenerationVerdict()).toBeNull();
+  });
+
   it("corrupt file behaves like the sibling non-CRITICAL stores: reads back as null, not a crash", async () => {
     // Not in json-store's CRITICAL set (documented in data-store.ts): a corrupt record fails safe
     // to null exactly like last-sync.json/today-analysis.json would — no .bak exists to fall back

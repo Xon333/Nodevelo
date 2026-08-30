@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_BLOCK_SETTINGS } from "@/lib/types";
+import { DEFAULT_BLOCK_SETTINGS, type GenerationVerdict } from "@/lib/types";
 
 vi.mock("@/lib/block-compiler", async (original) => {
   const actual = await original<typeof import("@/lib/block-compiler")>();
@@ -56,6 +56,7 @@ const profile = {
 };
 const sync = { syncedAt: "", activities: [], wellness: [], powerCurve: [], fitness: { ctl: 50, atl: 60, tsb: -10 } };
 const emptySeason = { objective: "", events: [], periods: [], updatedAt: "v1" };
+let persistedVerdict: GenerationVerdict | null;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,7 +69,8 @@ beforeEach(() => {
   vi.mocked(store.readRollingBaselines).mockResolvedValue({} as never);
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readSeasonPlan).mockResolvedValue(emptySeason);
-  vi.mocked(store.saveGenerationVerdict).mockResolvedValue(undefined);
+  persistedVerdict = null;
+  vi.mocked(store.saveGenerationVerdict).mockImplementation(async (record) => { persistedVerdict = record; });
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) => mutate(emptySeason));
 });
 
@@ -97,8 +99,9 @@ describe("POST /api/generate — deterministic preview", () => {
 
   it("persists the compiler verdict and keeps generation preview-only", async () => {
     const { plan } = await (await gen()).json();
-    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(1);
-    const record = vi.mocked(store.saveGenerationVerdict).mock.calls[0][0];
+    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(store.saveGenerationVerdict).mock.calls[0][0]).toBeNull();
+    const record = vi.mocked(store.saveGenerationVerdict).mock.calls[1][0]!;
     expect(record.verdictHash).toBe(verdictHash(plan.days, plan.blockParams));
     expect(record.model).toBeUndefined();
     expect(record.promptVersion).toBeUndefined();
@@ -183,10 +186,25 @@ describe("POST /api/generate — guards and degradation", () => {
   });
 
   it("fails safe when verdict persistence fails", async () => {
-    vi.mocked(store.saveGenerationVerdict).mockRejectedValueOnce(new Error("disk full"));
+    const firstPlan = (await (await gen()).json()).plan;
+    expect(persistedVerdict?.verdictHash).toBe(verdictHash(firstPlan.days, firstPlan.blockParams));
+    vi.mocked(store.saveGenerationVerdict).mockClear();
+    vi.mocked(store.saveGenerationVerdict).mockImplementation(async (record) => {
+      if (record !== null) throw new Error("disk full");
+      persistedVerdict = null;
+    });
     const res = await gen();
     expect(res.status).toBe(200);
     expect((await res.json()).plan).toBeDefined();
+    expect(persistedVerdict).toBeNull();
+    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not issue a preview when the old passport cannot be invalidated", async () => {
+    vi.mocked(store.saveGenerationVerdict).mockRejectedValueOnce(new Error("disk full"));
+    const res = await gen();
+    expect(res.status).toBe(502);
+    expect(compiler.compileTrainingBlock).not.toHaveBeenCalled();
   });
 
   it("maps compiler failures to 502 and does not persist season state", async () => {

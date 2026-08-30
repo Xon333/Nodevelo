@@ -155,6 +155,10 @@ export async function POST(req: Request) {
       ])),
     ])));
     const hrZones = physRead.store ? resolveHrZones(physRead.store.current) : [];
+    // Invalidate the old passport before composition. Deterministic plans can reuse the same
+    // days+params hash while current gate context changes, so an old clean verdict must never
+    // survive a failed attempt to persist the new verdict.
+    await saveGenerationVerdict(null);
     const compiled = compileTrainingBlock({
       blockParams,
       settings: blockSettings,
@@ -189,6 +193,9 @@ export async function POST(req: Request) {
       });
     } catch (error) {
       logWarn("/api/generate", "verdict-persist", error instanceof Error ? error.message : String(error));
+      // The initial invalidation normally leaves this null. Clear again to close a concurrent-save
+      // race; if that cannot be guaranteed, fail closed instead of returning a publishable preview.
+      await saveGenerationVerdict(null);
     }
     if (replannedSeason) {
       try {

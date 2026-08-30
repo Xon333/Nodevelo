@@ -183,8 +183,7 @@ export async function writeLastSync(sync: SyncData): Promise<void> {
 //
 // NOT in json-store.ts's CRITICAL set, deliberately: CRITICAL means "cannot be re-derived from a
 // fresh sync" (ledgers, human decisions like intent-overlays/workout-library). A verdict is fully
-// re-derivable — re-running the gate on the same days/blockParams reproduces it byte-for-byte from
-// canonical hashing — and is only ever valid for one generation cycle anyway. Same treatment as the
+// re-derivable and is only ever valid for one generation cycle anyway. Same treatment as the
 // other single-slot ephemeral stores (last-sync.json, today-analysis.json): atomic writes via the
 // per-file lock, no .bak rotation, corrupt file reads back as null.
 export async function readGenerationVerdict(): Promise<GenerationVerdict | null> {
@@ -194,10 +193,10 @@ export async function readGenerationVerdict(): Promise<GenerationVerdict | null>
 // Single-slot latest-wins save. writeJson takes the per-file lock for the whole atomic write, so
 // two concurrent saves serialize and the file is always exactly ONE complete record (the last to
 // acquire the lock) — never interleaved bytes. That's the correct semantics here: each save is a
-// whole-record replacement, not a merge, so there's no lost-update hazard a read-modify-write
-// (updateJson) would be needed for; plain last-writer-wins IS latest-wins. Persisted verbatim —
-// the caller owns the record's content, including `createdAt`, matching writeLastSync/writeTodayAnalysis.
-export async function saveGenerationVerdict(record: GenerationVerdict): Promise<void> {
+// whole-slot replacement, not a merge, so there's no lost-update hazard a read-modify-write
+// (updateJson) would be needed for; plain last-writer-wins IS latest-wins. `null` explicitly
+// invalidates the passport before a new generation can issue a preview.
+export async function saveGenerationVerdict(record: GenerationVerdict | null): Promise<void> {
   await writeJson("generation-gate.json", record);
 }
 
