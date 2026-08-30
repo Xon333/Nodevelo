@@ -1,8 +1,5 @@
-// Goal-driven session selection (Track B). The generator already knows about RaceSim (KB §10) and
-// terrain-flexible (KB §11) sessions, but reaches for them only when the prompt happens to nudge it.
-// This turns the block goal + weakpoints into an explicit, DETERMINISTIC requirement that's both
-// injected into the prompt and enforced post-generation (a warning, never a rewrite — same contract
-// as validateSchedule). No AI in the selection; the LLM only phrases the chosen prescription.
+// Goal-driven deterministic session requirements. The compiler consumes these directly and the
+// publication gate verifies the finished block; no prompt or model participates.
 
 import type { PlannedDay } from "./types";
 

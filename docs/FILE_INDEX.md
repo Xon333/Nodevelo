@@ -102,7 +102,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `anthropic-config.ts` | SDK-free Anthropic configuration predicate for deterministic routes |
 | `anthropic-prompts.ts` | Pure/offline-testable ride-analysis and retrospective prompt assembly; no block-generation prompts |
 | `tool-schema.ts` | The one zod→tool-schema bridge. No test file |
-| `retrospective-schema.ts` | Structured-reflection tool schema + re-injection formatter |
+| `retrospective-schema.ts` | Structured-reflection tool schema for optional retrospective history notes |
 | `overview-check.ts` | Historical deterministic overview-vs-schedule consistency helper; no active generation caller |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
 | `workout-validate.ts` | KB-grounded protocol validator (`splitPlanProtocol` → violations/hazards/advisories) |
@@ -114,7 +114,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `schedule-validate.ts` | Placement validators: spacing, quality budget, taper, sequencing, recovery density, skeleton conformance. Each owns one fact only — check no existing validator already warns about it before adding another |
 | `nutrition-validate.ts` | Kcal check + the ONLY auto-repairing validator |
 | `ai-usage.ts` | Token/cost telemetry (PRICING table duplicates model ids — keep in sync) |
-| `kb-loader.ts` | KB read/write/fallback, athlete-md parsing, retrospective seeds; Markdown writes are atomic temp-file + `fsync` + rename |
+| `kb-loader.ts` | Reference-note read/write/fallback, athlete-md migration parsing, retrospective history/acknowledgement compatibility; Markdown writes are atomic temp-file + `fsync` + rename |
 | `synthesis.ts` | Insights + validation → ONE ranked directives block |
 
 ## `app/api/` — routes
@@ -133,7 +133,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `disposition` | GET/POST | Session self-report; re-stamps score log | — |
 | `loading` | GET/POST | Carb-loading prompt + attribution | — |
 | `trends` | GET | Trends payload assembly (read-only) | — |
-| `history` | GET/POST | Block-history list; POST = the adoption action (flips `seeds_approved:` on the retro, stamps `reflectionsApprovedAt` on the entry) | — |
+| `history` | GET/POST | Block-history list; POST records retrospective acknowledgement (legacy `seeds_approved` flip + `reflectionsApprovedAt` stamp), never planning authority | — |
 | `profile` | GET/PUT | Athlete profile (physiology overlaid at read) | — |
 | `physiology` | POST | Mark or clear the physiology obsolete flag in `physiology-status.json` | — |
 | `settings` | GET/PUT | Block settings + calibration-band overrides | — |

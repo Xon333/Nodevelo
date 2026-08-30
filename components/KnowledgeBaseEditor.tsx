@@ -15,9 +15,9 @@ const FILE_HINTS: Record<string, { text: string; accent?: boolean }> = {
     text: "Manual input — your durable context (personal data, all-time PRs, weakpoints, goals, notes). FTP, training zones, body weight, the 84-day power curve and fitness (CTL/ATL/TSB) are synced from Intervals.icu and edited on the Profile page, not here.",
     accent: true,
   },
-  "cycling_database.md": { text: "Reference knowledge, injected into every generation prompt." },
-  "training_knowledge.md": { text: "Reference knowledge, injected into every generation prompt." },
-  "nutrition_knowledge.md": { text: "Reference knowledge, injected into every generation prompt." },
+  "cycling_database.md": { text: "Athlete-owned cycling reference notes. The deterministic block compiler does not read this file." },
+  "training_knowledge.md": { text: "Athlete-owned training reference notes. The deterministic block compiler does not read this file." },
+  "nutrition_knowledge.md": { text: "Athlete-owned nutrition reference notes. The deterministic block compiler does not read this file." },
 };
 
 export default function KnowledgeBaseEditor() {
@@ -134,12 +134,12 @@ export default function KnowledgeBaseEditor() {
     <div>
       <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Knowledge</h1>
       <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-        Reference files (cycling / training / nutrition) feed every generation prompt; <span className="font-medium text-zinc-600 dark:text-zinc-300">athlete_profile.md</span> is your manual context — your physiology syncs from Intervals.icu and is edited on Profile, not here; block retrospectives seed the next block.
+        Reference files (cycling / training / nutrition) are your editable notes; <span className="font-medium text-zinc-600 dark:text-zinc-300">athlete_profile.md</span> is legacy manual context — physiology syncs from Intervals.icu and is edited on Profile. Block retrospectives are history records, not planning inputs.
       </p>
       <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {isRetro
-          ? "Block retrospectives. Editing the next_block_seeds list steers the next generated block once you adopt it on the Plan page."
-          : "Edits apply immediately to the next generation."}
+          ? "Block retrospectives. The legacy next_block_seeds list and acknowledgement stamp stay in history; neither changes future generated blocks."
+          : "Edits save these reference notes; deterministic block generation uses typed application data instead."}
       </p>
       {pendingSwitch && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800/60 dark:bg-amber-950/40">

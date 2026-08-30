@@ -42,7 +42,7 @@ future turnover, attended or not.
    history entry, and not-yet-lived days are cut from the archive). Closeout is deterministic-first —
    Claude's narrative + structured reflections are best-effort enrichment, never a gate.
 4. Verify: `data/block-history.json` has a new entry, its newest entry carries a `closeout` evidence object, `days` non-empty, `nextBlockSeeds` non-empty.
-5. **Review & adopt on `/plan` before generating the next block.** Adoption records the athlete's decision for history; deterministic block compilation does not consume AI-written seeds/reflections. Degraded mode (Anthropic key unset or the narrative call fails) still persists closeout facts and deterministic seeds.
+5. **Review & acknowledge on `/plan`.** Acknowledgement records the athlete's review in history; deterministic block compilation never consumes retrospective seeds/reflections. Degraded mode (Anthropic key unset or the narrative call fails) still persists closeout facts and deterministic priorities.
 6. Generate + preview + write the next block on `/plan`. `seasonFocus`/`seasonPhase` land on the NEW
    block's `current-block.json` here, not on the retrospective's `block-history.json` entry.
 7. Verify: if coaching directives fired (the common case), `data/intervention-log.json` now exists with this block's directives + baselines — zero directives is a legitimate outcome (no insights cleared the model's gate that day), not a failure; `current-block.json` is the new block.

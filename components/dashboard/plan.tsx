@@ -138,12 +138,12 @@ export function RetroSection({
         )}
         <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
           {result.retrospective ??
-            "Closed deterministically — no AI narrative was produced for this block. The execution facts and proposed seeds below were still recorded."}
+            "Closed deterministically — no AI narrative was produced for this block. The execution facts and closeout priorities below were still recorded."}
         </p>
         {result.seeds.length > 0 && (
           <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-              Seeded into next block
+              Recorded closeout priorities
             </p>
             <ul className="space-y-1">
               {result.seeds.map((s, i) => (
@@ -167,7 +167,7 @@ export function RetroSection({
             Block ended {block!.endDate}
           </p>
           <p className="mt-0.5 text-xs text-amber-700 dark:text-zinc-400">
-            Generate a retrospective to close the block and seed the next one with insights.
+            Generate a retrospective to close the block and record its evidence and notes.
           </p>
           {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
         </div>
@@ -189,9 +189,9 @@ export function RetroSection({
 // newest-first) block-history.json — capped to the most recent 20 here too.
 const MAX_HISTORY_SHOWN = 20;
 
-// Trust contract (retro trust): AI-authored reflections stay inert until the athlete explicitly
-// adopts them. POST /api/history takes only the entry id — the server derives the retro filename.
-function ReflectionAdopt({ id }: { id: string }) {
+// Acknowledgement records that the athlete reviewed the notes; it grants no planning authority.
+// POST /api/history takes only the entry id — the server derives the retro filename.
+function ReflectionAcknowledge({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -203,7 +203,7 @@ function ReflectionAdopt({ id }: { id: string }) {
           try {
             await api("/api/history", { method: "POST", body: JSON.stringify({ id }) });
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Couldn't adopt.");
+            setError(err instanceof Error ? err.message : "Couldn't acknowledge.");
           } finally {
             setBusy(false);
           }
@@ -211,9 +211,9 @@ function ReflectionAdopt({ id }: { id: string }) {
         disabled={busy}
         className="rounded-md border border-amber-400 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-[#ff49c8]/40 dark:text-[#ff49c8]"
       >
-        {busy ? "Adopting…" : "Review & adopt"}
+        {busy ? "Recording…" : "Review & acknowledge"}
       </button>
-      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">lets these notes steer the next block</span>
+      <span className="text-[10px] text-zinc-500 dark:text-zinc-400">records your review in block history</span>
       {error && <span className="text-[10px] text-red-600">{error}</span>}
     </div>
   );
@@ -249,10 +249,10 @@ export function BlockHistory({ history }: { history: BlockHistoryEntry[] }) {
             {entry.structuredReflections?.length ? (
               entry.reflectionsApprovedAt ? (
                 <p className="mt-2 text-[10px] font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                  Adopted {new Date(entry.reflectionsApprovedAt).toLocaleDateString()} — these notes reach the next block
+                  Acknowledged {new Date(entry.reflectionsApprovedAt).toLocaleDateString()} — history record only
                 </p>
               ) : (
-                <ReflectionAdopt id={entry.id} />
+                <ReflectionAcknowledge id={entry.id} />
               )
             ) : null}
           </div>

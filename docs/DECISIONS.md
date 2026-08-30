@@ -127,7 +127,7 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 **Decision.** Each entry below was evaluated and rejected; revisit only on the stated trigger, not by default.
 
 - **Postgres/Supabase + RLS · blob KB storage · auth middleware** — assumed a multi-tenant SaaS; NodeVelo is local-first single-user (ADR-0001), so `fs`/JSON *is* the store. Revisit only on a deliberate hosted pivot.
-- **pgvector RAG for the knowledge base** — small markdown files fit cheaply in the prompt; the context-dump ([04-knowledge](systems/04-knowledge.md)) is intentional, not a scaling compromise.
+- **pgvector RAG for the knowledge base** — deterministic generation no longer consumes the markdown corpus, so retrieval adds no planning value. Revisit only if a separately approved language/search feature needs semantic retrieval.
 - **RxDB reactive-DB rewrite** — contradicts local-first JSON (ADR-0001); the desync it targeted is fixed with refetch-on-sync.
 - **SQLite (`better-sqlite3` + Drizzle + `sqlite-vec`) — deferred, not rejected.** Wins are mostly theoretical at single-user scale and its standout unlock (`sqlite-vec`) is gated on semantic RAG (also deferred). Reconsider when semantic RAG is committed or data volume/multi-user justifies it.
 - **uPlot / canvas charting** — `buildRideTrace` ([02-scoring-and-learning](systems/02-scoring-and-learning.md)) already downsamples to ~240 points; no chart renders raw 1 Hz data.

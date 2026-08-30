@@ -717,13 +717,13 @@ export interface BlockHistoryEntry {
   actualHours?: number;
   plannedHours?: number;
   ctlGain?: number | null;
-  nextBlockSeeds?: string[];
+  nextBlockSeeds?: string[]; // legacy-named deterministic closeout priorities; history only
   retrospective?: string; // Claude narrative
-  structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome notes, fed into the next block's prompt
+  structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome history notes; never generation input
   // Phase 1 trust contract — all four absent on entries written before this shipped; read sites
   // MUST truthy-check, never compare against null/undefined (INVARIANT 3).
   closeout?: CloseoutEvidence;        // deterministic facts (shape above), frozen at closeout
-  reflectionsApprovedAt?: string;     // ISO instant; set ONLY by POST /api/history adoption action
+  reflectionsApprovedAt?: string;     // ISO instant; acknowledgement record set ONLY by POST /api/history
   endedEarlyAt?: string;              // ISO instant when closeout was an explicit early end
   endedEarlyReason?: string;          // the athlete-typed reason recorded with the early end
   // Provenance of the block this entry archives (see GeneratedPlan).
@@ -1270,7 +1270,7 @@ export interface CalibrationStore {
 // ---------- Athlete quirks (data/athlete-quirks.json — Track D) ----------
 // A DERIVED store, not owned intent: recurring patterns mined deterministically from the athlete's
 // own ride notes (activityDescription). Kept separate from athlete_profile.md (which stays
-// authoritative). Tags are HINTS injected into generation, not facts — pattern-matching is noisy.
+// authoritative). Tags are noisy derived hints and are not deterministic generation inputs.
 // Regenerated in full on every sync, so no backup/ledger semantics (like rolling-baselines).
 
 export type QuirkCategory = "symptom" | "equipment" | "psyche" | "condition";

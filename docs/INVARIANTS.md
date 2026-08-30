@@ -202,17 +202,16 @@ The contracts that hold NodeVelo together. Some are enforced by code/tests, some
     see [ROADMAP](../ROADMAP.md) for the open follow-up). Only components explicitly stated in the note
     may contribute points; one malformed bullet cannot prevent valid sibling bullets from scoring.
 
-## Block closeout & adoption
+## Block closeout & acknowledgement
 
-59. **A closeout is deterministic, ordered, and adoption-gated.** `lib/block-closeout.ts` computes all
+59. **A closeout is deterministic, ordered, and acknowledgement-recorded.** `lib/block-closeout.ts` computes all
     evidence from the frozen ledger read-only: compliance figures are the ledger's already-capped values
     (item 25), raw duration ratios only *detect* overshoot — a session over 125% (`CLOSEOUT_OVERSHOOT_RATIO`)
     of prescribed duration, judged on the ride the ledger actually scored (item 52's primary-ride rule) —
     and never grade it; days after the effective closeout date are excluded entirely, so an explicit early
     end never reports not-yet-lived days as missed. Persistence is strictly markdown → block history →
     CAS-clear of the active block LAST, each step stopping on failure so the clear can't land for a
-    retrospective that was never saved (or a block another tab already replaced). Nothing AI-authored
-    steers generation until the athlete adopts it via `POST /api/history`: seeds inject only from a
-    retrospective stamped `seeds_approved: true` (older files degrade to unapproved), reflections only
-    from the single newest reflection-bearing history entry that also carries `reflectionsApprovedAt`.
-    (Review decisions #49–51.)
+    retrospective that was never saved (or a block another tab already replaced). `POST /api/history`
+    records acknowledgement through the legacy `seeds_approved` and `reflectionsApprovedAt` stamps;
+    neither stamp grants planning authority. Retrospective seeds and AI reflections never enter
+    deterministic block compilation. (FR-5 supersedes the old adoption-gated injection design.)

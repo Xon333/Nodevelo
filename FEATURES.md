@@ -117,9 +117,10 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Degraded mode never blanks out** — with no Anthropic key or a failed narrative call, the closeout
   still lands: facts + seeds persist, only the prose is absent (the card says so).
   `narrativeDegraded`, `components/dashboard/PlanView.tsx`
-- **Review & adopt control** — nothing AI-written reaches the next block until the athlete presses
-  "Review & adopt" on Plan history: it flips `seeds_approved: true` on the retro markdown and stamps
-  `reflectionsApprovedAt` on the entry; unadopted seeds/reflections inject as empty.
+- **Review acknowledgement** — "Review & acknowledge" on Plan history records that the athlete read
+  the retrospective: it flips the legacy `seeds_approved: true` stamp and sets
+  `reflectionsApprovedAt`. This is a history/workflow record only; seeds and reflections never feed
+  deterministic generation, before or after acknowledgement.
   `POST /api/history`, `lib/kb-loader.ts`, `lib/retrospective-schema.ts`
 
 ## Today page
@@ -270,10 +271,9 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
   disclosure. Season objective/events moved to Plan — no longer edited here.
 
 ### Knowledge
-- In-place markdown editor for the KB + retrospectives (read fresh on every generation), plus a
-  new always-visible one-line **provenance header** above the file list — which files feed
-  generation vs. reference-only vs. manual vs. seed (previously this context only surfaced per-file
-  after selecting one).
+- In-place markdown editor for athlete reference notes + retrospectives, with an always-visible
+  provenance header explaining that deterministic generation uses typed application data and treats
+  these files as reference/history only.
 
 ### Settings (Wave 5, two labelled groups)
 - **GENERATION** — weekly volume targets, weekly structure, training philosophy & equipment.

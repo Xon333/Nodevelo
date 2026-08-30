@@ -247,7 +247,7 @@ export async function POST(req: Request) {
     ...(retrospective ? ["## Retrospective", "", retrospective, ""] : []),
     ...(structuredReflections.length
       ? [
-          "## Coach reflections (UNAPPROVED — adopt on Plan before they reach the next block)",
+          "## Coach reflections (UNACKNOWLEDGED — history record only)",
           "",
           ...structuredReflections.map(
             (r) =>

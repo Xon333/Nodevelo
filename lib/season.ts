@@ -739,10 +739,8 @@ export interface FocusSessionMatcher {
   type?: WorkoutType;
 }
 
-// Shared by validateBlockFocus, validateFocusMatch, and formatFocusCoverageLine (P2c, 2026-07-24
-// block-generation redesign) — ONE definition of "what session satisfies focus X" so the requirement
-// injected into the prompt and its post-generation enforcement can never disagree. Previously
-// duplicated verbatim in both validators. aerobic-base/sharpen have no single required session type
+// Shared by legacy focus validators/formatters: ONE definition of "what session satisfies focus X".
+// aerobic-base/sharpen have no single required session type
 // and are absent (callers treat a missing entry as "no specific type owed").
 export function focusSessionMatchers(ftp: number): Partial<Record<SeasonFocus, FocusSessionMatcher>> {
   return {

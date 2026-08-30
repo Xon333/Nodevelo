@@ -12,16 +12,16 @@ export async function GET() {
   }
 }
 
-// Phase 1 adoption: the ONE explicit action that lets a closed block's proposed lessons influence
-// another block — flips `seeds_approved:` on the retro markdown and stamps reflectionsApprovedAt
-// on the entry. FAILURE-SAFE by construction:
+// Retrospective acknowledgement: records review by flipping the legacy `seeds_approved:` field and
+// stamping reflectionsApprovedAt. Neither stamp grants deterministic generation authority.
+// FAILURE-SAFE by construction:
 //   * the retro filename is DERIVED from the entry itself — a caller cannot omit it, so neither
-//     adoption channel can be silently skipped;
+//     acknowledgement store can be silently skipped;
 //   * an entry already carrying reflectionsApprovedAt stays a successful no-op retry even if the
 //     retrospective file later goes missing or unreadable;
 //   * the flip runs BEFORE the stamp and both steps are idempotent: a crash between them leaves at
 //     most "flipped but unstamped", which a retry CONVERGES out of (no 409 dead-end);
-//   * a missing/malformed retro file means NOTHING was stamped, so adoption cannot claim success
+//   * a missing/malformed retro file means NOTHING was stamped, so acknowledgement cannot claim success
 //     without a real, writable frontmatter gate.
 export async function POST(req: Request) {
   try {
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       if (alreadyAdopted) {
         return NextResponse.json({ ok: true, alreadyAdopted: true });
       }
-      return NextResponse.json({ error: "Couldn't approve retrospective seeds." }, { status: 409 });
+      return NextResponse.json({ error: "Couldn't acknowledge retrospective notes." }, { status: 409 });
     }
     if (alreadyAdopted) {
       return NextResponse.json({ ok: true, alreadyAdopted: true });
@@ -64,12 +64,12 @@ export async function POST(req: Request) {
       })
     );
     if (!updated.some((e) => e.id === id)) {
-      // The entry vanished between the read and the lock — nothing was adopted.
+      // The entry vanished between the read and the lock — nothing was acknowledged.
       return NextResponse.json({ error: "No such history entry." }, { status: 404 });
     }
     return NextResponse.json({ ok: true, ...(racedAlreadyAdopted ? { alreadyAdopted: true } : {}) });
   } catch (err) {
-    logError("/api/history", "adopt", err instanceof Error ? err.message : String(err));
-    return NextResponse.json({ error: "Couldn't record the adoption." }, { status: 502 });
+    logError("/api/history", "acknowledge", err instanceof Error ? err.message : String(err));
+    return NextResponse.json({ error: "Couldn't record the acknowledgement." }, { status: 502 });
   }
 }

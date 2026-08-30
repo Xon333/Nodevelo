@@ -21,7 +21,7 @@ export interface DurabilityTemplate {
   id: DurabilityTemplateId;
   name: string;
   mechanism: string;
-  structure: string; // how to build the long ride — injected into the generation prompt
+  structure: string; // human-readable template description; typed execution lives in workout-templates.ts
 }
 
 export const DURABILITY_TEMPLATES: DurabilityTemplate[] = [

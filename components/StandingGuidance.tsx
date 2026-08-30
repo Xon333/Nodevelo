@@ -122,7 +122,7 @@ export default function StandingGuidance() {
           );
         })}
         <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-          The same guidance, with each dimension&apos;s track record folded in, steers every block you generate.
+          This evidence informs deterministic focus and durability selection; retrospective prose does not.
         </p>
       </div>
     );

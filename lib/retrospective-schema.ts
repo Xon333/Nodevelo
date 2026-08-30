@@ -1,11 +1,8 @@
-// Structured retrospective reflection (Track D). Mirrors plan-schema.ts: ONE zod schema is the
-// single source of truth for (a) the tool's input_schema Claude must fill and (b) validating what
-// comes back. The model turns the last block's intervention hypotheses + their matured outcomes into
-// structured clinical notes — so the next block reads its own reasoning, not just deterministic
-// compliance seeds. The math/validation stay in TS; the model only phrases (AI-containment).
+// Structured retrospective reflection (Track D). One zod schema is the source of truth for the
+// tool input and response validation. The model turns intervention outcomes into history notes;
+// deterministic block compilation never consumes them.
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { BlockHistoryEntry, StructuredReflection } from "./types";
 import { zodToToolInputSchema } from "./tool-schema";
 
 const ReflectionSchema = z.object({
@@ -13,7 +10,7 @@ const ReflectionSchema = z.object({
   hypothesis: z.string(), // what the prior block bet on (grounded in the supplied intervention)
   observation: z.string(), // what actually happened (grounded in the matured outcome)
   root_cause: z.string(), // why it played out that way
-  adjusted_strategy: z.string(), // the concrete change to carry into the next block
+  adjusted_strategy: z.string(), // retrospective coaching judgement, stored as history only
 });
 
 export const RetrospectiveToolSchema = z.object({
@@ -31,27 +28,3 @@ export const RETROSPECTIVE_TOOL: Anthropic.Tool = {
     "`root_cause` and `adjusted_strategy` are your coaching judgement, kept concrete and actionable.",
   input_schema: zodToToolInputSchema(RetrospectiveToolSchema),
 };
-
-// Pure formatter: render persisted reflections into the next-block system prompt. Empty → "" so the
-// caller concatenates nothing when there are no reflections. Unit-tested.
-export function formatReflectionsForPrompt(reflections: StructuredReflection[]): string {
-  if (!reflections.length) return "";
-  const lines = reflections.map(
-    (r) =>
-      `- [${r.dimension}] hypothesis: ${r.hypothesis} → observed: ${r.observation} ` +
-      `(root cause: ${r.root_cause}); next: ${r.adjusted_strategy}`
-  );
-  return (
-    "\nCOACH REFLECTIONS FROM LAST BLOCK (your own clinical notes — apply the adjusted strategies):\n" +
-    lines.join("\n")
-  );
-}
-
-// Phase 1: AI-authored reflections influence another block ONLY after explicit athlete approval
-// (POST /api/history stamps reflectionsApprovedAt). Newest-reflection-bearing-entry-only: the
-// consumer prompt labels this "FROM LAST BLOCK", so an older APPROVED entry must never leak in
-// behind a newer UNAPPROVED one — silence beats misattribution.
-export function latestApprovedReflections(history: BlockHistoryEntry[]): StructuredReflection[] {
-  const newest = history.find((h) => h.structuredReflections?.length);
-  return newest?.reflectionsApprovedAt ? (newest.structuredReflections ?? []) : [];
-}

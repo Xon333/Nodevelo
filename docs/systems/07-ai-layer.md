@@ -35,8 +35,8 @@ Model IDs also appear in `ai-usage.ts` pricing keys. Update both locations toget
 
 ## Authority boundary
 
-- TypeScript computes scores, evidence, physiological/nutrition figures, closeout facts, and adoption eligibility.
-- Claude may phrase supplied facts but may not steer future generation until the athlete explicitly adopts retrospective seeds/reflections.
+- TypeScript computes scores, evidence, physiological/nutrition figures, and closeout facts.
+- Claude may phrase supplied facts, but retrospective prose/reflections never steer deterministic generation. Acknowledgement stamps are history/workflow records only.
 - Empty/missing configuration degrades optional language paths; it does not prevent block generation.
 - A changed language path requires one live API smoke run before completion.
 

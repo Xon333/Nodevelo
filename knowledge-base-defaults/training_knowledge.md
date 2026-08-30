@@ -2,8 +2,8 @@
 
 > Committed skeleton, **not** real coaching content. Your real file lives in
 > `/knowledge-base/training_knowledge.md` (local, gitignored) and overrides this per-file. Replace
-> these stubs with your own methodology — generation injects whatever lives here and cites the
-> §-anchors below.
+> these stubs with your own methodology for reference. Deterministic generation uses the typed
+> catalogue and validators in `lib/`, not this prose.
 
 ## 1. Power meter usage
 _(stub — four-level power framework; key metrics beyond FTP; power vs HR.)_
