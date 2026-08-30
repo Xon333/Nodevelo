@@ -20,7 +20,7 @@ import type {
   SeasonPhase,
   WorkoutType,
 } from "./types";
-import { compileWorkoutTemplate } from "./workout-templates";
+import { compileWorkoutTemplate, TemplateCoverageError } from "./workout-templates";
 
 export interface DeterministicBlockInput {
   blockParams: BlockParams;
@@ -81,7 +81,6 @@ const focusLabel = (focus: SeasonFocus) => FOCUS_LABEL[focus];
 interface QualityAssignment {
   slot: DaySlot;
   type: QualityLibraryType;
-  anchored: boolean;
 }
 
 function compilationError(message: string): never {
@@ -101,35 +100,63 @@ function assertAllowed(slot: DaySlot, type: WorkoutType): void {
   }
 }
 
-function isTemporallyCompatible(type: QualityLibraryType, index: number, assignments: Array<QualityAssignment | null>): boolean {
-  if (FRESH.has(type) && assignments.some((assignment, i) => i < index && assignment?.anchored && TOLERANT.has(assignment.type))) {
-    return false;
+function compareNumbers(left: number[], right: number[]): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    if ((left[index] ?? 0) !== (right[index] ?? 0)) return (left[index] ?? 0) - (right[index] ?? 0);
   }
-  if (TOLERANT.has(type) && assignments.some((assignment, i) => i > index && assignment?.anchored && FRESH.has(assignment.type))) {
-    return false;
-  }
-  return true;
+  return 0;
 }
 
-function orderFlexibleQuality(assignments: Array<QualityAssignment | null>): QualityAssignment[] {
-  const flexible = assignments
-    .filter((assignment): assignment is QualityAssignment => assignment !== null && !assignment.anchored)
-    .map((assignment) => assignment.type)
-    .sort((left, right) => FRESHNESS_FIRST.indexOf(left) - FRESHNESS_FIRST.indexOf(right));
-  let cursor = 0;
-  const ordered = assignments.map((assignment) => {
-    if (!assignment) return compilationError("Quality assignment is incomplete.");
-    if (assignment.anchored) return assignment;
-    const type = flexible[cursor++];
-    assertAllowed(assignment.slot, type);
-    return { ...assignment, type };
+function assignmentScore(assignments: QualityAssignment[]): number[] {
+  const complements = assignments.slice(1).map((assignment) => assignment.type);
+  return [
+    complements.length - new Set(complements).size,
+    ...complements.map((type) => COMPLEMENTS.indexOf(type)).sort((left, right) => left - right),
+    ...complements.map((type) => FRESHNESS_FIRST.indexOf(type)),
+  ];
+}
+
+function freshnessOrdered(assignments: QualityAssignment[]): boolean {
+  let latestFresh = -1;
+  assignments.forEach((assignment, index) => {
+    if (FRESH.has(assignment.type)) latestFresh = index;
   });
-  const earliestFresh = ordered.findIndex((assignment) => FRESH.has(assignment.type));
-  const earliestTolerant = ordered.findIndex((assignment) => TOLERANT.has(assignment.type));
-  if (earliestFresh >= 0 && earliestTolerant >= 0 && earliestTolerant < earliestFresh) {
-    compilationError(`Locked quality slots in week containing ${ordered[0].slot.date} cannot satisfy freshness-first ordering.`);
-  }
-  return ordered;
+  const earliestTolerant = assignments.findIndex((assignment) => TOLERANT.has(assignment.type));
+  return latestFresh < 0 || earliestTolerant < 0 || latestFresh < earliestTolerant;
+}
+
+function solveQualityAssignments(
+  slots: DaySlot[],
+  assignments: Array<QualityAssignment | null>,
+  primary: QualityLibraryType
+): QualityAssignment[] {
+  // ponytail: the skeleton places at most three quality slots, so exhaustive search is smaller and
+  // safer than maintaining a general constraint solver; revisit only if that hard bound changes.
+  const solutions: QualityAssignment[][] = [];
+  const fill = (index: number): void => {
+    if (index === assignments.length) {
+      const complete = assignments.filter((assignment): assignment is QualityAssignment => assignment !== null);
+      if (complete.length === assignments.length && freshnessOrdered(complete)) {
+        solutions.push(complete.map((assignment) => ({ ...assignment })));
+      }
+      return;
+    }
+    if (assignments[index]) {
+      fill(index + 1);
+      return;
+    }
+    const qualitySlot = slots[index];
+    for (const type of COMPLEMENTS) {
+      if (type === primary || !qualitySlot.allowedTypes.includes(type)) continue;
+      assignments[index] = { slot: qualitySlot, type };
+      fill(index + 1);
+      assignments[index] = null;
+    }
+  };
+
+  fill(0);
+  const best = solutions.sort((left, right) => compareNumbers(assignmentScore(left), assignmentScore(right)))[0];
+  return best ?? compilationError(`Quality slots in week containing ${assignments[0]?.slot.date ?? "unknown"} have no compatible assignment.`);
 }
 
 function chooseWorkoutTypes(input: DeterministicBlockInput): Map<string, WorkoutType> {
@@ -177,38 +204,23 @@ function chooseWorkoutTypes(input: DeterministicBlockInput): Map<string, Workout
     const assignments: Array<QualityAssignment | null> = qualitySlots.map((slot) => {
       if (!slot.locked) return null;
       if (slot.allowedTypes.length !== 1) compilationError(`Locked quality slot ${slot.date} must name exactly one type.`);
-      return { slot, type: qualityType(slot.allowedTypes[0], slot), anchored: true };
+      return { slot, type: qualityType(slot.allowedTypes[0], slot) };
     });
     if (!assignments[0]) {
       assertAllowed(qualitySlots[0], "Threshold");
-      assignments[0] = { slot: qualitySlots[0], type: "Threshold", anchored: true };
+      assignments[0] = { slot: qualitySlots[0], type: "Threshold" };
     }
     const primary = assignments[0].type;
 
-    for (let index = 1; index < qualitySlots.length; index += 1) {
-      if (assignments[index]) continue;
-      const slot = qualitySlots[index];
-      if (slot.date === reservedRaceSimDate) {
-        assertAllowed(slot, "RaceSim");
-        assignments[index] = { slot, type: "RaceSim", anchored: true };
-        continue;
-      }
-      const used = new Set(assignments.filter((assignment): assignment is QualityAssignment => assignment !== null).map((assignment) => assignment.type));
-      const compatible = COMPLEMENTS.find((candidate) =>
-        candidate !== primary
-        && !used.has(candidate)
-        && slot.allowedTypes.includes(candidate)
-        && isTemporallyCompatible(candidate, index, assignments)
-      ) ?? COMPLEMENTS.find((candidate) =>
-        candidate !== primary
-        && slot.allowedTypes.includes(candidate)
-        && isTemporallyCompatible(candidate, index, assignments)
-      );
-      if (!compatible) compilationError(`No compatible quality type for ${slot.date}.`);
-      assignments[index] = { slot, type: compatible, anchored: false };
+    const reservedIndex = qualitySlots.findIndex((slot) => slot.date === reservedRaceSimDate);
+    if (reservedIndex >= 0) {
+      assertAllowed(qualitySlots[reservedIndex], "RaceSim");
+      assignments[reservedIndex] = { slot: qualitySlots[reservedIndex], type: "RaceSim" };
     }
 
-    for (const assignment of orderFlexibleQuality(assignments)) chosen.set(assignment.slot.date, assignment.type);
+    for (const assignment of solveQualityAssignments(qualitySlots, assignments, primary)) {
+      chosen.set(assignment.slot.date, assignment.type);
+    }
   }
 
   return chosen;
@@ -235,17 +247,25 @@ function compileDay(
     && (type === "Recovery" || (type === "Z2" && effectiveDurability === "A"))
     ? "heartRate"
     : "power";
-  const template = compileWorkoutTemplate({
-    type,
-    slot,
-    stage,
-    isRecoveryWeek: week.isRecovery,
-    durabilityTemplateId: effectiveDurability,
-    targetMode,
-    hrCeilingBpm: input.hrZone2CeilingBpm,
-    lapButtonSteps: input.settings.lapButtonSteps,
-    nutrition,
-  });
+  let template: ReturnType<typeof compileWorkoutTemplate>;
+  try {
+    template = compileWorkoutTemplate({
+      type,
+      slot,
+      stage,
+      isRecoveryWeek: week.isRecovery,
+      durabilityTemplateId: effectiveDurability,
+      targetMode,
+      hrCeilingBpm: input.hrZone2CeilingBpm,
+      lapButtonSteps: input.settings.lapButtonSteps,
+      nutrition,
+    });
+  } catch (error) {
+    if (error instanceof TemplateCoverageError) {
+      compilationError(`Cannot compile ${slot.date} ${type} for ${slot.kind} slot: ${error.message}`);
+    }
+    throw error;
+  }
   const workoutText = template.prescription
     ? renderPrescription(template.prescription, { lapButtonSteps: input.settings.lapButtonSteps })
     : template.workoutText;

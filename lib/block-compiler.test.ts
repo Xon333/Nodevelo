@@ -180,6 +180,23 @@ describe("compileTrainingBlock", () => {
     );
   });
 
+  it("jointly assigns heterogeneous flexible quality slots without losing a valid stable solution", () => {
+    const input = compilerInput({
+      lengthWeeks: 2,
+      focus: "anaerobic",
+      settings: { qualitySessionsPerLoadingWeek: 3 },
+    });
+    const qualitySlots = input.skeleton.weeks[0].days.filter((slot) => slot.kind === "quality");
+    qualitySlots[1].allowedTypes = ["Threshold", "RaceSim"];
+    qualitySlots[2].allowedTypes = ["VO2max", "Threshold", "RaceSim"];
+
+    const result = compileTrainingBlock(input);
+
+    expect(result.plan.days
+      .filter((day) => day.weekNumber === 1 && ["Threshold", "VO2max", "SIT", "RaceSim"].includes(day.type))
+      .map((day) => day.type)).toEqual(["SIT", "Threshold", "RaceSim"]);
+  });
+
   it("uses loading ordinals for stages and does not advance them during recovery", () => {
     const input = compilerInput({
       lengthWeeks: 4,
@@ -268,5 +285,22 @@ describe("compileTrainingBlock", () => {
     });
 
     expect(() => compileTrainingBlock(input)).toThrow(BlockCompilationError);
+  });
+
+  it("reports a protected event that cannot fit its zero-minute slot as a block compilation error", () => {
+    const input = compilerInput({
+      lengthWeeks: 2,
+      focus: "vo2max",
+      events: [{ name: "Rest-day race", date: "2026-09-07", priority: "C" }],
+    });
+
+    let error: unknown;
+    try {
+      compileTrainingBlock(input);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(BlockCompilationError);
+    expect((error as Error).message).toMatch(/2026-09-07 RaceSim.*needs .*min; got 0/);
   });
 });
