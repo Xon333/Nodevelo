@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readGenerationVerdict, readInterventionLog, readSeasonPlan, saveGenerationVerdict, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readGenerationVerdict, readInterventionLog, readSeasonPlan, replaceGenerationVerdict, saveGenerationVerdict, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, GenerationVerdict, InterventionRecord, SeasonPlan } from "./types";
 
@@ -747,10 +747,12 @@ describe("generation verdict store (generation-gate.json)", () => {
     expect(stored).toEqual(verdict("second-hash", { blockers: ["STRUCTURE: duplicate dates"] }));
   });
 
-  it("can invalidate the single verdict slot before a new generation", async () => {
-    await saveGenerationVerdict(verdict("old-hash"));
-    await saveGenerationVerdict(null);
-    expect(await readGenerationVerdict()).toBeNull();
+  it("replaces a pending verdict only while the caller still owns its claim", async () => {
+    await saveGenerationVerdict(verdict("pending:a"));
+    expect(await replaceGenerationVerdict("pending:a", verdict("a-final"))).toBe("saved");
+    await saveGenerationVerdict(verdict("pending:b"));
+    expect(await replaceGenerationVerdict("pending:a", verdict("stale-a-final"))).toBe("lost");
+    expect(await readGenerationVerdict()).toEqual(verdict("pending:b"));
   });
 
   it("corrupt file behaves like the sibling non-CRITICAL stores: reads back as null, not a crash", async () => {

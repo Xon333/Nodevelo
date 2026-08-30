@@ -39,7 +39,7 @@ vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(), readBlockHistory: vi.fn(), readBlockSettings: vi.fn(),
   readCurrentBlock: vi.fn(), readIntentOverlays: vi.fn(), readLastSync: vi.fn(),
   readRollingBaselines: vi.fn(), readScoreLog: vi.fn(), readSeasonPlan: vi.fn(),
-  saveGenerationVerdict: vi.fn(), updateSeasonPlan: vi.fn(),
+  replaceGenerationVerdict: vi.fn(), saveGenerationVerdict: vi.fn(), updateSeasonPlan: vi.fn(),
 }));
 
 import { POST } from "@/app/api/generate/route";
@@ -71,6 +71,11 @@ beforeEach(() => {
   vi.mocked(store.readSeasonPlan).mockResolvedValue(emptySeason);
   persistedVerdict = null;
   vi.mocked(store.saveGenerationVerdict).mockImplementation(async (record) => { persistedVerdict = record; });
+  vi.mocked(store.replaceGenerationVerdict).mockImplementation(async (claimHash, record) => {
+    if (persistedVerdict?.verdictHash !== claimHash) return "lost";
+    persistedVerdict = record;
+    return "saved";
+  });
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) => mutate(emptySeason));
 });
 
@@ -99,9 +104,12 @@ describe("POST /api/generate — deterministic preview", () => {
 
   it("persists the compiler verdict and keeps generation preview-only", async () => {
     const { plan } = await (await gen()).json();
-    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(store.saveGenerationVerdict).mock.calls[0][0]).toBeNull();
-    const record = vi.mocked(store.saveGenerationVerdict).mock.calls[1][0]!;
+    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(1);
+    const claim = vi.mocked(store.saveGenerationVerdict).mock.calls[0][0];
+    expect(claim.verdictHash).toMatch(/^pending:/);
+    expect(store.replaceGenerationVerdict).toHaveBeenCalledTimes(1);
+    const [claimHash, record] = vi.mocked(store.replaceGenerationVerdict).mock.calls[0];
+    expect(claimHash).toBe(claim.verdictHash);
     expect(record.verdictHash).toBe(verdictHash(plan.days, plan.blockParams));
     expect(record.model).toBeUndefined();
     expect(record.promptVersion).toBeUndefined();
@@ -185,19 +193,14 @@ describe("POST /api/generate — guards and degradation", () => {
     expect(plan.warnings).toContainEqual(expect.stringMatching(/^SEASON:/));
   });
 
-  it("fails safe when verdict persistence fails", async () => {
-    const firstPlan = (await (await gen()).json()).plan;
-    expect(persistedVerdict?.verdictHash).toBe(verdictHash(firstPlan.days, firstPlan.blockParams));
-    vi.mocked(store.saveGenerationVerdict).mockClear();
-    vi.mocked(store.saveGenerationVerdict).mockImplementation(async (record) => {
-      if (record !== null) throw new Error("disk full");
-      persistedVerdict = null;
-    });
+  it("returns a preview with a fail-closed pending passport when final storage fails while owned", async () => {
+    vi.mocked(store.replaceGenerationVerdict).mockResolvedValueOnce("write-failed");
     const res = await gen();
+    const plan = (await res.json()).plan;
     expect(res.status).toBe(200);
-    expect((await res.json()).plan).toBeDefined();
-    expect(persistedVerdict).toBeNull();
-    expect(store.saveGenerationVerdict).toHaveBeenCalledTimes(3);
+    expect(plan).toBeDefined();
+    expect(persistedVerdict?.verdictHash).toMatch(/^pending:/);
+    expect(persistedVerdict?.verdictHash).not.toBe(verdictHash(plan.days, plan.blockParams));
   });
 
   it("does not issue a preview when the old passport cannot be invalidated", async () => {
@@ -205,6 +208,33 @@ describe("POST /api/generate — guards and degradation", () => {
     const res = await gen();
     expect(res.status).toBe(502);
     expect(compiler.compileTrainingBlock).not.toHaveBeenCalled();
+  });
+
+  it("does not let failed generation A erase or borrow concurrent generation B's passport", async () => {
+    let releaseA!: () => void;
+    let claimAStarted!: () => void;
+    const aStarted = new Promise<void>((resolve) => { claimAStarted = resolve; });
+    const holdA = new Promise<void>((resolve) => { releaseA = resolve; });
+    vi.mocked(store.saveGenerationVerdict)
+      .mockImplementationOnce(async (record) => {
+        persistedVerdict = record;
+        claimAStarted();
+        await holdA;
+      })
+      .mockImplementation(async (record) => { persistedVerdict = record; });
+
+    const generationA = gen();
+    await aStarted;
+    const responseB = await gen();
+    const planB = (await responseB.json()).plan;
+    const passportB = persistedVerdict;
+    releaseA();
+    const responseA = await generationA;
+
+    expect(responseB.status).toBe(200);
+    expect(responseA.status).toBe(502);
+    expect(persistedVerdict).toEqual(passportB);
+    expect(passportB?.verdictHash).toBe(verdictHash(planB.days, planB.blockParams));
   });
 
   it("maps compiler failures to 502 and does not persist season state", async () => {

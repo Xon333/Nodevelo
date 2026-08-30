@@ -40,7 +40,7 @@ vi.mock("@/lib/data-store", () => ({
   readAthleteProfile: vi.fn(), readBlockHistory: vi.fn(), readBlockSettings: vi.fn(),
   readCurrentBlock: vi.fn(), readIntentOverlays: vi.fn(), readLastSync: vi.fn(),
   readRollingBaselines: vi.fn(), readScoreLog: vi.fn(), readSeasonPlan: vi.fn(),
-  saveGenerationVerdict: vi.fn(), updateSeasonPlan: vi.fn(),
+  replaceGenerationVerdict: vi.fn(), saveGenerationVerdict: vi.fn(), updateSeasonPlan: vi.fn(),
 }));
 
 import { POST } from "@/app/api/generate/route";
@@ -76,6 +76,7 @@ beforeEach(() => {
   vi.mocked(store.readScoreLog).mockResolvedValue({ entries: [], updatedAt: "" });
   vi.mocked(store.readSeasonPlan).mockResolvedValue(eventSeason as never);
   vi.mocked(store.saveGenerationVerdict).mockResolvedValue(undefined);
+  vi.mocked(store.replaceGenerationVerdict).mockResolvedValue("saved");
   vi.mocked(store.updateSeasonPlan).mockImplementation(async (mutate) => mutate(eventSeason as never));
 });
 

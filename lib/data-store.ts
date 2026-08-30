@@ -193,11 +193,30 @@ export async function readGenerationVerdict(): Promise<GenerationVerdict | null>
 // Single-slot latest-wins save. writeJson takes the per-file lock for the whole atomic write, so
 // two concurrent saves serialize and the file is always exactly ONE complete record (the last to
 // acquire the lock) — never interleaved bytes. That's the correct semantics here: each save is a
-// whole-slot replacement, not a merge, so there's no lost-update hazard a read-modify-write
-// (updateJson) would be needed for; plain last-writer-wins IS latest-wins. `null` explicitly
-// invalidates the passport before a new generation can issue a preview.
-export async function saveGenerationVerdict(record: GenerationVerdict | null): Promise<void> {
+// whole-record replacement, not a merge, so there's no lost-update hazard a read-modify-write
+// (updateJson) would be needed for; plain last-writer-wins IS latest-wins.
+export async function saveGenerationVerdict(record: GenerationVerdict): Promise<void> {
   await writeJson("generation-gate.json", record);
+}
+
+export async function replaceGenerationVerdict(
+  expectedHash: string,
+  record: GenerationVerdict
+): Promise<"saved" | "lost" | "write-failed"> {
+  let owned = false;
+  try {
+    await updateJson<GenerationVerdict | null>("generation-gate.json", null, (current) => {
+      if (current?.verdictHash !== expectedHash) return current;
+      owned = true;
+      return record;
+    });
+    return owned ? "saved" : "lost";
+  } catch (error) {
+    // atomicWrite keeps the old claim intact when replacement fails. Only suppress a write failure
+    // after the locked read proved this caller still owns the slot; unknown/read failures propagate.
+    if (owned) return "write-failed";
+    throw error;
+  }
 }
 
 export async function readCurrentBlock(): Promise<CurrentBlock | null> {

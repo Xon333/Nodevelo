@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
 import { compileTrainingBlock } from "@/lib/block-compiler";
 import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets } from "@/lib/block-skeleton";
@@ -6,7 +7,8 @@ import { resolveDurabilityInsertEnvelope } from "@/lib/calibration";
 import { resolveCoachSignals } from "@/lib/coach-snapshot";
 import {
   readAthleteProfile, readBlockSettings, readCurrentBlock, readIntentOverlays, readLastSync,
-  readRollingBaselines, readScoreLog, readSeasonPlan, saveGenerationVerdict, updateSeasonPlan,
+  readRollingBaselines, readScoreLog, readSeasonPlan, replaceGenerationVerdict,
+  saveGenerationVerdict, updateSeasonPlan,
 } from "@/lib/data-store";
 import { resolveToday } from "@/lib/date";
 import { selectDurabilityTemplate } from "@/lib/durability";
@@ -155,10 +157,16 @@ export async function POST(req: Request) {
       ])),
     ])));
     const hrZones = physRead.store ? resolveHrZones(physRead.store.current) : [];
-    // Invalidate the old passport before composition. Deterministic plans can reuse the same
-    // days+params hash while current gate context changes, so an old clean verdict must never
-    // survive a failed attempt to persist the new verdict.
-    await saveGenerationVerdict(null);
+    // Claim the single passport slot before composition. The pending hash can never match a plan's
+    // SHA-256 verdict hash, and the final locked CAS prevents concurrent generations borrowing or
+    // erasing each other's authority.
+    const claimHash = `pending:${randomUUID()}`;
+    await saveGenerationVerdict({
+      verdictHash: claimHash,
+      blockers: [],
+      preferences: [],
+      createdAt: new Date().toISOString(),
+    });
     const compiled = compileTrainingBlock({
       blockParams,
       settings: blockSettings,
@@ -184,18 +192,17 @@ export async function POST(req: Request) {
       },
     });
     const plan = compiled.plan;
-    try {
-      await saveGenerationVerdict({
-        verdictHash: verdictHash(plan.days, plan.blockParams),
-        blockers: compiled.verdict.blockers,
-        preferences: compiled.verdict.preferences,
-        createdAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      logWarn("/api/generate", "verdict-persist", error instanceof Error ? error.message : String(error));
-      // The initial invalidation normally leaves this null. Clear again to close a concurrent-save
-      // race; if that cannot be guaranteed, fail closed instead of returning a publishable preview.
-      await saveGenerationVerdict(null);
+    const verdictResult = await replaceGenerationVerdict(claimHash, {
+      verdictHash: verdictHash(plan.days, plan.blockParams),
+      blockers: compiled.verdict.blockers,
+      preferences: compiled.verdict.preferences,
+      createdAt: new Date().toISOString(),
+    });
+    if (verdictResult === "lost") {
+      throw new Error("A newer generation superseded this preview. Use the newer result.");
+    }
+    if (verdictResult === "write-failed") {
+      logWarn("/api/generate", "verdict-persist", "The final verdict could not replace its pending claim.");
     }
     if (replannedSeason) {
       try {
