@@ -258,6 +258,7 @@ function compileEasy(input: WorkoutTemplateInput, mode: PrescriptionTargetMode):
   const totalSec = assertFits(input, WARMUP_SEC + COOLDOWN_SEC + 60);
   const mainSec = totalSec - WARMUP_SEC - COOLDOWN_SEC;
   if (mode === "power") {
+    assertIntensityCeiling(input, 75);
     return {
       targetMode: "power",
       sections: [
@@ -345,7 +346,7 @@ function durabilitySummary(id: DurabilityTemplateId): string {
 
 export function compileWorkoutTemplate(input: WorkoutTemplateInput): CompiledWorkoutTemplate {
   const description = nutritionLine(input.nutrition);
-  if (input.type === "Rest") return { name: "Rest", summary: "Rest", prescription: null, workoutText: "", description };
+  if (input.type === "Rest") return { name: "Rest", summary: "", prescription: null, workoutText: "", description };
   if (input.type === "Strength") {
     return { name: "Strength", summary: "Core strength programme", prescription: null, workoutText: STRENGTH_TEXT, description };
   }
@@ -373,7 +374,7 @@ export function compileWorkoutTemplate(input: WorkoutTemplateInput): CompiledWor
     throw new TemplateCoverageError(`${input.type} recipe did not fill its exact slot.`);
   }
   return {
-    name: `${input.type} — ${compiled.summary}`,
+    name: input.type,
     summary: compiled.summary,
     prescription: compiled.prescription,
     workoutText: "",

@@ -145,6 +145,21 @@ describe("compileWorkoutTemplate — RaceSim", () => {
 });
 
 describe("compileWorkoutTemplate — easy and durability protocols", () => {
+  it("enforces the 75% ramp against power-led easy slot ceilings only", () => {
+    for (const type of ["Recovery", "Z2"] as const) {
+      expect(() => compileWorkoutTemplate(input(type, {
+        slot: slot(60, { maxIntensityPct: 70 }),
+      }))).toThrow(TemplateCoverageError);
+      expect(() => compileWorkoutTemplate(input(type, {
+        slot: slot(60, { maxIntensityPct: 75 }),
+      }))).not.toThrow();
+      expect(() => compileWorkoutTemplate(input(type, {
+        targetMode: "heartRate",
+        slot: slot(60, { maxIntensityPct: 70 }),
+      }))).not.toThrow();
+    }
+  });
+
   it.each(["B", "C", "D"] as const)("puts durability %s work after half of the ride", (durabilityTemplateId) => {
     const templateInput = input("Z2", { slot: slot(150), durabilityTemplateId });
     const prescription = compileWorkoutTemplate(templateInput).prescription!;
@@ -242,6 +257,16 @@ describe("compileWorkoutTemplate — rendering contract", () => {
 });
 
 describe("compileWorkoutTemplate — non-cycling and failure behavior", () => {
+  it("returns base protocol names without duplicating summaries", () => {
+    const quality = compileWorkoutTemplate(input("Threshold"));
+    expect(quality.name).toBe("Threshold");
+    expect(quality.summary).toBe("2×12m @ 90% FTP");
+    expect(compileWorkoutTemplate(input("Rest", { slot: slot(0) }))).toMatchObject({
+      name: "Rest",
+      summary: "",
+    });
+  });
+
   it("keeps Rest empty and Strength deterministic prose", () => {
     const rest = compileWorkoutTemplate(input("Rest", { slot: slot(0) }));
     expect(rest).toMatchObject({ prescription: null, workoutText: "" });
