@@ -50,6 +50,11 @@ const syntaxError = (message: string): never => {
   throw new PrescriptionSyntaxError(message);
 };
 
+const DURATION_TOKENS = String.raw`(?:\d+\s*(?:h|m|s|'|")\s*)+`;
+const TARGET_TOKEN = String.raw`(?:ramp\s+)?(?:\d+(?:\.\d+)?(?:%?\s*-\s*\d+(?:\.\d+)?)?%(?:\s+(?:HR|LTHR))?(?!\w)|Z[1-6](?:\s*-\s*Z[1-6])?(?:\s+HR)?\b)`;
+const DURATION_AT_END_RX = new RegExp(`(${DURATION_TOKENS})$`, "i");
+const DURATION_TARGET_CLAUSE_RX = new RegExp(`${DURATION_TOKENS}${TARGET_TOKEN}`, "i");
+
 export function assertPrescriptionValid(
   value: CyclingPrescription,
   options: { lapButtonSteps: boolean }
@@ -67,6 +72,8 @@ export function assertPrescriptionValid(
         || /[\r\n]/.test(step.cue)
         || /^Press lap(?:\s|$)/i.test(step.cue)
         || /(?:^|\s)HR cap [1-9]\d*bpm$/i.test(step.cue)
+        || DURATION_AT_END_RX.test(step.cue)
+        || DURATION_TARGET_CLAUSE_RX.test(step.cue)
       )) syntaxError("Cue must be nonempty, trimmed, single-line, and must not use reserved lap/cap grammar");
       if (!Number.isInteger(step.durationSec) || step.durationSec <= 0) syntaxError("Step duration must be a positive integer");
       const targetMode = step.target.kind.startsWith("power-") ? "power" : "heartRate";
@@ -164,11 +171,11 @@ function parseRichStep(line: string, sectionName: PrescriptionSectionName): Pres
 
   rest = rest.replace(/\s+\d+(?:\s*-\s*\d+)?rpm$/i, "");
   const { head, target } = parseTarget(rest);
-  const durationMatch = head.match(/((?:\d+\s*(?:h|m|s|'|")\s*)+)$/i);
+  const durationMatch = head.match(DURATION_AT_END_RX);
   if (!durationMatch) return syntaxError(`Step is missing a duration: ${line}`);
   const durationSec = durationToSec(durationMatch[1]);
   let cue = head.slice(0, durationMatch.index).trim();
-  if (/(?:\d+\s*(?:h|m|s|'|")\s*)+(?:ramp\s+)?(?:\d+(?:\.\d+)?%?(?:\s*-\s*\d+(?:\.\d+)?)?%|Z[1-6](?:\s*-\s*Z[1-6])?(?:\s+HR)?)/i.test(cue)) {
+  if (DURATION_TARGET_CLAUSE_RX.test(cue)) {
     syntaxError(`Step must contain exactly one target: ${line}`);
   }
 

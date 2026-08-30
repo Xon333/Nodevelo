@@ -115,6 +115,10 @@ describe("typed prescription round trip", () => {
     " Leading",
     "Trailing ",
     "Two\nlines",
+    "Hold 5m",
+    "Hold 1m30s",
+    "Try 1m 120%",
+    "Try 5m ramp 50-75%",
   ])("rejects non-canonical cue %j", (cue) => {
     const value: CyclingPrescription = {
       targetMode: "power",
@@ -131,10 +135,10 @@ describe("typed prescription round trip", () => {
     expect(() => parseCyclingPrescription("Main Set\n- 5m ramp 50-75% then 2m 95% intensity=active")).toThrow(/exactly one target/i);
   });
 
-  it("preserves ordinary cues that mention a zone", () => {
+  it.each(["Start in Z2", "Hold 5m steady"])("round-trips unambiguous cue %j", (cue) => {
     const value: CyclingPrescription = {
       targetMode: "power",
-      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 70, maxPctFtp: 70 }, cue: "Start in Z2" }] }],
+      sections: [{ name: "Main Set", repeats: 1, steps: [{ durationSec: 300, end: "timer", role: "active", target: { kind: "power-percent", minPctFtp: 70, maxPctFtp: 70 }, cue }] }],
     };
     expect(prescriptionsEqual(parseCyclingPrescription(renderPrescription(value, { lapButtonSteps: false })), value)).toBe(true);
   });
