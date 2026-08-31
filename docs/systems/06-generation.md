@@ -51,10 +51,14 @@ Every generated cycling workout has exactly one structured target family:
 
 - Threshold, VO2max, SIT, RaceSim, and durability B–E are power-led.
 - Pure Z2, Recovery, and durability A may be heart-rate-led when current HR physiology exists.
-- A power-led workout may include a resolved bpm HR ceiling as cue text; that cue is not a second structured target.
+- Steady easy segments in power-led Z2, Recovery, and durability rides may include a resolved bpm HR
+  ceiling as cue text. Warmups, cooldowns, recovery intervals, Threshold, VO2max, SIT, and RaceSim
+  remain power-only.
 - Cadence targets are never generated. The parser tolerates legacy cadence tokens only for stored-history compatibility.
 
 Progression increases work duration or repetitions before intensity and stays inside the protocol bands.
+SIT always uses 30-second maximal efforts; its final rep carries a standing cue without creating a
+separate workout type.
 
 ### Canonical Intervals.icu syntax
 

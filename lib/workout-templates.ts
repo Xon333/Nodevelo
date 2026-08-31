@@ -28,8 +28,8 @@ export interface CompiledWorkoutTemplate {
 
 const QUALITY_STAGES = {
   SIT: [
-    { reps: 4, workSec: 20, workPct: 150, recoverySec: 240 },
-    { reps: 5, workSec: 25, workPct: 150, recoverySec: 240 },
+    { reps: 4, workSec: 30, workPct: 150, recoverySec: 240 },
+    { reps: 5, workSec: 30, workPct: 150, recoverySec: 240 },
     { reps: 6, workSec: 30, workPct: 150, recoverySec: 240 },
   ],
   VO2max: [
@@ -144,35 +144,28 @@ function powerWarmup(input: WorkoutTemplateInput, extraSec = 0): PrescriptionSte
   return [
     powerStep(READY_SEC + extraSec, "warmup", 50, 60, {
       end: input.lapButtonSteps ? "lapButton" : "timer",
-      ...(input.hrCeilingBpm ? { hrCeilingBpm: input.hrCeilingBpm } : {}),
     }),
     {
       durationSec: RAMP_SEC,
       end: "timer",
       role: "warmup",
       target: { kind: "power-ramp", fromPctFtp: 50, toPctFtp: 75 },
-      ...(input.hrCeilingBpm ? { hrCeilingBpm: input.hrCeilingBpm } : {}),
     },
   ];
 }
 
-function powerCooldown(input: WorkoutTemplateInput): PrescriptionStep {
-  return powerStep(COOLDOWN_SEC, "cooldown", 50, 60, {
-    ...(input.hrCeilingBpm ? { hrCeilingBpm: input.hrCeilingBpm } : {}),
-  });
+function powerCooldown(): PrescriptionStep {
+  return powerStep(COOLDOWN_SEC, "cooldown", 50, 60);
 }
 
 function interleavedWork(
-  recipe: { reps: number; workSec: number; workPct: number; recoverySec: number },
-  input: WorkoutTemplateInput
+  recipe: { reps: number; workSec: number; workPct: number; recoverySec: number }
 ): PrescriptionStep[] {
   const steps: PrescriptionStep[] = [];
   for (let rep = 0; rep < recipe.reps; rep += 1) {
     steps.push(powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct));
     if (rep < recipe.reps - 1) {
-      steps.push(powerStep(recipe.recoverySec, "recovery", 50, 60, {
-        ...(input.hrCeilingBpm ? { hrCeilingBpm: input.hrCeilingBpm } : {}),
-      }));
+      steps.push(powerStep(recipe.recoverySec, "recovery", 50, 60));
     }
   }
   return steps;
@@ -208,11 +201,12 @@ function compileQuality(input: WorkoutTemplateInput): { summary: string; prescri
     : QUALITY_STAGES[input.type as keyof typeof QUALITY_STAGES][input.stage];
   assertIntensityCeiling(input, recipe.workPct);
   const work = powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct, {
-    ...(input.type === "SIT" ? { cue: "Seated" } : {}),
+    ...(input.type === "SIT" ? { cue: "Seated max" } : {}),
   });
-  const recovery = powerStep(recipe.recoverySec, "recovery", 50, 60, {
-    ...(input.hrCeilingBpm ? { hrCeilingBpm: input.hrCeilingBpm } : {}),
+  const finalWork = powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct, {
+    ...(input.type === "SIT" ? { cue: "Standing max" } : {}),
   });
+  const recovery = powerStep(recipe.recoverySec, "recovery", 50, 60);
   const hardSec = recipe.reps * recipe.workSec + (recipe.reps - 1) * recipe.recoverySec;
   const totalSec = assertFits(input, WARMUP_SEC + hardSec + COOLDOWN_SEC);
   return {
@@ -222,8 +216,8 @@ function compileQuality(input: WorkoutTemplateInput): { summary: string; prescri
       sections: [
         { name: "Warmup", repeats: 1, steps: powerWarmup(input, totalSec - WARMUP_SEC - hardSec - COOLDOWN_SEC) },
         { name: "Main Set", repeats: recipe.reps - 1, steps: [work, recovery] },
-        { name: "Main Set", repeats: 1, steps: [work] },
-        { name: "Cooldown", repeats: 1, steps: [powerCooldown(input)] },
+        { name: "Main Set", repeats: 1, steps: [finalWork] },
+        { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
       ],
     },
   };
@@ -235,9 +229,7 @@ function compileRaceSim(input: WorkoutTemplateInput): { summary: string; prescri
   const work: PrescriptionStep[] = [];
   moves.forEach((move) => {
     work.push(powerStep(move.workSec, "active", move.workPct, move.workPct));
-    work.push(powerStep(move.recoverySec, "recovery", 50, 60, {
-      ...(input.hrCeilingBpm ? { hrCeilingBpm: input.hrCeilingBpm } : {}),
-    }));
+    work.push(powerStep(move.recoverySec, "recovery", 50, 60));
   });
   const workSec = work.reduce((sum, step) => sum + step.durationSec, 0);
   const totalSec = assertFits(input, WARMUP_SEC + workSec + COOLDOWN_SEC);
@@ -248,7 +240,7 @@ function compileRaceSim(input: WorkoutTemplateInput): { summary: string; prescri
       sections: [
         { name: "Warmup", repeats: 1, steps: powerWarmup(input, totalSec - WARMUP_SEC - workSec - COOLDOWN_SEC) },
         { name: "Main Set", repeats: 1, steps: work },
-        { name: "Cooldown", repeats: 1, steps: [powerCooldown(input)] },
+        { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
       ],
     },
   };
@@ -264,7 +256,7 @@ function compileEasy(input: WorkoutTemplateInput, mode: PrescriptionTargetMode):
       sections: [
         { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
         { name: "Main Set", repeats: 1, steps: [powerEasyStep(mainSec, input.type === "Recovery" ? "recovery" : "active", input.hrCeilingBpm)] },
-        { name: "Cooldown", repeats: 1, steps: [powerCooldown(input)] },
+        { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
       ],
     };
   }
@@ -283,7 +275,7 @@ function compileLateDurability(
   recipe: Extract<(typeof DURABILITY_RECIPES)[DurabilityTemplateId], { kind: "late-repeats" }>
 ): CyclingPrescription {
   assertIntensityCeiling(input, recipe.workPct);
-  const work = interleavedWork(recipe, input);
+  const work = interleavedWork(recipe);
   const hardSec = work.reduce((sum, step) => sum + step.durationSec, 0);
   const totalSec = input.slot.duration.nominalMin * 60;
   assertFits(input, totalSec / 2 + hardSec + COOLDOWN_SEC);
@@ -301,7 +293,7 @@ function compileLateDurability(
     sections: [
       { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
       { name: "Main Set", repeats: 1, steps: mainSteps },
-      { name: "Cooldown", repeats: 1, steps: [powerCooldown(input)] },
+      { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
     ],
   };
 }
@@ -333,7 +325,7 @@ function compileDistributedDurability(
     sections: [
       { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
       { name: "Main Set", repeats: 1, steps: mainSteps },
-      { name: "Cooldown", repeats: 1, steps: [powerCooldown(input)] },
+      { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
     ],
   };
 }

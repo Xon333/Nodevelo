@@ -21,8 +21,9 @@ and preserves the contracts in [INVARIANTS](../../INVARIANTS.md).
 - Generate every work and rest day. There is no optional-extra-day concept.
 - Treat intended weekly load and available time as different inputs.
 - Emit cycling workouts only, using a narrow typed prescription and canonical Intervals text. Power
-  remains the authority for quality work; HR zones may govern pure easy/recovery work, and a resolved
-  HR ceiling may appear as a visible cue where power remains primary.
+  remains the sole authority for quality work; HR zones may govern pure easy/recovery work, and a
+  resolved HR ceiling may appear only on Z2, Recovery, or durability rides where power remains
+  primary.
 - Generate no workout, week, or block explanation with AI.
 - Generate one deterministic title, for example `4-week Threshold Build`.
 - Keep Intervals' graph, calculated duration/load, and projected fitness views as external inspection
@@ -125,18 +126,18 @@ The canonical renderer emits:
 
 ```text
 Warmup
-- HR cap 145bpm 26m40s 50%-60% intensity=warmup
-- HR cap 145bpm 5m ramp 50%-75% intensity=warmup
+- 26m 50%-60% intensity=warmup
+- 5m ramp 50%-75% intensity=warmup
 
 Main Set 3x
-- Seated 20s 150% intensity=active
-- HR cap 145bpm 4m 50%-60% intensity=recovery
+- Seated max 30s 150% intensity=active
+- 4m 50%-60% intensity=recovery
 
 Main Set
-- Seated 20s 150% intensity=active
+- Standing max 30s 150% intensity=active
 
 Cooldown
-- HR cap 145bpm 10m 50%-60% intensity=cooldown
+- 10m 50%-60% intensity=cooldown
 ```
 
 Stock templates use repeat blocks for identical work/recovery pairs and omit prose that merely
@@ -173,9 +174,11 @@ ceiling.
 - Threshold, VO2max, SIT, RaceSim, and durability B–E use power targets.
 - Pure Z2, Recovery, and durability A may use `Z1-Z2 HR` when current HR physiology is available;
   otherwise they use a power-zone or `%FTP` target.
-- On a power-led workout, `hrCeilingBpm` renders as a short step cue such as `HR cap 145bpm`. It is visible
-  guidance, not a device alert. A cap derived from a zone is resolved to bpm before rendering so `Z2`
-  is not accidentally parsed as a second structured target.
+- On a power-led Z2, Recovery, or durability ride, `hrCeilingBpm` may render as a short step cue such
+  as `HR cap 145bpm` on its steady easy segments. It is omitted from warmups, cooldowns, and recovery
+  intervals where the power target is sufficient. Threshold, VO2max, SIT, and RaceSim never carry it:
+  those sessions are planned and executed from power throughout. A cap derived from a zone is
+  resolved to bpm before rendering so `Z2` is not accidentally parsed as a second structured target.
 - Numeric quality protocols continue to use `%FTP`, not zone labels, because their validators require
   exact deterministic bands. Zone targets are for easy/recovery control, not a way to blur protocol
   edges.
@@ -270,7 +273,8 @@ It never pads hard work, exceeds the slot ceiling, or changes the weekly total.
 
 The existing protocol bands remain authoritative:
 
-- SIT: 4–6 × 20–30 seconds, 130–200% FTP, four-minute easy recoveries, seated cue.
+- SIT: 4–6 × 30 seconds, 130–200% FTP, four-minute easy recoveries, seated maximal efforts followed
+  by one standing maximal finishing effort. Standing is a step cue, not a separate workout type.
 - VO2max: 3–8-minute efforts at 106–120% FTP.
 - Threshold: 88–105% FTP, including sweet spot at 88–93%.
 - RaceSim: 3–5 varied race moves, each with distinct duration/intensity/recovery, hardest move in the

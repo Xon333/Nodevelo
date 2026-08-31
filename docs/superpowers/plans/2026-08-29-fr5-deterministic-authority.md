@@ -17,7 +17,9 @@
 - Migrate both new hour fields from the old `weeklyHoursMax`, keep existing recovery settings, and default `lapButtonSteps` to `false` using missing-field fallback checks rather than `=== null`.
 - Generate cycling workouts with exactly one target family: `power` or `heartRate`.
 - Threshold, VO2max, SIT, RaceSim, and durability B–E remain power-led; pure Z2, Recovery, and durability A may be HR-led when current HR physiology exists.
-- A power-led workout may show a resolved bpm HR ceiling as cue text, but must not serialize it as a second structured target.
+- A steady easy segment in a power-led Z2, Recovery, or durability ride may show a resolved bpm HR
+  ceiling as cue text. Warmups, cooldowns, recovery intervals, and standalone quality sessions never
+  do, and no workout serializes it as a second structured target.
 - Generate no cadence targets. Continue parsing legacy cadence tokens without treating them as semantic targets.
 - Support `%FTP` points/ranges, standard power zones, standard HR zones, `% HR`, `% LTHR`, power ramps, repeats, cues, `intensity=<role>`, and eligible `Press lap` endings.
 - Allow `Press lap` only when `lapButtonSteps` is true and only for outdoor positioning/readiness/easy recovery transitions; never emit it for the owner's default Wahoo path or prescribed SIT/VO2max/Threshold work.
@@ -382,7 +384,7 @@ git commit -m "feat: add typed workout prescription syntax"
 Add table-driven tests that call the public catalogue for stages `0`, `1`, and `2` and assert:
 
 ```ts
-expect(compileWorkoutTemplate({ ...base, type: "SIT", stage: 0 }).summary).toBe("4×20s @ 150% FTP");
+expect(compileWorkoutTemplate({ ...base, type: "SIT", stage: 0 }).summary).toBe("4×30s @ 150% FTP");
 expect(compileWorkoutTemplate({ ...base, type: "SIT", stage: 2 }).summary).toBe("6×30s @ 150% FTP");
 expect(compileWorkoutTemplate({ ...base, type: "VO2max", stage: 0 }).summary).toBe("4×3m @ 110% FTP");
 expect(compileWorkoutTemplate({ ...base, type: "Threshold", stage: 0 }).summary).toBe("2×12m @ 90% FTP");
@@ -432,8 +434,8 @@ Use a local constant, not classes or factories:
 ```ts
 const QUALITY_STAGES = {
   SIT: [
-    { reps: 4, workSec: 20, workPct: 150, recoverySec: 240 },
-    { reps: 5, workSec: 25, workPct: 150, recoverySec: 240 },
+    { reps: 4, workSec: 30, workPct: 150, recoverySec: 240 },
+    { reps: 5, workSec: 30, workPct: 150, recoverySec: 240 },
     { reps: 6, workSec: 30, workPct: 150, recoverySec: 240 },
   ],
   VO2max: [
@@ -449,7 +451,11 @@ const QUALITY_STAGES = {
 } as const;
 ```
 
-Recovery weeks always use the dedicated `2×8m @ 90% FTP` Threshold touch, never a stage lookup. SIT work carries the “Seated, maximal but smooth” cue. Build RaceSim from a fixed stage table of 3, 4, or 5 varied moves and keep the hardest move in the final third.
+Recovery weeks always use the dedicated `2×8m @ 90% FTP` Threshold touch, never a stage lookup. SIT
+always uses 30-second maximal efforts, with seated cues and one standing final rep; standing remains
+a cue rather than a workout type. Build RaceSim from a fixed stage table of 3, 4, or 5 varied moves
+and keep the hardest move in the final third. HR ceilings are reserved for Z2, Recovery, and
+durability rides; standalone quality sessions remain power-only throughout.
 
 - [ ] **Step 5: Encode easy rides, ramps, HR control, and durability A–E**
 

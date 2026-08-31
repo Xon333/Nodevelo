@@ -93,7 +93,7 @@ function dayFrom(result: CompiledWorkoutTemplate, workoutText: string, templateI
 
 describe("compileWorkoutTemplate — ordered quality catalogue", () => {
   const cases = [
-    { type: "SIT", summaries: ["4×20s @ 150% FTP", "5×25s @ 150% FTP", "6×30s @ 150% FTP"], minPct: 130, maxPct: 200 },
+    { type: "SIT", summaries: ["4×30s @ 150% FTP", "5×30s @ 150% FTP", "6×30s @ 150% FTP"], minPct: 130, maxPct: 200 },
     { type: "VO2max", summaries: ["4×3m @ 110% FTP", "5×4m @ 112% FTP", "5×5m @ 115% FTP"], minPct: 106, maxPct: 120 },
     { type: "Threshold", summaries: ["2×12m @ 90% FTP", "2×20m @ 93% FTP", "3×15m @ 95% FTP"], minPct: 88, maxPct: 105 },
   ] as const;
@@ -128,18 +128,18 @@ describe("compileWorkoutTemplate — ordered quality catalogue", () => {
     const result = compileWorkoutTemplate(templateInput);
     expect(rendered(result, templateInput)).toBe([
       "Warmup",
-      "- HR cap 145bpm 26m40s 50%-60% intensity=warmup",
-      "- HR cap 145bpm 5m ramp 50%-75% intensity=warmup",
+      "- 26m 50%-60% intensity=warmup",
+      "- 5m ramp 50%-75% intensity=warmup",
       "",
       "Main Set 3x",
-      "- Seated 20s 150% intensity=active",
-      "- HR cap 145bpm 4m 50%-60% intensity=recovery",
+      "- Seated max 30s 150% intensity=active",
+      "- 4m 50%-60% intensity=recovery",
       "",
       "Main Set",
-      "- Seated 20s 150% intensity=active",
+      "- Standing max 30s 150% intensity=active",
       "",
       "Cooldown",
-      "- HR cap 145bpm 10m 50%-60% intensity=cooldown",
+      "- 10m 50%-60% intensity=cooldown",
     ].join("\n"));
   });
 });
@@ -264,10 +264,14 @@ describe("compileWorkoutTemplate — rendering contract", () => {
     expect(lapSteps[0].role).toBe("warmup");
   });
 
-  it("attaches an HR ceiling only to applicable power-led easy steps", () => {
-    const prescription = compileWorkoutTemplate(input("VO2max", { stage: 0, hrCeilingBpm: 145 })).prescription!;
-    expect(steps(prescription).filter((step) => step.role !== "active").every((step) => step.hrCeilingBpm === 145)).toBe(true);
-    expect(hardSteps(prescription).every((step) => step.hrCeilingBpm === undefined)).toBe(true);
+  it("keeps quality sessions power-only and reserves HR ceilings for easy rides", () => {
+    for (const type of ["Threshold", "VO2max", "SIT", "RaceSim"] as const) {
+      const prescription = compileWorkoutTemplate(input(type, { stage: 0, hrCeilingBpm: 145 })).prescription!;
+      expect(steps(prescription).every((step) => step.hrCeilingBpm === undefined)).toBe(true);
+    }
+    const z2 = compileWorkoutTemplate(input("Z2", { slot: slot(90), hrCeilingBpm: 145 })).prescription!;
+    expect(steps(z2).filter((step) => step.role === "active").every((step) => step.hrCeilingBpm === 145)).toBe(true);
+    expect(steps(z2).filter((step) => step.role !== "active").every((step) => step.hrCeilingBpm === undefined)).toBe(true);
   });
 });
 

@@ -85,7 +85,7 @@ AI — and the AI only ever phrases numbers the code already computed.
   repeats, cues, warmup/cooldown ramps, HR-cap cue text, and guarded default-off `Press lap`; generates
   no cadence targets. `lib/prescription.ts`, `lib/workout-templates.ts`
 - **KB-grounded protocol validation** — every generated workout checked against KB interval bands
-  (SIT 4–6×20–30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); protocol breaches block publication.
+  (SIT 4–6×30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); protocol breaches block publication.
   `lib/workout-validate.ts`
 - **Schedule-placement validation** — flags back-to-back hard days, any week over the quality budget,
   a capped/no-quality taper window ahead of a priority-B/C event (`validateEventTaper`), and
@@ -94,8 +94,8 @@ AI — and the AI only ever phrases numbers the code already computed.
   findings as blockers, preferences, or advisories. `lib/schedule-validate.ts`, `lib/publication-gate.ts`
 - **Compiler-owned nutrition and overview** — daily nutrition and the block overview are assembled
   directly from resolved facts; there is no copy/repair or prose-consistency stage.
-- **Execution cues** — each day can carry one deterministic protocol/pacing cue, including an HR cap
-  on a power-led workout without creating a second structured target.
+- **Execution cues** — deterministic cues are reserved for useful execution details: HR caps on
+  steady Z2/Recovery/durability segments and concise seated/standing notes on SIT efforts.
 - **Preview → publication gate → write** — `PlanPreview` shows every day plus blockers,
   preferences requiring acknowledgment, and the existing "Notes — for your awareness" warnings. `POST /api/write`
   refuses blockers or an unknown persisted verdict before any write; accepted plans post to the
