@@ -66,17 +66,6 @@ export function deriveSessionRequirements(goal: string, weakpoints: string[]): S
   };
 }
 
-// P5 (2026-07-24 block-generation redesign): RaceSim relaxed from a per-loading-week requirement to a
-// sporadic, block-wide one — athlete direction: structured interval work (the block's primary quality,
-// KB §12/REQUIRED COVERAGE) takes priority over RaceSim for the shared weekly quality-session budget;
-// RaceSim doesn't need to appear every week when terrain/racing isn't itself the block's main goal.
-// Prompt instruction (null when there's nothing to require); the validator below enforces the same
-// block-wide floor.
-export function formatSessionRequirements(req: SessionRequirements): string | null {
-  if (!req.terrainRace) return null;
-  return `GOAL FOCUS: this block's goal is terrain/race-driven (${req.tags.join(", ")}). Include RaceSim sporadically across the block (KB §10) — at least once total, not necessarily every loading week — and prefer terrain-flexible outdoor quality (KB §11) where it fits. Structured intervals (the block's REQUIRED COVERAGE type, if any) take priority over RaceSim for the weekly quality-session budget; place RaceSim in a week where it doesn't crowd that out.`;
-}
-
 // Post-generation enforcement (warning only — never reorders the coach's plan): a block-wide floor —
 // at least one RaceSim somewhere in the block. No longer a per-loading-week requirement (P5).
 export function validateSessionRequirements(days: PlannedDay[], req: SessionRequirements): string[] {

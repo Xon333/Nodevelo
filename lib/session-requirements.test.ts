@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveSessionRequirements, formatSessionRequirements, validateSessionRequirements } from "./session-requirements";
+import { deriveSessionRequirements, validateSessionRequirements } from "./session-requirements";
 import type { PlannedDay } from "./types";
 
 const day = (type: PlannedDay["type"]): PlannedDay => ({
@@ -48,13 +48,6 @@ describe("deriveSessionRequirements", () => {
     expect(deriveSessionRequirements("no sprints but big climbs", []).tags).toContain("climbing");
     // …while a same-clause negation still flips the tag.
     expect(deriveSessionRequirements("no climbing this block", []).tags).not.toContain("climbing");
-  });
-});
-
-describe("formatSessionRequirements", () => {
-  it("returns a prompt line for terrain goals, null otherwise", () => {
-    expect(formatSessionRequirements(deriveSessionRequirements("hill climbs", []))).toContain("RaceSim");
-    expect(formatSessionRequirements(deriveSessionRequirements("flat TT", []))).toBeNull();
   });
 });
 

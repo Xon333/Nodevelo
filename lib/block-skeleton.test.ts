@@ -3,13 +3,7 @@ import {
   checkBlockFeasibility,
   computeBlockSkeleton,
   computeWeekTargets,
-  formatBlockSkeleton,
-  formatWeekTargets,
   validateWeekHours,
-  type BlockSkeleton,
-  type DaySlot,
-  type SlotKind,
-  type WeekSkeleton,
   type WeekTarget,
 } from "./block-skeleton";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type SeasonFocus } from "./types";
@@ -121,19 +115,6 @@ describe("computeWeekTargets", () => {
   });
 });
 
-describe("formatWeekTargets", () => {
-  it("renders one exact figure per week, labelled loading/recovery", () => {
-    const targets: WeekTarget[] = [
-      { weekNumber: 1, isRecovery: false, targetHours: 12 },
-      { weekNumber: 2, isRecovery: true, targetHours: 7 },
-    ];
-    const text = formatWeekTargets(targets);
-    expect(text).toContain("Week 1 (LOADING): target 12h total");
-    expect(text).toContain("Week 2 (RECOVERY): target 7h total");
-    expect(text).not.toMatch(/\d+–\d+h/); // no ranges anywhere
-  });
-});
-
 describe("validateWeekHours", () => {
   const targets: WeekTarget[] = [{ weekNumber: 1, isRecovery: false, targetHours: 12 }];
 
@@ -202,8 +183,8 @@ describe("computeBlockSkeleton", () => {
   it("locks only the FIRST loading-week quality slot to the block's focus type; later slots stay flexible", () => {
     // DEFAULT_BLOCK_SETTINGS.qualitySessionsPerLoadingWeek is 2 — this is the over-constraint defect:
     // locking BOTH quality slots to the focus type contradicts validatePrimaryQualityCadence (which
-    // only requires >=1 focus-type session per loading week), forecloses formatFocusCoverageLine's own
-    // "RaceSim fills a slot when it doesn't crowd out the primary" allowance, and makes
+    // only requires >=1 focus-type session per loading week), forecloses RaceSim when it does not
+    // crowd out the primary, and makes
     // deriveSessionRequirements'/validateSessionRequirements' block-wide >=1-RaceSim floor
     // unsatisfiable when the goal is terrain/race-driven (lib/season.ts, lib/session-requirements.ts).
     const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
@@ -492,176 +473,5 @@ describe("computeBlockSkeleton invariants — events on every day (C1 sweep)", (
     expect(sum).toBe(Math.round(targets[0].targetHours * 60));
     const ev = days.find((d) => d.date === "2026-08-04")!;
     expect(ev.duration.nominalMin).toBeGreaterThan(0);
-  });
-});
-
-// ---------- Phase B task 2: render the skeleton for the prompt ----------
-
-describe("formatBlockSkeleton", () => {
-  const sk = () =>
-    computeBlockSkeleton("2026-08-03", computeWeekTargets(2, DEFAULT_BLOCK_SETTINGS, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
-
-  it("renders one row per day with date, slot, type, duration and reason", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toContain("2026-08-04");
-    expect(out).toContain("SIT");
-    expect(out).toMatch(/\| *rest *\|/);
-  });
-
-  it("states the week total so the model can verify its own arithmetic", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toMatch(/sum to 432 min/); // recovery week 1: 7.2h
-    expect(out).toMatch(/sum to 720 min/); // loading week 2: 12h
-  });
-
-  it("names the types that are NOT allowed in a recovery week", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toMatch(/NOT this week: Threshold, VO2max, RaceSim/);
-  });
-
-  it("marks the skeleton as fixed and forbids adding, dropping or retyping days", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toMatch(/do NOT add, drop, move, merge or retype/i);
-  });
-});
-
-// Isolated, hand-built BlockSkeleton fixtures — decoupled from computeBlockSkeleton's own logic, so
-// these guard the RENDERER specifically (column wiring, the dropped-type derivation, event handling)
-// against mutation, independent of whatever computeBlockSkeleton happens to produce today.
-describe("formatBlockSkeleton — renderer mutation guards", () => {
-  function daySlot(overrides: Partial<DaySlot> & { date: string; kind: SlotKind }): DaySlot {
-    return {
-      allowedTypes: ["Z2"],
-      duration: { nominalMin: 60, minMin: 45, maxMin: 75 },
-      maxIntensityPct: null,
-      locked: false,
-      reason: "test slot",
-      ...overrides,
-    };
-  }
-
-  function week(overrides: Partial<WeekSkeleton> & { days: DaySlot[] }): WeekSkeleton {
-    return {
-      weekNumber: 1,
-      isRecovery: false,
-      targetHours: 1,
-      qualityBudget: 0,
-      ...overrides,
-    };
-  }
-
-  it("shows an event day's real planned duration, never as zero-length", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [
-        week({
-          days: [
-            daySlot({
-              date: "2026-08-08",
-              kind: "event",
-              allowedTypes: ["RaceSim"],
-              duration: { nominalMin: 90, minMin: 75, maxMin: 1440 },
-              reason: "KOM race",
-            }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toContain("90 min");
-    expect(out).not.toContain("| 0 |");
-  });
-
-  it("sums the footer using nominalMin across every day, including events", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [
-        week({
-          days: [
-            daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2"], duration: { nominalMin: 30, minMin: 15, maxMin: 45 } }),
-            daySlot({ date: "2026-08-04", kind: "event", allowedTypes: ["RaceSim"], duration: { nominalMin: 45, minMin: 30, maxMin: 1440 } }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/sum to 75 min/);
-  });
-
-  it("renders every allowed type for a multi-type flexible slot, not just the first", () => {
-    const sk: BlockSkeleton = {
-      focus: "durability",
-      weeks: [
-        week({
-          days: [daySlot({ date: "2026-08-04", kind: "quality", allowedTypes: ["Threshold", "VO2max", "SIT", "RaceSim"], reason: "flexible" })],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    for (const t of ["Threshold", "VO2max", "SIT", "RaceSim"]) expect(out).toContain(t);
-  });
-
-  it("labels a single-type slot with just that type, not a disjunction", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [week({ days: [daySlot({ date: "2026-08-03", kind: "quality", allowedTypes: ["SIT"] })] })],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/\| SIT \|/);
-    expect(out).not.toMatch(/SIT or/);
-  });
-
-  it("derives a full four-type drop line when a recovery week has no quality slot at all", () => {
-    // Guards the exact defect called out for this task: a hardcoded enumeration once named the
-    // surviving type as dropped and omitted a type that was genuinely absent. Here NONE of the four
-    // quality types appear anywhere in the week, so all four must be named.
-    const sk: BlockSkeleton = {
-      focus: "durability",
-      weeks: [
-        week({
-          isRecovery: true,
-          days: [
-            daySlot({ date: "2026-08-03", kind: "rest", allowedTypes: ["Rest"], duration: { nominalMin: 0, minMin: 0, maxMin: 0 } }),
-            daySlot({ date: "2026-08-08", kind: "longRide", allowedTypes: ["Z2"] }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/NOT this week: Threshold, VO2max, SIT, RaceSim/);
-  });
-
-  it("never emits a NOT-this-week line for a loading week", () => {
-    const sk: BlockSkeleton = {
-      focus: "durability",
-      weeks: [week({ isRecovery: false, days: [daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2", "Recovery"] })] })],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).not.toMatch(/NOT this week/);
-  });
-
-  it("renders an explicit intensity ceiling distinctly from an uncapped row", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [
-        week({
-          days: [
-            daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2"], maxIntensityPct: 75 }),
-            daySlot({ date: "2026-08-04", kind: "quality", allowedTypes: ["SIT"], maxIntensityPct: null }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/≤75% FTP/);
-    expect(out).toMatch(/\| — \|/);
-  });
-
-  it("is pure and deterministic: identical input yields an identical string", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [week({ days: [daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2"] })] })],
-    };
-    expect(formatBlockSkeleton(sk)).toBe(formatBlockSkeleton(sk));
   });
 });

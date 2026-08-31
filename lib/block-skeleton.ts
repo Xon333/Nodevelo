@@ -5,8 +5,8 @@
 // ceiling; recovery weeks derive from that loading target (not a fixed absolute band blind to it) —
 // plus a pre-generation feasibility check and a post-generation check that the hours landed near target.
 //
-// Pure + deterministic, same contract as workout-validate.ts/schedule-validate.ts: computation and
-// prompt-formatting never throw or invent data; the post-generation check only warns, never rewrites.
+// Pure + deterministic, same contract as workout-validate.ts/schedule-validate.ts: computation never
+// invents data; the post-generation check only warns, never rewrites.
 
 import type { BlockSettings, PlannedDay, SeasonEvent, SeasonFocus, WorkoutType } from "./types";
 import { clamp, round1 } from "./stats";
@@ -94,17 +94,6 @@ export function computeWeekTargets(lengthWeeks: number, settings: BlockSettings,
       targetHours: round1(isRecovery ? derivedRecoveryTarget : loadingTarget),
     };
   });
-}
-
-// Prompt-injectable table — replaces the old range-based "WEEKLY VOLUME (loading weeks)/(recovery
-// week)" prose (which the model could satisfy anywhere inside a 2-hour-wide range, and did undershoot
-// in every non-recovery week of a real reviewed block) with one falsifiable number per week.
-export function formatWeekTargets(targets: WeekTarget[]): string {
-  const lines = targets.map(
-    (t) =>
-      `- Week ${t.weekNumber} (${t.isRecovery ? "RECOVERY" : "LOADING"}): target ${t.targetHours}h total — an exact figure, not a range. Before finalising the week, add up every session's DURATION; if short, LENGTHEN the easy Z2 sessions (their duration, not their count, is the lever) until the total matches.`
-  );
-  return `WEEK-BY-WEEK HOUR TARGETS (exact — hit each one; landing under is a shortfall, landing over is also wrong):\n${lines.join("\n")}`;
 }
 
 // P2b enforcement: the missing half of the fix — nothing today checks whether a generated week's
@@ -377,8 +366,8 @@ export function computeBlockSkeleton(
           // Only the FIRST quality slot in a loading week is the block's primary focus session —
           // that's what structurally guarantees validatePrimaryQualityCadence's >=1-per-loading-week
           // floor (lib/season.ts). Locking every quality slot to the focus type over-constrains the
-          // week: it leaves no room for formatFocusCoverageLine's own "RaceSim fills a slot when it
-          // doesn't crowd out the primary" allowance, and makes deriveSessionRequirements'/
+          // week: it leaves no room for RaceSim when it does not crowd out the primary, and makes
+          // deriveSessionRequirements'/
           // validateSessionRequirements' block-wide >=1-RaceSim floor (lib/session-requirements.ts)
           // unsatisfiable whenever every slot in every week is pinned to the focus type. A recovery
           // week is untouched — it carries at most one quality slot, always the primary.
@@ -433,60 +422,4 @@ export function computeBlockSkeleton(
   });
 
   return { focus, weeks };
-}
-
-// ---------- Phase B task 2: render the skeleton for the prompt ----------
-// Consumed by Task 4 in place of formatWeekTargets' single weekly figure — a filled per-day table
-// means the model picks a duration inside each stated envelope instead of solving a 7-day allocation
-// problem itself (the live run this whole redesign responds to undershot every loading week by
-// 0.5-1.1h doing exactly that). Pure string formatting only: no IO, no randomness, same input -> same
-// output, and it introduces no output mutation (ADR-0004's warn-only contract is unaffected — this
-// function only ever reads a BlockSkeleton, it never rewrites planned days).
-
-const ALL_QUALITY: WorkoutType[] = ["Threshold", "VO2max", "SIT", "RaceSim"];
-
-function slotTypeLabel(d: DaySlot): string {
-  return d.allowedTypes.length === 1 ? d.allowedTypes[0] : d.allowedTypes.join(" or ");
-}
-
-function slotDurationLabel(d: DaySlot): string {
-  if (d.kind === "rest") return "0";
-  // An event day carries a real, non-zero nominal duration (Task 1's C1 fix) that already counts
-  // toward the week's total below — show that figure instead of hiding it behind prose, so the model
-  // can still check this row against the footer sum; the caveat explains why it may not land exactly.
-  if (d.kind === "event") {
-    return `${d.duration.nominalMin} min planned (actual length is whatever the event demands — do not shorten or pad it to force a fit)`;
-  }
-  return `${d.duration.nominalMin} min (${d.duration.minMin}–${d.duration.maxMin} ok)`;
-}
-
-// Replaces formatWeekTargets' single weekly figure. Rendering the whole week as a filled table means
-// the model picks a number inside each envelope instead of solving a 7-day allocation problem.
-export function formatBlockSkeleton(skeleton: BlockSkeleton): string {
-  const blocks = skeleton.weeks.map((w) => {
-    const total = w.days.reduce((t, d) => t + d.duration.nominalMin, 0);
-    const rows = w.days.map((d) => {
-      const ceiling = d.maxIntensityPct === null ? "—" : `≤${d.maxIntensityPct}% FTP`;
-      return `| ${d.date} | ${d.kind} | ${slotTypeLabel(d)} | ${slotDurationLabel(d)} | ${ceiling} | ${d.reason} |`;
-    });
-    // Derived from the skeleton itself, not hardcoded: a quality type counts as "kept" only if some
-    // day this week actually allows it. A hardcoded enumeration was the real defect this task calls
-    // out — it once named the surviving type as dropped and omitted a type that was genuinely absent.
-    const dropped = w.isRecovery ? ALL_QUALITY.filter((qt) => !w.days.some((d) => d.allowedTypes.includes(qt))) : [];
-    const notThisWeek = dropped.length > 0 ? `\nNOT this week: ${dropped.join(", ")} — dropped entirely, not shortened.` : "";
-    return [
-      `WEEK ${w.weekNumber} — ${w.isRecovery ? "RECOVERY" : "LOADING"} · target ${w.targetHours}h.`,
-      `| Date | Slot | Type | Duration | Ceiling | Why |`,
-      `|---|---|---|---|---|---|`,
-      ...rows,
-      `These nominal durations already sum to ${total} min — the week's target. Prefer the nominal figure. If you deviate inside a range, COMPENSATE on another day in the same week so the week still totals ${total} min; the ranges are per-day leeway, not a licence to land the week short.${notThisWeek}`,
-    ].join("\n");
-  });
-
-  return [
-    `WEEK SKELETON (FIXED — fill each slot, do NOT add, drop, move, merge or retype any day).`,
-    `Each row is one calendar day. Never place any effort above a row's intensity ceiling, including efforts embedded inside an otherwise-easy ride.`,
-    `DURATION IS MEASURED FROM YOUR WORKOUT STEPS, NOT FROM THE NUMBER YOU WRITE. The app recomputes each day's duration by summing that day's warmup + main + cooldown steps and overwrites your stated figure with the result. So a session only fills its slot if its STEPS add up to a figure inside the slot's range — writing "75 min" above steps that total 53 will be recorded as 53 and will miss the slot. Add up your steps for every day before finalising it.`,
-    ...blocks,
-  ].join("\n\n");
 }

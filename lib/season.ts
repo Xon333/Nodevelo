@@ -6,8 +6,7 @@ import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, Se
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
 import { execFor } from "./intervention";
-import { RECOVERY_QUALITY_CAP, type WeekTarget } from "./block-skeleton";
-import { QUALITY_TYPES } from "./schedule-validate";
+import type { WeekTarget } from "./block-skeleton";
 
 // Season phase/deload/retest context + the two season-fit/focus-match validators are TEMPORARILY
 // DISABLED from shaping or gating block generation (2026-07-16, athlete decision) -- the fixed
@@ -415,59 +414,6 @@ export function planRecoveryWeeks(weeksSinceRecovery: number, lengthWeeks: numbe
   return indices;
 }
 
-// Prompt-injectable recovery-week callout. Until 2026-07-29 this carried VOLUME only ("cut volume
-// ~30–50%"), and the prompt's only structural section is headed "WEEKLY STRUCTURE (loading weeks)"
-// with no recovery counterpart — so the model's most literal reading was that loading structure still
-// applies and only hours change. It did exactly that: the reviewed block's "recovery" week kept SIT,
-// Threshold AND a long ride with embedded threshold efforts, each merely trimmed. Composition is now
-// stated explicitly: a cap, which type survives, and what is dropped ENTIRELY rather than shortened.
-// The quality types NOT covered by a focus's own required session — i.e. what a recovery week must
-// drop entirely rather than shorten. Derived from QUALITY_TYPES (schedule-validate.ts's own
-// definition of "quality", reused here so the two can't drift apart again) minus the survivor.
-// Previously a single hardcoded string correct only for `threshold`; vo2max/anaerobic each named
-// their OWN survivor as dropped and never named Threshold as droppable at all (Fix 2, 2026-07-29
-// whole-branch review — the live defect this whole change set exists to fix had a Threshold session
-// surface in its recovery week, yet Threshold was never in the enumerated drop list).
-function otherQualityTypes(survivor: WorkoutType): string {
-  return [...QUALITY_TYPES].filter((t) => t !== survivor).join(", ");
-}
-
-export function formatRecoveryWeeks(
-  indices: number[],
-  lengthWeeks: number,
-  focus: SeasonFocus,
-  ftp: number
-): string | null {
-  if (indices.length === 0) return null;
-  const label = indices.map((i) => `week ${i + 1}`).join(", ");
-  // durability HAS a focusSessionMatchers entry (used elsewhere: formatFocusCoverageLine,
-  // validateBlockFocus) — but its label describes a Z2 ride carrying embedded threshold+ work, which
-  // is exactly what the LONG RIDE bullet below forbids ("no embedded threshold/VO2 efforts this
-  // week"). Asking for that composition in the same message it's forbidden in is self-contradictory,
-  // and a plan that followed it literally still tripped validateRecoveryWeekDensity (which correctly
-  // flags ANY non-quality day carrying embedded intensity, not just the long ride). A durability
-  // block's recovery week must carry zero embedded work — explicitly routed into the same "no quality
-  // at all" branch aerobic-base/sharpen already use (Fix 1, 2026-07-29 whole-branch review), rather
-  // than left to fall there only by accident of a missing matcher.
-  const m = focus === "durability" ? undefined : focusSessionMatchers(ftp)[focus];
-  // Non-null assertion: every focus that can reach this branch (threshold/vo2max/anaerobic —
-  // durability is excluded explicitly above, aerobic-base/sharpen have no matcher entry at all) sets
-  // `type` in focusSessionMatchers. If a future focus is added there without a `type`, this renders a
-  // garbled "and any second undefined" rather than failing loudly — the same silent-gap failure mode
-  // Fix 1/2 exist to close, so keep focusSessionMatchers and this exclusion in sync by hand.
-  const composition = m
-    ? `Keep at most ${RECOVERY_QUALITY_CAP} quality session — a SHORT ${m.label} session early in the week, on a separate ride from the long ride (never embedded in it), at the BOTTOM of its intensity band. Every other quality type (${otherQualityTypes(m.type!)}, and any second ${m.type}) is dropped entirely, not shortened.`
-    : `Prescribe no quality sessions at all in ${label} — this block's focus has no single required session type, so a recovery week carries none.`;
-  return [
-    `RECOVERY: ${label} of this ${lengthWeeks}-week block ${indices.length > 1 ? "are recovery weeks" : "is a recovery week"} (hard cap — real training history shows ≥${SEASON_CONSTANTS.deloadEveryWeeks} calendar weeks since the last genuinely light week).`,
-    `- VOLUME: cut ~30–50% versus a loading week — the exact figure is in the WEEK-BY-WEEK HOUR TARGETS table; hit it.`,
-    `- COMPOSITION: ${composition}`,
-    `- LONG RIDE: unbroken Z2 at its duration target — no embedded threshold/VO2 efforts this week, whatever this block's durability template says.`,
-    `- Add one extra rest day versus a loading week.`,
-    `A recovery week is a different SHAPE of week, not a smaller copy of a loading week.`,
-  ].join("\n");
-}
-
 // Execution EWMA per build focus, via the intervention loop's own accessor (execFor) so focus
 // selection and intervention validation read the SAME number. Durability's execution dimension is
 // Z2 — durability rides are typed Z2 and scored there. Only foci with data appear.
@@ -658,7 +604,7 @@ export function filterGoalsByFocus<T extends { focus: SeasonFocus | "general" }>
   return goals.filter((g) => g.focus === seasonFocus || g.focus === "general");
 }
 
-// Prompt-injectable summary of where the athlete sits in the season arc. Without a blockRange — or when
+// Display summary of where the athlete sits in the season arc. Without a blockRange — or when
 // the range fits inside one period — this is the original one-liner (byte-identical output is a
 // compatibility contract: PlanView and single-period blocks depend on the exact wording). When the range
 // spans several periods it instead lists each period's segment in chronological order, mapped to block
@@ -713,15 +659,6 @@ export function formatSeasonContext(
   return `SEASON CONTEXT: ${objective}phase ${p.phase} · focus ${p.focus} · wk ${wk} of ${p.plannedWeeks}${load}${deload}. ${p.rationale}`;
 }
 
-// Rolling-mode prompt context (season-continuous-focus-selection §4) — replaces formatSeasonContext
-// for the no-upcoming-A-event case. Instruction-shaped, not "you are in phase X": there is no drafted
-// period for "wk N of M" to refer to — one focus covers the whole block, every week, full stop (no
-// mid-block phase shift, unlike the old period-boundary model).
-export function formatFocusContext(choice: FocusChoice, objective: string): string {
-  const obj = objective.trim() ? `${objective.trim()} — ` : "";
-  return `BLOCK FOCUS: ${obj}${choice.focus} — ${choice.rationale}. Build this block's quality sessions around this focus; every week shares it (no mid-block phase shift).`;
-}
-
 // Rolling-mode validator (season-continuous-focus-selection §4) — replaces validateSeasonFit +
 // validateFocusMatch for the no-upcoming-A-event case: one block-wide focus, no per-period bucketing,
 // no spanDays fairness gate (the whole block belongs to its one chosen focus, so it always gets a fair
@@ -731,45 +668,21 @@ export function formatFocusContext(choice: FocusChoice, objective: string): stri
 export interface FocusSessionMatcher {
   label: string;
   match: (d: PlannedDay) => boolean;
-  // The canonical WorkoutType this focus's required session renders as — set only when that survivor
-  // is itself one of schedule-validate.ts's QUALITY_TYPES (threshold/vo2max/anaerobic). Absent for
-  // durability: its matcher describes a Z2 ride carrying embedded work, not a QUALITY_TYPES member, so
-  // formatRecoveryWeeks routes durability through its "no quality at all" branch instead of using this
-  // field (see Fix 1/2, 2026-07-29 whole-branch review).
-  type?: WorkoutType;
 }
 
-// Shared by legacy focus validators/formatters: ONE definition of "what session satisfies focus X".
+// Shared by focus validators: ONE definition of "what session satisfies focus X".
 // aerobic-base/sharpen have no single required session type
 // and are absent (callers treat a missing entry as "no specific type owed").
 export function focusSessionMatchers(ftp: number): Partial<Record<SeasonFocus, FocusSessionMatcher>> {
   return {
-    vo2max: { label: "VO2max", type: "VO2max", match: (d) => d.type === "VO2max" },
-    threshold: { label: "Threshold", type: "Threshold", match: (d) => d.type === "Threshold" },
-    anaerobic: { label: "SIT (anaerobic)", type: "SIT", match: (d) => d.type === "SIT" },
+    vo2max: { label: "VO2max", match: (d) => d.type === "VO2max" },
+    threshold: { label: "Threshold", match: (d) => d.type === "Threshold" },
+    anaerobic: { label: "SIT (anaerobic)", match: (d) => d.type === "SIT" },
     durability: {
       label: "durability-loaded Z2 (embedded threshold+ work)",
       match: (d) => (d.type === "Z2" || d.type === "Recovery") && carriesEmbeddedIntensity(d.workoutText, ftp),
     },
   };
-}
-
-// P2c (2026-07-24 block-generation redesign): the block's chosen focus, injected as a mandatory
-// coverage requirement BEFORE generation — the reviewed live block shipped zero VO2max sessions
-// despite VO2max being the athlete's own profile-flagged FTP limiter, with nothing upfront asking for
-// it. Reuses focusSessionMatchers so this requirement and validateBlockFocus's/
-// validatePrimaryQualityCadence's enforcement can never drift apart.
-// P5 (2026-07-24, athlete direction): upgraded from "at least 1 somewhere in the block" to "every
-// loading week" — this was originally held back because stacking it alongside RaceSim's own
-// per-loading-week ask risked over-constraining the shared quality-session budget (P2a's concern).
-// That's resolved now: RaceSim is relaxed to a sporadic, block-wide ask (lib/session-requirements.ts),
-// explicitly subordinate to structured interval work for the same budget — so the primary quality can
-// safely claim every loading week. Rolling mode only (event-anchored mode stays behind
-// SEASON_SHAPES_GENERATION, same as the rest of the doubted fixed-phase bundle).
-export function formatFocusCoverageLine(focus: SeasonFocus, ftp: number): string | null {
-  const m = focusSessionMatchers(ftp)[focus];
-  if (!m) return null;
-  return `REQUIRED COVERAGE: this block's focus is ${focus} — include at least 1 ${m.label} session in EVERY loading week (not just once across the block). This is the block's primary quality work — it takes priority over RaceSim for the week's quality-session slots; RaceSim is sporadic and fills a slot only when it doesn't crowd this out. Do not substitute a different quality type for this requirement.`;
 }
 
 export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: number): string[] {
@@ -797,7 +710,7 @@ export function validateBlockFocus(days: PlannedDay[], focus: SeasonFocus, ftp: 
 // Threshold session, and SIT vanished entirely in weeks 5-6 despite the overview claiming escalation.
 // Both are "primary quality disappeared mid-block," which a block-wide minimum of 1 can't see. This
 // checks every LOADING week specifically, reusing the same matcher table so this can never disagree
-// with formatFocusCoverageLine's prompt instruction or validateBlockFocus's own floor.
+// with validateBlockFocus's own floor.
 //
 // Recovery weeks own no floor here (quality is minimal there by design) and — as of 2026-07-29
 // (Decision 2c, triple-warning collapse) — no ceiling here either. A same-day ceiling branch was added
@@ -840,42 +753,6 @@ export function validatePrimaryQualityCadence(
     }
   }
   return warnings;
-}
-
-// B/C-priority events inside this block's own date range — surfaced so a real planned test/race
-// day doesn't get a generic session written on top of it. A-priority events are deliberately
-// excluded here: they already take over the whole arc via replanEventArc's backward-scheduling
-// (this is the ONLY place a B/C event gets any generation-time visibility at all).
-export function formatUpcomingEventsForBlock(
-  events: SeasonEvent[],
-  blockRange: { startDate: string; endDate: string }
-): string | null {
-  const inRange = events
-    .filter((e) => e.priority !== "A" && e.date >= blockRange.startDate && e.date <= blockRange.endDate)
-    .sort((a, b) => a.date.localeCompare(b.date));
-  if (inRange.length === 0) return null;
-  // P4 (2026-07-24 block-generation redesign): a lightweight taper cue for B/C events, short of full
-  // A-tier backward scheduling — no quality session in the final 2 days before the event, and no more
-  // than 1 other quality session in its own week. Enforced post-generation by validateEventTaper.
-  const lines = inRange.map(
-    (e) =>
-      `- ${e.date}: ${e.name} (priority ${e.priority}) — protect this day; build the week around it rather than overwriting it with a generic session. Taper into it: no quality session (Threshold/VO2max/SIT/RaceSim) in the 2 days before, and at most 1 other quality session that week.`
-  );
-  return `UPCOMING EVENTS THIS BLOCK:\n${lines.join("\n")}`;
-}
-
-// A short prompt-injectable nudge when the athlete's tested FTP has gone stale (ftpStaleDays is the
-// figure /api/profile already computes off physiology.json's effectiveFrom). Due every
-// retestEveryWeeks — one arc. Points at THIS block's own recovery week (from planRecoveryWeeks, above)
-// instead of looking ahead into a drafted period array — there is no such array to look ahead into
-// once a block's focus is chosen fresh each call (season-continuous-focus-selection §5). Null when
-// fresh or unknown. A nudge, never a hard gate.
-export function formatRetestNote(ftpStaleDays: number | null, recoveryWeekIndices: number[], blockStartDate: string): string | null {
-  if (ftpStaleDays === null || ftpStaleDays < SEASON_CONSTANTS.retestEveryWeeks * 7) return null;
-  const where = recoveryWeekIndices.length > 0
-    ? ` Best slot: this block's recovery week starting ${addWeeks(blockStartDate, recoveryWeekIndices[0])}.`
-    : "";
-  return `RETEST DUE: FTP last validated ${ftpStaleDays} days ago (cadence ~${SEASON_CONSTANTS.retestEveryWeeks} wk). Schedule an FTP/power-curve retest to re-anchor zones and load targets.${where}`;
 }
 
 // Non-blocking warnings, mirroring validateSchedule/validateNutrition. A base period should skew easy.

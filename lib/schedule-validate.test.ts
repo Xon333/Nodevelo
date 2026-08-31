@@ -357,7 +357,7 @@ describe("validateRecoveryWeekDensity", () => {
     expect(validateRecoveryWeekDensity(days, [{ weekNumber: 1, isRecovery: false, targetHours: 12 }], DEFAULT_BLOCK_SETTINGS, 250, [])).toEqual([]);
   });
 
-  // Fix 1 (2026-07-29 whole-branch review, season.ts formatRecoveryWeeks): a durability-focus block's
+  // Fix 1 (2026-07-29 whole-branch review): a durability-focus block's
   // COMPOSITION instruction used to ask for a "durability-loaded Z2 (embedded threshold+ work)"
   // session as the recovery week's one surviving quality session — a plan that followed that
   // instruction literally still tripped this validator's embedded-intensity check below, because the
