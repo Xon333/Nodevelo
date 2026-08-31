@@ -76,7 +76,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `correlation.ts` | `deriveExecutionEdge`/`deriveOptimum` with discrimination guards (imported ONLY by calibration — direction is deliberate) |
 | `intervention.ts` | Directive baseline → 28-day validation → hit-rate |
 | `plan-vs-actual.ts` | Per-type planned-vs-actual + FTP-retest advisory (asymmetric by design) |
-| `coach-snapshot.ts` | The one resolved-numbers bundle for all LLM surfaces. Change when a new signal must reach LLM surfaces ([RECIPES § readiness](RECIPES.md#add-a-readinessstate-signal)) |
+| `coach-snapshot.ts` | Resolved Today UI/state telemetry plus shared deterministic signal resolution ([RECIPES § readiness](RECIPES.md#add-a-readinessstate-signal)) |
 | `disposition.ts` | Session self-attribution merge/apply |
 | `morning-check.ts` | Pre-ride override decisions |
 | `quirks.ts` | NLP quirk mining from ride notes (hints, ≥2 rides) |

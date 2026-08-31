@@ -12,6 +12,6 @@ Every number, decision, and validation in NodeVelo is computed here. Flat on pur
 
 - Pure where possible; IO lives at the edges (`data-store.ts`, routes). Routes extract testable logic here (`ride-analysis.ts` is the pattern).
 - Persistence only through `json-store.ts`/`data-store.ts`; migration flags use truthy checks.
-- Prompt text only in `anthropic-prompts.ts` (+ `plan-schema` / `retrospective-schema`).
+- Prompt text only in `anthropic-prompts.ts`; the structured retrospective tool lives in `retrospective-schema.ts`.
 - Shared math goes in `stats.ts`, shared date logic in `date.ts` — don't re-derive locally.
 - New module = new colocated test. jsdom only via per-file docblock (components, not here).

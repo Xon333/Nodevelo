@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractQuirks, formatQuirksForPrompt } from "./quirks";
+import { extractQuirks } from "./quirks";
 import type { QuirkEntry } from "./types";
 
 // Helper: build activities with notes. Dates descend so ordering is exercised too.
@@ -93,20 +93,5 @@ describe("extractQuirks", () => {
     );
     expect(store.entries).toEqual([]);
     expect(store.engine).toBe("compromise+lexicon");
-  });
-});
-
-describe("formatQuirksForPrompt", () => {
-  it("returns empty string for no entries", () => {
-    expect(formatQuirksForPrompt([])).toBe("");
-  });
-
-  it("frames patterns as hints, not facts", () => {
-    const out = formatQuirksForPrompt([
-      { pattern: "cramp", category: "symptom", frequency: 3, firstSeen: "2026-05-01", lastSeen: "2026-06-15", evidence: "x" },
-    ]);
-    expect(out).toContain("hints");
-    expect(out).toContain("not clinical facts");
-    expect(out).toContain("cramp (symptom, 3×, last 2026-06-15)");
   });
 });

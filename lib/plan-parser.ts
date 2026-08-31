@@ -1,8 +1,8 @@
 // Converts structured PlannedDay objects into Intervals.icu event payloads.
 //
-// The legacy regex text-parser (parsePlan) was retired once tool-use / structured output became
-// the proven, sole generation path — see app/api/generate/route.ts, which now derives PlannedDays
-// from the validated tool payload via lib/plan-schema.ts.
+// The legacy regex text-parser (parsePlan) was retired with structured AI generation. The
+// deterministic compiler now produces validated PlannedDay values directly; this module owns only
+// their conversion into Intervals.icu event payloads.
 import type { IntervalsEventPayload, PlannedDay } from "./types";
 
 // ---------- Intervals.icu event conversion ----------

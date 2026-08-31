@@ -21,7 +21,7 @@ Exactly three active call categories exist across two routes:
 | `lib/anthropic-api.ts` | Lazy SDK client, model/provenance constants, the three call functions, usage recording |
 | `lib/anthropic-config.ts` | SDK-free configuration check |
 | `lib/anthropic-prompts.ts` | Pure ride-analysis and retrospective prompt builders |
-| `lib/retrospective-schema.ts` | Structured-reflection schema, tool, and formatting helper |
+| `lib/retrospective-schema.ts` | Structured-reflection schema and tool |
 | `lib/tool-schema.ts` | Shared zod-to-Anthropic tool bridge |
 | `lib/ai-usage.ts` | Token/cost telemetry in `data/ai-usage.json` |
 
@@ -29,7 +29,7 @@ Generation-only prompt builders, plan tool schema, and request dedupe were remov
 
 ## Models and provenance
 
-`GENERATION_MODEL` retains its historical name because stored AI artifacts and usage accounting depend on that public constant. It currently identifies the model used by ride analysis and both retrospective paths. `PROMPT_VERSION` stamps genuine AI artifacts; deterministic plans omit both fields.
+`GENERATION_MODEL` retains its historical name because stored AI artifacts and usage accounting depend on that public constant. It currently identifies the model used by ride analysis and both retrospective paths. `PROMPT_VERSION` stamps genuine AI artifacts, including a retrospective created while archiving a deterministic block; deterministic plans themselves omit both fields.
 
 Model IDs also appear in `ai-usage.ts` pricing keys. Update both locations together or usage can silently record zero cost for an unknown model.
 

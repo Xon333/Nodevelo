@@ -726,7 +726,8 @@ export interface BlockHistoryEntry {
   reflectionsApprovedAt?: string;     // ISO instant; acknowledgement record set ONLY by POST /api/history
   endedEarlyAt?: string;              // ISO instant when closeout was an explicit early end
   endedEarlyReason?: string;          // the athlete-typed reason recorded with the early end
-  // Provenance of the block this entry archives (see GeneratedPlan).
+  // Provenance of the AI retrospective when one was generated. Legacy entries and deterministic
+  // closeouts with no AI output may retain provenance of the archived AI-generated block.
   model?: string;
   promptVersion?: number;
   durabilityTemplate?: string; // Track B: durability template (A–E) used — for rotation + scoring

@@ -43,8 +43,8 @@ export default function AiUsageCard({ usage }: { usage: AiUsageStore }) {
       }
     >
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Estimated running Anthropic spend across block generation, ride analysis, prose retrospectives,
-        and structured retrospectives.
+        Estimated running Anthropic spend for ride analysis, prose retrospectives, and structured
+        retrospectives. Totals retain historical block-generation usage.
       </p>
 
       {!hasData ? (

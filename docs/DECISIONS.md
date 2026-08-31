@@ -18,7 +18,7 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 
 **Decision.** Every number — nutrition targets, week hours, zones, readiness, execution scores, calibration values — is computed by TypeScript engines. The model receives them as facts (the nutrition reference table it must *copy from*, the coach snapshot, exact week targets) and contributes only session arrangement and prose. Post-hoc, deterministic checks verify the model respected the numbers (`nutrition-validate` even auto-repairs the kcal figure it copied wrong).
 
-**Consequences.** `lib/coach-snapshot.ts` exists so all LLM surfaces read *one* resolved bundle and can't disagree. Prompt builders are pure/offline-testable. The retrospective schema's own comment states the contract: "the math/validation stay in TS; the model only phrases." Cost: large prompt-assembly code and the three-copy protocol-band sync burden ([INVARIANTS #17](INVARIANTS.md)).
+**Consequences.** `lib/coach-snapshot.ts` remains the resolved Today UI/state bundle, while deterministic generation reuses its signal resolver without prompt formatting. Active ride-analysis and retrospective prompt builders are pure/offline-testable. The retrospective schema's own comment states the contract: "the math/validation stay in TS; the model only phrases." Historical prompt-assembly costs were removed from generation by FR-5.
 
 **Amendment (2026-08-30, FR-5).** Block generation no longer uses an LLM. `compileTrainingBlock` owns session selection, progression, canonical workout syntax, overview, and publication eligibility. Claude remains only for optional ride-analysis and retrospective language; the old prompt/table/tool-schema consequences above are historical.
 

@@ -26,6 +26,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/anthropic-api", () => ({
+  GENERATION_MODEL: "active-retrospective-model",
+  PROMPT_VERSION: 91,
   isAnthropicConfigured: h.isAnthropicConfigured,
   generateRetrospective: h.generateRetrospective,
   generateStructuredRetrospective: h.generateStructuredRetrospective,
@@ -48,6 +50,7 @@ vi.mock("@/lib/data-store", () => ({
 }));
 
 import * as store from "@/lib/data-store";
+import { GENERATION_MODEL, PROMPT_VERSION } from "@/lib/anthropic-api";
 import { POST, yamlDoubleQuoted } from "@/app/api/retrospective/route";
 
 // post() sends { today: "2026-06-29" }; post(obj) without `today` merges that fixed date in, so
@@ -207,12 +210,25 @@ describe("/api/retrospective POST", () => {
     expect(Array.isArray(entry.nextBlockSeeds)).toBe(true);
     expect(entry.retrospective).toBe("Solid block overall.");
     expect(entry.structuredReflections).toEqual([]);
-    expect(entry.model).toBe(block.model);
-    expect(entry.promptVersion).toBe(block.promptVersion);
+    expect(entry.model).toBe(GENERATION_MODEL);
+    expect(entry.promptVersion).toBe(PROMPT_VERSION);
     // SUB-1: every day in this fixture is on/before the block's own endDate, which is in the past
     // relative to any realistic "today" — truncateBlockDays should keep them all.
     expect(entry.days).toHaveLength(block.days.length);
     expect(entry.days.map((d: { date: string }) => d.date)).toEqual(block.days.map((d) => d.date));
+  });
+
+  it("records retrospective AI provenance when the deterministic block has none", async () => {
+    const { model: _model, promptVersion: _promptVersion, ...deterministicBlock } = block;
+    h.readCurrentBlock.mockResolvedValueOnce(deterministicBlock);
+
+    await post();
+
+    const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry.model).toBe(GENERATION_MODEL);
+    expect(entry.promptVersion).toBe(PROMPT_VERSION);
+    expect(deterministicBlock).not.toHaveProperty("model");
+    expect(deterministicBlock).not.toHaveProperty("promptVersion");
   });
 
   it("averages decoupling only across whole-ride-comparable endurance rides", async () => {

@@ -1,7 +1,6 @@
 "use client";
 
 import { localToday } from "@/lib/date";
-import { InfoDot } from "../ui";
 
 // The block-generation form on the Plan page. Presentational: PlanView owns the generator state and
 // handlers and threads them in. Extracted from the old 529-line Dashboard monolith (RV-8) — it was the
@@ -23,7 +22,6 @@ export interface BlockGeneratorProps {
   generate: () => void;
   generateError: string | null;
   elapsed: number;
-  anthropicConfigured: boolean;
   intervalsConfigured: boolean; // UXA-4: surfaced before Generate, not just at the Write step
   showSyncTip: boolean; // no cached sync yet but Intervals is configured → nudge to sync first
   seasonReadout: string | null;
@@ -49,7 +47,6 @@ export default function BlockGenerator({
   generate,
   generateError,
   elapsed,
-  anthropicConfigured,
   intervalsConfigured,
   showSyncTip,
   seasonReadout,
@@ -92,7 +89,7 @@ export default function BlockGenerator({
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              disabled={generating || !anthropicConfigured}
+              disabled={generating}
               className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:border dark:border-[#ff49c8]/50 dark:bg-transparent dark:text-[#ff49c8] dark:hover:bg-[#ff49c8]/10 dark:disabled:border-zinc-600 dark:disabled:text-zinc-500 dark:disabled:bg-transparent"
             >
               {generating
@@ -101,13 +98,6 @@ export default function BlockGenerator({
                   ? "Generate Next Block"
                   : "Generate New Block"}
             </button>
-            {/* S1-4: coach-voice message, not a raw env-var name — the setup detail moves to the tip. */}
-            {!anthropicConfigured && (
-              <p className="flex items-center gap-1 text-xs text-red-600">
-                Connect the AI coach to generate blocks.
-                <InfoDot text="Ask whoever set up NodeVelo to connect the AI coach — it needs an API key added to the server." />
-              </p>
-            )}
             {showSyncTip && (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 Tip: sync first so the plan reflects your recent training.

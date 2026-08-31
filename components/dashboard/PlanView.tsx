@@ -442,7 +442,6 @@ export default function PlanView() {
         generate={generate}
         generateError={generateError}
         elapsed={elapsed}
-        anthropicConfigured={state.anthropicConfigured}
         intervalsConfigured={state.configured}
         showSyncTip={!state.lastSync && state.configured}
         seasonReadout={seasonReadout}

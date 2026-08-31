@@ -19,5 +19,6 @@ describe("StandingGuidance track-record wording", () => {
     expect(text).toContain("3 evaluated");
     expect(text).toContain("2 pending");
     expect(text).not.toMatch(/% right|proved right|accuracy/i);
+    expect(text).not.toContain("generator is handed");
   });
 });

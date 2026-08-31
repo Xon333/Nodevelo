@@ -77,7 +77,8 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 > **Local-first by design.** The filesystem is the database — this will **not** run on an
 > ephemeral serverless filesystem (e.g. Vercel). Run it locally.
 
-> **Bound to localhost — there is no auth.** Routes spend Anthropic credits (`/api/generate`) and
+> **Bound to localhost — there is no auth.** Optional language routes spend Anthropic credits
+> (`/api/analyze`, `/api/retrospective`) and
 > can overwrite your data (`/api/import`) or your Intervals.icu calendar (`/api/write`); on an open
 > network any device could drive them with `curl`. `npm run dev:lan` opts into LAN access — only on
 > a network you trust.
@@ -90,9 +91,9 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 
 - **Stored locally.** Scores, plans, notes, settings, and the knowledge base live as JSON and
   markdown files on this machine. There is no cloud database; backups are exported files.
-- **Processed remotely by Anthropic.** The four remote call categories are block generation, the
-  ride-analysis coach note, prose retrospectives, and structured retrospectives. Per-call spend is
-  tracked under AI usage & cost. Intent parsing is deterministic and does not contact Anthropic.
+- **Processed remotely by Anthropic.** The three remote call categories are the ride-analysis coach
+  note, prose retrospectives, and structured retrospectives. Per-call spend is tracked under AI usage
+  & cost. Intent parsing and block generation are deterministic and do not contact Anthropic.
 - **Everything else.** Scoring, nutrition, readiness, scheduling, and backup run without Anthropic.
   Intervals.icu is a one-way pull and the system of record; accepted plans mirror to its calendar.
 

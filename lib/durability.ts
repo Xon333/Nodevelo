@@ -129,14 +129,3 @@ export function selectDurabilityTemplate(insights: Insight[], lastId: string | n
   }
   return nextAfter(lastId);
 }
-
-// `hasRecoveryWeek` appends the recovery-week exception. The template is chosen ONCE per block but
-// this line is injected for every week — so template B ("fatigue-then-threshold") was instructing the
-// model to put threshold efforts inside the recovery week's long ride too. That is the second root
-// cause of the 2026-07 recovery-week defect, and it contradicts formatRecoveryWeeks' own long-ride
-// rule (lib/season.ts) unless stated here as well.
-export function formatDurabilityForPrompt(t: DurabilityTemplate, hasRecoveryWeek = false): string {
-  const base = `DURABILITY FOCUS THIS BLOCK — template ${t.id} (${t.name}): ${t.mechanism}. Build the week's long Z2 ride as ${t.structure} The intensity sits INSIDE the duration target, never replacing it, and the long ride stays TYPE Z2 (the late efforts are part of it, not a separate quality session). See KB §12.`;
-  if (!hasRecoveryWeek) return base;
-  return `${base} EXCEPTION — in a RECOVERY week this template does not apply: that week's long ride is unbroken Z2 at its duration target with no embedded threshold/VO2 efforts at all.`;
-}

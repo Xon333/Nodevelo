@@ -22,6 +22,10 @@ render/parse equality, deterministic progression, and the existing publication g
 route works with Anthropic unset and remains preview-only; `/api/write` is still the sole calendar
 commit path. Anthropic remains only for optional ride-analysis and retrospective language.
 
+This supersedes every historical statement below that approved or adopted retrospective seeds,
+reflections, directives, or knowledge-base prose can steer generation. Those approval/adoption stamps
+now record acknowledgement and workflow history only; deterministic generation never reads them.
+
 The owner-attended five-case, Intervals.icu, and Wahoo evidence remains explicitly open as
 [ROADMAP FR-5](ROADMAP.md#fr-5--owner-attended-deterministic-generation-acceptance--ready). Its
 acceptance record must not be created until those observations exist.
