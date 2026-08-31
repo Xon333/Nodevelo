@@ -389,7 +389,13 @@ export function computeBlockSkeleton(
             : env(nominal);
           return {
             date, kind,
-            allowedTypes: flexibleSlot ? ["Threshold", "VO2max", "SIT", "RaceSim"] : focusType ? [focusType] : ["Threshold", "VO2max", "SIT", "RaceSim"],
+            allowedTypes: t.isRecovery
+              ? ["Threshold"]
+              : flexibleSlot
+                ? ["Threshold", "VO2max", "SIT", "RaceSim"]
+                : focusType
+                  ? [focusType]
+                  : ["Threshold", "VO2max", "SIT", "RaceSim"],
             duration,
             maxIntensityPct: t.isRecovery ? RECOVERY_QUALITY_CEILING_PCT : null,
             locked: flexibleSlot ? false : !!focusType,

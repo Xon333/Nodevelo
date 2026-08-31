@@ -199,13 +199,13 @@ describe("computeBlockSkeleton", () => {
     expect(q[1].locked).toBe(false);
   });
 
-  it("keeps a recovery week's single quality slot locked to the focus type", () => {
-    // A recovery week has at most one quality slot (RECOVERY_QUALITY_CAP); the loading-week
-    // second-slot flexibility must not leak into it — the single retained touch stays the primary.
+  it("locks a recovery week's single quality slot to the settled Threshold touch", () => {
+    // Recovery owns a dedicated low-end Threshold touch regardless of the loading focus. The
+    // skeleton and compiler must expose the same allowed type or a valid VO2/SIT block cannot compile.
     const sk = computeBlockSkeleton("2026-08-03", weeks(1, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
     const q = sk.weeks[0].days.filter((d) => d.kind === "quality");
     expect(q).toHaveLength(1);
-    expect(q[0].allowedTypes).toEqual(["SIT"]);
+    expect(q[0].allowedTypes).toEqual(["Threshold"]);
     expect(q[0].locked).toBe(true);
   });
 

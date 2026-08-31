@@ -273,6 +273,8 @@ describe("compileTrainingBlock", () => {
     );
 
     const conflict = compilerInput({ lengthWeeks: 4, focus: "vo2max", recoveryWeekIndices: [2] });
+    const recoveryQuality = conflict.skeleton.weeks[2].days.find((slot) => slot.kind === "quality")!;
+    recoveryQuality.allowedTypes = ["VO2max"];
     expect(() => compileTrainingBlock(conflict)).toThrow(BlockCompilationError);
   });
 
