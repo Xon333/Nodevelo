@@ -123,9 +123,24 @@ describe("compileWorkoutTemplate — ordered quality catalogue", () => {
     expect(hardSteps(result.prescription!)).toHaveLength(2);
   });
 
-  it("keeps the SIT execution cue on every work step", () => {
-    const result = compileWorkoutTemplate(input("SIT", { stage: 2 }));
-    expect(hardSteps(result.prescription!).every((step) => step.cue === "Seated, maximal but smooth")).toBe(true);
+  it("renders SIT as compact repeat syntax with only its actionable posture cue", () => {
+    const templateInput = input("SIT", { slot: slot(55) });
+    const result = compileWorkoutTemplate(templateInput);
+    expect(rendered(result, templateInput)).toBe([
+      "Warmup",
+      "- HR cap 145bpm 26m40s 50%-60% intensity=warmup",
+      "- HR cap 145bpm 5m ramp 50%-75% intensity=warmup",
+      "",
+      "Main Set 3x",
+      "- Seated 20s 150% intensity=active",
+      "- HR cap 145bpm 4m 50%-60% intensity=recovery",
+      "",
+      "Main Set",
+      "- Seated 20s 150% intensity=active",
+      "",
+      "Cooldown",
+      "- HR cap 145bpm 10m 50%-60% intensity=cooldown",
+    ].join("\n"));
   });
 });
 

@@ -125,19 +125,28 @@ The canonical renderer emits:
 
 ```text
 Warmup
-- Settle in 10m ramp 50%-75% intensity=warmup
+- HR cap 145bpm 26m40s 50%-60% intensity=warmup
+- HR cap 145bpm 5m ramp 50%-75% intensity=warmup
 
-Main Set 5x
-- Smooth power 3m 115%-120% intensity=active
-- HR cap 145bpm 2m 50%-60% intensity=recovery
+Main Set 3x
+- Seated 20s 150% intensity=active
+- HR cap 145bpm 4m 50%-60% intensity=recovery
+
+Main Set
+- Seated 20s 150% intensity=active
 
 Cooldown
-- Spin easy 10m 50%-60% intensity=cooldown
+- HR cap 145bpm 10m 50%-60% intensity=cooldown
 ```
 
+Stock templates use repeat blocks for identical work/recovery pairs and omit prose that merely
+restates the target or role. A final unrecovered effort is rendered as a short second `Main Set`
+instead of changing the prescribed duration. Cues remain only when they change execution, such as
+`Seated`, `Press lap`, or an informational `HR cap`.
+
 With `lapButtonSteps` enabled on a proven Garmin/Suunto path, an eligible readiness step may instead
-render `- Press lap when safely positioned 10m 50%-60% intensity=warmup`. The owner's default Wahoo
-output never emits that variant.
+render `- Press lap 10m 50%-60% intensity=warmup`. The owner's default Wahoo output never emits that
+variant.
 
 It uses `h`, `m`, and `s`, includes every unit in combined durations, emits lowercase `ramp`, and
 places one blank line around sections. Power percentages remain canonical for quality work. Standard
@@ -187,8 +196,10 @@ lap. Wahoo does not support that end condition.
   indoor-mode field, or device matrix is introduced.
 - `intensity=<role>` is emitted because the role is already known; it is export metadata, never a
   substitute for a target.
-- Ordinary step cues are supported. Timed `seconds^prompt <!>` cues remain excluded because they are
-  chiefly a Zwift export feature and no selected NodeVelo protocol needs them.
+- Short actionable step cues are supported; stock templates do not add labels such as “recover” or
+  “spin easy” when the target and `intensity=` role already say the same thing. Timed
+  `seconds^prompt <!>` cues remain excluded because they are chiefly a Zwift export feature and no
+  selected NodeVelo protocol needs them.
 
 Ramps remain in the core type for power-percent warmup/cooldown progression. The Intervals graph must
 parse their direction and endpoints; device execution is inspected separately because some head units
