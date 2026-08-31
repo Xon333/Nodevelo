@@ -205,8 +205,8 @@ export default function PlanView() {
     return () => clearInterval(timer);
   }, [generating]);
 
-  // UXA-5: an already-generated, not-yet-written plan represents a real (1-2 min) LLM spend — warn
-  // before a refresh/close silently discards it. beforeunload only covers browser-level navigation
+  // Preserve an already-generated, not-yet-written preview by warning before a refresh/close silently
+  // discards it. beforeunload only covers browser-level navigation
   // (refresh, close tab, typing a new URL), not in-app Link clicks, which don't unload the page.
   useEffect(() => {
     if (!plan || writeResults) return;

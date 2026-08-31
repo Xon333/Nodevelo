@@ -103,9 +103,8 @@ export default function BlockGenerator({
                 Tip: sync first so the plan reflects your recent training.
               </p>
             )}
-            {/* UXA-4: previously the Intervals.icu check only fired at the final Write step, after a
-                full paid generation. Surfaced here so the athlete knows before spending it — generation
-                itself still works either way, since only writing requires the connection. */}
+            {/* Surface the Intervals.icu requirement before generation while keeping preview available;
+                only writing requires the connection. */}
             {!intervalsConfigured && (
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 Heads up: Intervals.icu isn&apos;t connected — you can review this plan, but not write it there yet.
