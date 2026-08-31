@@ -1,7 +1,7 @@
 import type { DaySlot } from "./block-skeleton";
 import { DURABILITY_RECIPES, type DurabilityTemplateId } from "./durability";
 import type { WorkoutNutritionPlan } from "./nutrition";
-import type { CyclingPrescription, PrescriptionStep, PrescriptionTargetMode } from "./prescription";
+import type { CyclingPrescription, PrescriptionStep } from "./prescription";
 import type { WorkoutType } from "./types";
 
 export class TemplateCoverageError extends Error {}
@@ -12,7 +12,6 @@ export interface WorkoutTemplateInput {
   stage: 0 | 1 | 2;
   isRecoveryWeek: boolean;
   durabilityTemplateId: DurabilityTemplateId;
-  targetMode: PrescriptionTargetMode;
   hrCeilingBpm: number | null;
   lapButtonSteps: boolean;
   nutrition: WorkoutNutritionPlan;
@@ -66,9 +65,8 @@ const RACE_STAGES = [
   ],
 ] as const;
 
-const READY_SEC = 300;
 const RAMP_SEC = 300;
-const WARMUP_SEC = READY_SEC + RAMP_SEC;
+const WARMUP_SEC = RAMP_SEC;
 const COOLDOWN_SEC = 600;
 
 const STRENGTH_TEXT = [
@@ -116,46 +114,38 @@ function powerStep(
   };
 }
 
-function powerEasyStep(durationSec: number, role: PrescriptionStep["role"], hrCeilingBpm: number | null): PrescriptionStep {
-  return {
-    durationSec,
-    end: "timer",
-    role,
-    target: { kind: "power-zone", minZone: 1, maxZone: 2 },
-    ...(hrCeilingBpm ? { hrCeilingBpm } : {}),
-  };
-}
-
-function hrEasyStep(
+function powerEasyStep(
   durationSec: number,
   role: PrescriptionStep["role"],
-  options: { cue?: string; end?: PrescriptionStep["end"] } = {}
+  hrCeilingBpm: number | null,
+  zone: 1 | 2,
+  end: PrescriptionStep["end"] = "timer"
 ): PrescriptionStep {
   return {
     durationSec,
-    end: options.end ?? "timer",
+    end,
     role,
-    target: { kind: "hr-zone", minZone: 1, maxZone: 2 },
-    ...(options.cue ? { cue: options.cue } : {}),
+    target: { kind: "power-zone", minZone: zone, maxZone: zone },
+    ...(hrCeilingBpm ? { hrCeilingBpm } : {}),
   };
 }
 
 function powerWarmup(input: WorkoutTemplateInput, extraSec = 0): PrescriptionStep[] {
   return [
-    powerStep(READY_SEC + extraSec, "warmup", 50, 60, {
-      end: input.lapButtonSteps ? "lapButton" : "timer",
-    }),
     {
       durationSec: RAMP_SEC,
       end: "timer",
       role: "warmup",
       target: { kind: "power-ramp", fromPctFtp: 50, toPctFtp: 75 },
     },
+    ...(extraSec > 0
+      ? [powerEasyStep(extraSec, "warmup", null, 2, input.lapButtonSteps ? "lapButton" : "timer")]
+      : []),
   ];
 }
 
 function powerCooldown(): PrescriptionStep {
-  return powerStep(COOLDOWN_SEC, "cooldown", 50, 60);
+  return powerEasyStep(COOLDOWN_SEC, "cooldown", null, 1);
 }
 
 function interleavedWork(
@@ -165,7 +155,7 @@ function interleavedWork(
   for (let rep = 0; rep < recipe.reps; rep += 1) {
     steps.push(powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct));
     if (rep < recipe.reps - 1) {
-      steps.push(powerStep(recipe.recoverySec, "recovery", 50, 60));
+      steps.push(powerEasyStep(recipe.recoverySec, "recovery", null, 1));
     }
   }
   return steps;
@@ -206,7 +196,7 @@ function compileQuality(input: WorkoutTemplateInput): { summary: string; prescri
   const finalWork = powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct, {
     ...(input.type === "SIT" ? { cue: "Standing max" } : {}),
   });
-  const recovery = powerStep(recipe.recoverySec, "recovery", 50, 60);
+  const recovery = powerEasyStep(recipe.recoverySec, "recovery", null, 1);
   const hardSec = recipe.reps * recipe.workSec + (recipe.reps - 1) * recipe.recoverySec;
   const totalSec = assertFits(input, WARMUP_SEC + hardSec + COOLDOWN_SEC);
   return {
@@ -229,7 +219,7 @@ function compileRaceSim(input: WorkoutTemplateInput): { summary: string; prescri
   const work: PrescriptionStep[] = [];
   moves.forEach((move) => {
     work.push(powerStep(move.workSec, "active", move.workPct, move.workPct));
-    work.push(powerStep(move.recoverySec, "recovery", 50, 60));
+    work.push(powerEasyStep(move.recoverySec, "recovery", null, 1));
   });
   const workSec = work.reduce((sum, step) => sum + step.durationSec, 0);
   const totalSec = assertFits(input, WARMUP_SEC + workSec + COOLDOWN_SEC);
@@ -246,26 +236,16 @@ function compileRaceSim(input: WorkoutTemplateInput): { summary: string; prescri
   };
 }
 
-function compileEasy(input: WorkoutTemplateInput, mode: PrescriptionTargetMode): CyclingPrescription {
+function compileEasy(input: WorkoutTemplateInput): CyclingPrescription {
   const totalSec = assertFits(input, WARMUP_SEC + COOLDOWN_SEC + 60);
   const mainSec = totalSec - WARMUP_SEC - COOLDOWN_SEC;
-  if (mode === "power") {
-    assertIntensityCeiling(input, 75);
-    return {
-      targetMode: "power",
-      sections: [
-        { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
-        { name: "Main Set", repeats: 1, steps: [powerEasyStep(mainSec, input.type === "Recovery" ? "recovery" : "active", input.hrCeilingBpm)] },
-        { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
-      ],
-    };
-  }
+  assertIntensityCeiling(input, 75);
   return {
-    targetMode: "heartRate",
+    targetMode: "power",
     sections: [
-      { name: "Warmup", repeats: 1, steps: [hrEasyStep(WARMUP_SEC, "warmup", { end: input.lapButtonSteps ? "lapButton" : "timer" })] },
-      { name: "Main Set", repeats: 1, steps: [hrEasyStep(mainSec, input.type === "Recovery" ? "recovery" : "active")] },
-      { name: "Cooldown", repeats: 1, steps: [hrEasyStep(COOLDOWN_SEC, "cooldown")] },
+      { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
+      { name: "Main Set", repeats: 1, steps: [powerEasyStep(mainSec, input.type === "Recovery" ? "recovery" : "active", input.hrCeilingBpm, input.type === "Recovery" ? 1 : 2)] },
+      { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
     ],
   };
 }
@@ -285,9 +265,9 @@ function compileLateDurability(
     throw new TemplateCoverageError(`Durability ${input.durabilityTemplateId} cannot fit ${input.slot.duration.nominalMin} min after halfway.`);
   }
   const mainSteps: PrescriptionStep[] = [];
-  if (beforeWorkSec > 0) mainSteps.push(powerEasyStep(beforeWorkSec, "active", input.hrCeilingBpm));
+  if (beforeWorkSec > 0) mainSteps.push(powerEasyStep(beforeWorkSec, "active", input.hrCeilingBpm, 2));
   mainSteps.push(...work);
-  if (afterWorkSec > 0) mainSteps.push(powerEasyStep(afterWorkSec, "active", input.hrCeilingBpm));
+  if (afterWorkSec > 0) mainSteps.push(powerEasyStep(afterWorkSec, "active", input.hrCeilingBpm, 2));
   return {
     targetMode: "power",
     sections: [
@@ -316,10 +296,10 @@ function compileDistributedDurability(
   });
   const mainSteps: PrescriptionStep[] = [];
   for (let rep = 0; rep < recipe.reps; rep += 1) {
-    if (gaps[rep] > 0) mainSteps.push(powerEasyStep(gaps[rep], rep === 0 ? "active" : "recovery", input.hrCeilingBpm));
+    if (gaps[rep] > 0) mainSteps.push(powerEasyStep(gaps[rep], rep === 0 ? "active" : "recovery", input.hrCeilingBpm, rep === 0 ? 2 : 1));
     mainSteps.push(powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct));
   }
-  if (gaps[recipe.reps] > 0) mainSteps.push(powerEasyStep(gaps[recipe.reps], "active", input.hrCeilingBpm));
+  if (gaps[recipe.reps] > 0) mainSteps.push(powerEasyStep(gaps[recipe.reps], "active", input.hrCeilingBpm, 2));
   return {
     targetMode: "power",
     sections: [
@@ -349,12 +329,12 @@ export function compileWorkoutTemplate(input: WorkoutTemplateInput): CompiledWor
   } else if (input.type === "RaceSim") {
     compiled = compileRaceSim(input);
   } else if (input.type === "Recovery") {
-    compiled = { summary: "Easy throughout", prescription: compileEasy(input, input.targetMode) };
+    compiled = { summary: "Easy throughout", prescription: compileEasy(input) };
   } else {
     const durabilityId = input.isRecoveryWeek ? "A" : input.durabilityTemplateId;
     const recipe = DURABILITY_RECIPES[durabilityId];
     if (recipe.kind === "steady") {
-      compiled = { summary: durabilitySummary(durabilityId), prescription: compileEasy(input, input.targetMode) };
+      compiled = { summary: durabilitySummary(durabilityId), prescription: compileEasy(input) };
     } else if (recipe.kind === "late-repeats") {
       compiled = { summary: durabilitySummary(durabilityId), prescription: compileLateDurability(input, recipe) };
     } else {

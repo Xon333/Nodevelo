@@ -14,15 +14,18 @@
 - Preserve `/api/generate` as preview-only and `/api/write` as the only publication path.
 - Preserve the persisted publication-verdict passport, blocker/preference severity, CAS guards, local-before-calendar ordering, and `nodevelo-<date>` event keys.
 - Use `targetWeeklyHours` for intended loading-week load and `maxAvailableHours` only as a hard ceiling; require `targetWeeklyHours <= maxAvailableHours`.
-- Migrate both new hour fields from the old `weeklyHoursMax`, keep existing recovery settings, and default `lapButtonSteps` to `false` using missing-field fallback checks rather than `=== null`.
-- Generate cycling workouts with exactly one target family: `power` or `heartRate`.
-- Threshold, VO2max, SIT, RaceSim, and durability B–E remain power-led; pure Z2, Recovery, and durability A may be HR-led when current HR physiology exists.
+- Migrate both new hour fields from the old `weeklyHoursMax`, keep existing recovery settings, and
+  default the owner-verified `lapButtonSteps` capability to `true` using missing-field fallback checks
+  rather than `=== null`.
+- Generate every stock cycling workout with power as its target family. Keep HR syntax parser support
+  for stored history only.
 - A steady easy segment in a power-led Z2, Recovery, or durability ride may show a resolved bpm HR
   ceiling as cue text. Warmups, cooldowns, recovery intervals, and standalone quality sessions never
   do, and no workout serializes it as a second structured target.
 - Generate no cadence targets. Continue parsing legacy cadence tokens without treating them as semantic targets.
 - Support `%FTP` points/ranges, standard power zones, standard HR zones, `% HR`, `% LTHR`, power ramps, repeats, cues, `intensity=<role>`, and eligible `Press lap` endings.
-- Allow `Press lap` only when `lapButtonSteps` is true and only for outdoor positioning/readiness/easy recovery transitions; never emit it for the owner's default Wahoo path or prescribed SIT/VO2max/Threshold work.
+- Allow `Press lap` only when `lapButtonSteps` is true and only on the safe Z2 readiness step before
+  prescribed work; the owner verified this path on Wahoo.
 - Use ramps only for warmup/cooldown progression, never for stimulus-critical main work.
 - Exclude absolute watts, MMP, custom zones, pace, distance, freeride, timed prompts, power-display averaging, HTML/Markdown decoration, and nested repeats.
 - Every generated cycling workout must satisfy `typed prescription -> render -> parse -> semantic equality` before it can reach the publication gate.
@@ -70,7 +73,7 @@
 Add these cases to `lib/data-store.test.ts` and `lib/block-skeleton.test.ts`:
 
 ```ts
-it("migrates legacy weeklyHoursMax to target and ceiling and defaults lap steps off", async () => {
+it("migrates legacy weeklyHoursMax to target and ceiling and defaults verified lap steps on", async () => {
   await fs.writeFile(
     p("block-settings.json"),
     JSON.stringify({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: undefined, maxAvailableHours: undefined, lapButtonSteps: undefined, weeklyHoursMax: 12 }),
@@ -79,7 +82,7 @@ it("migrates legacy weeklyHoursMax to target and ceiling and defaults lap steps 
   const settings = await readBlockSettings();
   expect(settings.targetWeeklyHours).toBe(12);
   expect(settings.maxAvailableHours).toBe(12);
-  expect(settings.lapButtonSteps).toBe(false);
+  expect(settings.lapButtonSteps).toBe(true);
 });
 
 it("uses targetWeeklyHours for loading load and maxAvailableHours only as a ceiling", () => {
@@ -134,7 +137,7 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   polarisedApproach: true,
   autoSyncOnOpen: true,
   autoPostCoachNote: false,
-  lapButtonSteps: false,
+  lapButtonSteps: true,
   updatedAt: new Date(0).toISOString(),
 };
 ```
@@ -157,7 +160,7 @@ function normalizeBlockSettings(stored: StoredBlockSettings): BlockSettings {
     ...current,
     targetWeeklyHours: stored.targetWeeklyHours ?? legacyTarget,
     maxAvailableHours: stored.maxAvailableHours ?? legacyTarget,
-    lapButtonSteps: stored.lapButtonSteps ?? false,
+    lapButtonSteps: stored.lapButtonSteps ?? true,
     autoSyncOnOpen: stored.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
     polarisedApproach: stored.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
   };
@@ -217,7 +220,7 @@ In `components/BlockSettingsForm.tsx`, replace the two loading inputs with “Ta
 ```tsx
 <ToggleRow
   label="Allow Press lap steps"
-  hint="Only enable for a proven Garmin/Suunto outdoor workflow. Leave off for Wahoo."
+  hint="Ends a safe readiness step when you press lap; verified on Wahoo, Garmin, and Suunto workflows."
   checked={settings.lapButtonSteps}
   onChange={(value) => set("lapButtonSteps", value)}
 />
@@ -459,7 +462,9 @@ durability rides; standalone quality sessions remain power-only throughout.
 
 - [ ] **Step 5: Encode easy rides, ramps, HR control, and durability A–E**
 
-Use a power ramp from 50% to 70–75% for warmup, a timer-based easy cooldown, and no main-set ramps. Select HR zone `Z1-Z2 HR` only when `targetMode === "heartRate"`; otherwise use a power-zone or percent target and attach `hrCeilingBpm` to applicable easy steps.
+Use one power ramp from 50% to 70–75% for at most five minutes. Put any remaining pre-interval time
+at power Z2, interval recovery and cooldown at power Z1, and attach `hrCeilingBpm` only to steady
+endurance steps. All generated prescriptions use `targetMode: "power"`.
 
 Encode durability mechanisms with fixed stage-appropriate steps:
 
@@ -566,7 +571,9 @@ Throw `BlockCompilationError` if a locked slot and rule conflict rather than sil
 
 - [ ] **Step 4: Compile stages, targets, and exact days**
 
-For loading week ordinal `0`, `1`, `2+`, select stage `0`, `1`, `2`; recovery weeks use their dedicated touch without advancing the loading ordinal. Choose `targetMode: "heartRate"` only for Recovery or durability-A Z2 when `hrZone2CeilingBpm !== null`; all other workouts use power. Pass the chosen type/stage and the exact date's nutrition to `compileWorkoutTemplate`.
+For loading week ordinal `0`, `1`, `2+`, select stage `0`, `1`, `2`; recovery weeks use their
+dedicated touch without advancing the loading ordinal. Use `targetMode: "power"` for every generated
+ride and pass the chosen type/stage and the exact date's nutrition to `compileWorkoutTemplate`.
 
 Resolve the final workout's nutrition before calling the catalogue:
 

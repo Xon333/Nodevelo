@@ -663,7 +663,7 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   polarisedApproach: true,
   autoSyncOnOpen: true,
   autoPostCoachNote: false,
-  lapButtonSteps: false,
+  lapButtonSteps: true,
   updatedAt: new Date(0).toISOString(),
 };
 

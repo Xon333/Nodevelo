@@ -295,7 +295,7 @@ function normalizeBlockSettings(stored: StoredBlockSettings): BlockSettings {
     ...current,
     targetWeeklyHours: stored.targetWeeklyHours ?? legacyTarget,
     maxAvailableHours: stored.maxAvailableHours ?? legacyTarget,
-    lapButtonSteps: stored.lapButtonSteps ?? false,
+    lapButtonSteps: stored.lapButtonSteps ?? true,
     autoSyncOnOpen: stored.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
     polarisedApproach: stored.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
   };

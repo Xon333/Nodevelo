@@ -309,7 +309,7 @@ export default function BlockSettingsForm() {
         <div className="mt-4">
           <ToggleRow
             label="Allow Press lap steps"
-            hint="Only enable for a proven Garmin/Suunto outdoor workflow. Leave off for Wahoo."
+            hint="Ends a safe readiness step when you press lap; verified on Wahoo, Garmin, and Suunto workflows."
             checked={settings.lapButtonSteps}
             onChange={(value) => set("lapButtonSteps", value)}
           />

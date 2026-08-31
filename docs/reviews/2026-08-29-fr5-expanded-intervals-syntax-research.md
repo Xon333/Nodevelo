@@ -24,10 +24,11 @@ Intervals can parse it != the destination can execute it != NodeVelo should emit
 ```
 
 This matters for the owner's Wahoo. Intervals can parse ramps, dual power/HR targets, cadence, and
-`Press lap`; Wahoo does not provide a lap-button end condition, does not execute ramps as ramps, and
-selects one target family rather than enforcing power plus an HR ceiling. Intervals founder David
-Tinker confirms that Wahoo's uploaded workout format has no `Press lap` option; the athlete can
-pause/skip/replay steps with Wahoo's workout controls instead. ([Wahoo planned-workout thread](https://forum.intervals.icu/t/planned-workouts-with-wahoo-now-supported/54795?page=5))
+`Press lap`; Wahoo selects one target family rather than enforcing power plus an HR ceiling. Earlier
+forum guidance said Wahoo's uploaded workout format had no lap-button end condition. During FR-5
+acceptance on 2026-08-31, however, the owner tested Intervals `Press lap` syntax on the actual Wahoo
+workflow and confirmed that pressing lap advances into the next workout interval. That live result
+supersedes the earlier portability assumption for this installation. ([Wahoo planned-workout thread](https://forum.intervals.icu/t/planned-workouts-with-wahoo-now-supported/54795?page=5))
 
 ## Source hierarchy
 
@@ -281,12 +282,11 @@ a prescribed work interval, and always retain a realistic nominal duration.
 FR-5 should keep this capability in the typed model, with two hard gates:
 
 - `end: "lapButton"` is valid only for `warmup` or `recovery`, never `active` work.
-- The execution profile must report lap-button support. Garmin/Suunto may pass; Wahoo must fail or
-  choose a normal timed step before rendering.
+- The execution profile must report lap-button support. Wahoo, Garmin, and Suunto pass for the
+  verified workflows recorded here.
 
-For this owner's Wahoo, do **not** emit `Press lap`. Wahoo's uploaded workout format has no such
-condition. Its supported alternative is to pause or skip/replay the current workout interval using
-the head-unit controls. ([founder Wahoo answer](https://forum.intervals.icu/t/planned-workouts-with-wahoo-now-supported/54795?page=5))
+For this owner's Wahoo, emit `Press lap` only on the safe Z2 readiness step before prescribed work.
+The owner confirmed the end condition on-device; keep it off the work intervals themselves.
 
 ## Recommended typed boundary
 
@@ -402,7 +402,7 @@ Main Set 5x
 - Easy 3m 50-60% intensity=recovery
 ```
 
-Never emit this variant for Wahoo; emit the same workout with a normal timed warmup instead.
+This variant is valid for the owner's verified Wahoo path as well as the cited Garmin/Suunto paths.
 
 ## Parser support versus stock-template policy
 
@@ -411,14 +411,14 @@ Never emit this variant for Wahoo; emit the same workout with a normal timed war
 | Explicit time | Yes | Always | Portable, exact duration authority. |
 | `%FTP` point/range | Yes | Quality + most power workouts | Exact deterministic progression. |
 | Power zones/ranges | Yes | Recovery/endurance only | Useful cap-like bands; depends on configured zones. |
-| HR `%max`/`%LTHR` | Yes | Optional HR-primary workouts | Structured HR target, but not absolute bpm. |
-| HR zones/ranges | Yes | Optional HR-primary easy/endurance | Best available device-targeted HR cap substitute. |
+| HR `%max`/`%LTHR` | Yes | No | Parser support for stored workouts; stock generation stays power-led. |
+| HR zones/ranges | Yes | No | Parser support for stored workouts; HR is only an informational cap in stock output. |
 | Visible resolved-bpm HR ceiling | Yes, as NodeVelo guardrail/cue | Optional power endurance | Honest informational cap; not a second device target. |
-| Power ramps | Yes | Warmup/cooldown only | Parser-valid; Wahoo/Garmin execution degrades. |
+| Power ramps | Yes | Warmup, at most 5m | Parser-valid; Wahoo/Garmin execution may degrade. |
 | `intensity=` roles | Yes | Every step | Useful explicit FIT/lap classification. |
 | Flat repeats + headers | Yes | When recipe repeats | Portable; nested repeats excluded. |
 | Ordinary cues | Yes | Sparingly | Useful execution/safety text; display varies. |
-| `Press lap` | Yes | Only on supported profile | Garmin/Suunto feature; unavailable on Wahoo. |
+| `Press lap` | Yes | Z2 readiness step | Verified by the owner on Wahoo; cited Garmin/Suunto support remains. |
 | Cadence target | No FR-5 requirement | No | Owner does not need it; one-target device behavior reduces value. |
 | Dual power + HR target | Parser could retain it | Never | Execution/export selects one family; not a true cap. |
 | Timed prompts | Defer | No | Primarily Zwift/ZWO and repeat behavior varies. |
@@ -433,23 +433,23 @@ FR-5 acceptance must test three different boundaries:
 
 1. **NodeVelo semantic round trip:** the canonical parser reconstructs the complete typed meaning.
 2. **Intervals interpretation:** its graph, duration, load, repeat order, targets, and roles match.
-3. **Actual Wahoo execution:** verify power ranges, an HR-primary endurance workout, role labels where
-   visible, ordinary cues where visible, and the expected ramp degradation. Confirm `Press lap` is
-   not emitted.
+3. **Actual Wahoo execution:** verify power ranges, role labels where visible, ordinary cues where
+   visible, and ramp behavior. The owner confirmed on 2026-08-31 that `Press lap` advances into the
+   next interval.
 
-One successful Intervals graph is not evidence of device behavior. Conversely, Wahoo's lack of a
-feature should not force the semantic model to forget it: the execution-profile gate lets a future
-Garmin/Suunto owner use lap-button endings without weakening this owner's deterministic plan.
+One successful Intervals graph is not evidence of device behavior; the owner's separate Wahoo test
+is the evidence for the lap-button path.
 
 ## Final recommendation to carry into the FR-5 design
 
 - Remove cadence from the required type, renderer, parser equality, and acceptance evidence.
 - Add target mode plus power-zone, HR-percent, and HR-zone target variants.
 - Add `StepRole` and emit `intensity=` deterministically.
-- Keep power ramps, limited to warmup/cooldown by stock templates.
+- Keep power ramps, limited to at most five minutes of warmup by stock templates.
 - Add a typed informational `hrCeilingBpm` guardrail, resolved from current physiology and rendered
   in canonical cue text on power-primary endurance workouts.
-- Add typed lap-button endings, but capability-gate them; Wahoo receives timed steps only.
+- Add typed lap-button endings, capability-gated and used only on the safe Z2 readiness step; the
+  owner's Wahoo path is verified.
 - Reject mixed target families in generated output and never describe a cue or zone band as a true
   secondary enforced HR cap.
 - Continue to reject the rest of the grammar until a selected protocol or live device failure

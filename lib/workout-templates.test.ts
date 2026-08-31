@@ -49,7 +49,6 @@ function input(type: WorkoutType, overrides: Partial<WorkoutTemplateInput> = {})
     stage: 0,
     isRecoveryWeek: false,
     durabilityTemplateId: "A",
-    targetMode: "power",
     hrCeilingBpm: 145,
     lapButtonSteps: false,
     nutrition,
@@ -128,18 +127,18 @@ describe("compileWorkoutTemplate — ordered quality catalogue", () => {
     const result = compileWorkoutTemplate(templateInput);
     expect(rendered(result, templateInput)).toBe([
       "Warmup",
-      "- 26m 50%-60% intensity=warmup",
       "- 5m ramp 50%-75% intensity=warmup",
+      "- 26m Z2 intensity=warmup",
       "",
       "Main Set 3x",
       "- Seated max 30s 150% intensity=active",
-      "- 4m 50%-60% intensity=recovery",
+      "- 4m Z1 intensity=recovery",
       "",
       "Main Set",
       "- Standing max 30s 150% intensity=active",
       "",
       "Cooldown",
-      "- 10m 50%-60% intensity=cooldown",
+      "- 10m Z1 intensity=cooldown",
     ].join("\n"));
   });
 });
@@ -160,17 +159,13 @@ describe("compileWorkoutTemplate — RaceSim", () => {
 });
 
 describe("compileWorkoutTemplate — easy and durability protocols", () => {
-  it("enforces the 75% ramp against power-led easy slot ceilings only", () => {
+  it("enforces the 75% power ramp for every generated easy ride", () => {
     for (const type of ["Recovery", "Z2"] as const) {
       expect(() => compileWorkoutTemplate(input(type, {
         slot: slot(60, { maxIntensityPct: 70 }),
       }))).toThrow(TemplateCoverageError);
       expect(() => compileWorkoutTemplate(input(type, {
         slot: slot(60, { maxIntensityPct: 75 }),
-      }))).not.toThrow();
-      expect(() => compileWorkoutTemplate(input(type, {
-        targetMode: "heartRate",
-        slot: slot(60, { maxIntensityPct: 70 }),
       }))).not.toThrow();
     }
   });
@@ -209,19 +204,16 @@ describe("compileWorkoutTemplate — easy and durability protocols", () => {
     expect(hardSteps(result.prescription!)).toEqual([]);
   });
 
-  it("uses HR zones only for selected Recovery, pure Z2, and recovery-override rides", () => {
-    const eligible = [
-      input("Recovery", { targetMode: "heartRate", slot: slot(60) }),
-      input("Z2", { targetMode: "heartRate", durabilityTemplateId: "A", slot: slot(90) }),
-      input("Z2", { targetMode: "heartRate", durabilityTemplateId: "D", isRecoveryWeek: true, slot: slot(90) }),
-    ];
-    for (const templateInput of eligible) {
+  it("uses power targets for Recovery, Z2, and recovery-override rides", () => {
+    for (const templateInput of [
+      input("Recovery", { slot: slot(60) }),
+      input("Z2", { durabilityTemplateId: "A", slot: slot(90) }),
+      input("Z2", { durabilityTemplateId: "D", isRecoveryWeek: true, slot: slot(90) }),
+    ]) {
       const prescription = compileWorkoutTemplate(templateInput).prescription!;
-      expect(prescription.targetMode).toBe("heartRate");
-      expect(steps(prescription).every((step) => step.target.kind === "hr-zone")).toBe(true);
+      expect(prescription.targetMode).toBe("power");
+      expect(steps(prescription).every((step) => step.target.kind.startsWith("power-"))).toBe(true);
     }
-    const durability = compileWorkoutTemplate(input("Z2", { targetMode: "heartRate", durabilityTemplateId: "B", slot: slot(150) })).prescription!;
-    expect(durability.targetMode).toBe("power");
   });
 });
 
@@ -232,11 +224,9 @@ describe("compileWorkoutTemplate — rendering contract", () => {
     ),
     input("Threshold", { stage: 2, isRecoveryWeek: true, slot: slot(45, { maxIntensityPct: 95 }) }),
     input("Recovery", { slot: slot(60) }),
-    input("Recovery", { targetMode: "heartRate", slot: slot(60) }),
     ...(["A", "B", "C", "D", "E"] as const).map((durabilityTemplateId) =>
       input("Z2", { durabilityTemplateId, slot: slot(150) })
     ),
-    input("Z2", { durabilityTemplateId: "A", targetMode: "heartRate", slot: slot(150) }),
   ];
 
   it.each(cyclingCases)("renders $type stage $stage with exact duration, roundtrip, and valid protocol", (templateInput) => {
@@ -250,18 +240,22 @@ describe("compileWorkoutTemplate — rendering contract", () => {
     expect(result.description).toBe("Target 2800 kcal today. 80g carbs pre-ride, 60g/h during.");
   });
 
-  it("uses ramps only in warmup and timer endings for quality work and recovery", () => {
+  it("caps warmup ramps at five minutes and uses Press lap only on the Z2 readiness step", () => {
     const templateInput = input("VO2max", { stage: 2, lapButtonSteps: true });
     const prescription = compileWorkoutTemplate(templateInput).prescription!;
     for (const section of prescription.sections) {
       for (const step of section.steps) {
-        if (step.target.kind === "power-ramp") expect(section.name).toBe("Warmup");
+        if (step.target.kind === "power-ramp") {
+          expect(section.name).toBe("Warmup");
+          expect(step.durationSec).toBeLessThanOrEqual(300);
+        }
         if (section.name === "Main Set") expect(step.end).toBe("timer");
       }
     }
     const lapSteps = steps(prescription).filter((step) => step.end === "lapButton");
     expect(lapSteps).toHaveLength(1);
     expect(lapSteps[0].role).toBe("warmup");
+    expect(lapSteps[0].target).toEqual({ kind: "power-zone", minZone: 2, maxZone: 2 });
   });
 
   it("keeps quality sessions power-only and reserves HR ceilings for easy rides", () => {

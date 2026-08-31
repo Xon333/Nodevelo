@@ -21,9 +21,8 @@ and preserves the contracts in [INVARIANTS](../../INVARIANTS.md).
 - Generate every work and rest day. There is no optional-extra-day concept.
 - Treat intended weekly load and available time as different inputs.
 - Emit cycling workouts only, using a narrow typed prescription and canonical Intervals text. Power
-  remains the sole authority for quality work; HR zones may govern pure easy/recovery work, and a
-  resolved HR ceiling may appear only on Z2, Recovery, or durability rides where power remains
-  primary.
+  is the target authority for every generated ride. A resolved HR ceiling may appear only as an
+  informational cue on steady Z2, Recovery, or durability segments.
 - Generate no workout, week, or block explanation with AI.
 - Generate one deterministic title, for example `4-week Threshold Build`.
 - Keep Intervals' graph, calculated duration/load, and projected fitness views as external inspection
@@ -126,18 +125,18 @@ The canonical renderer emits:
 
 ```text
 Warmup
-- 26m 50%-60% intensity=warmup
 - 5m ramp 50%-75% intensity=warmup
+- Press lap 26m Z2 intensity=warmup
 
 Main Set 3x
 - Seated max 30s 150% intensity=active
-- 4m 50%-60% intensity=recovery
+- 4m Z1 intensity=recovery
 
 Main Set
 - Standing max 30s 150% intensity=active
 
 Cooldown
-- 10m 50%-60% intensity=cooldown
+- 10m Z1 intensity=cooldown
 ```
 
 Stock templates use repeat blocks for identical work/recovery pairs and omit prose that merely
@@ -145,9 +144,9 @@ restates the target or role. A final unrecovered effort is rendered as a short s
 instead of changing the prescribed duration. Cues remain only when they change execution, such as
 `Seated`, `Press lap`, or an informational `HR cap`.
 
-With `lapButtonSteps` enabled on a proven Garmin/Suunto path, an eligible readiness step may instead
-render `- Press lap 10m 50%-60% intensity=warmup`. The owner's default Wahoo output never emits that
-variant.
+With `lapButtonSteps` enabled, the Z2 readiness step before intervals renders `Press lap`; the owner
+confirmed on Wahoo that pressing lap advances into the work interval. Garmin and Suunto support the
+same grammar.
 
 It uses `h`, `m`, and `s`, includes every unit in combined durations, emits lowercase `ramp`, and
 places one blank line around sections. Power percentages remain canonical for quality work. Standard
@@ -171,9 +170,9 @@ target family. FR-5 therefore never claims that a dual-target line enforces powe
 ceiling.
 
 - `targetMode` is explicit, and every generated step must match it.
-- Threshold, VO2max, SIT, RaceSim, and durability B–E use power targets.
-- Pure Z2, Recovery, and durability A may use `Z1-Z2 HR` when current HR physiology is available;
-  otherwise they use a power-zone or `%FTP` target.
+- Every stock template uses power targets. Quality work uses exact `%FTP`; steady endurance uses Z2;
+  easy interval recovery and cooldown use Z1. HR target families remain parser-supported for stored
+  history but are not generated.
 - On a power-led Z2, Recovery, or durability ride, `hrCeilingBpm` may render as a short step cue such
   as `HR cap 145bpm` on its steady easy segments. It is omitted from warmups, cooldowns, and recovery
   intervals where the power target is sufficient. Threshold, VO2max, SIT, and RaceSim never carry it:
@@ -185,18 +184,17 @@ ceiling.
 
 ### Lap-button and device annotations
 
-`Press lap` is useful but is export behavior, not a portable duration primitive. Intervals retains the
-stated duration for planned time/load; Garmin and Suunto can instead advance when the athlete presses
-lap. Wahoo does not support that end condition.
+`Press lap` is useful but is export behavior, not a duration primitive. Intervals retains the stated
+duration for planned time/load; Wahoo, Garmin, and Suunto can instead advance when the athlete presses
+lap. Wahoo support was confirmed by the owner during FR-5 acceptance.
 
 - `end: "lapButton"` renders `Press lap` in the step cue and still requires a realistic
   `durationSec`.
 - It is allowed only for outdoor positioning, readiness, or easy recovery transitions.
-- It is forbidden on prescribed SIT/VO2max/Threshold work and excluded from Wahoo output.
-- `BlockSettings.lapButtonSteps` is the only capability switch. It defaults to `false` for the
-  owner's Wahoo and may be enabled only when the athlete explicitly selects a proven Garmin/Suunto
-  outdoor path. That switch is both capability and execution intent, so no brand abstraction,
-  indoor-mode field, or device matrix is introduced.
+- It is forbidden on prescribed SIT/VO2max/Threshold work; the generated use is the safe Z2 readiness
+  step immediately before work begins.
+- `BlockSettings.lapButtonSteps` is the only capability switch. It defaults to `true` now that the
+  owner's Wahoo path is proven; it can still be disabled when a destination does not support it.
 - `intensity=<role>` is emitted because the role is already known; it is export metadata, never a
   substitute for a target.
 - Short actionable step cues are supported; stock templates do not add labels such as “recover” or
@@ -296,7 +294,7 @@ Existing settings migrate without changing current generated load:
 
 - `targetWeeklyHours = old weeklyHoursMax`
 - `maxAvailableHours = old weeklyHoursMax`
-- `lapButtonSteps = false`
+- `lapButtonSteps = true`
 - existing recovery settings are retained
 
 The athlete can then add headroom by raising `maxAvailableHours`; migration does not silently lower
@@ -362,11 +360,10 @@ Record five consecutive varied-input generations with zero publication blockers:
 5. long block with event displacement and constrained availability.
 
 Then publish one owner-approved result to Intervals and inspect the parsed workout graph, calculated
-duration/load, power-led and HR-led targets, zone ranges, repeat order, role classification, ramp
-interpretation, and explicit rest days. Execute representative power and HR workouts on the owner's
-Wahoo, confirm expected ramp degradation, and confirm no `Press lap` step was emitted. Record parser
-behavior and device execution separately; a correct Intervals graph is not proof that Garmin, Suunto,
-Wahoo, and Zwift execute identically.
+duration/load, power targets, zone ranges, repeat order, role classification, ramp interpretation,
+and explicit rest days. Execute representative workouts on the owner's Wahoo and confirm expected
+ramp behavior. Record parser behavior and device execution separately. The owner has already
+confirmed that Intervals `Press lap` syntax advances into the next interval on Wahoo.
 
 Any retained Anthropic route whose prompt or output handling changes during implementation also gets
 one live smoke run. Removing the block-generation call requires no replacement AI smoke; its proof is

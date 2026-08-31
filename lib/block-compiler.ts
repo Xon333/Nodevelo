@@ -243,10 +243,6 @@ function compileDay(
   const nutrition = input.nutritionByDateAndType[slot.date]?.[type];
   if (!nutrition) compilationError(`Missing nutrition for ${slot.date} ${type}.`);
   const effectiveDurability = type === "Z2" && slot.kind !== "longRide" ? "A" : input.durabilityTemplateId;
-  const targetMode = input.hrZone2CeilingBpm !== null
-    && (type === "Recovery" || (type === "Z2" && effectiveDurability === "A"))
-    ? "heartRate"
-    : "power";
   let template: ReturnType<typeof compileWorkoutTemplate>;
   try {
     template = compileWorkoutTemplate({
@@ -255,7 +251,6 @@ function compileDay(
       stage,
       isRecoveryWeek: week.isRecovery,
       durabilityTemplateId: effectiveDurability,
-      targetMode,
       hrCeilingBpm: input.hrZone2CeilingBpm,
       lapButtonSteps: input.settings.lapButtonSteps,
       nutrition,

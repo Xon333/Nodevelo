@@ -230,13 +230,12 @@ describe("compileTrainingBlock", () => {
     expect(recoveryQuality.name).toBe("Threshold — 2×8m @ 90% FTP");
   });
 
-  it("uses HR only for Recovery and pure durability-A Z2", () => {
+  it("uses power as the target family for every generated cycling workout", () => {
     const input = compilerInput({ lengthWeeks: 4, focus: "threshold", recoveryWeekIndices: [2] });
     const result = compileTrainingBlock(input);
 
     for (const day of result.plan.days.filter((candidate) => candidate.type !== "Rest")) {
-      const expectedMode = day.type === "Recovery" || day.type === "Z2" ? "heartRate" : "power";
-      expect(result.prescriptions[day.date].targetMode).toBe(expectedMode);
+      expect(result.prescriptions[day.date].targetMode).toBe("power");
     }
   });
 

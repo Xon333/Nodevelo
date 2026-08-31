@@ -49,11 +49,10 @@ Event slots stay protected. Locked types never move. Flexible quality slots are 
 
 Every generated cycling workout has exactly one structured target family:
 
-- Threshold, VO2max, SIT, RaceSim, and durability B–E are power-led.
-- Pure Z2, Recovery, and durability A may be heart-rate-led when current HR physiology exists.
-- Steady easy segments in power-led Z2, Recovery, and durability rides may include a resolved bpm HR
-  ceiling as cue text. Warmups, cooldowns, recovery intervals, Threshold, VO2max, SIT, and RaceSim
-  remain power-only.
+- Every stock template is power-led. Quality work uses `%FTP`, steady endurance uses Z2, and easy
+  interval recovery and cooldown use Z1.
+- Steady Z2, Recovery, and durability segments may include a resolved bpm HR ceiling as informational
+  cue text. It is never a second target.
 - Cadence targets are never generated. The parser tolerates legacy cadence tokens only for stored-history compatibility.
 
 Progression increases work duration or repetitions before intensity and stays inside the protocol bands.
@@ -70,7 +69,12 @@ typed prescription -> render -> parse -> semantic equality
 
 before the publication gate can see it. Supported output includes `%FTP` points/ranges, standard power/HR zones, `% HR`, `% LTHR`, repeats, cues, `intensity=<role>`, power ramps, and eligible `Press lap` endings.
 
-Ramps are limited to warmup/cooldown progression; main work never ramps. `Press lap` defaults off and is allowed only when `lapButtonSteps` is enabled for outdoor positioning/readiness or easy recovery transitions. It is never emitted for the owner's Wahoo default or prescribed SIT/VO2max/Threshold work. Absolute watts, custom zones, pace, distance, freeride, timed prompts, nested repeats, and presentation markup are outside the generated subset.
+Warmup ramps are capped at five minutes. Extra pre-interval time is Z2, interval recovery is Z1, and
+main work never ramps. `Press lap` defaults on after owner verification on Wahoo and is allowed only
+on the safe Z2 readiness step before work; it remains forbidden on prescribed work intervals.
+Absolute watts, custom zones, pace, distance, freeride, timed prompts, nested repeats, and
+presentation markup are outside the generated subset. `intensity=<role>` labels the FIT/workout step
+as warmup, active, recovery, or cooldown; it does not set power or change the target.
 
 ## The publication gate
 

@@ -81,7 +81,8 @@ AI — and the AI only ever phrases numbers the code already computed.
   (A pure accumulation … E mixed density), picked limiter-driven from the athlete model else rotated,
   and stamped on the block. KB §12 + `lib/durability.ts`
 - **Typed canonical workout syntax** — every cycling prescription has one power or heart-rate target
-  family and must survive typed render → parse semantic equality. Supports standard zones/% targets,
+  family and must survive typed render → parse semantic equality. Stock templates use power; parsing
+  still supports stored HR syntax. Supports standard zones/% targets,
   repeats, cues, warmup/cooldown ramps, HR-cap cue text, and guarded default-off `Press lap`; generates
   no cadence targets. `lib/prescription.ts`, `lib/workout-templates.ts`
 - **KB-grounded protocol validation** — every generated workout checked against KB interval bands
@@ -95,7 +96,8 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Compiler-owned nutrition and overview** — daily nutrition and the block overview are assembled
   directly from resolved facts; there is no copy/repair or prose-consistency stage.
 - **Execution cues** — deterministic cues are reserved for useful execution details: HR caps on
-  steady Z2/Recovery/durability segments and concise seated/standing notes on SIT efforts.
+  steady Z2/Recovery/durability segments and concise seated/standing notes on SIT efforts. A verified
+  `Press lap` readiness step can advance into work on Wahoo.
 - **Preview → publication gate → write** — `PlanPreview` shows every day plus blockers,
   preferences requiring acknowledgment, and the existing "Notes — for your awareness" warnings. `POST /api/write`
   refuses blockers or an unknown persisted verdict before any write; accepted plans post to the

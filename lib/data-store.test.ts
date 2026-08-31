@@ -589,7 +589,7 @@ describe("updateAthleteProfile", () => {
 });
 
 describe("updateBlockSettings", () => {
-  it("migrates legacy weeklyHoursMax to target and ceiling and defaults lap steps off", async () => {
+  it("migrates legacy weeklyHoursMax to target and ceiling and defaults verified lap steps on", async () => {
     await fs.writeFile(
       p("block-settings.json"),
       JSON.stringify({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: undefined, maxAvailableHours: undefined, lapButtonSteps: undefined, weeklyHoursMax: 30 }),
@@ -598,7 +598,7 @@ describe("updateBlockSettings", () => {
     const settings = await readBlockSettings();
     expect(settings.targetWeeklyHours).toBe(30);
     expect(settings.maxAvailableHours).toBe(30);
-    expect(settings.lapButtonSteps).toBe(false);
+    expect(settings.lapButtonSteps).toBe(true);
 
     const updated = await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 }));
     expect(updated.targetWeeklyHours).toBe(30);
