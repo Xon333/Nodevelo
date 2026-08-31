@@ -296,7 +296,7 @@ function compileDistributedDurability(
   });
   const mainSteps: PrescriptionStep[] = [];
   for (let rep = 0; rep < recipe.reps; rep += 1) {
-    if (gaps[rep] > 0) mainSteps.push(powerEasyStep(gaps[rep], rep === 0 ? "active" : "recovery", input.hrCeilingBpm, rep === 0 ? 2 : 1));
+    if (gaps[rep] > 0) mainSteps.push(powerEasyStep(gaps[rep], rep === 0 ? "active" : "recovery", rep === 0 ? input.hrCeilingBpm : null, rep === 0 ? 2 : 1));
     mainSteps.push(powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct));
   }
   if (gaps[recipe.reps] > 0) mainSteps.push(powerEasyStep(gaps[recipe.reps], "active", input.hrCeilingBpm, 2));

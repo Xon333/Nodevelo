@@ -194,6 +194,26 @@ describe("compileWorkoutTemplate — easy and durability protocols", () => {
     expect(positions.at(-1)).toBeGreaterThan(100 * 60);
   });
 
+  it("keeps the HR ceiling on durability E steady Z2 but not between-effort recovery", () => {
+    const prescription = compileWorkoutTemplate(input("Z2", {
+      slot: slot(150),
+      durabilityTemplateId: "E",
+      hrCeilingBpm: 145,
+    })).prescription!;
+    const mainSteps = prescription.sections.find((section) => section.name === "Main Set")!.steps;
+    const steadyZ2 = mainSteps.filter((step) =>
+      step.target.kind === "power-zone" && step.target.minZone === 2
+    );
+    const recoveryZ1 = mainSteps.filter((step) =>
+      step.role === "recovery" && step.target.kind === "power-zone" && step.target.minZone === 1
+    );
+
+    expect(steadyZ2).toHaveLength(2);
+    expect(steadyZ2.every((step) => step.hrCeilingBpm === 145)).toBe(true);
+    expect(recoveryZ1).toHaveLength(5);
+    expect(recoveryZ1.every((step) => step.hrCeilingBpm === undefined)).toBe(true);
+  });
+
   it.each(["A", "B", "C", "D", "E"] as DurabilityTemplateId[])("overrides durability %s to steady A in recovery weeks", (durabilityTemplateId) => {
     const result = compileWorkoutTemplate(input("Z2", {
       slot: slot(90),
