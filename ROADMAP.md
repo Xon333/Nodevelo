@@ -1,6 +1,6 @@
 # NodeVelo roadmap
 
-*Last reconciled 2026-08-28.* The forward backlog — open work only.
+*Last reconciled 2026-08-31.* The forward backlog — open work only.
 
 Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
 The adversarial review is the **master decision record for the freeze**. Its
@@ -41,14 +41,13 @@ explicitly says evidence-only.
 
 ### Phase 2 · Make the core journey excellent
 
-#### FR-3 · Core-journey task audit — READY, owner-deferred behind FR-5
+#### FR-3 · Core-journey task audit — READY
 
 - **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
   [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
   and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
 - **Verified current state:** Today, Plan, the ride closeout, and the adaptive-week path are live;
-  FR-1's attended evidence run is closed, but the owner explicitly deferred this audit behind FR-5
-  on 2026-08-28.
+  FR-1's attended evidence run and FR-5 acceptance are closed.
 - **Remaining outcome:** observe Today → Plan → ride → closeout → adaptive week as tasks; record
   failures, confusion, avoidable prose, lost-state risks, and latency before proposing changes.
 - **Entry gate:** FR-1 closed.
@@ -79,28 +78,16 @@ explicitly says evidence-only.
 
 ### Phase 3 · Reduce Claude's generation authority
 
-#### FR-5 · Owner-attended deterministic generation acceptance — READY
-
-- **Implemented baseline:** deterministic target/ceiling settings, typed canonical workout syntax,
-  protocol catalogue, joint slot compiler, Anthropic-free `/api/generate`, and the unchanged
-  preview/publication passport boundary are recorded in [ARCHIVE](ARCHIVE.md#fr-5-deterministic-generation-authority-2026-08-30).
-- **Remaining evidence:** run the five varied deterministic cases twice with Anthropic unset, then
-  complete the owner-approved Intervals.icu graph and representative Wahoo power/HR execution checks.
-  Record only observed values in `docs/reviews/2026-08-29-fr5-acceptance.md`; do not pre-create or
-  pre-fill that record.
-- **Exit gate:** every acceptance row contains observed evidence and the final verdict is `PASS`.
-- **Non-goals:** further compiler behavior, provider changes, automatic publication, or UI redesign.
-
-#### FR-6 · Provider/model/cost experiment — SEPARATE, BLOCKED on FR-5 baseline
+#### FR-6 · Provider/model/cost experiment — READY
 
 - **Review basis:** [maintainability](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#maintainability)
   and decision [Q5/Q11](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
 - **Verified current state:** `lib/anthropic-config.ts` and `lib/ai-usage.ts` provide the current
-  provider/configuration and usage surfaces; the FR-5 deterministic baseline exists but its attended
-  acceptance record remains open.
+  provider/configuration and usage surfaces; the FR-5 deterministic baseline and its
+  [attended acceptance record](docs/reviews/2026-08-29-fr5-acceptance.md) are closed.
 - **Remaining outcome:** hold inputs and prompts constant; compare validity, publication findings,
   usefulness, latency, and cost. Change a live route only if measured results justify it.
-- **Entry gate:** FR-5 acceptance record closed.
+- **Entry gate:** satisfied by the accepted FR-5 record.
 - **Plan scope:** `lib/anthropic-config.ts`, `lib/anthropic-api.ts`, `lib/ai-usage.ts`,
   `app/api/generate/route.ts`, and the publication-gate evidence record; preserve the FR-5
   deterministic-authority decision surface.

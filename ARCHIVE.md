@@ -26,9 +26,10 @@ This supersedes every historical statement below that approved or adopted retros
 reflections, directives, or knowledge-base prose can steer generation. Those approval/adoption stamps
 now record acknowledgement and workflow history only; deterministic generation never reads them.
 
-The owner-attended five-case, Intervals.icu, and Wahoo evidence remains explicitly open as
-[ROADMAP FR-5](ROADMAP.md#fr-5--owner-attended-deterministic-generation-acceptance--ready). Its
-acceptance record must not be created until those observations exist.
+The [acceptance record](docs/reviews/2026-08-29-fr5-acceptance.md) closes FR-5: five varied
+Anthropic-unset generations were stable across two runs with zero blockers, the owner-approved plan
+published cleanly to Intervals.icu, and the owner confirmed the representative Wahoo workouts were
+acceptable with no problematic degradation reported.
 
 ---
 

@@ -1,25 +1,29 @@
 # FR-5 acceptance evidence
 
 **Date:** 2026-08-31  
-**Implementation commit:** `5d346685a89653ad8dfdabe510577441d239b690`
+**Implementation commit:** `96d5371123747c64b900ee6436c9af3bc9c98105`
 
 ## Automated verification
 
-- `npm run check`: pass at 2026-08-31 17:36 CEST — TypeScript, ESLint, 118 test files / 2,504 tests, agent-workflow guards, sync tests, and 143-file link check all passed.
-- Anthropic-unset generation: pass at 2026-08-31 17:32 CEST. The ten requests ran against an isolated copy of the current implementation and athlete data; the live app data and published block were not changed.
-- Retained evidence: `.git/worktrees/codex-fr5-deterministic-authority-design/sdd/task-7-current-head-evidence/` (outside the repository worktree).
+- `npm run check`: pass at 2026-08-31 18:10 CEST — TypeScript, ESLint, 118 test files / 2,504 tests, agent-workflow guards, sync tests, and the 143-file link check all passed.
+- Anthropic-unset generation: pass. The ten requests ran against an isolated copy of the current
+  implementation and athlete data. Controlled synthetic recent-exposure fixtures were added only to
+  the isolated copies to select the five named focuses; live data and the published block were untouched.
+- Retained evidence: `.git/worktrees/codex-fr5-deterministic-authority-design/sdd/task-7-final-evidence/` (outside the repository worktree).
 
 ## Varied deterministic generations
 
-Each case was generated twice through the local `/api/generate` route with `ANTHROPIC_API_KEY` unset. `plan.raw`, `plan.days`, preferences, every date, and weekly duration sums matched between repeats. No response contained `model` or `promptVersion`.
+Each case was generated twice through the local `/api/generate` route with `ANTHROPIC_API_KEY` unset.
+`plan.raw`, `plan.days`, and preferences were identical between repeats. No response contained `model`
+or `promptVersion`.
 
 | Case | Input summary | Stable repeat | Days | Weekly sums | Blockers | Notes |
 |---|---|---:|---:|---|---:|---|
-| 1 | Two-week Threshold; 10h target equals 10h ceiling | Yes | 14 | 360, 600 min | 0 | Recovery placement reduced week 1; the loading week reached the ceiling. |
-| 2 | Four-week VO2max; 9h target below 12h ceiling | Yes | 28 | 360, 540, 540, 540 min | 0 | Recovery week retained. |
-| 3 | Six-week anaerobic; three quality slots | Yes | 42 | 396, 660, 660, 660, 396, 660 min | 0 | Eight stable spacing preferences; all quality slots remained deterministic. |
-| 4 | Four-week hilly-race/terrain goal | Yes | 28 | 360, 600, 600, 600 min | 0 | RaceSim placed deterministically in each loading week. |
-| 5 | Eight-week constrained block with a 2026-09-12 event | Yes | 56 | 300, 480, 480, 480, 300, 480, 480, 480 min | 0 | Event day preserved as RaceSim; constrained 8h ceiling and recovery weeks retained. |
+| 1 | Threshold; 14 days | Yes | 14 | 360, 600 min | 0 | No preferences. |
+| 2 | VO2max; 28 days | Yes | 28 | 360, 540, 540, 540 min | 0 | No preferences. |
+| 3 | Anaerobic; 42 days | Yes | 42 | 396, 660, 660, 660, 396, 660 min | 0 | Eight stable spacing preferences. |
+| 4 | Durability terrain/race; 28 days | Yes | 28 | 360, 600, 600, 600 min | 0 | RaceSim present. |
+| 5 | Threshold constrained event; 56 days | Yes | 56 | 300, 480, 480, 480, 300, 480, 480, 480 min | 0 | RaceSim on the event day. |
 
 ## Intervals.icu inspection
 
@@ -33,10 +37,11 @@ Each case was generated twice through the local `/api/generate` route with `ANTH
 
 ## Wahoo execution
 
-- Representative power workout: owner confirmed on 2026-08-31 that the final published workouts work on Wahoo.
-- Power-led Z2 with HR ceiling cue: owner confirmed the final published workouts work; no target-family conflict was reported.
-- Ramp degradation: no problematic degradation was reported for the final published workouts.
-- Press lap: the owner separately verified during FR-5 acceptance that `Press lap` advances from the Z2 readiness step into the prescribed work interval on Wahoo, and confirmed the final publication works.
+The owner was explicitly asked to report the final Threshold/SIT behavior, the power-led Z2 HR-cap
+cue, and the warmup ramp, and replied `wahoo works`. This records those final workouts as
+owner-confirmed acceptable, with no problematic degradation reported; it does not claim whether the
+ramp executed linearly or as a band. Earlier, the owner separately confirmed that `Press lap`
+advances into the next interval on Wahoo.
 
 ## Verdict
 

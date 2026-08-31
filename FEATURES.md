@@ -83,7 +83,7 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Typed canonical workout syntax** — every cycling prescription has one power or heart-rate target
   family and must survive typed render → parse semantic equality. Stock templates use power; parsing
   still supports stored HR syntax. Supports standard zones/% targets,
-  repeats, cues, warmup/cooldown ramps, HR-cap cue text, and guarded default-off `Press lap`; generates
+  repeats, cues, warmup/cooldown ramps, HR-cap cue text, and guarded default-on `Press lap`; generates
   no cadence targets. `lib/prescription.ts`, `lib/workout-templates.ts`
 - **KB-grounded protocol validation** — every generated workout checked against KB interval bands
   (SIT 4–6×30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); protocol breaches block publication.

@@ -1,7 +1,7 @@
 # FR-5 deterministic authority design
 
 **Date:** 2026-08-29  
-**Status:** Implemented on 2026-08-30; owner-attended acceptance pending
+**Status:** Accepted on 2026-08-31
 
 ## Outcome
 
@@ -15,6 +15,7 @@ future plan.
 
 This design implements [ARCHIVE FR-5](../../../ARCHIVE.md#fr-5-deterministic-generation-authority-2026-08-30)
 and preserves the contracts in [INVARIANTS](../../INVARIANTS.md).
+Final evidence is recorded in the [FR-5 acceptance record](../../reviews/2026-08-29-fr5-acceptance.md).
 
 ## Settled scope
 

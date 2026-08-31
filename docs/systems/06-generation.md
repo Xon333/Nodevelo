@@ -93,7 +93,7 @@ Core gate owners remain `workout-validate.ts`, `schedule-validate.ts`, `block-sk
 - Event duration comes from the displaced slot because the event model has no authoritative duration field.
 - Canonical weekday placement is deliberately fixed; three or more quality sessions can make adjacency unavoidable and therefore a preference rather than a blocker.
 - Event-date exclusion in `schedule-validate.ts` is still priority-blind: any event date is excluded from its quality/recovery/taper counts.
-- Owner-attended Intervals.icu and Wahoo acceptance remains an evidence task, tracked in [ROADMAP FR-5](../../ROADMAP.md#fr-5--owner-attended-deterministic-generation-acceptance--ready).
+- Owner-attended Intervals.icu and Wahoo acceptance is complete; see the [FR-5 acceptance record](../reviews/2026-08-29-fr5-acceptance.md).
 
 ## Provenance & regeneration semantics
 
