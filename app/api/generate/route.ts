@@ -157,16 +157,6 @@ export async function POST(req: Request) {
       ])),
     ])));
     const hrZones = physRead.store ? resolveHrZones(physRead.store.current) : [];
-    // Claim the single passport slot before composition. The pending hash can never match a plan's
-    // SHA-256 verdict hash, and the final locked CAS prevents concurrent generations borrowing or
-    // erasing each other's authority.
-    const claimHash = `pending:${randomUUID()}`;
-    await saveGenerationVerdict({
-      verdictHash: claimHash,
-      blockers: [],
-      preferences: [],
-      createdAt: new Date().toISOString(),
-    });
     const compiled = compileTrainingBlock({
       blockParams,
       settings: blockSettings,
@@ -190,6 +180,15 @@ export async function POST(req: Request) {
           ? { mode: "event-anchored", plan: replannedSeason }
           : { mode: "rolling", focus: rollingFocusChoice.focus },
       },
+    });
+    // Claim the single passport slot only after compilation succeeds. The pending hash can never
+    // match a plan's verdict, and the final CAS keeps concurrent generations isolated.
+    const claimHash = `pending:${randomUUID()}`;
+    await saveGenerationVerdict({
+      verdictHash: claimHash,
+      blockers: [],
+      preferences: [],
+      createdAt: new Date().toISOString(),
     });
     const plan = compiled.plan;
     const verdictResult = await replaceGenerationVerdict(claimHash, {

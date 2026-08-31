@@ -214,7 +214,7 @@ describe("POST /api/generate — guards and degradation", () => {
     vi.mocked(store.saveGenerationVerdict).mockRejectedValueOnce(new Error("disk full"));
     const res = await gen();
     expect(res.status).toBe(502);
-    expect(compiler.compileTrainingBlock).not.toHaveBeenCalled();
+    expect(compiler.compileTrainingBlock).toHaveBeenCalledOnce();
   });
 
   it("does not let failed generation A erase or borrow concurrent generation B's passport", async () => {
@@ -245,10 +245,20 @@ describe("POST /api/generate — guards and degradation", () => {
   });
 
   it("maps compiler failures to 502 and does not persist season state", async () => {
+    const validPassport: GenerationVerdict = {
+      verdictHash: "existing-valid-passport",
+      blockers: [],
+      preferences: [],
+      createdAt: "2026-06-14T00:00:00.000Z",
+    };
+    persistedVerdict = validPassport;
     vi.mocked(compiler.compileTrainingBlock).mockImplementationOnce(() => { throw new Error("compile failed"); });
     const res = await gen();
     expect(res.status).toBe(502);
     expect((await res.json()).error).toBe("compile failed");
+    expect(persistedVerdict).toEqual(validPassport);
+    expect(store.saveGenerationVerdict).not.toHaveBeenCalled();
+    expect(store.replaceGenerationVerdict).not.toHaveBeenCalled();
     expect(store.updateSeasonPlan).not.toHaveBeenCalled();
   });
 
