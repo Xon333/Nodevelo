@@ -1,6 +1,6 @@
 # FR-13 early-end retrospective effective-window design
 
-**Date:** 2026-09-01  
+**Date:** 2026-09-01
 **Status:** Accepted on 2026-09-01
 
 ## Outcome

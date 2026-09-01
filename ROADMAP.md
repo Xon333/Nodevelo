@@ -41,39 +41,9 @@ explicitly says evidence-only.
 
 ### Phase 2 · Make the core journey excellent
 
-#### FR-3 · Core-journey task audit — EVIDENCE COMPLETE
-
-- **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
-  [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
-  and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
-- **Verified current state:** the
-  [accepted FR-3 audit](docs/reviews/2026-09-01-fr3-core-journey-audit.md) records the attended
-  Today → Plan → ride → closeout → adaptive-week journey and selects FR3-01 as its one
-  FR-4 candidate.
-- **Remaining outcome:** none; the evidence package is complete.
-- **Entry gate:** FR-1 closed.
-- **Plan scope:** no implementation plan exists until this audit selects a failure. The audit covers
-  `app/today/page.tsx`, `app/plan/page.tsx`, `app/api/retrospective/route.ts`, and the adaptive
-  path in `lib/season.ts`; its findings record is the decision surface for FR-4.
-- **Exit evidence:** task-by-task findings ranked by correctness, completion failure, and repeated
-  friction; no aesthetic-only backlog.
-- **Non-goals:** page consolidation, new surfaces, or implementation during the audit.
-
-#### FR-4 · Core-journey fixes — SELECTED
-
-- **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
-  [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
-  and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
-- **Verified current state:** FR3-01, early-end retrospective narratives counting unlived future
-  sessions, is the one selected failure. FR-13 owns the bounded correction.
-- **Remaining outcome:** none at this umbrella level; implement and verify FR-13.
-- **Entry gate:** satisfied by the accepted FR-3 audit.
-- **Plan scope:** delegated to FR-13; the other FR-3 findings remain outside this package.
-- **Exit evidence:** one selected finding cites FR-3 evidence; one new additive package/spec/plan
-  targets it; repeated task completion no longer shows that failure without regressing publication
-  or turnover gates.
-- **Non-goals:** a portfolio of fixes, unrelated UI polish, or scope not supported by the selected
-  FR-3 evidence.
+FR-3 evidence collection and FR-4 selection/planning are complete; their decision record is in
+[ARCHIVE](ARCHIVE.md#fr-3--fr-4-core-journey-audit-and-selection-2026-09-01). FR-13 is the single
+implementation package selected from that work.
 
 #### FR-13 · Early-end retrospective effective window — READY
 
