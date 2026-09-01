@@ -64,6 +64,12 @@ export interface BlindReviewRow {
   output: string;
 }
 
+export interface IndependentGroundingFacts {
+  allowedDates: string[];
+  allowedNumericTokens: string[];
+  forbiddenClaims: string[];
+}
+
 const TWO_WEEK_RIDE_DAYS = 11;
 const TWO_WEEK_COST_BUDGET_USD = 0.25;
 
@@ -145,6 +151,95 @@ export function blindReviewRows(
     category: result.category,
     output: result.output,
   }));
+}
+
+/**
+ * A deliberately conservative first-pass check for claims that can be compared
+ * mechanically with independently authored fixture facts. Semantic grounding
+ * remains part of the blind human review.
+ */
+export function findUnsupportedClaims(
+  output: string,
+  facts: IndependentGroundingFacts,
+): string[] {
+  const unsupported: Array<{ index: number; message: string }> = [];
+  const allowedDates = new Set(facts.allowedDates);
+  const allowedNumbers = new Set(
+    facts.allowedNumericTokens.map(normalizeNumericToken),
+  );
+
+  for (const match of output.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g)) {
+    const value = match[0];
+    if (!allowedDates.has(value)) {
+      unsupported.push({
+        index: match.index,
+        message: `unsupported date: ${value}`,
+      });
+    }
+  }
+
+  const numericPatterns = [
+    /\b\d+(?:\.\d+)?\s*(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)\b/gi,
+    /\b(?:TSS|CTL|FTP|execution(?:\s+EWMA)?)\s*:?\s*\d+(?:\.\d+)?\b/gi,
+    /\b(?:RPE\s*:?\s*)?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
+  ];
+  const seenNumeric = new Set<string>();
+  for (const pattern of numericPatterns) {
+    for (const match of output.matchAll(pattern)) {
+      const normalized = normalizeNumericToken(match[0]);
+      const key = `${match.index}:${normalized}`;
+      if (!seenNumeric.has(key) && !allowedNumbers.has(normalized)) {
+        seenNumeric.add(key);
+        unsupported.push({
+          index: match.index,
+          message: `unsupported numeric claim: ${compactNumericToken(match[0])}`,
+        });
+      }
+    }
+  }
+
+  for (const phrase of facts.forbiddenClaims) {
+    const pattern = new RegExp(
+      `\\b${escapeRegExp(phrase).replace(/\\ /g, "\\s+")}\\b`,
+      "i",
+    );
+    const match = pattern.exec(output);
+    if (match) {
+      unsupported.push({
+        index: match.index,
+        message: `forbidden claim: ${phrase}`,
+      });
+    }
+  }
+
+  return unsupported
+    .sort((left, right) => left.index - right.index)
+    .map(({ message }) => message);
+}
+
+function normalizeNumericToken(token: string): string {
+  const compact = token
+    .toLowerCase()
+    .replace(/minutes?/g, "min")
+    .replace(/watts?/g, "w")
+    .replace(/hours?/g, "h")
+    .replace(/\s|:/g, "");
+  const prefix = compact.match(
+    /^(rpe|tss|ctl|ftp|execution(?:ewma)?)(\d+(?:\.\d+)?(?:\/10)?)$/,
+  );
+  if (!prefix) return compact;
+  if (prefix[1] === "rpe") return prefix[2];
+  return `${prefix[2]}${prefix[1]}`;
+}
+
+function compactNumericToken(token: string): string {
+  return token
+    .replace(/\s+(?=(?:W|watts?)\b)/i, "")
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function opaqueId(result: ExperimentResult, seed: string): string {
