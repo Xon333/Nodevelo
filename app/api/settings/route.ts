@@ -48,6 +48,7 @@ export async function PUT(req: Request) {
     // another's unrelated field changes.
     const updated = await updateBlockSettings((current) => {
       const num = (key: keyof BlockSettings, min: number, max: number): number => {
+        if (!(key in b)) return current[key] as number;
         const v = b[key] ?? current[key] ?? DEFAULT_BLOCK_SETTINGS[key];
         const n = Number(v);
         if (!Number.isFinite(n)) return current[key] as number;
@@ -55,8 +56,8 @@ export async function PUT(req: Request) {
       };
 
       const next: BlockSettings = {
-        weeklyHoursMin: num("weeklyHoursMin", 4, 25),
-        weeklyHoursMax: num("weeklyHoursMax", 4, 30),
+        targetWeeklyHours: num("targetWeeklyHours", 4, 25),
+        maxAvailableHours: num("maxAvailableHours", 4, 30),
         recoveryWeekHoursMin: num("recoveryWeekHoursMin", 2, 15),
         recoveryWeekHoursMax: num("recoveryWeekHoursMax", 2, 15),
         qualitySessionsPerLoadingWeek: num("qualitySessionsPerLoadingWeek", 1, 4),
@@ -65,14 +66,15 @@ export async function PUT(req: Request) {
         polarisedApproach: typeof b.polarisedApproach === "boolean" ? b.polarisedApproach : current.polarisedApproach,
         autoSyncOnOpen: typeof b.autoSyncOnOpen === "boolean" ? b.autoSyncOnOpen : current.autoSyncOnOpen,
         autoPostCoachNote: typeof b.autoPostCoachNote === "boolean" ? b.autoPostCoachNote : current.autoPostCoachNote,
+        lapButtonSteps: typeof b.lapButtonSteps === "boolean" ? b.lapButtonSteps : current.lapButtonSteps,
         updatedAt: new Date().toISOString(),
       };
 
-      // UXA-3: each bound is clamped to its own floor/ceiling above, but nothing compared the pair —
-      // a min > max range saved silently and shipped straight into the generation prompt as a
-      // self-contradictory instruction.
-      if (next.weeklyHoursMin > next.weeklyHoursMax) {
-        throw new SettingsValidationError("Loading week: minimum hours can't be more than maximum hours.");
+      if (next.targetWeeklyHours > next.maxAvailableHours) {
+        throw new SettingsValidationError("Target weekly hours can't exceed maximum available hours.");
+      }
+      if (next.recoveryWeekHoursMin > next.maxAvailableHours) {
+        throw new SettingsValidationError("Recovery-week minimum hours can't exceed maximum available hours.");
       }
       if (next.recoveryWeekHoursMin > next.recoveryWeekHoursMax) {
         throw new SettingsValidationError("Recovery week: minimum hours can't be more than maximum hours.");

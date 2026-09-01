@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readGenerationVerdict, readInterventionLog, readSeasonPlan, saveGenerationVerdict, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
+import { applyGoalsMigration, appendBlockHistory, DEFAULT_PROFILE, mergeCurrentBlockDays, readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readGenerationVerdict, readInterventionLog, readSeasonPlan, replaceGenerationVerdict, saveGenerationVerdict, shapeMergeProfile, updateAthleteProfile, updateBlockHistory, updateBlockSettings, updateCurrentBlock, updateInterventionLog, updateSeasonPlan, writeAthleteProfile, writeCurrentBlock, writeSeasonPlan } from "./data-store";
 import { DEFAULT_BLOCK_SETTINGS } from "./types";
 import type { AthleteProfile, BlockHistoryEntry, CurrentBlock, GenerationVerdict, InterventionRecord, SeasonPlan } from "./types";
 
@@ -589,6 +589,25 @@ describe("updateAthleteProfile", () => {
 });
 
 describe("updateBlockSettings", () => {
+  it("migrates legacy weeklyHoursMax to target and ceiling and defaults verified lap steps on", async () => {
+    await fs.writeFile(
+      p("block-settings.json"),
+      JSON.stringify({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: undefined, maxAvailableHours: undefined, lapButtonSteps: undefined, weeklyHoursMax: 30 }),
+      "utf-8"
+    );
+    const settings = await readBlockSettings();
+    expect(settings.targetWeeklyHours).toBe(30);
+    expect(settings.maxAvailableHours).toBe(30);
+    expect(settings.lapButtonSteps).toBe(true);
+
+    const updated = await updateBlockSettings((current) => ({ ...current, restDaysPerWeek: 2 }));
+    expect(updated.targetWeeklyHours).toBe(30);
+    expect(updated.maxAvailableHours).toBe(30);
+    const persisted = JSON.parse(await fs.readFile(p("block-settings.json"), "utf-8"));
+    expect(persisted).not.toHaveProperty("weeklyHoursMin");
+    expect(persisted).not.toHaveProperty("weeklyHoursMax");
+  });
+
   it("HR-52: mutates and persists onto block-settings.json, stamping updatedAt centrally", async () => {
     await updateBlockSettings(() => ({ ...DEFAULT_BLOCK_SETTINGS, restDaysPerWeek: 1 }));
     // mutate leaves updatedAt at the DEFAULT_BLOCK_SETTINGS epoch placeholder — the wrapper must
@@ -726,6 +745,14 @@ describe("generation verdict store (generation-gate.json)", () => {
     expect(stored?.blockers).toEqual(["STRUCTURE: duplicate dates"]);
     // And nothing of the old record leaks through — the slot is whole-record replacement.
     expect(stored).toEqual(verdict("second-hash", { blockers: ["STRUCTURE: duplicate dates"] }));
+  });
+
+  it("replaces a pending verdict only while the caller still owns its claim", async () => {
+    await saveGenerationVerdict(verdict("pending:a"));
+    expect(await replaceGenerationVerdict("pending:a", verdict("a-final"))).toBe("saved");
+    await saveGenerationVerdict(verdict("pending:b"));
+    expect(await replaceGenerationVerdict("pending:a", verdict("stale-a-final"))).toBe("lost");
+    expect(await readGenerationVerdict()).toEqual(verdict("pending:b"));
   });
 
   it("corrupt file behaves like the sibling non-CRITICAL stores: reads back as null, not a crash", async () => {

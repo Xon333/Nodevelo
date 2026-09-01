@@ -3,13 +3,7 @@ import {
   checkBlockFeasibility,
   computeBlockSkeleton,
   computeWeekTargets,
-  formatBlockSkeleton,
-  formatWeekTargets,
   validateWeekHours,
-  type BlockSkeleton,
-  type DaySlot,
-  type SlotKind,
-  type WeekSkeleton,
   type WeekTarget,
 } from "./block-skeleton";
 import { DEFAULT_BLOCK_SETTINGS, type BlockSettings, type PlannedDay, type SeasonEvent, type SeasonFocus } from "./types";
@@ -24,9 +18,33 @@ describe("checkBlockFeasibility", () => {
     expect(checkBlockFeasibility(DEFAULT_BLOCK_SETTINGS)).toBeNull();
   });
 
-  it("flags weeklyHoursMin greater than weeklyHoursMax", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMin: 13, weeklyHoursMax: 12 };
-    expect(checkBlockFeasibility(settings)).toMatch(/weeklyHoursMin.*greater than weeklyHoursMax/);
+  it("uses targetWeeklyHours for loading load and maxAvailableHours only as a ceiling", () => {
+    const settings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 10, maxAvailableHours: 14 };
+    expect(computeWeekTargets(2, settings, [])).toEqual([
+      { weekNumber: 1, isRecovery: false, targetHours: 10 },
+      { weekNumber: 2, isRecovery: false, targetHours: 10 },
+    ]);
+    expect(checkBlockFeasibility(settings)).toBeNull();
+  });
+
+  it("rejects a target above available time", () => {
+    expect(checkBlockFeasibility({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 13, maxAvailableHours: 12 }))
+      .toMatch(/target.*available/i);
+  });
+
+  it("rejects a loading target below the minimum realistic content even when availability fits", () => {
+    expect(checkBlockFeasibility({ ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 6, maxAvailableHours: 12 }))
+      .toMatch(/minimum realistic content.*6h weekly target/i);
+  });
+
+  it("rejects a recovery minimum above available time", () => {
+    expect(checkBlockFeasibility({
+      ...DEFAULT_BLOCK_SETTINGS,
+      targetWeeklyHours: 4,
+      maxAvailableHours: 4,
+      recoveryWeekHoursMin: 6,
+      recoveryWeekHoursMax: 8,
+    })).toMatch(/recovery.*minimum.*available/i);
   });
 
   it("flags too many fixed-shape days for a 7-day week", () => {
@@ -35,22 +53,30 @@ describe("checkBlockFeasibility", () => {
     expect(checkBlockFeasibility(settings)).toMatch(/more than a 7-day week holds/);
   });
 
-  it("flags a weekly hour ceiling too low for the required content", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 5, weeklyHoursMin: 4, qualitySessionsPerLoadingWeek: 3, longRideDurationMinutes: 180 };
-    expect(checkBlockFeasibility(settings)).toMatch(/already over the 5h weekly ceiling/);
+  it("flags a weekly target too low for the required content", () => {
+    const settings: BlockSettings = {
+      ...DEFAULT_BLOCK_SETTINGS,
+      targetWeeklyHours: 5,
+      maxAvailableHours: 5,
+      recoveryWeekHoursMin: 2,
+      recoveryWeekHoursMax: 5,
+      qualitySessionsPerLoadingWeek: 3,
+      longRideDurationMinutes: 180,
+    };
+    expect(checkBlockFeasibility(settings)).toMatch(/already over the 5h weekly target/);
   });
 
   it("passes a tight but genuinely feasible configuration", () => {
     // 2 quality (45min floor each) + 1 long ride (180min) + 1 rest + 3 easy days (60min floor each)
     // = 90 + 180 + 180 = 450min = 7.5h, under an 8h ceiling.
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 8, weeklyHoursMin: 6, qualitySessionsPerLoadingWeek: 2, longRideDurationMinutes: 180, restDaysPerWeek: 1 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 8, maxAvailableHours: 8, qualitySessionsPerLoadingWeek: 2, longRideDurationMinutes: 180, restDaysPerWeek: 1 };
     expect(checkBlockFeasibility(settings)).toBeNull();
   });
 });
 
 describe("computeWeekTargets", () => {
-  it("targets weeklyHoursMax flat for every non-recovery week", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 12 };
+  it("targets targetWeeklyHours flat for every non-recovery week", () => {
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 12 };
     const targets = computeWeekTargets(3, settings, []);
     expect(targets).toEqual([
       { weekNumber: 1, isRecovery: false, targetHours: 12 },
@@ -60,34 +86,32 @@ describe("computeWeekTargets", () => {
   });
 
   it("derives recovery-week depth from the loading target, clamped to the configured band", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
     const targets = computeWeekTargets(4, settings, [3]); // 0-indexed week 3 = weekNumber 4
     expect(targets[3]).toEqual({ weekNumber: 4, isRecovery: true, targetHours: 7.2 }); // 60% of 12h
   });
 
   it("clamps the derived recovery figure down when the configured max is tighter", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 7 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 12, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 7 };
     const targets = computeWeekTargets(1, settings, [0]);
     expect(targets[0].targetHours).toBe(7); // 60% of 12 = 7.2, clamped down to the 7h ceiling
   });
 
   it("clamps the derived recovery figure up when the configured min is higher", () => {
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 8, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 8, recoveryWeekHoursMin: 6, recoveryWeekHoursMax: 9 };
     const targets = computeWeekTargets(1, settings, [0]);
     expect(targets[0].targetHours).toBe(6); // 60% of 8 = 4.8, clamped up to the 6h floor
   });
-});
 
-describe("formatWeekTargets", () => {
-  it("renders one exact figure per week, labelled loading/recovery", () => {
-    const targets: WeekTarget[] = [
-      { weekNumber: 1, isRecovery: false, targetHours: 12 },
-      { weekNumber: 2, isRecovery: true, targetHours: 7 },
-    ];
-    const text = formatWeekTargets(targets);
-    expect(text).toContain("Week 1 (LOADING): target 12h total");
-    expect(text).toContain("Week 2 (RECOVERY): target 7h total");
-    expect(text).not.toMatch(/\d+–\d+h/); // no ranges anywhere
+  it("caps a recovery target to availability when the recovery band starts above it", () => {
+    const settings: BlockSettings = {
+      ...DEFAULT_BLOCK_SETTINGS,
+      targetWeeklyHours: 4,
+      maxAvailableHours: 4,
+      recoveryWeekHoursMin: 6,
+      recoveryWeekHoursMax: 8,
+    };
+    expect(computeWeekTargets(1, settings, [0])[0].targetHours).toBe(4);
   });
 });
 
@@ -159,8 +183,8 @@ describe("computeBlockSkeleton", () => {
   it("locks only the FIRST loading-week quality slot to the block's focus type; later slots stay flexible", () => {
     // DEFAULT_BLOCK_SETTINGS.qualitySessionsPerLoadingWeek is 2 — this is the over-constraint defect:
     // locking BOTH quality slots to the focus type contradicts validatePrimaryQualityCadence (which
-    // only requires >=1 focus-type session per loading week), forecloses formatFocusCoverageLine's own
-    // "RaceSim fills a slot when it doesn't crowd out the primary" allowance, and makes
+    // only requires >=1 focus-type session per loading week), forecloses RaceSim when it does not
+    // crowd out the primary, and makes
     // deriveSessionRequirements'/validateSessionRequirements' block-wide >=1-RaceSim floor
     // unsatisfiable when the goal is terrain/race-driven (lib/season.ts, lib/session-requirements.ts).
     const sk = computeBlockSkeleton("2026-08-03", weeks(1), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
@@ -175,13 +199,13 @@ describe("computeBlockSkeleton", () => {
     expect(q[1].locked).toBe(false);
   });
 
-  it("keeps a recovery week's single quality slot locked to the focus type", () => {
-    // A recovery week has at most one quality slot (RECOVERY_QUALITY_CAP); the loading-week
-    // second-slot flexibility must not leak into it — the single retained touch stays the primary.
+  it("locks a recovery week's single quality slot to the settled Threshold touch", () => {
+    // Recovery owns a dedicated low-end Threshold touch regardless of the loading focus. The
+    // skeleton and compiler must expose the same allowed type or a valid VO2/SIT block cannot compile.
     const sk = computeBlockSkeleton("2026-08-03", weeks(1, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
     const q = sk.weeks[0].days.filter((d) => d.kind === "quality");
     expect(q).toHaveLength(1);
-    expect(q[0].allowedTypes).toEqual(["SIT"]);
+    expect(q[0].allowedTypes).toEqual(["Threshold"]);
     expect(q[0].locked).toBe(true);
   });
 
@@ -225,7 +249,7 @@ describe("computeBlockSkeleton", () => {
   // real protocol length) and its flexible second slot takes the 75min middle figure — 130min total.
   it("clamps easy days DOWN to the ceiling and grows the long ride by exactly what they gave up", () => {
     // easyTotal = 1200 - 180 - 130 = 890min / 3 easy days = ~297min each, over the 150min ceiling.
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 20 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 20, maxAvailableHours: 20 };
     const target = computeWeekTargets(1, settings, [])[0];
     const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
     const days = sk.weeks[0].days;
@@ -240,7 +264,7 @@ describe("computeBlockSkeleton", () => {
 
   it("clamps easy days UP to the floor and shrinks the long ride by exactly what they took", () => {
     // easyTotal = 360 - 180 - 130 = 50min / 3 easy days = ~17min each, under the 45min floor.
-    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 6 };
+    const settings: BlockSettings = { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 6 };
     const target = computeWeekTargets(1, settings, [])[0];
     const sk = computeBlockSkeleton("2026-08-03", [target], settings, "anaerobic", []);
     const days = sk.weeks[0].days;
@@ -329,7 +353,7 @@ describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => 
   // filtered through checkBlockFeasibility first — this function's contract does not state "assumes
   // pre-validated settings" as a precondition, so the sweep includes combinations feasibility would
   // reject (that's exactly how I3 and I4 were reproduced) as well as ones it passes (C2's shape).
-  const WEEKLY_HOURS_MAX = [2, 6, 10, 12, 20, 30];
+  const MAX_AVAILABLE_HOURS = [2, 6, 10, 12, 20, 30];
   const LONG_RIDE_MIN = [10, 120, 180, 300];
   const REST_DAYS = [0, 1, 2, 3];
   const QUALITY_SESSIONS = [0, 1, 2, 3, 4];
@@ -340,34 +364,39 @@ describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => 
   it("holds for every combination in the matrix (no events)", () => {
     const failures: string[] = [];
     let combos = 0;
-    for (const weeklyHoursMax of WEEKLY_HOURS_MAX) {
-      for (const longRideDurationMinutes of LONG_RIDE_MIN) {
-        for (const restDaysPerWeek of REST_DAYS) {
-          for (const qualitySessionsPerLoadingWeek of QUALITY_SESSIONS) {
-            for (const lengthWeeks of BLOCK_LENGTHS) {
-              for (const recoveryPresent of RECOVERY_PRESENT) {
-                for (const focus of FOCI) {
-                  combos++;
-                  // recoveryWeekHoursMin/Max relaxed to [0, weeklyHoursMax] so a low weeklyHoursMax
-                  // extreme actually propagates into the recovery week's target too, instead of being
-                  // floor-clamped back up by the population-default recovery band.
-                  const settings: BlockSettings = {
-                    ...DEFAULT_BLOCK_SETTINGS,
-                    weeklyHoursMax,
-                    longRideDurationMinutes,
-                    restDaysPerWeek,
-                    qualitySessionsPerLoadingWeek,
-                    recoveryWeekHoursMin: 0,
-                    recoveryWeekHoursMax: weeklyHoursMax,
-                  };
-                  const recoveryIdx = recoveryPresent ? [lengthWeeks - 1] : [];
-                  const targets = computeWeekTargets(lengthWeeks, settings, recoveryIdx);
-                  const sk = computeBlockSkeleton("2026-08-03", targets, settings, focus, []);
-                  assertWeekInvariants(
-                    sk,
-                    `hrs=${weeklyHoursMax} ride=${longRideDurationMinutes} rest=${restDaysPerWeek} q=${qualitySessionsPerLoadingWeek} len=${lengthWeeks} rec=${recoveryPresent} focus=${focus}`,
-                    failures
-                  );
+    for (const [ceilingIndex, maxAvailableHours] of MAX_AVAILABLE_HOURS.entries()) {
+      // Reuse the original sweep's target values while covering both target=ceiling and target<ceiling.
+      const lowerTarget = MAX_AVAILABLE_HOURS[Math.max(0, ceilingIndex - 1)];
+      for (const targetWeeklyHours of [maxAvailableHours, lowerTarget]) {
+        for (const longRideDurationMinutes of LONG_RIDE_MIN) {
+          for (const restDaysPerWeek of REST_DAYS) {
+            for (const qualitySessionsPerLoadingWeek of QUALITY_SESSIONS) {
+              for (const lengthWeeks of BLOCK_LENGTHS) {
+                for (const recoveryPresent of RECOVERY_PRESENT) {
+                  for (const focus of FOCI) {
+                    combos++;
+                    // recoveryWeekHoursMin/Max relaxed to [0, maxAvailableHours] so a low ceiling
+                    // extreme actually propagates into the recovery week's target too, instead of being
+                    // floor-clamped back up by the population-default recovery band.
+                    const settings: BlockSettings = {
+                      ...DEFAULT_BLOCK_SETTINGS,
+                      targetWeeklyHours,
+                      maxAvailableHours,
+                      longRideDurationMinutes,
+                      restDaysPerWeek,
+                      qualitySessionsPerLoadingWeek,
+                      recoveryWeekHoursMin: 0,
+                      recoveryWeekHoursMax: maxAvailableHours,
+                    };
+                    const recoveryIdx = recoveryPresent ? [lengthWeeks - 1] : [];
+                    const targets = computeWeekTargets(lengthWeeks, settings, recoveryIdx);
+                    const sk = computeBlockSkeleton("2026-08-03", targets, settings, focus, []);
+                    assertWeekInvariants(
+                      sk,
+                      `target=${targetWeeklyHours} ceiling=${maxAvailableHours} ride=${longRideDurationMinutes} rest=${restDaysPerWeek} q=${qualitySessionsPerLoadingWeek} len=${lengthWeeks} rec=${recoveryPresent} focus=${focus}`,
+                      failures
+                    );
+                  }
                 }
               }
             }
@@ -375,8 +404,8 @@ describe("computeBlockSkeleton invariants — exhaustive settings sweep", () => 
         }
       }
     }
-    // 6 * 4 * 4 * 5 * 3 * 2 * 2 = 5760 settings combinations, each producing 2/4/8 weeks.
-    expect(combos).toBe(WEEKLY_HOURS_MAX.length * LONG_RIDE_MIN.length * REST_DAYS.length * QUALITY_SESSIONS.length * BLOCK_LENGTHS.length * RECOVERY_PRESENT.length * FOCI.length);
+    // 6 * 2 * 4 * 4 * 5 * 3 * 2 * 2 = 11520 settings combinations, each producing 2/4/8 weeks.
+    expect(combos).toBe(MAX_AVAILABLE_HOURS.length * 2 * LONG_RIDE_MIN.length * REST_DAYS.length * QUALITY_SESSIONS.length * BLOCK_LENGTHS.length * RECOVERY_PRESENT.length * FOCI.length);
     if (failures.length > 0) {
       throw new Error(`${failures.length} invariant violation(s) across ${combos} combos (showing up to 25):\n${failures.slice(0, 25).join("\n")}`);
     }
@@ -390,7 +419,7 @@ describe("computeBlockSkeleton invariants — events on every day (C1 sweep)", (
   const SETTINGS_VARIANTS: { label: string; settings: BlockSettings }[] = [
     { label: "default", settings: DEFAULT_BLOCK_SETTINGS },
     { label: "C2 collision shape", settings: { ...DEFAULT_BLOCK_SETTINGS, restDaysPerWeek: 2, qualitySessionsPerLoadingWeek: 3 } },
-    { label: "I3/I4 overshoot shape", settings: { ...DEFAULT_BLOCK_SETTINGS, weeklyHoursMax: 2, longRideDurationMinutes: 10 } },
+    { label: "I3/I4 overshoot shape", settings: { ...DEFAULT_BLOCK_SETTINGS, targetWeeklyHours: 2, maxAvailableHours: 2, longRideDurationMinutes: 10 } },
   ];
 
   it("an event on each of the seven days, loading and recovery, holds both invariants for every settings shape", () => {
@@ -444,176 +473,5 @@ describe("computeBlockSkeleton invariants — events on every day (C1 sweep)", (
     expect(sum).toBe(Math.round(targets[0].targetHours * 60));
     const ev = days.find((d) => d.date === "2026-08-04")!;
     expect(ev.duration.nominalMin).toBeGreaterThan(0);
-  });
-});
-
-// ---------- Phase B task 2: render the skeleton for the prompt ----------
-
-describe("formatBlockSkeleton", () => {
-  const sk = () =>
-    computeBlockSkeleton("2026-08-03", computeWeekTargets(2, DEFAULT_BLOCK_SETTINGS, [0]), DEFAULT_BLOCK_SETTINGS, "anaerobic", []);
-
-  it("renders one row per day with date, slot, type, duration and reason", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toContain("2026-08-04");
-    expect(out).toContain("SIT");
-    expect(out).toMatch(/\| *rest *\|/);
-  });
-
-  it("states the week total so the model can verify its own arithmetic", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toMatch(/sum to 432 min/); // recovery week 1: 7.2h
-    expect(out).toMatch(/sum to 720 min/); // loading week 2: 12h
-  });
-
-  it("names the types that are NOT allowed in a recovery week", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toMatch(/NOT this week: Threshold, VO2max, RaceSim/);
-  });
-
-  it("marks the skeleton as fixed and forbids adding, dropping or retyping days", () => {
-    const out = formatBlockSkeleton(sk());
-    expect(out).toMatch(/do NOT add, drop, move, merge or retype/i);
-  });
-});
-
-// Isolated, hand-built BlockSkeleton fixtures — decoupled from computeBlockSkeleton's own logic, so
-// these guard the RENDERER specifically (column wiring, the dropped-type derivation, event handling)
-// against mutation, independent of whatever computeBlockSkeleton happens to produce today.
-describe("formatBlockSkeleton — renderer mutation guards", () => {
-  function daySlot(overrides: Partial<DaySlot> & { date: string; kind: SlotKind }): DaySlot {
-    return {
-      allowedTypes: ["Z2"],
-      duration: { nominalMin: 60, minMin: 45, maxMin: 75 },
-      maxIntensityPct: null,
-      locked: false,
-      reason: "test slot",
-      ...overrides,
-    };
-  }
-
-  function week(overrides: Partial<WeekSkeleton> & { days: DaySlot[] }): WeekSkeleton {
-    return {
-      weekNumber: 1,
-      isRecovery: false,
-      targetHours: 1,
-      qualityBudget: 0,
-      ...overrides,
-    };
-  }
-
-  it("shows an event day's real planned duration, never as zero-length", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [
-        week({
-          days: [
-            daySlot({
-              date: "2026-08-08",
-              kind: "event",
-              allowedTypes: ["RaceSim"],
-              duration: { nominalMin: 90, minMin: 75, maxMin: 1440 },
-              reason: "KOM race",
-            }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toContain("90 min");
-    expect(out).not.toContain("| 0 |");
-  });
-
-  it("sums the footer using nominalMin across every day, including events", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [
-        week({
-          days: [
-            daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2"], duration: { nominalMin: 30, minMin: 15, maxMin: 45 } }),
-            daySlot({ date: "2026-08-04", kind: "event", allowedTypes: ["RaceSim"], duration: { nominalMin: 45, minMin: 30, maxMin: 1440 } }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/sum to 75 min/);
-  });
-
-  it("renders every allowed type for a multi-type flexible slot, not just the first", () => {
-    const sk: BlockSkeleton = {
-      focus: "durability",
-      weeks: [
-        week({
-          days: [daySlot({ date: "2026-08-04", kind: "quality", allowedTypes: ["Threshold", "VO2max", "SIT", "RaceSim"], reason: "flexible" })],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    for (const t of ["Threshold", "VO2max", "SIT", "RaceSim"]) expect(out).toContain(t);
-  });
-
-  it("labels a single-type slot with just that type, not a disjunction", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [week({ days: [daySlot({ date: "2026-08-03", kind: "quality", allowedTypes: ["SIT"] })] })],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/\| SIT \|/);
-    expect(out).not.toMatch(/SIT or/);
-  });
-
-  it("derives a full four-type drop line when a recovery week has no quality slot at all", () => {
-    // Guards the exact defect called out for this task: a hardcoded enumeration once named the
-    // surviving type as dropped and omitted a type that was genuinely absent. Here NONE of the four
-    // quality types appear anywhere in the week, so all four must be named.
-    const sk: BlockSkeleton = {
-      focus: "durability",
-      weeks: [
-        week({
-          isRecovery: true,
-          days: [
-            daySlot({ date: "2026-08-03", kind: "rest", allowedTypes: ["Rest"], duration: { nominalMin: 0, minMin: 0, maxMin: 0 } }),
-            daySlot({ date: "2026-08-08", kind: "longRide", allowedTypes: ["Z2"] }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/NOT this week: Threshold, VO2max, SIT, RaceSim/);
-  });
-
-  it("never emits a NOT-this-week line for a loading week", () => {
-    const sk: BlockSkeleton = {
-      focus: "durability",
-      weeks: [week({ isRecovery: false, days: [daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2", "Recovery"] })] })],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).not.toMatch(/NOT this week/);
-  });
-
-  it("renders an explicit intensity ceiling distinctly from an uncapped row", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [
-        week({
-          days: [
-            daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2"], maxIntensityPct: 75 }),
-            daySlot({ date: "2026-08-04", kind: "quality", allowedTypes: ["SIT"], maxIntensityPct: null }),
-          ],
-        }),
-      ],
-    };
-    const out = formatBlockSkeleton(sk);
-    expect(out).toMatch(/≤75% FTP/);
-    expect(out).toMatch(/\| — \|/);
-  });
-
-  it("is pure and deterministic: identical input yields an identical string", () => {
-    const sk: BlockSkeleton = {
-      focus: "anaerobic",
-      weeks: [week({ days: [daySlot({ date: "2026-08-03", kind: "easy", allowedTypes: ["Z2"] })] })],
-    };
-    expect(formatBlockSkeleton(sk)).toBe(formatBlockSkeleton(sk));
   });
 });

@@ -19,9 +19,7 @@ import { RECOVERY_QUALITY_CAP, type BlockSkeleton, type WeekTarget } from "./blo
 // ~0.80–0.88) and counts toward the quality budget + spacing the same as the interval types —
 // keeping intervals primary while race-sim breaks indoor-ladder monotony (see ROADMAP goal-driven
 // selection). Z2, Recovery, Strength and Rest are not hard and never trip these checks.
-// Exported: lib/season.ts's formatRecoveryWeeks derives its "what's dropped entirely" enumeration
-// from this same Set (minus the surviving type) rather than hardcoding its own copy — the two used to
-// drift (season.ts's list was correct only for `threshold`; whole-branch review, 2026-07-29).
+// Exported so recovery and publication validators share one quality-session definition.
 export const QUALITY_TYPES = new Set<WorkoutType>(["Threshold", "VO2max", "SIT", "RaceSim"]);
 
 function isQuality(day: PlannedDay): boolean {
@@ -124,8 +122,7 @@ export function validateSchedule(
 
 // P4 (2026-07-24 block-generation redesign): a lightweight taper tier for priority-B/C events, short
 // of full A-tier backward scheduling (`backwardScheduleFromEvent`, which only fires for priority-A —
-// see lib/season.ts). B/C events otherwise get only `formatUpcomingEventsForBlock`'s one-line "protect
-// this day" prompt callout, with zero deterministic load-shaping — which is how a real priority-B KOM
+// see lib/season.ts). B/C events need deterministic load-shaping here — a real priority-B KOM
 // attempt ended up with the block's single most quality-dense week landing immediately before it (live
 // review, 2026-07-24). Same warn-only contract as validateSchedule above: never reorders the plan.
 const QUALITY_FREE_DAYS_BEFORE_EVENT = 2;

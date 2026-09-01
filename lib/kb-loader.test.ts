@@ -5,7 +5,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { withExclusivePersistence, withPersistenceAccess } from "./persistence-gate";
 import {
   listKnowledgeFiles,
-  loadKnowledgeBaseContext,
   parseGoalsWeakpointsForMigration,
   readKnowledgeFile,
   stripGoalsWeakpointsSections,
@@ -35,7 +34,7 @@ afterAll(async () => {
 
 // CR-4: the loader must never hard-fail when knowledge-base/ is absent (a fresh clone / CI) — it
 // falls back to the committed knowledge-base-defaults/ skeleton. These invariants hold whether or not
-// a local KB exists, and guard against the defaults' README leaking into the editor list / prompt.
+// a local KB exists and guard against the defaults' README leaking into the editor list.
 describe("kb-loader resilience (CR-4)", () => {
   it("always lists the core KB files and never the defaults README", async () => {
     const files = await listKnowledgeFiles();
@@ -44,18 +43,6 @@ describe("kb-loader resilience (CR-4)", () => {
     expect(files).not.toContain("README.md");
   });
 
-  it("loads non-empty context without throwing, and never injects the README", async () => {
-    const ctx = await loadKnowledgeBaseContext();
-    expect(ctx.length).toBeGreaterThan(0);
-    expect(ctx).toContain("training_knowledge.md"); // the section header is present
-    expect(ctx).not.toMatch(/knowledge-base-defaults/); // the defaults README is never concatenated in
-  });
-
-  it("strips Obsidian-only navigation syntax from the generation prompt", async () => {
-    const ctx = await loadKnowledgeBaseContext();
-    expect(ctx).not.toMatch(/\[\[/); // no wikilinks leak into the prompt
-    expect(ctx).not.toMatch(/## Related notes/); // the navigation footer is dropped
-  });
 });
 
 describe("stripObsidianSyntax", () => {

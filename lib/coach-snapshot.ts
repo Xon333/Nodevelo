@@ -1,7 +1,5 @@
-// CoachSnapshot — one deterministic, pre-computed bundle of resolved numbers that the LLM-facing
-// surfaces read, so the model is handed facts instead of inventing
-// them (ROADMAP #1, the "objective telemetry lens"). All math/decisions stay in TypeScript; the LLM
-// only phrases what's here.
+// CoachSnapshot — one deterministic, pre-computed bundle of resolved numbers returned by sync for
+// the Today UI/state. The deterministic generator reuses resolveCoachSignals directly.
 //
 // Foundations build: most slots are populated now; a few are reserved (null) until the tracks that
 // own their data land — see the WIP markers and ROADMAP #1.
@@ -34,8 +32,6 @@ import { DEFAULT_TSB_MODIFIER_EDGES, resolveAcwrBands, resolveAthleteStateWeight
 import { buildAthleteModel, deriveInsights } from "./athlete-model";
 import { synthesizeCoachingDirectives } from "./synthesis";
 import { summariseValidation } from "./intervention";
-import { round1 } from "./stats";
-import { AEROBIC_DEADBAND_PCT } from "./aerobic";
 
 export interface CoachSnapshot {
   date: string;
@@ -351,141 +347,4 @@ export function buildCoachSnapshotFromSources(s: CoachSnapshotSources): CoachSna
     // Derived deep-fatigue edge (from the ledger's stamped TSB context) under any manual override (ROADMAP #2).
     tsbModifierEdgesOverride: resolveTsbEdgesOverride(s.scoreEntries, s.tsbModifierEdgesOverride),
   });
-}
-
-// The athlete-attribution guard — a compromised/partial session must not be read as under-recovery
-// or under-fuelling. Phrased strongly because it has to override any inference from a low score.
-function dispositionGuard(d: CoachSnapshot["disposition"]): string | null {
-  if (!d) return null;
-  if (d.kind === "compromised") {
-    return `IMPORTANT: the athlete marked today's session COMPROMISED${d.reason ? ` (${d.reason})` : ""}. A low execution score reflects that, NOT under-recovery or under-fuelling — do not infer recovery debt or recommend skipping on the basis of it.`;
-  }
-  if (d.kind === "partial") return "The athlete marked today's session partial (cut short).";
-  return null;
-}
-
-// Full resolved-numbers block for AI prompts. Lines whose data is absent are omitted; the reserved
-// fuel slots (intakeVsNeed/fuelingState) are intentionally not rendered while null.
-export function formatCoachSnapshot(s: CoachSnapshot): string {
-  const lines: string[] = ["SITUATION (resolved numbers — treat as ground truth; do not invent or override):"];
-
-  if (s.block) {
-    lines.push(`- Block: "${s.block.goal}" — week ${s.block.weekOfBlock} of ${s.block.totalWeeks}.${s.block.overview ? ` ${s.block.overview}` : ""}`);
-  }
-
-  const todayBits = [s.today.sessionType ? `${s.today.sessionType} planned` : "no structured session planned"];
-  todayBits.push(s.today.rideLogged ? "ride logged" : "no ride logged yet");
-  lines.push(`- Today: ${todayBits.join(", ")}.`);
-
-  const ex = s.today.execution;
-  if (ex) {
-    const parts: string[] = [];
-    if (ex.score != null) parts.push(`execution ${ex.score}/10`);
-    if (ex.completed != null && ex.total != null) parts.push(`${ex.completed}/${ex.total} reps`);
-    if (ex.effectivePct != null) {
-      const pd =
-        ex.powerPct != null && ex.durationPct != null ? ` (power ${ex.powerPct}% × duration ${ex.durationPct}%)` : "";
-      parts.push(`effective ${ex.effectivePct}%${pd}`);
-    }
-    if (ex.aerobicDiscipline != null) {
-      const label =
-        ex.aerobicDiscipline === "dialed" ? "dialed in" : ex.aerobicDiscipline === "drift" ? "some drift" : "ran hot";
-      // Same threshold as the ride-note prompt (AEROBIC_DEADBAND_PCT) — only surface the figure
-      // when it's a notable read, not per-ride noise.
-      const eff =
-        ex.aerobicEffPct != null && ex.aerobicEffPct <= -AEROBIC_DEADBAND_PCT
-          ? ` (efficiency ${round1(ex.aerobicEffPct)}% below baseline)`
-          : "";
-      parts.push(`aerobic discipline: ${label}${eff}`);
-    }
-    if (parts.length > 0) {
-      lines.push(`- Execution (today): ${parts.join(" · ")}${ex.structuralMismatch ? " · ⚠ plan/detection mismatch — duration is unreliable, judge on power" : ""}.`);
-    }
-  }
-
-  const mc = s.today.morningCheck;
-  if (mc) {
-    // All three flags and all three decisions rendered honestly — an injury/rest used to fall through
-    // to "extreme fatigue → no change (not a quality day)", both halves wrong.
-    const flagLabel = mc.flag === "ill" ? "feeling ill" : mc.flag === "injury" ? "injured" : "extreme fatigue";
-    const decisionLabel =
-      mc.decision === "downgrade"
-        ? "downgraded today's quality session"
-        : mc.decision === "rest"
-          ? "resting today — the planned ride is skipped, treat it as deliberate recovery, not a lapse"
-          : "no change";
-    lines.push(`- Flagged this morning: ${flagLabel} → ${decisionLabel}.`);
-  }
-
-  const f = s.form;
-  if (f.tsb != null || f.acwr || f.readiness) {
-    const parts: string[] = [];
-    if (f.tsb != null) {
-      const mod = f.tsbModifier ? ` (${f.tsbModifier.band} — ${f.tsbModifier.guidance})` : "";
-      parts.push(`TSB ${f.tsb > 0 ? "+" : ""}${f.tsb}${mod}`);
-    }
-    if (f.acwr) parts.push(`ACWR ${f.acwr}`);
-    if (f.readiness) parts.push(`readiness ${f.readiness}`);
-    if (f.loadRamp) parts.push(`load ramp ${f.loadRamp}`);
-    lines.push(`- Form: ${parts.join(" · ")}.`);
-  }
-
-  const fuelParts: string[] = [];
-  if (s.fuel.todayTargetKcal != null) fuelParts.push(`target ${s.fuel.todayTargetKcal.toLocaleString()} kcal`);
-  if (s.fuel.rideBurnKj != null) fuelParts.push(`ride burn ${s.fuel.rideBurnKj.toLocaleString()} kJ`);
-  if (s.fuel.weightTrend7dKg != null) {
-    const t = s.fuel.weightTrend7dKg;
-    fuelParts.push(`weight trend 7d ${t > 0 ? "+" : ""}${t.toFixed(1)} kg`);
-  }
-  if (s.fuel.fuelingState != null) {
-    // fuelingState's source switches (weekly ratio > EA proxy, per the precedence documented on
-    // CoachSignals.weeklyBalance), but intakeVsNeed is always the EA figure specifically — so the
-    // label and the attached number must only pair up when EA actually owns the verdict, or the
-    // line contradicts itself in the disagreement case this precedence rule exists to resolve.
-    const label = s.fuel.weekBalance ? "fueling" : "energy availability";
-    const detail = !s.fuel.weekBalance && s.fuel.intakeVsNeed != null ? ` (~${s.fuel.intakeVsNeed} kcal/kg, body-weight proxy)` : "";
-    fuelParts.push(`${label} ${s.fuel.fuelingState}${detail}`);
-  }
-  if (s.fuel.weekBalance) {
-    const wb = s.fuel.weekBalance;
-    fuelParts.push(
-      `last week ${wb.balanceIntakeKcal.toLocaleString()} kcal vs ${wb.needKcal.toLocaleString()} needed (ratio ${wb.ratio.toFixed(2)} — ${balanceLevel(wb.ratio)})`
-    );
-  }
-  if (fuelParts.length > 0) lines.push(`- Fuel: ${fuelParts.join(" · ")}.`);
-
-  if (s.state) lines.push(`- Fused state: ${s.state.headline} (${s.state.score}/100, ${s.state.recommendation}).`);
-  if (s.ftp) lines.push(`- FTP: ${s.ftp} W.`);
-  if (s.ftpRetest) lines.push(`- FTP check: ${s.ftpRetest.evidence}`);
-  if (s.directives) lines.push(`- Coaching directives: ${s.directives}`);
-
-  const guard = dispositionGuard(s.disposition);
-  if (guard) lines.push(guard); // last, so it overrides any inference from a low score
-
-  return lines.join("\n");
-}
-
-// Compact form(+TSB-modifier)+fuel line for block generation, which already injects fused-state +
-// directives separately. Adds only the resolved current form/fuel the planner shouldn't invent.
-export function formatFormFuelLine(s: CoachSnapshot): string | null {
-  const parts: string[] = [];
-  if (s.form.tsb != null) {
-    const mod = s.form.tsbModifier ? ` (${s.form.tsbModifier.band})` : "";
-    parts.push(`TSB ${s.form.tsb > 0 ? "+" : ""}${s.form.tsb}${mod}`);
-  }
-  if (s.form.acwr) parts.push(`ACWR ${s.form.acwr}`);
-  if (s.form.readiness) parts.push(`readiness ${s.form.readiness}`);
-  if (s.fuel.todayTargetKcal != null) parts.push(`fuel target ${s.fuel.todayTargetKcal.toLocaleString()} kcal`);
-  if (s.fuel.weightTrend7dKg != null) {
-    const t = s.fuel.weightTrend7dKg;
-    parts.push(`weight trend 7d ${t > 0 ? "+" : ""}${t.toFixed(1)} kg`);
-  }
-  if (s.fuel.fuelingState != null) {
-    // Same precedence rule as formatCoachSnapshot's fuel line: fuelingState's source switches
-    // (weekly ratio > EA proxy), so the label must track whichever actually owns the verdict.
-    const label = s.fuel.weekBalance ? "fueling" : "energy availability";
-    parts.push(`${label} ${s.fuel.fuelingState}`);
-  }
-  if (parts.length === 0) return null;
-  return `CURRENT FORM & FUEL (resolved — do not invent): ${parts.join(" · ")}.`;
 }

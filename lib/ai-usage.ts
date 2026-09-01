@@ -1,11 +1,11 @@
-// Token/cost telemetry for every Anthropic call. Each generation / ride analysis / retrospective
-// call folds its `usage` into data/ai-usage.json (best-effort — never blocks or fails the
+// Token/cost telemetry for every Anthropic call. Active ride-analysis / retrospective calls fold
+// their `usage` into data/ai-usage.json (best-effort — never blocks or fails the
 // real request). Cost is estimated from a per-model price table so the single user can see running
 // spend in Settings. Pairs with the P6 model/promptVersion stamping (provenance + cost together).
 //
 // Caching economics (see the prompt-caching reference): the API's `input_tokens` is already the
 // *uncached* remainder; cache **writes** (`cache_creation_input_tokens`) bill at ~1.25× input
-// (5-min ephemeral — the only breakpoint generation uses) and cache **reads**
+// (5-min ephemeral) and cache **reads**
 // (`cache_read_input_tokens`) at ~0.1× input. Output bills at the model's output rate.
 
 import { readJsonFile, writeJsonFile } from "./json-store";

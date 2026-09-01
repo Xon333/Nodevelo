@@ -1,6 +1,6 @@
 # NodeVelo roadmap
 
-*Last reconciled 2026-08-28.* The forward backlog — open work only.
+*Last reconciled 2026-08-31.* The forward backlog — open work only.
 
 Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
 The adversarial review is the **master decision record for the freeze**. Its
@@ -41,14 +41,13 @@ explicitly says evidence-only.
 
 ### Phase 2 · Make the core journey excellent
 
-#### FR-3 · Core-journey task audit — READY, owner-deferred behind FR-5
+#### FR-3 · Core-journey task audit — READY
 
 - **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
   [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
   and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
 - **Verified current state:** Today, Plan, the ride closeout, and the adaptive-week path are live;
-  FR-1's attended evidence run is closed, but the owner explicitly deferred this audit behind FR-5
-  on 2026-08-28.
+  FR-1's attended evidence run and FR-5 acceptance are closed.
 - **Remaining outcome:** observe Today → Plan → ride → closeout → adaptive week as tasks; record
   failures, confusion, avoidable prose, lost-state risks, and latency before proposing changes.
 - **Entry gate:** FR-1 closed.
@@ -79,40 +78,16 @@ explicitly says evidence-only.
 
 ### Phase 3 · Reduce Claude's generation authority
 
-#### FR-5 · Deterministic-authority audit and replacement plan — READY, next action
-
-- **Review basis:** [plan safety and Claude authority](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#plan-safety-and-claudes-authority),
-  [decision Q26/Q36/Q42](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53),
-  and [falsification criteria](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#falsification-criteria).
-- **Verified current state:** four Anthropic call categories remain: block generation,
-  ride-analysis coach note, prose retrospective, and structured retrospective. The critic and Ask
-  Coach calls are gone. FR-1's attended run exposed a 33-minute loading-week shortfall after
-  duration reconciliation and a deterministic skeleton/validator sequencing conflict.
-- **Remaining outcome:** classify each remaining output as deterministic fact/process, constrained
-  composition, free-form interpretation, or optional explanation; plan replacements only where code
-  can own the result more reliably.
-- **Entry gate:** the owner explicitly waived the still-open Phase 2 gate on 2026-08-28 so FR-1's
-  falsifying evidence can feed this audit now. This sequencing exception does not close Phase 2:
-  FR-3 remains READY but deferred, and FR-4 remains blocked on FR-3 evidence.
-- **Plan scope:** `app/api/generate/route.ts`, `app/api/analyze/route.ts`, and
-  `app/api/retrospective/route.ts`; `lib/anthropic-api.ts`, `lib/anthropic-prompts.ts`,
-  `lib/plan-schema.ts`, and `lib/retrospective-schema.ts`; and the authority boundary in
-  `docs/systems/06-generation.md` and `docs/systems/07-ai-layer.md`.
-- **Exit evidence:** five consecutive structurally valid varied-input generations, a deterministic
-  core useful without Anthropic, and no arithmetic/protocol/progression authority left solely to
-  prose.
-- **Non-goals:** replacing genuinely linguistic interpretation, broad prompt rewrites, or adding
-  another AI call.
-
-#### FR-6 · Provider/model/cost experiment — SEPARATE, BLOCKED on FR-5 baseline
+#### FR-6 · Provider/model/cost experiment — READY
 
 - **Review basis:** [maintainability](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#maintainability)
   and decision [Q5/Q11](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
 - **Verified current state:** `lib/anthropic-config.ts` and `lib/ai-usage.ts` provide the current
-  provider/configuration and usage surfaces; no FR-5 deterministic baseline exists yet.
+  provider/configuration and usage surfaces; the FR-5 deterministic baseline and its
+  [attended acceptance record](docs/reviews/2026-08-29-fr5-acceptance.md) are closed.
 - **Remaining outcome:** hold inputs and prompts constant; compare validity, publication findings,
   usefulness, latency, and cost. Change a live route only if measured results justify it.
-- **Entry gate:** FR-5 baseline closed.
+- **Entry gate:** satisfied by the accepted FR-5 record.
 - **Plan scope:** `lib/anthropic-config.ts`, `lib/anthropic-api.ts`, `lib/ai-usage.ts`,
   `app/api/generate/route.ts`, and the publication-gate evidence record; preserve the FR-5
   deterministic-authority decision surface.

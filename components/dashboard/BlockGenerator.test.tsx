@@ -20,7 +20,6 @@ test("keeps the generator fields at two columns until the xl breakpoint", () => 
       generate={() => {}}
       generateError={null}
       elapsed={0}
-      anthropicConfigured={true}
       intervalsConfigured={true}
       showSyncTip={false}
       seasonReadout={null}
@@ -34,4 +33,6 @@ test("keeps the generator fields at two columns until the xl breakpoint", () => 
   expect(html).toContain("sm:grid-cols-2");
   expect(html).toContain("xl:grid-cols-4");
   expect(html).not.toContain("lg:grid-cols-4");
+  expect(html).not.toContain("disabled=\"\"");
+  expect(html).not.toContain("Connect the AI coach");
 });

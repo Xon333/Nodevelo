@@ -8,7 +8,7 @@ Per-file inventory: [../FILE_INDEX.md](../FILE_INDEX.md#data-files).
 
 `GET /api/sync` is **pure** — it returns cached app state and never hits Intervals.icu. `POST /api/sync` is the **only** path that fetches from Intervals.icu, reconciles, re-derives, and persists. Page loads stay instant; every network call is explicit and athlete-triggered (or gated by `autoSyncOnOpen`).
 
-**The window:** a full sync pulls **182 days** of activities/wellness — deliberate depth (CTL has a 42-day time constant; baselines are 90-day; the learning loop wants several blocks of history) and cheap (a wider window is a longer JSON list, not more requests — per-activity stream fetches happen only for *today's* ride). The generation prompt's "last 8 weeks" summary is scoped to 56 days regardless, so plans anchor to current form, not the whole cache.
+**The window:** a full sync pulls **182 days** of activities/wellness — deliberate depth (CTL has a 42-day time constant; baselines are 90-day; the learning loop wants several blocks of history) and cheap (a wider window is a longer JSON list, not more requests — per-activity stream fetches happen only for *today's* ride). Generation consumes resolved recent-state signals rather than sending this raw history to a model.
 
 ## The persistence substrate (`lib/json-store.ts`)
 

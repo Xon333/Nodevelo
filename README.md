@@ -2,8 +2,8 @@
 
 **A personal cycling coach that learns from how you actually train.** NodeVelo sits on top of
 [Intervals.icu](https://intervals.icu): it pulls your physiology and ride history, scores every
-session against what was prescribed, learns your strengths and weak points, and generates the next
-structured training block with Claude — then writes it back to your Intervals.icu calendar.
+session against what was prescribed, learns your strengths and weak points, and deterministically
+compiles the next structured training block — then writes it back to your Intervals.icu calendar.
 
 Intervals.icu stays the **system of record** for day-to-day training. NodeVelo is the **thinking
 layer on top**: it decides *what to do next* and explains *how you executed* — the judgement a
@@ -20,10 +20,10 @@ Five design decisions define the whole app — everything else follows from them
 1. **A layer, not a replacement.** NodeVelo never re-skins Intervals.icu's charts. It adds the
    coaching judgement on top — analysis, learning, generation — and defers to Intervals.icu as the
    source of truth for physiology.
-2. **Deterministic core, generative shell.** All the math — scoring, zones, load, nutrition,
-   readiness — is plain, unit-tested TypeScript. Claude drafts sessions and prose inside numeric
-   limits the engines define and validators check. **The AI never owns arithmetic or physiological
-   limits**, so it cannot hallucinate your FTP or invent a calorie target.
+2. **Deterministic coaching core, optional language shell.** Scoring, zones, load, nutrition,
+   readiness, and block compilation are plain, unit-tested TypeScript. Claude is retained only for
+   optional ride-note and retrospective language. **AI owns no training decision or physiological
+   limit**, so it cannot hallucinate your FTP, invent a calorie target, or alter a workout protocol.
 3. **Two kinds of memory, treated oppositely.** *Owned intent* (goals, weak points, notes — what
    only you know) is hand-written and never recomputed. *Synced physiology* (FTP, zones, weight,
    fitness — what Intervals.icu measures) is a one-way pull and never hand-edited. Conflating the
@@ -40,7 +40,7 @@ The full rationale behind these (and five more standing decisions) lives in
 
 ## How it works — one loop
 
-**Rides sync in → every ride is scored into an immutable ledger → the ledger teaches a per-athlete model → the season engine picks the next focus → Claude drafts the block's sessions and prose inside numeric limits the engines define and validators check → you accept → calendar events land on Intervals.icu → repeat.** The canonical diagram of this loop lives at the top of [docs/COMPASS.md](docs/COMPASS.md#the-mental-model-60-seconds).
+**Rides sync in → every ride is scored into an immutable ledger → the ledger teaches a per-athlete model → the season engine picks the next focus → TypeScript compiles the block's schedule and canonical workouts → you accept → calendar events land on Intervals.icu → repeat.** The canonical diagram of this loop lives at the top of [docs/COMPASS.md](docs/COMPASS.md#the-mental-model-60-seconds).
 
 Each stage is one numbered doc in [docs/systems/](docs/systems/) — read them in order
 (`01-sync-and-data` → `06-generation`, plus cross-cutting `07-ai-layer` and `08-frontend`) and you
@@ -77,7 +77,8 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 > **Local-first by design.** The filesystem is the database — this will **not** run on an
 > ephemeral serverless filesystem (e.g. Vercel). Run it locally.
 
-> **Bound to localhost — there is no auth.** Routes spend Anthropic credits (`/api/generate`) and
+> **Bound to localhost — there is no auth.** Optional language routes spend Anthropic credits
+> (`/api/analyze`, `/api/retrospective`) and
 > can overwrite your data (`/api/import`) or your Intervals.icu calendar (`/api/write`); on an open
 > network any device could drive them with `curl`. `npm run dev:lan` opts into LAN access — only on
 > a network you trust.
@@ -90,9 +91,9 @@ npm run dev                        # http://localhost:3000  (redirects to /today
 
 - **Stored locally.** Scores, plans, notes, settings, and the knowledge base live as JSON and
   markdown files on this machine. There is no cloud database; backups are exported files.
-- **Processed remotely by Anthropic.** The four remote call categories are block generation, the
-  ride-analysis coach note, prose retrospectives, and structured retrospectives. Per-call spend is
-  tracked under AI usage & cost. Intent parsing is deterministic and does not contact Anthropic.
+- **Processed remotely by Anthropic.** The three remote call categories are the ride-analysis coach
+  note, prose retrospectives, and structured retrospectives. Per-call spend is tracked under AI usage
+  & cost. Intent parsing and block generation are deterministic and do not contact Anthropic.
 - **Everything else.** Scoring, nutrition, readiness, scheduling, and backup run without Anthropic.
   Intervals.icu is a one-way pull and the system of record; accepted plans mirror to its calendar.
 

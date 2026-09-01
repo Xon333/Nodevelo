@@ -12,6 +12,27 @@ exact commits.
 
 ---
 
+## FR-5 deterministic generation authority (2026-08-30)
+
+The approved [design](docs/superpowers/specs/2026-08-29-fr5-deterministic-authority-design.md) and
+[implementation plan](docs/superpowers/plans/2026-08-29-fr5-deterministic-authority.md) replaced
+AI-authored block composition with a pure TypeScript compiler. Loading target and availability are
+separate settings; every cycling workout uses one typed target family, canonical Intervals.icu
+render/parse equality, deterministic progression, and the existing publication gate. The generation
+route works with Anthropic unset and remains preview-only; `/api/write` is still the sole calendar
+commit path. Anthropic remains only for optional ride-analysis and retrospective language.
+
+This supersedes every historical statement below that approved or adopted retrospective seeds,
+reflections, directives, or knowledge-base prose can steer generation. Those approval/adoption stamps
+now record acknowledgement and workflow history only; deterministic generation never reads them.
+
+The [acceptance record](docs/reviews/2026-08-29-fr5-acceptance.md) closes FR-5: five varied
+Anthropic-unset generations were stable across two runs with zero blockers, the owner-approved plan
+published cleanly to Intervals.icu, and the owner confirmed the representative Wahoo workouts were
+acceptable with no problematic degradation reported.
+
+---
+
 ## Named-segment intent scoring (2026-08-19 → 2026-08-23)
 
 A note describing several named Intervals.icu segments was graded against whole-ride zone-time

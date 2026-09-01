@@ -1,47 +1,47 @@
-# 04 · Knowledge — the corpus that grounds generation
+# 04 · Knowledge — athlete-owned reference and block history
 
-**Why this exists:** the app splits memory into two kinds treated oppositely — **durable intent** (goals, weakpoints, PRs, coaching notes: athlete-owned, hand-edited, never recomputed) and **synced physiology** (FTP, zones, weight: Intervals.icu-owned, never hand-edited, always reconciled). This layer holds the intent side plus the sports-science reference the LLM reads, and the feedback channels that let blocks learn from each other. **Where it sits:** feeds [06-generation](06-generation.md)'s prompt; written by the retrospective flow; edited on the Knowledge page. **Tradeoff:** markdown is athlete-friendly but structurally fragile — hence the parsers, strippers, and the JSON migration of goals/weakpoints.
+**Why this exists:** athlete-owned reference notes and completed-block history remain readable and editable without competing with Intervals.icu-owned physiology. **Where it sits:** written by retrospective closeout and edited on the Knowledge page. Deterministic generation reads typed application data, not these markdown files. **Tradeoff:** markdown is athlete-friendly but structurally fragile, so compatibility parsers remain for historical files and acknowledgement stamps.
 
-Owner module: `lib/kb-loader.ts` (always reads fresh from disk — never memoized, so KB edits apply on the next generation). Goals/weakpoints migrated out of the markdown into structured `AthleteProfile.goals`/`weakpoints` JSON (edited on `/profile`, seeded once from the old tables); the markdown's own GOALS/WEAKPOINTS sections are stripped pre-prompt so a stale copy can never leak alongside the live data. `athlete_profile.md` keeps only true manual input — personal data, all-time PRs, coaching notes — and its header says exactly what is synced from where.
+Owner module: `lib/kb-loader.ts`. Goals/weakpoints migrated out of markdown into structured `AthleteProfile.goals`/`weakpoints` JSON (edited on `/profile`, seeded once from old tables). `athlete_profile.md` remains a legacy/manual reference, while physiology comes from the effective-dated store synced from Intervals.icu.
 
 ## The two directories
 
 | | `knowledge-base/` | `knowledge-base-defaults/` |
 |---|---|---|
 | Git | **ignored** — the athlete's personal corpus | committed skeleton |
-| Content | Real coaching knowledge, edited via the Knowledge page (`/api/knowledge`, edit-only — no create/delete of core files) or by hand | Thin stubs so a fresh clone never hard-fails, and so the §-anchor references cited in prompt hard-rules exist somewhere in-repo |
+| Content | Athlete reference notes, edited via the Knowledge page (`/api/knowledge`, edit-only — no create/delete of core files) or by hand | Thin stubs so a fresh clone never hard-fails |
 | Resolution | `readKbWithFallback` prefers this… | …and falls back here per-file |
 
-Files, concatenated into the prompt in `KB_ORDER`: `cycling_database.md`, `training_knowledge.md`, `nutrition_knowledge.md`, `athlete_profile.md` (+ `bikefit_knowledge.md` if present), each under a `===== FILE: x.md =====` header. Before injection: `stripObsidianSyntax` (drops `## Related notes`, flattens `[[wikilinks]]`) and `stripGoalsWeakpointsSections` (goals/weakpoints now live in `athlete.json` and are injected separately — the markdown sections would be stale duplicates).
+`KB_ORDER` controls editor/list ordering and per-file fallback: `cycling_database.md`, `training_knowledge.md`, `nutrition_knowledge.md`, `athlete_profile.md` (+ `bikefit_knowledge.md` if present). Legacy syntax helpers remain available for stored content, but there is no all-files prompt/context loader.
 
 `athlete_profile.md` is also **structurally parsed** (`parseAthleteMd`) to keep `athlete.json` performance numbers in sync — but live *zones* come from the physiology store (synced from Intervals.icu), not the markdown.
 
 ## Block retrospectives (the durable corpus)
 
-One file per completed block: `knowledge-base/block-retrospectives/<startDate>_<goal-slug>.md`, written by `POST /api/retrospective` (prose body = Claude's narrative; frontmatter = the contract below). Deliberately **excluded** from `loadKnowledgeBaseContext` so history never bloats every prompt.
+One file per completed block: `knowledge-base/block-retrospectives/<startDate>_<goal-slug>.md`, written by `POST /api/retrospective` (prose body = optional Claude narrative; frontmatter = the contract below). These files are history only and never enter block compilation.
 
 ### Frontmatter contract
 
-Committed reference for the schema (the live `SCHEMA.md` sits inside the gitignored tree): `id`, `goal`, `start_date` / `end_date`, `length_weeks`, `status`, `ended_early: true` + `ended_early_reason: "…"` (only on an explicit early end — the reason the athlete typed), **`execution_scored`** (`scored/planned` sessions from `CloseoutEvidence`), **`execution_missed_sessions`**, **`execution_overshoot_days`**, **`execution_mean_score`**, **`seeds_approved`** (always written `false` by the route; flipped to `true` only by adoption — see below), `next_block_seeds` (YAML list of deterministic, evidence-templated seeds), `generated_at`.
+Committed reference for the schema (the live `SCHEMA.md` sits inside the gitignored tree): `id`, `goal`, `start_date` / `end_date`, `length_weeks`, `status`, optional early-end fields, execution evidence fields, legacy **`seeds_approved`**, legacy `next_block_seeds` (deterministic evidence-templated closeout priorities), and `generated_at`. The route writes `seeds_approved: false`; acknowledgement flips it to `true` for workflow/history only.
 
-## The two feedback channels (easy to describe incompletely — don't)
+## The two retrospective note channels
 
-One retrospective call feeds the next generation through **two unrelated stores, both adoption-gated** — nothing Claude wrote steers a block until the athlete adopts it on the Plan page (`POST /api/history` is the ONE adoption action: it flips `seeds_approved: true` in the retro markdown and stamps `reflectionsApprovedAt` on the history entry; failure-safe by construction — the flip runs first, both steps idempotent):
+One closeout writes two unrelated history records. Neither is a planning input, before or after acknowledgement:
 
-1. **Seeds** — `kb-loader.latestRetrospectiveSeeds` parses `next_block_seeds:` from the *newest* retrospective file only → injected as "PREVIOUS BLOCK PRIORITIES". Gated by `seeds_approved:` (kb-loader.parseRetroSeeds): absent/false ⇒ `[]` — old files written before the flag degrade to unapproved. The seeds themselves are deterministic (`block-closeout.deriveCloseoutSeeds`, templated from ledger evidence); hand-editing the list after adoption stays allowed.
-2. **Structured reflections** — `generateStructuredRetrospective` (forced tool-use, `lib/retrospective-schema.ts`: hypothesis → observation → root cause → adjusted strategy per matured intervention) persisted on `BlockHistoryEntry.structuredReflections` (JSON, **not** the markdown) → re-injected via `latestApprovedReflections` + `formatReflectionsForPrompt` as "COACH REFLECTIONS FROM LAST BLOCK" — but only from the single newest reflection-bearing history entry AND only when that entry carries `reflectionsApprovedAt`; an unapproved newer entry suppresses an approved older one rather than falling back to it. Degrades to `[]` on any failure.
+1. **Closeout priorities** — `block-closeout.deriveCloseoutSeeds` produces deterministic notes from frozen ledger evidence. They are stored under the legacy `next_block_seeds` name. `parseRetroSeeds` and the `seeds_approved` transform remain for file compatibility and acknowledgement; there is no newest-file generation loader.
+2. **Structured reflections** — `generateStructuredRetrospective` optionally phrases intervention outcomes into `BlockHistoryEntry.structuredReflections` (JSON, not markdown). `reflectionsApprovedAt` records athlete acknowledgement. There is no formatter or selector that injects reflections into generation.
 
-Debugging "what prior-block context fed this generation" therefore requires checking **both** approval stamps: the newest retrospective file's `seeds_approved:` and the newest reflection-bearing block-history entry's `reflectionsApprovedAt`.
+`POST /api/history` updates both stamps in a failure-safe, idempotent sequence. The action means “reviewed and acknowledged,” not “grant planning authority.”
 
 ## Rules
 
 - KB files are the athlete's voice — agents don't rewrite `knowledge-base/` content on their own initiative.
 - `knowledge-base-defaults/` **is** in docs-sweep scope (real user-facing copy, not fixture).
-- Protocol numbers in `training_knowledge.md` have three hand-synced copies — KB prose, prompt hard rules, validator bands (INVARIANTS #17) — see [INVARIANTS](../INVARIANTS.md).
+- Protocol prose in `training_knowledge.md` is explanatory. Execution authority lives in `workout-templates.ts` and `workout-validate.ts` (INVARIANT 17).
 
 ## Common modifications
 
 | Change | Where |
 |---|---|
-| KB file set / order | `lib/kb-loader.ts` — `KB_ORDER` |
+| KB file set / display order | `lib/kb-loader.ts` — `KB_ORDER` |
 | Retrospective schema | The frontmatter contract above + `kb-loader.ts` parsers |

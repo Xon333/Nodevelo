@@ -66,12 +66,11 @@ AI — and the AI only ever phrases numbers the code already computed.
   artifact reads as primary. `components/dashboard/plan.tsx`
 
 ## Block generation (Plan page)
-- **Goal-driven, KB-grounded generation** — knowledge base + live zones + athlete-model insights +
-  retrospective seeds + season context + a deterministic nutrition table → the generation model (see
-  [07-ai-layer](docs/systems/07-ai-layer.md)) via **structured tool-use** → validated `PlannedDay[]`.
-  `app/api/generate`, `lib/anthropic-api.ts`, `lib/plan-schema.ts`
+- **Goal-driven deterministic generation** — resolved focus, live physiology, settings, durability,
+  events, and nutrition feed `compileTrainingBlock`; identical inputs produce identical complete
+  `PlannedDay[]` with no Anthropic dependency. `app/api/generate`, `lib/block-compiler.ts`
 - **Feasibility pre-check + deterministic week targets** — `checkBlockFeasibility` refuses an
-  infeasible `BlockSettings` combination with a 400 before spending an LLM call; `computeWeekTargets`
+  infeasible `BlockSettings` combination with a 400 before composition; `computeWeekTargets`
   sets one exact hour figure per week (recovery depth derived from the loading target, clamped 6–8h),
   checked post-generation (`validateWeekHours`). `lib/block-skeleton.ts`
 - **Deterministic session selection (Track B)** — a terrain/race goal makes RaceSim a sporadic/
@@ -81,28 +80,31 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Durability templates (Track B)** — durability is a category of 5 rotating long-ride templates
   (A pure accumulation … E mixed density), picked limiter-driven from the athlete model else rotated,
   and stamped on the block. KB §12 + `lib/durability.ts`
+- **Typed canonical workout syntax** — every cycling prescription has one power or heart-rate target
+  family and must survive typed render → parse semantic equality. Stock templates use power; parsing
+  still supports stored HR syntax. Supports standard zones/% targets,
+  repeats, cues, warmup/cooldown ramps, HR-cap cue text, and guarded default-on `Press lap`; generates
+  no cadence targets. `lib/prescription.ts`, `lib/workout-templates.ts`
 - **KB-grounded protocol validation** — every generated workout checked against KB interval bands
-  (SIT 4–6×20–30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); protocol breaches block publication.
+  (SIT 4–6×30s all-out · VO2max 3–8min 106–120% · threshold 88–105%); protocol breaches block publication.
   `lib/workout-validate.ts`
 - **Schedule-placement validation** — flags back-to-back hard days, any week over the quality budget,
   a capped/no-quality taper window ahead of a priority-B/C event (`validateEventTaper`), and
   freshness-dependent quality (VO2max/SIT) landing later in the week than fatigue-tolerant quality
   (Threshold/RaceSim) (`validateWeekSequencing`); the publication gate classifies each emitter's
   findings as blockers, preferences, or advisories. `lib/schedule-validate.ts`, `lib/publication-gate.ts`
-- **Nutrition auto-repair** — a generated day's kcal figure is checked against the deterministic
-  formula; a mismatch is auto-corrected (not just warned), with a visible `repairs` note.
-  `lib/nutrition-validate.ts`
-- **Deterministic overview check** — compares the written block overview with extracted per-week
-  facts and adds warnings for contradictions; it never rewrites prose or the schedule.
-  `lib/overview-check.ts`
-- **Execution cues** — each day can carry one KB-/weakpoint-grounded pacing or technique cue.
+- **Compiler-owned nutrition and overview** — daily nutrition and the block overview are assembled
+  directly from resolved facts; there is no copy/repair or prose-consistency stage.
+- **Execution cues** — deterministic cues are reserved for useful execution details: HR caps on
+  steady Z2/Recovery/durability segments and concise seated/standing notes on SIT efforts. A verified
+  `Press lap` readiness step can advance into work on Wahoo.
 - **Preview → publication gate → write** — `PlanPreview` shows every day plus blockers,
   preferences requiring acknowledgment, and the existing "Notes — for your awareness" warnings. `POST /api/write`
   refuses blockers or an unknown persisted verdict before any write; accepted plans post to the
   Intervals.icu calendar and freeze the block (with the FTP used). `lib/publication-gate.ts`,
   `app/api/write`
-- **Generation dedupe** — a double-click / repeat request in a short window shares one Claude call.
-  `lib/generate-cache.ts`
+- **Stable regeneration** — a repeated request with unchanged facts returns the same raw compiler
+  JSON, days, weekly sums, and findings; there is no model call or generation cache.
 
 ## Block closeout (Plan page)
 - **Gated wrap-up** — closing a block is one Plan-page action: a finished block proceeds straight to
@@ -117,9 +119,10 @@ AI — and the AI only ever phrases numbers the code already computed.
 - **Degraded mode never blanks out** — with no Anthropic key or a failed narrative call, the closeout
   still lands: facts + seeds persist, only the prose is absent (the card says so).
   `narrativeDegraded`, `components/dashboard/PlanView.tsx`
-- **Review & adopt control** — nothing AI-written reaches the next block until the athlete presses
-  "Review & adopt" on Plan history: it flips `seeds_approved: true` on the retro markdown and stamps
-  `reflectionsApprovedAt` on the entry; unadopted seeds/reflections inject as empty.
+- **Review acknowledgement** — "Review & acknowledge" on Plan history records that the athlete read
+  the retrospective: it flips the legacy `seeds_approved: true` stamp and sets
+  `reflectionsApprovedAt`. This is a history/workflow record only; seeds and reflections never feed
+  deterministic generation, before or after acknowledgement.
   `POST /api/history`, `lib/kb-loader.ts`, `lib/retrospective-schema.ts`
 
 ## Today page
@@ -270,10 +273,9 @@ Effort bands live on Profile; long-form metric explanations live here. `app/mode
   disclosure. Season objective/events moved to Plan — no longer edited here.
 
 ### Knowledge
-- In-place markdown editor for the KB + retrospectives (read fresh on every generation), plus a
-  new always-visible one-line **provenance header** above the file list — which files feed
-  generation vs. reference-only vs. manual vs. seed (previously this context only surfaced per-file
-  after selecting one).
+- In-place markdown editor for athlete reference notes + retrospectives, with an always-visible
+  provenance header explaining that deterministic generation uses typed application data and treats
+  these files as reference/history only.
 
 ### Settings (Wave 5, two labelled groups)
 - **GENERATION** — weekly volume targets, weekly structure, training philosophy & equipment.

@@ -121,17 +121,3 @@ export function extractQuirks(
 
   return { entries, extractedAt: now, engine: "compromise+lexicon" };
 }
-
-// Pure formatter for the generation prompt. Empty → "" (caller concatenates nothing). The phrasing
-// is the AI-containment guardrail: these are HINTS the coach may weave in, never asserted facts.
-export function formatQuirksForPrompt(entries: QuirkEntry[]): string {
-  if (!entries.length) return "";
-  const items = entries
-    .slice(0, 8)
-    .map((e) => `${e.pattern} (${e.category}, ${e.frequency}×, last ${e.lastSeen})`)
-    .join("; ");
-  return (
-    "\nRECURRING PATTERNS (auto-derived from ride notes — hints for pacing/cueing, not clinical " +
-    `facts; pattern-matching is noisy): ${items}.`
-  );
-}

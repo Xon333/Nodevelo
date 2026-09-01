@@ -25,14 +25,14 @@ const entry = (): BlockHistoryEntry =>
     lengthWeeks: 2, overview: "", createdAt: "2026-06-01T00:00:00.000Z",
   }) as BlockHistoryEntry;
 
-describe("POST /api/history — adoption", () => {
+describe("POST /api/history — retrospective acknowledgement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     h.markRetroSeedsApproved.mockResolvedValue(true);
     h.readBlockHistory.mockResolvedValue([entry()]);
     h.updateBlockHistory.mockImplementation(async (mutate: (e: BlockHistoryEntry[]) => BlockHistoryEntry[]) =>
       // Feed the mutate whatever readBlockHistory currently returns, so tests overriding
-      // readBlockHistory (e.g. the already-adopted entry) flow through to the route's logic.
+      // readBlockHistory (e.g. an already-acknowledged entry) flows through to the route's logic.
       mutate((await h.readBlockHistory()) as BlockHistoryEntry[])
     );
   });
@@ -52,11 +52,11 @@ describe("POST /api/history — adoption", () => {
     expect(h.updateBlockHistory).not.toHaveBeenCalled(); // no orphaned reflectionsApprovedAt
   });
 
-  it("409s WITHOUT stamping when the retrospective exists but seed approval could not be written", async () => {
+  it("409s WITHOUT stamping when the retrospective acknowledgement could not be written", async () => {
     h.markRetroSeedsApproved.mockResolvedValueOnce(false);
     const res = await post({ id: "b1" });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "Couldn't approve retrospective seeds." });
+    expect(await res.json()).toEqual({ error: "Couldn't acknowledge retrospective notes." });
     expect(h.updateBlockHistory).not.toHaveBeenCalled();
   });
 

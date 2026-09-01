@@ -53,13 +53,13 @@ Repo-specific meanings. Where a term has a common sports-science meaning, the en
 | **Ledger** | The append-only `RideScoreEntry[]` in `data/score-log.json`. Past entries are frozen with provenance stamps — see [02-scoring](systems/02-scoring-and-learning.md); only today keeps re-deriving. |
 | **Athlete model** | Slow-moving learned model from the whole ledger (`lib/athlete-model.ts`): per-type EWMA execution quality, trends, behaviour → ranked `Insight[]`. |
 | **Athlete state** | Fast "right now" 0–100 fused score (`lib/athlete-state.ts`): TSB + ACWR + execution EWMA + aerobic efficiency + behaviour, with a lived-signal override that caps a fresh-looking score when corroborated fatigue contradicts it. Spec: [specs/athlete-state.md](specs/athlete-state.md). |
-| **Coach snapshot** | The one resolved-numbers bundle (`lib/coach-snapshot.ts`) every LLM surface reads, so Today and generation can't disagree and the model never invents a number. |
+| **Coach snapshot** | The resolved-numbers bundle (`lib/coach-snapshot.ts`) returned by sync for Today UI/state; deterministic generation reuses its signal resolver rather than prompt formatting. |
 | **Calibration** | Per-athlete parameter derivation (`lib/calibration.ts`): population default until the ledger *discriminates* (derived value must separate failures from successes by a margin); manual override always wins. |
 | **Intervention** | An insight-driven directive whose effect is measured after a 28-day horizon (`lib/intervention.ts`): validated / refuted / inconclusive → a coaching hit-rate that can demote repeat-failing directives. |
 | **Disposition** | Post-hoc self-attribution of a session (completed/partial/missed/**compromised**); only "compromised" changes what teaches the model. |
 | **Morning check** | Pre-ride, same-day ill/extreme-fatigue/injury flag with a deterministic downgrade decision. Injury always → rest (motion is the hazard); metabolic flags downgrade quality days. |
-| **Quirks** | Recurring patterns mined from ride-note free text (`lib/quirks.ts`, NLP + lexicon, needs ≥2 distinct rides) — injected into prompts as *hints*, never facts. |
-| **Seeds vs reflections** | The two feedback channels from a block retrospective into the next generation: `next_block_seeds` (athlete-editable YAML in the retrospective markdown — steer generation only once `seeds_approved: true`, set by adopting on Plan) and `structuredReflections` (persisted on `BlockHistoryEntry`). See [systems/04-knowledge.md](systems/04-knowledge.md). |
+| **Quirks** | Recurring patterns mined from ride-note free text (`lib/quirks.ts`, NLP + lexicon, needs ≥2 distinct rides) and retained as local learned evidence; deterministic generation does not consume them. |
+| **Seeds vs reflections** | Two retrospective history records: deterministic closeout priorities stored under the legacy `next_block_seeds` field, and AI-drafted `structuredReflections` stored on `BlockHistoryEntry`. `seeds_approved` / `reflectionsApprovedAt` record athlete acknowledgement only; neither channel feeds deterministic generation. See [systems/04-knowledge.md](systems/04-knowledge.md). |
 
 ## Naming traps
 

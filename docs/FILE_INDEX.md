@@ -38,12 +38,13 @@ One line per file that matters. The authoritative per-file table — README keep
 | `season.ts` | Rolling coverage selector + event-anchored backward scheduling + validators + prompt formatters (925 lines — [systems/05-season.md](systems/05-season.md)) |
 | `season-signals.ts` | Single assembler of `chooseNextFocus` inputs (generate & season routes share it) |
 | `block-skeleton.ts` | Exact per-week hour targets + feasibility pre-gate + week-hours validator + the day-slot skeleton (`computeBlockSkeleton`/`formatBlockSkeleton`). Change when day-level composition rules need to change — its two invariants (exact-sum, envelope ordering) are property-swept, not example-tested ([06-generation.md § week skeleton](systems/06-generation.md#the-week-skeleton-composition-authority)) |
+| `block-compiler.ts` | Pure deterministic block composition: joint slot-type assignment, progression stages, exact-duration template assembly, typed prescription round trip, and one publication-gate evaluation |
 | `block-events.ts` | Which calendar event ids to delete on block discard/replace |
 | `block-version.ts` | CAS 409 guard for block mutations. No test file |
 | `plan-week-character.ts` | Presentational load/build/peak/taper week labels |
 | `session-requirements.ts` | Goal-text → required sessions (RaceSim); `tagPresent` negation-aware matcher |
 | `session-level.ts` | Difficulty stamp for cross-block comparability |
-| `prescription.ts` | Workout-text → structured `PrescribedInterval[]`; `carriesEmbeddedIntensity` |
+| `prescription.ts` | Typed cycling semantics + canonical Intervals.icu rendering/parsing/equality; legacy work-only adapters and `carriesEmbeddedIntensity` |
 | `durability.ts` | The 5 long-ride templates (A–E) + deterministic selection |
 | `weekly-envelope.ts` | No-block Today: Monday-resolved, one-way-reduction-only weekly TSS range + week tolerance classification |
 | `session-suggestion.ts` | No-block Today: one suggested session from `chooseNextFocus`, gated on envelope range vs. week-to-date load — never a menu |
@@ -75,7 +76,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `correlation.ts` | `deriveExecutionEdge`/`deriveOptimum` with discrimination guards (imported ONLY by calibration — direction is deliberate) |
 | `intervention.ts` | Directive baseline → 28-day validation → hit-rate |
 | `plan-vs-actual.ts` | Per-type planned-vs-actual + FTP-retest advisory (asymmetric by design) |
-| `coach-snapshot.ts` | The one resolved-numbers bundle for all LLM surfaces. Change when a new signal must reach LLM surfaces ([RECIPES § readiness](RECIPES.md#add-a-readinessstate-signal)) |
+| `coach-snapshot.ts` | Resolved Today UI/state telemetry plus shared deterministic signal resolution ([RECIPES § readiness](RECIPES.md#add-a-readinessstate-signal)) |
 | `disposition.ts` | Session self-attribution merge/apply |
 | `morning-check.ts` | Pre-ride override decisions |
 | `quirks.ts` | NLP quirk mining from ride notes (hints, ≥2 rides) |
@@ -97,25 +98,23 @@ One line per file that matters. The authoritative per-file table — README keep
 
 | Module | Purpose |
 |---|---|
-| `anthropic-api.ts` | SDK shell: client, models, call functions, usage recording |
+| `anthropic-api.ts` | SDK shell for optional ride-analysis and retrospective language: client, model/provenance constants, call functions, usage recording |
 | `anthropic-config.ts` | SDK-free Anthropic configuration predicate for deterministic routes |
-| `anthropic-prompts.ts` | ALL prompt assembly, pure/offline-testable. Change via [RECIPES § generation](RECIPES.md#change-generation-behavior-prompt-rules-output-shape); bump PROMPT_VERSION |
+| `anthropic-prompts.ts` | Pure/offline-testable ride-analysis and retrospective prompt assembly; no block-generation prompts |
 | `tool-schema.ts` | The one zod→tool-schema bridge. No test file |
-| `plan-schema.ts` | Block tool schema (`weeks` before `overview` — deliberate) |
-| `retrospective-schema.ts` | Structured-reflection tool schema + re-injection formatter |
-| `overview-check.ts` | Deterministic, warn-only overview-vs-schedule consistency checks; never rewrites prose |
+| `retrospective-schema.ts` | Structured-reflection tool schema for optional retrospective history notes |
+| `overview-check.ts` | Historical deterministic overview-vs-schedule consistency helper; no active generation caller |
 | `plan-parser.ts` | Mostly retired; live part = `planDayToEvent` calendar converter |
 | `workout-validate.ts` | KB-grounded protocol validator (`splitPlanProtocol` → violations/hazards/advisories) |
 | `publication-gate.ts` | The one publication gate: runs every generation validator exactly once, buckets findings by emitter into blockers/preferences/advisories; `canonical` + `verdictHash` behind the persisted verdict. Change when a validator's severity needs classifying ([RECIPES § validators](RECIPES.md#add-or-change-a-validator)) |
 | `workout-library.ts` | Proven-workout selection/evidence/promotion domain model (pure, no I/O). `selectLibraryWorkout` still has no caller — no `app/api/generate` integration yet. Remaining scope → [ROADMAP.md](../ROADMAP.md) Phase 4 |
 | `workout-library-service.ts` | I/O layer over `workout-library.ts`: `promoteWorkoutManually`, `setWorkoutLibraryStatus`, `recordAcceptedLibraryUses`. `workout-library.json` is in `json-store.ts`'s `CRITICAL` set. Called by `app/api/workout-library` (Task 4). `recordAcceptedLibraryUses` still has no caller (Task 8) |
 | `workout-library-export.ts` | `exportWorkoutLibraryEntry`: per-entry single-flight + remote-lookup-before-create idempotency against Intervals.icu's Workout Library API (no native upsert on that endpoint). Primitives (`findOrCreateWorkoutFolder`, `createLibraryWorkout`, `findRemoteLibraryWorkout`) live in `intervals-api.ts`. Called by `app/api/workout-library` (Task 4) |
-| `workout-templates.ts` | `buildTemplateDay(type, slot, durabilityTemplateId, isRecoveryWeek, nutrition)`: parameterized Z2 (any duration 60-480min), Recovery, Rest, Strength (KB §4 heavy-compound-lift programme). Z2 returns `null` — not template-eligible — for durability template B-E outside a recovery week; `lib/durability.ts`'s embedded efforts stay AI-authored. **Not yet wired in** — no caller (Task 7 will call it) |
+| `workout-templates.ts` | Deterministic Rest/Strength/Recovery/Z2/Threshold/VO2max/SIT/RaceSim and durability A–E catalogue; fills exact slot duration and emits typed prescriptions |
 | `schedule-validate.ts` | Placement validators: spacing, quality budget, taper, sequencing, recovery density, skeleton conformance. Each owns one fact only — check no existing validator already warns about it before adding another |
 | `nutrition-validate.ts` | Kcal check + the ONLY auto-repairing validator |
-| `generate-cache.ts` | 60s in-flight dedupe |
 | `ai-usage.ts` | Token/cost telemetry (PRICING table duplicates model ids — keep in sync) |
-| `kb-loader.ts` | KB read/write/fallback, athlete-md parsing, retrospective seeds; Markdown writes are atomic temp-file + `fsync` + rename |
+| `kb-loader.ts` | Reference-note read/write/fallback, athlete-md migration parsing, retrospective history/acknowledgement compatibility; Markdown writes are atomic temp-file + `fsync` + rename |
 | `synthesis.ts` | Insights + validation → ONE ranked directives block |
 
 ## `app/api/` — routes
@@ -125,7 +124,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `sync` | GET/POST/DELETE | The sync orchestrator; DELETE removes the current block (the largest route, ~905 lines) | config-check only |
 | `analyze` | POST | Deferred coach-note generation for today's ride | ✅ sonnet |
 | `intent` | POST | Deferred self-directed intent parsing and deterministic overlay scoring | — |
-| `generate` | POST | Block generation (proposal only), publication gate, deterministic overview warnings | ✅ sonnet |
+| `generate` | POST | Deterministic block compilation (proposal only) + persisted publication verdict | — |
 | `write` | POST | Accept a plan: publication-gate verdict check (422 refusals before any write), calendar writes w/ rollback, archive, interventions | — |
 | `retrospective` | GET/POST | Block retrospective (prose + structured) + archive + clear block | ✅ sonnet ×2 |
 | `season` | GET/PUT | Season objective/events CRUD + outlook projection | — |
@@ -134,7 +133,7 @@ One line per file that matters. The authoritative per-file table — README keep
 | `disposition` | GET/POST | Session self-report; re-stamps score log | — |
 | `loading` | GET/POST | Carb-loading prompt + attribution | — |
 | `trends` | GET | Trends payload assembly (read-only) | — |
-| `history` | GET/POST | Block-history list; POST = the adoption action (flips `seeds_approved:` on the retro, stamps `reflectionsApprovedAt` on the entry) | — |
+| `history` | GET/POST | Block-history list; POST records retrospective acknowledgement (legacy `seeds_approved` flip + `reflectionsApprovedAt` stamp), never planning authority | — |
 | `profile` | GET/PUT | Athlete profile (physiology overlaid at read) | — |
 | `physiology` | POST | Mark or clear the physiology obsolete flag in `physiology-status.json` | — |
 | `settings` | GET/PUT | Block settings + calibration-band overrides | — |

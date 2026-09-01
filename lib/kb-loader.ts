@@ -295,12 +295,8 @@ export function writeKnowledgeFile(name: string, content: string): Promise<void>
   });
 }
 
-// Strip the GOALS/WEAKPOINTS sections from athlete_profile.md's raw text before it's inlined into the
-// generation prompt (Goals/Weakpoints centralization): those sections are now stale/historical — the
-// athlete's live data lives in AthleteProfile.goals/weakpoints and is injected separately as
-// goalsContext/weakpointsContext (app/api/generate/route.ts) — so the raw markdown copy must never leak
-// a frozen snapshot into generation. Same "next top-level heading or EOF" boundary as the Related-notes
-// footer stripping.
+// Legacy normalizer retained for stored athlete-profile compatibility. Goals/weakpoints now live in
+// AthleteProfile JSON; deterministic generation does not consume the markdown copy.
 export function stripGoalsWeakpointsSections(content: string): string {
   return content
     .replace(/\n+## +GOALS\b[\s\S]*?(?=\n## |$)/, "")
@@ -308,12 +304,7 @@ export function stripGoalsWeakpointsSections(content: string): string {
     .trim();
 }
 
-// Strip Obsidian-only navigation syntax before the KB goes into the generation
-// prompt: the `## Related notes` footers and `[[wikilinks]]` exist for the human
-// browsing the vault in Obsidian and carry no signal for the LLM, so we drop the
-// footers entirely and flatten any inline wikilink to its readable display text
-// (alias if present, else the section name, else the target). Saves prompt tokens
-// and keeps the wikilinks from leaking into generated copy.
+// Legacy display normalizer: drop Related-notes footers and flatten wikilinks to readable text.
 export function stripObsidianSyntax(content: string): string {
   return content
     // Drop the Related-notes footer (and the `---` rule preceding it) through the
@@ -329,34 +320,9 @@ export function stripObsidianSyntax(content: string): string {
     .trim();
 }
 
-// Full knowledge base as one string for prompt injection, each file prefixed
-// with its filename as a section header.
-async function loadKnowledgeBaseContextUnlocked(): Promise<string> {
-  const files = await listKnowledgeFilesUnlocked();
-  const ordered = KB_ORDER.filter((f) => files.includes(f)).concat(
-    files.filter((f) => !KB_ORDER.includes(f))
-  );
-  const sections: string[] = [];
-  for (const file of ordered) {
-    const content = await readKbWithFallback(file);
-    if (content !== null) {
-      const stripped = file === "athlete_profile.md" ? stripGoalsWeakpointsSections(content) : content;
-      sections.push(`===== FILE: ${file} =====\n\n${stripObsidianSyntax(stripped)}`);
-    }
-  }
-  return sections.join("\n\n");
-}
-
-export function loadKnowledgeBaseContext(): Promise<string> {
-  return withPersistenceAccess(loadKnowledgeBaseContextUnlocked);
-}
-
 // ---------- Block retrospectives ----------
-// Stored under knowledge-base/block-retrospectives/. They are NOT pulled into
-// loadKnowledgeBaseContext() (listKnowledgeFiles only matches flat .md files),
-// so they never bloat the generation prompt. Instead the *latest* file's
-// next_block_seeds are injected at generation time — gated on the athlete's
-// `seeds_approved: true` stamp (see parseRetroSeeds below).
+// Stored under knowledge-base/block-retrospectives/ as athlete-visible history. Neither these files
+// nor their legacy `next_block_seeds` field are inputs to deterministic block compilation.
 
 // Newest-first (filenames start with the block start date, so a reverse
 // lexicographic sort is chronological).
@@ -403,7 +369,7 @@ export function retroFileId(startDate: string, goal: string): string {
 // The frontmatter region of a retro markdown file: ONLY the lines between a leading `---` and the
 // next `---`. Files not starting with `---` (or with an unterminated delimiter) have none. Both the
 // seed gate and the seeds list must be read from here — a prose line in the narrative body reading
-// `seeds_approved: true` must never open the approval gate.
+// `seeds_approved: true` must never open the acknowledgement parser from body prose.
 function retroFrontmatterBounds(content: string): { lines: string[]; close: number } | null {
   const lines = content.split("\n");
   if (lines[0]?.trim() !== "---") return null;
@@ -417,8 +383,8 @@ function retroFrontmatterLines(content: string): string[] | null {
   return bounds ? bounds.lines.slice(1, bounds.close) : null;
 }
 
-// Phase 1: proposed seeds steer generation ONLY once the athlete (via the Plan-page adoption
-// action or a hand edit) stamped the file. Absent/false ⇒ [] — old files degrade to unapproved.
+// Legacy history parser retained for stored retrospective compatibility and the acknowledgement
+// workflow. The parsed values are not consumed by deterministic block compilation.
 export function parseRetroSeeds(content: string): string[] {
   const fmLines = retroFrontmatterLines(content);
   if (!fmLines || !fmLines.some((l) => /^seeds_approved:\s*true\s*$/.test(l))) return [];
@@ -456,21 +422,6 @@ export function approveSeedsInMarkdown(content: string): string {
   }
   lines.splice(1, 0, "seeds_approved: true");
   return lines.join("\n");
-}
-
-// Parse the `next_block_seeds:` YAML list out of the newest retrospective's frontmatter,
-// gated on the athlete's `seeds_approved: true` stamp.
-export function latestRetrospectiveSeeds(): Promise<string[]> {
-  return withPersistenceAccess(async () => {
-    const all = await listRetrospectivesUnlocked();
-    const dated = all.filter((f) => /^\d{4}-\d{2}-\d{2}_/.test(f));
-    if (dated.length === 0) return [];
-    try {
-      return parseRetroSeeds(await readRetrospectiveUnlocked(dated[0]));
-    } catch {
-      return [];
-    }
-  });
 }
 
 export function markRetroSeedsApproved(name: string): Promise<boolean> {

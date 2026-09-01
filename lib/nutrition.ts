@@ -539,6 +539,25 @@ export function calculateDailyTarget(
   };
 }
 
+export function buildWorkoutNutritionPlan(
+  profile: AthleteProfile,
+  latestWeightKg: number,
+  today: string,
+  ftp: number,
+  bufferApplied: number,
+  workout: WorkoutContext
+): WorkoutNutritionPlan {
+  const isRestDay = workout.type === "Rest";
+  const model = resolveNutritionModel(profile, latestWeightKg, today, isRestDay);
+  return calculateDailyTarget(
+    estimateWorkoutBurnKcal(workout.type, workout.durationMin, ftp),
+    model,
+    bufferApplied,
+    isRestDay,
+    workout
+  );
+}
+
 /**
  * The active day type's split (whichever `isRestDay` selects) — but only when it clears its OWN
  * confidence floor, never a bare "it exists" check. Mirrors `calibrationIsTrustworthy`'s exact tier
@@ -1656,7 +1675,7 @@ export function computeNutritionTrendWarning(
   };
 }
 
-// ---------- Reference table injected into the AI prompt ----------
+// ---------- Workout nutrition plans ----------
 
 export interface NutritionReferenceRow {
   type: WorkoutType;
@@ -1676,15 +1695,7 @@ const REFERENCE_DURATIONS: Record<WorkoutType, number[]> = {
   Strength: [45, 60],
 };
 
-/**
- * DT Task 2: each row now resolves its OWN model rather than sharing one instance across every type —
- * once day-type NEAT is adopted, a Rest row and a Z2 row genuinely differ (rest.multiplier vs
- * train.multiplier), so reusing a single pre-resolved model would silently flatten that split back out
- * of the reference table the generator prompt reads. `isRestDayToday` is resolved once PER TYPE (not
- * per duration) — it depends only on `type === "Rest"`, so every duration of the same type shares an
- * identical resolve, and this avoids N redundant calls for the same (profile, weight, today,
- * isRestDayToday) tuple.
- */
+/** Legacy reference rows and exact compiler durations share one formula path. */
 export function buildNutritionReferenceRows(
   profile: AthleteProfile,
   latestWeightKg: number,
@@ -1694,18 +1705,13 @@ export function buildNutritionReferenceRows(
 ): NutritionReferenceRow[] {
   const rows: NutritionReferenceRow[] = [];
   for (const [type, durations] of Object.entries(REFERENCE_DURATIONS) as [WorkoutType, number[]][]) {
-    const isRestDayToday = type === "Rest";
-    const model = resolveNutritionModel(profile, latestWeightKg, today, isRestDayToday);
     for (const durationMin of durations) {
       const estBurnKcal = estimateWorkoutBurnKcal(type, durationMin, ftp);
       rows.push({
         type,
         durationMin,
         estBurnKcal,
-        plan: calculateDailyTarget(estBurnKcal, model, bufferApplied, isRestDayToday, {
-          type,
-          durationMin,
-        }),
+        plan: buildWorkoutNutritionPlan(profile, latestWeightKg, today, ftp, bufferApplied, { type, durationMin }),
       });
     }
   }

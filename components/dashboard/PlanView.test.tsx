@@ -296,9 +296,8 @@ describe("publication-gate UI — override acknowledgment rides in the write POS
   };
 
   // Generate a plan so the (stubbed) PlanPreview — and with it the write/ack controls — mounts.
-  // anthropicConfigured must be true or BlockGenerator's submit button is disabled.
   const generateFirst = async (plan: GeneratedPlan, writeImpl: () => unknown) => {
-    mockSync(null, { anthropicConfigured: true });
+    mockSync(null);
     routeGateApi(plan, writeImpl);
     renderPlanView();
     fireEvent.change(screen.getByLabelText(/block goal/i), { target: { value: "Raise threshold" } });

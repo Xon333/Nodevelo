@@ -183,8 +183,7 @@ export async function writeLastSync(sync: SyncData): Promise<void> {
 //
 // NOT in json-store.ts's CRITICAL set, deliberately: CRITICAL means "cannot be re-derived from a
 // fresh sync" (ledgers, human decisions like intent-overlays/workout-library). A verdict is fully
-// re-derivable — re-running the gate on the same days/blockParams reproduces it byte-for-byte from
-// canonical hashing — and is only ever valid for one generation cycle anyway. Same treatment as the
+// re-derivable and is only ever valid for one generation cycle anyway. Same treatment as the
 // other single-slot ephemeral stores (last-sync.json, today-analysis.json): atomic writes via the
 // per-file lock, no .bak rotation, corrupt file reads back as null.
 export async function readGenerationVerdict(): Promise<GenerationVerdict | null> {
@@ -195,10 +194,29 @@ export async function readGenerationVerdict(): Promise<GenerationVerdict | null>
 // two concurrent saves serialize and the file is always exactly ONE complete record (the last to
 // acquire the lock) — never interleaved bytes. That's the correct semantics here: each save is a
 // whole-record replacement, not a merge, so there's no lost-update hazard a read-modify-write
-// (updateJson) would be needed for; plain last-writer-wins IS latest-wins. Persisted verbatim —
-// the caller owns the record's content, including `createdAt`, matching writeLastSync/writeTodayAnalysis.
+// (updateJson) would be needed for; plain last-writer-wins IS latest-wins.
 export async function saveGenerationVerdict(record: GenerationVerdict): Promise<void> {
   await writeJson("generation-gate.json", record);
+}
+
+export async function replaceGenerationVerdict(
+  expectedHash: string,
+  record: GenerationVerdict
+): Promise<"saved" | "lost" | "write-failed"> {
+  let owned = false;
+  try {
+    await updateJson<GenerationVerdict | null>("generation-gate.json", null, (current) => {
+      if (current?.verdictHash !== expectedHash) return current;
+      owned = true;
+      return record;
+    });
+    return owned ? "saved" : "lost";
+  } catch (error) {
+    // atomicWrite keeps the old claim intact when replacement fails. Only suppress a write failure
+    // after the locked read proved this caller still owns the slot; unknown/read failures propagate.
+    if (owned) return "write-failed";
+    throw error;
+  }
 }
 
 export async function readCurrentBlock(): Promise<CurrentBlock | null> {
@@ -261,21 +279,30 @@ export async function mergeCurrentBlockDays(
   }, expectedCreatedAt);
 }
 
-// HR-54(d): an old block-settings.json predating a boolean field parses back with it entirely absent
-// (`undefined`), not `false` — a plain truthy check at a consumer would then silently disable a
-// toggle whose documented default is `true`, even though nothing ever set it. Only the true-by-default
-// booleans need this (a false-by-default field's `undefined` already reads correctly as falsy) —
-// `autoPostCoachNote` defaults to `false`, so it's untouched here.
-function healBlockSettingsBooleans(settings: BlockSettings): BlockSettings {
+type StoredBlockSettings = Partial<BlockSettings> & {
+  weeklyHoursMin?: number;
+  weeklyHoursMax?: number;
+};
+
+// Shape-normalize legacy settings in one place. Missing fields parse as `undefined`, so every fallback
+// is nullish rather than an `=== null` migration check. The legacy loading range is read-compatible
+// only: neither old field survives the returned shape or the next locked update.
+function normalizeBlockSettings(stored: StoredBlockSettings): BlockSettings {
+  const legacyTarget = stored.weeklyHoursMax ?? DEFAULT_BLOCK_SETTINGS.targetWeeklyHours;
+  const { weeklyHoursMin: _legacyMin, weeklyHoursMax: _legacyMax, ...current } = stored;
   return {
-    ...settings,
-    autoSyncOnOpen: settings.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
-    polarisedApproach: settings.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
+    ...DEFAULT_BLOCK_SETTINGS,
+    ...current,
+    targetWeeklyHours: stored.targetWeeklyHours ?? legacyTarget,
+    maxAvailableHours: stored.maxAvailableHours ?? legacyTarget,
+    lapButtonSteps: stored.lapButtonSteps ?? true,
+    autoSyncOnOpen: stored.autoSyncOnOpen ?? DEFAULT_BLOCK_SETTINGS.autoSyncOnOpen,
+    polarisedApproach: stored.polarisedApproach ?? DEFAULT_BLOCK_SETTINGS.polarisedApproach,
   };
 }
 
 export async function readBlockSettings(): Promise<BlockSettings> {
-  return healBlockSettingsBooleans(await readJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS));
+  return normalizeBlockSettings(await readJson<StoredBlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS));
 }
 
 // HR-52: transactional read-modify-write on block-settings.json — the read happens inside the
@@ -287,7 +314,7 @@ export async function updateBlockSettings(
   mutate: (current: BlockSettings) => BlockSettings | Promise<BlockSettings>
 ): Promise<BlockSettings> {
   return updateJson<BlockSettings>("block-settings.json", DEFAULT_BLOCK_SETTINGS, async (current) => ({
-    ...(await mutate(healBlockSettingsBooleans(current))),
+    ...(await mutate(normalizeBlockSettings(current))),
     updatedAt: new Date().toISOString(),
   }));
 }

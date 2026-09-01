@@ -5,6 +5,7 @@ import {
   exerciseBurn,
   adjustBuffer,
   balanceLevel,
+  buildWorkoutNutritionPlan,
   buildNutritionReferenceRows,
   BUFFER_MAX_KCAL,
   BUFFER_MIN_KCAL,
@@ -2035,5 +2036,20 @@ describe("buildNutritionReferenceRows (DT Task 2 — per-row day-type resolution
     const z2Row = rows.find((r) => r.type === "Z2" && r.durationMin === 60)!;
     expect(restRow.plan.maintenanceKcal).toBe(Math.round(pooled.multiplier * rmr));
     expect(z2Row.plan.maintenanceKcal).toBe(Math.round(pooled.multiplier * rmr + z2Row.estBurnKcal));
+  });
+
+  it("builds an exact-duration plan with the shared nutrition formula", () => {
+    const profile = profileWith(dayTypeNeat);
+    const workout = { type: "Z2" as const, durationMin: 83 };
+    const actual = buildWorkoutNutritionPlan(profile, 62, "2026-07-30", 250, 100, workout);
+    const model = resolveNutritionModel(profile, 62, "2026-07-30", false);
+    const expected = calculateDailyTarget(
+      estimateWorkoutBurnKcal("Z2", 83, 250),
+      model,
+      100,
+      false,
+      workout
+    );
+    expect(actual).toEqual(expected);
   });
 });

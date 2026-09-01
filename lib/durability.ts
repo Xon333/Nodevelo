@@ -2,18 +2,26 @@
 // five templates that each train a different fatigue-resistance mechanism. The template for a block
 // is chosen DETERMINISTICALLY — limiter-driven from the athlete model, else rotated to keep adaptation
 // broad — and structures the week's long Z2 ride (the intensity sits inside the duration, never
-// replacing it). The LLM only phrases the chosen, hardwired structure. See KB §12.
+// replacing it). The typed workout catalogue compiles the chosen structure. See KB §12.
 
 import type { Insight } from "./types";
 import { tagPresent } from "./session-requirements";
 
 export type DurabilityTemplateId = "A" | "B" | "C" | "D" | "E";
 
+export const DURABILITY_RECIPES = {
+  A: { kind: "steady" },
+  B: { kind: "late-repeats", reps: 2, workSec: 600, workPct: 90, recoverySec: 300 },
+  C: { kind: "late-repeats", reps: 4, workSec: 180, workPct: 110, recoverySec: 180 },
+  D: { kind: "late-repeats", reps: 8, workSec: 15, workPct: 150, recoverySec: 225 },
+  E: { kind: "distributed", reps: 6, workSec: 60, workPct: 105, recoverySec: 840 },
+} as const;
+
 export interface DurabilityTemplate {
   id: DurabilityTemplateId;
   name: string;
   mechanism: string;
-  structure: string; // how to build the long ride — injected into the generation prompt
+  structure: string; // human-readable template description; typed execution lives in workout-templates.ts
 }
 
 export const DURABILITY_TEMPLATES: DurabilityTemplate[] = [
@@ -120,15 +128,4 @@ export function selectDurabilityTemplate(insights: Insight[], lastId: string | n
     }
   }
   return nextAfter(lastId);
-}
-
-// `hasRecoveryWeek` appends the recovery-week exception. The template is chosen ONCE per block but
-// this line is injected for every week — so template B ("fatigue-then-threshold") was instructing the
-// model to put threshold efforts inside the recovery week's long ride too. That is the second root
-// cause of the 2026-07 recovery-week defect, and it contradicts formatRecoveryWeeks' own long-ride
-// rule (lib/season.ts) unless stated here as well.
-export function formatDurabilityForPrompt(t: DurabilityTemplate, hasRecoveryWeek = false): string {
-  const base = `DURABILITY FOCUS THIS BLOCK — template ${t.id} (${t.name}): ${t.mechanism}. Build the week's long Z2 ride as ${t.structure} The intensity sits INSIDE the duration target, never replacing it, and the long ride stays TYPE Z2 (the late efforts are part of it, not a separate quality session). See KB §12.`;
-  if (!hasRecoveryWeek) return base;
-  return `${base} EXCEPTION — in a RECOVERY week this template does not apply: that week's long ride is unbroken Z2 at its duration target with no embedded threshold/VO2 efforts at all.`;
 }

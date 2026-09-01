@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DURABILITY_TEMPLATES, formatDurabilityForPrompt, selectDurabilityTemplate } from "./durability";
+import { DURABILITY_RECIPES, selectDurabilityTemplate } from "./durability";
 import type { Insight } from "./types";
 
 const insight = (dimension: string, severity: Insight["severity"]): Insight => ({
@@ -8,6 +8,16 @@ const insight = (dimension: string, severity: Insight["severity"]): Insight => (
   title: `${dimension} ${severity}`,
   evidence: "",
   suggestion: "",
+});
+
+it("defines the fixed deterministic durability mechanisms", () => {
+  expect(DURABILITY_RECIPES).toEqual({
+    A: { kind: "steady" },
+    B: { kind: "late-repeats", reps: 2, workSec: 600, workPct: 90, recoverySec: 300 },
+    C: { kind: "late-repeats", reps: 4, workSec: 180, workPct: 110, recoverySec: 180 },
+    D: { kind: "late-repeats", reps: 8, workSec: 15, workPct: 150, recoverySec: 225 },
+    E: { kind: "distributed", reps: 6, workSec: 60, workPct: 105, recoverySec: 840 },
+  });
 });
 
 describe("selectDurabilityTemplate — limiter-driven", () => {
@@ -78,30 +88,6 @@ describe("selectDurabilityTemplate — rotation (no limiter)", () => {
     expect(selectDurabilityTemplate([], "E").id).toBe("A");
     expect(selectDurabilityTemplate([], null).id).toBe("A");
     expect(selectDurabilityTemplate([], "bogus").id).toBe("A"); // unknown id → safe wrap
-  });
-});
-
-describe("formatDurabilityForPrompt", () => {
-  it("names the template and keeps the long ride TYPE Z2", () => {
-    const out = formatDurabilityForPrompt(DURABILITY_TEMPLATES[1]); // B
-    expect(out).toContain("template B");
-    expect(out).toContain("TYPE Z2");
-    expect(out).toContain("INSIDE the duration target");
-  });
-});
-
-describe("formatDurabilityForPrompt — recovery-week carve-out", () => {
-  it("adds an explicit recovery-week exception when the block has one", () => {
-    const b = DURABILITY_TEMPLATES.find((t) => t.id === "B")!;
-    const line = formatDurabilityForPrompt(b, true);
-    expect(line).toMatch(/recovery week/i);
-    expect(line).toMatch(/unbroken Z2/i);
-    expect(line).toMatch(/no embedded/i);
-  });
-
-  it("omits the exception when the block has no recovery week", () => {
-    const b = DURABILITY_TEMPLATES.find((t) => t.id === "B")!;
-    expect(formatDurabilityForPrompt(b, false)).not.toMatch(/recovery week/i);
   });
 });
 

@@ -12,9 +12,9 @@ export default function DataPrivacyCard() {
         </li>
         <li>
           <strong className="text-zinc-700 dark:text-zinc-200">Processed remotely by Anthropic.</strong>{" "}
-          The four remote call categories are block generation, the ride-analysis coach note, prose
-          retrospectives, and structured retrospectives. Per-call spend is tracked under AI usage &amp;
-          cost. Intent parsing is deterministic and does not contact Anthropic.
+          The three remote call categories are the ride-analysis coach note, prose retrospectives,
+          and structured retrospectives. Per-call spend is tracked under AI usage &amp; cost. Intent
+          parsing and block generation are deterministic and do not contact Anthropic.
         </li>
         <li>
           Everything else — scoring, nutrition, readiness, scheduling, and backup — runs without

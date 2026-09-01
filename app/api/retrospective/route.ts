@@ -19,6 +19,8 @@ import { isSeasonFocus } from "@/lib/season";
 import { isSteadyEnduranceRide } from "@/lib/aerobic";
 import { buildCloseoutEvidence, deriveCloseoutSeeds } from "@/lib/block-closeout";
 import {
+  GENERATION_MODEL,
+  PROMPT_VERSION,
   generateRetrospective,
   generateStructuredRetrospective,
   isAnthropicConfigured,
@@ -247,7 +249,7 @@ export async function POST(req: Request) {
     ...(retrospective ? ["## Retrospective", "", retrospective, ""] : []),
     ...(structuredReflections.length
       ? [
-          "## Coach reflections (UNAPPROVED — adopt on Plan before they reach the next block)",
+          "## Coach reflections (UNACKNOWLEDGED — history record only)",
           "",
           ...structuredReflections.map(
             (r) =>
@@ -275,8 +277,9 @@ export async function POST(req: Request) {
     closeout: evidence,
     ...(retrospective ? { retrospective } : {}),
     structuredReflections,
-    model: block.model,
-    promptVersion: block.promptVersion,
+    ...((retrospective || structuredReflections.length > 0)
+      ? { model: GENERATION_MODEL, promptVersion: PROMPT_VERSION }
+      : { model: block.model, promptVersion: block.promptVersion }),
     ...(block.seasonFocus && isSeasonFocus(block.seasonFocus) ? { seasonFocus: block.seasonFocus } : {}),
     ...(endedEarly ? { endedEarlyAt: new Date().toISOString(), endedEarlyReason: endReason } : {}),
     // SUB-1: truncation keeps one code path instead of special-casing this call site — for an early

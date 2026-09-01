@@ -9,6 +9,256 @@
 import { DEFAULT_DURABILITY_INSERT_ENVELOPE } from "./calibration";
 import type { PlannedDay, PrescribedInterval } from "./types";
 
+export type PrescriptionTargetMode = "power" | "heartRate";
+export type PrescriptionSectionName = "Warmup" | "Main Set" | "Cooldown";
+export type StepRole = "warmup" | "active" | "recovery" | "cooldown";
+export type StepTarget =
+  | { kind: "power-percent"; minPctFtp: number; maxPctFtp: number }
+  | { kind: "power-ramp"; fromPctFtp: number; toPctFtp: number }
+  | { kind: "power-zone"; minZone: 1 | 2 | 3 | 4 | 5 | 6; maxZone: 1 | 2 | 3 | 4 | 5 | 6 }
+  | { kind: "hr-percent"; basis: "max" | "lthr"; minPct: number; maxPct: number }
+  | { kind: "hr-zone"; minZone: 1 | 2 | 3 | 4 | 5; maxZone: 1 | 2 | 3 | 4 | 5 };
+
+export interface PrescriptionStep {
+  cue?: string;
+  durationSec: number;
+  end: "timer" | "lapButton";
+  role: StepRole;
+  target: StepTarget;
+  hrCeilingBpm?: number;
+}
+
+export interface PrescriptionSection {
+  name: PrescriptionSectionName;
+  repeats: number;
+  steps: PrescriptionStep[];
+}
+
+export interface CyclingPrescription {
+  targetMode: PrescriptionTargetMode;
+  sections: PrescriptionSection[];
+}
+
+export class PrescriptionSyntaxError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PrescriptionSyntaxError";
+  }
+}
+
+const syntaxError = (message: string): never => {
+  throw new PrescriptionSyntaxError(message);
+};
+
+const DURATION_TOKENS = String.raw`(?:\d+\s*(?:h|m|s|'|")\s*)+`;
+const TARGET_TOKEN = String.raw`(?:ramp\s+)?(?:\d+(?:\.\d+)?(?:%?\s*-\s*\d+(?:\.\d+)?)?%(?:\s+(?:HR|LTHR))?(?!\w)|Z[1-6](?:\s*-\s*Z[1-6])?(?:\s+HR)?\b)`;
+const DURATION_AT_END_RX = new RegExp(`(${DURATION_TOKENS})$`, "i");
+const DURATION_TARGET_CLAUSE_RX = new RegExp(`${DURATION_TOKENS}${TARGET_TOKEN}`, "i");
+
+export function assertPrescriptionValid(
+  value: CyclingPrescription,
+  options: { lapButtonSteps: boolean }
+): void {
+  if (!value.sections.length) syntaxError("Prescription must contain at least one section");
+
+  for (const section of value.sections) {
+    if (!Number.isInteger(section.repeats) || section.repeats <= 0) syntaxError("Section repeats must be positive integers");
+    if (!section.steps.length) syntaxError("Prescription sections must not be empty");
+
+    for (const step of section.steps) {
+      if (step.cue !== undefined && (
+        !step.cue.trim()
+        || step.cue !== step.cue.trim()
+        || /[\r\n]/.test(step.cue)
+        || /^Press lap(?:\s|$)/i.test(step.cue)
+        || /(?:^|\s)HR cap [1-9]\d*bpm$/i.test(step.cue)
+        || DURATION_AT_END_RX.test(step.cue)
+        || DURATION_TARGET_CLAUSE_RX.test(step.cue)
+      )) syntaxError("Cue must be nonempty, trimmed, single-line, and must not use reserved lap/cap grammar");
+      if (!Number.isInteger(step.durationSec) || step.durationSec <= 0) syntaxError("Step duration must be a positive integer");
+      const targetMode = step.target.kind.startsWith("power-") ? "power" : "heartRate";
+      if (targetMode !== value.targetMode) syntaxError("Step target does not match prescription target mode");
+      if (step.target.kind === "power-ramp" && section.name === "Main Set") syntaxError("Power ramps are only valid in Warmup or Cooldown");
+      if (step.hrCeilingBpm !== undefined && value.targetMode === "heartRate") syntaxError("HR-led workouts cannot carry an HR ceiling");
+      if (step.hrCeilingBpm !== undefined && (!Number.isInteger(step.hrCeilingBpm) || step.hrCeilingBpm <= 0)) syntaxError("HR ceiling must be a positive integer");
+      if (step.end === "lapButton" && !options.lapButtonSteps) syntaxError("Lap-button step requires lap-button capability");
+      if (step.end === "lapButton" && step.role !== "warmup" && step.role !== "recovery") syntaxError("Lap-button role must be warmup or recovery");
+
+      const range =
+        step.target.kind === "power-percent" ? [step.target.minPctFtp, step.target.maxPctFtp]
+        : step.target.kind === "power-ramp" ? [step.target.fromPctFtp, step.target.toPctFtp]
+        : step.target.kind === "hr-percent" ? [step.target.minPct, step.target.maxPct]
+        : [step.target.minZone, step.target.maxZone];
+      if (range.some((part) => !Number.isFinite(part) || part <= 0) || (step.target.kind !== "power-ramp" && range[0] > range[1])) {
+        syntaxError("Target range must contain positive values in ascending order");
+      }
+    }
+  }
+}
+
+export function formatDuration(durationSec: number): string {
+  if (!Number.isInteger(durationSec) || durationSec <= 0) syntaxError("Duration must be a positive integer");
+  const hours = Math.floor(durationSec / 3600);
+  const minutes = Math.floor((durationSec % 3600) / 60);
+  const seconds = durationSec % 60;
+  return `${hours ? `${hours}h` : ""}${minutes ? `${minutes}m` : ""}${seconds ? `${seconds}s` : ""}`;
+}
+
+function renderRange(min: number, max: number, suffix: string): string {
+  return min === max ? `${min}${suffix}` : `${min}${suffix}-${max}${suffix}`;
+}
+
+function renderTarget(target: StepTarget): string {
+  switch (target.kind) {
+    case "power-percent": return renderRange(target.minPctFtp, target.maxPctFtp, "%");
+    case "power-ramp": return `ramp ${renderRange(target.fromPctFtp, target.toPctFtp, "%")}`;
+    case "power-zone": return renderRange(target.minZone, target.maxZone, "").replace(/(^|-)(\d)/g, "$1Z$2");
+    case "hr-percent": return `${renderRange(target.minPct, target.maxPct, "%")} ${target.basis === "max" ? "HR" : "LTHR"}`;
+    case "hr-zone": return `${renderRange(target.minZone, target.maxZone, "").replace(/(^|-)(\d)/g, "$1Z$2")} HR`;
+  }
+}
+
+export function renderPrescription(
+  prescription: CyclingPrescription,
+  options: { lapButtonSteps: boolean }
+): string {
+  assertPrescriptionValid(prescription, options);
+  return prescription.sections.map((section) => {
+    const header = `${section.name}${section.repeats > 1 ? ` ${section.repeats}x` : ""}`;
+    const steps = section.steps.map((step) => {
+      const cueParts = [
+        step.end === "lapButton" ? "Press lap" : null,
+        step.cue,
+        step.hrCeilingBpm ? `HR cap ${step.hrCeilingBpm}bpm` : null,
+      ].filter((value): value is string => Boolean(value));
+      return `- ${[...cueParts, formatDuration(step.durationSec), renderTarget(step.target), `intensity=${step.role}`].join(" ")}`;
+    });
+    return [header, ...steps].join("\n");
+  }).join("\n\n");
+}
+
+function parseTarget(text: string): { head: string; target: StepTarget } {
+  const patterns: Array<[RegExp, (match: RegExpMatchArray) => StepTarget]> = [
+    [/^(.*?)\bramp\s+(\d+(?:\.\d+)?)%?\s*-\s*(\d+(?:\.\d+)?)%$/i, (m) => ({ kind: "power-ramp", fromPctFtp: Number(m[2]), toPctFtp: Number(m[3]) })],
+    [/^(.*?)Z([1-5])(?:\s*-\s*Z([1-5]))?\s+HR$/i, (m) => ({ kind: "hr-zone", minZone: Number(m[2]) as 1 | 2 | 3 | 4 | 5, maxZone: Number(m[3] ?? m[2]) as 1 | 2 | 3 | 4 | 5 })],
+    [/^(.*?)(\d+(?:\.\d+)?)(?:%?\s*-\s*(\d+(?:\.\d+)?))?%\s+(HR|LTHR)$/i, (m) => ({ kind: "hr-percent", basis: m[4].toUpperCase() === "HR" ? "max" : "lthr", minPct: Number(m[2]), maxPct: Number(m[3] ?? m[2]) })],
+    [/^(.*?)Z([1-6])(?:\s*-\s*Z([1-6]))?$/i, (m) => ({ kind: "power-zone", minZone: Number(m[2]) as 1 | 2 | 3 | 4 | 5 | 6, maxZone: Number(m[3] ?? m[2]) as 1 | 2 | 3 | 4 | 5 | 6 })],
+    [/^(.*?)(\d+(?:\.\d+)?)(?:%?\s*-\s*(\d+(?:\.\d+)?))?%$/, (m) => ({ kind: "power-percent", minPctFtp: Number(m[2]), maxPctFtp: Number(m[3] ?? m[2]) })],
+  ];
+  for (const [pattern, makeTarget] of patterns) {
+    const match = text.match(pattern);
+    if (match) return { head: match[1].trimEnd(), target: makeTarget(match) };
+  }
+  return syntaxError(`Step must end with exactly one supported target: ${text}`);
+}
+
+function inferRole(section: PrescriptionSectionName, target: StepTarget): StepRole {
+  if (section === "Warmup") return "warmup";
+  if (section === "Cooldown") return "cooldown";
+  if (target.kind === "power-percent" && target.maxPctFtp < 80) return "recovery";
+  if (target.kind === "hr-zone" && target.maxZone <= 2) return "recovery";
+  return "active";
+}
+
+function parseRichStep(line: string, sectionName: PrescriptionSectionName): PrescriptionStep {
+  let rest = line.slice(1).trim();
+  let role: StepRole | undefined;
+  const roleMatch = rest.match(/\s+intensity=(warmup|active|recovery|cooldown)$/i);
+  if (roleMatch) {
+    role = roleMatch[1].toLowerCase() as StepRole;
+    rest = rest.slice(0, roleMatch.index).trimEnd();
+  }
+
+  rest = rest.replace(/\s+\d+(?:\s*-\s*\d+)?rpm$/i, "");
+  const { head, target } = parseTarget(rest);
+  const durationMatch = head.match(DURATION_AT_END_RX);
+  if (!durationMatch) return syntaxError(`Step is missing a duration: ${line}`);
+  const durationSec = durationToSec(durationMatch[1]);
+  let cue = head.slice(0, durationMatch.index).trim();
+  if (DURATION_TARGET_CLAUSE_RX.test(cue)) {
+    syntaxError(`Step must contain exactly one target: ${line}`);
+  }
+
+  let hrCeilingBpm: number | undefined;
+  const capMatch = cue.match(/(?:^|\s)HR cap ([1-9]\d*)bpm$/i);
+  if (capMatch) {
+    hrCeilingBpm = Number(capMatch[1]);
+    cue = cue.slice(0, capMatch.index).trim();
+  }
+
+  const end = /^Press lap(?:\s|$)/i.test(cue) ? "lapButton" : "timer";
+  if (end === "lapButton") cue = cue.replace(/^Press lap(?:\s+|$)/i, "").trim();
+  return {
+    durationSec,
+    end,
+    role: role ?? inferRole(sectionName, target),
+    target,
+    ...(cue ? { cue } : {}),
+    ...(hrCeilingBpm === undefined ? {} : { hrCeilingBpm }),
+  };
+}
+
+export function parseCyclingPrescription(workoutText: string): CyclingPrescription {
+  const sections: PrescriptionSection[] = [];
+  let current: PrescriptionSection | undefined;
+  const flush = () => {
+    if (current) sections.push(current);
+    current = undefined;
+  };
+
+  for (const raw of workoutText.split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    if (!line.startsWith("-")) {
+      flush();
+      const header = line.match(/^(Warmup|Main Set|Cooldown)(?: ([1-9]\d*)x)?$/);
+      if (!header) return syntaxError(`Invalid section header: ${line}`);
+      current = { name: header[1] as PrescriptionSectionName, repeats: Number(header[2] ?? 1), steps: [] };
+      continue;
+    }
+    current ??= { name: "Main Set", repeats: 1, steps: [] };
+    current.steps.push(parseRichStep(line, current.name));
+  }
+  flush();
+
+  const modes = new Set(sections.flatMap((section) => section.steps.map((step) => step.target.kind.startsWith("power-") ? "power" : "heartRate")));
+  if (modes.size !== 1) syntaxError(modes.size ? "Mixed target families are not supported" : "Prescription contains no steps");
+  const prescription: CyclingPrescription = { targetMode: [...modes][0] as PrescriptionTargetMode, sections };
+  assertPrescriptionValid(prescription, { lapButtonSteps: true });
+  return prescription;
+}
+
+export function prescriptionsEqual(left: CyclingPrescription, right: CyclingPrescription): boolean {
+  const targetValues = (target: StepTarget): unknown[] => {
+    switch (target.kind) {
+      case "power-percent": return [target.kind, target.minPctFtp, target.maxPctFtp];
+      case "power-ramp": return [target.kind, target.fromPctFtp, target.toPctFtp];
+      case "power-zone": return [target.kind, target.minZone, target.maxZone];
+      case "hr-percent": return [target.kind, target.basis, target.minPct, target.maxPct];
+      case "hr-zone": return [target.kind, target.minZone, target.maxZone];
+    }
+  };
+  const semanticValues = (prescription: CyclingPrescription): unknown[] => [
+    prescription.targetMode,
+    prescription.sections.map((section) => [
+      section.name,
+      section.repeats,
+      section.steps.map((step) => [
+        step.durationSec,
+        step.end,
+        step.role,
+        targetValues(step.target),
+        step.cue ?? null,
+        step.hrCeilingBpm ?? null,
+      ]),
+    ]),
+  ];
+  return JSON.stringify(semanticValues(left)) === JSON.stringify(semanticValues(right));
+}
+
 const WORK_THRESHOLD_PCT = 80;
 
 // Section labels whose steps are never work, whatever their %FTP: a warmup's priming/build step
@@ -37,12 +287,17 @@ function durationToSec(head: string): number {
 // above). Each clause's duration is read from the text since the PREVIOUS clause ended (or the line
 // start, for the first).
 function parseStep(line: string): Array<{ durationSec: number; pct: number }> {
-  const re = /(\d+)\s*(?:-\s*(\d+))?\s*%/g;
+  const re = /(\d+(?:\.\d+)?)\s*(?:%\s*-\s*(\d+(?:\.\d+)?)|-\s*(\d+(?:\.\d+)?))?\s*%/gi;
   const steps: Array<{ durationSec: number; pct: number }> = [];
   let cursor = 0;
   let pm: RegExpExecArray | null;
   while ((pm = re.exec(line)) !== null) {
-    const pct = pm[2] ? Math.max(Number(pm[1]), Number(pm[2])) : Number(pm[1]);
+    const after = line.slice(pm.index + pm[0].length);
+    if (/^\s*(?:-\s*\d+(?:\.\d+)?\s*%)?\s*(?:HR|LTHR)\b/i.test(after)) {
+      cursor = pm.index + pm[0].length;
+      continue;
+    }
+    const pct = pm[2] || pm[3] ? Math.max(Number(pm[1]), Number(pm[2] ?? pm[3])) : Number(pm[1]);
     const durationSec = durationToSec(line.slice(cursor, pm.index));
     cursor = pm.index + pm[0].length;
     if (durationSec > 0) steps.push({ durationSec, pct });
@@ -178,6 +433,15 @@ export function parsePrescription(workoutText: string, ftp: number): PrescribedI
 // the OPPOSITE filter from parsePrescription's WORK-only view; the two answer different questions
 // ("what did the coach prescribe as work" vs. "how long will this ride actually run").
 export function totalPrescribedMinutes(workoutText: string): number {
+  const stepLines = workoutText.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("-"));
+  const hasLegacyCompoundStep = stepLines.some((line) => parseStep(line).length > 1);
+  if (!hasLegacyCompoundStep && stepLines.length > 0 && stepLines.every((line) => /\sintensity=(?:warmup|active|recovery|cooldown)$/i.test(line))) {
+    const prescription = parseCyclingPrescription(workoutText);
+    return prescription.sections.reduce(
+      (total, section) => total + section.repeats * section.steps.reduce((sum, step) => sum + step.durationSec, 0),
+      0
+    ) / 60;
+  }
   const steps = walkWorkoutSteps(workoutText, () => true);
   return steps.reduce((sum, s) => sum + s.durationSec, 0) / 60;
 }

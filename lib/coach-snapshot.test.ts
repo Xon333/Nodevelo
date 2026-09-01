@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildCoachSnapshot, buildCoachSnapshotFromSources, formatCoachSnapshot, formatFormFuelLine, resolveCoachSignals, resolveTsbModifier, type CoachSnapshotInput } from "./coach-snapshot";
+import { buildCoachSnapshot, buildCoachSnapshotFromSources, resolveCoachSignals, resolveTsbModifier, type CoachSnapshotInput } from "./coach-snapshot";
 import { resolveTsbModifierEdges } from "./calibration";
 import { buildAthleteModel } from "./athlete-model";
 import { localToday } from "./date";
@@ -157,7 +157,6 @@ describe("buildCoachSnapshot", () => {
     } as unknown as TodayAnalysis;
     const s = buildCoachSnapshot(baseInput({ todayAnalysis: z2Ride, todaySessionType: "Z2" }));
     expect(s.today.execution?.aerobicDiscipline).toBe("drift");
-    expect(formatCoachSnapshot(s)).toContain("aerobic discipline: some drift");
   });
 
   it("leaves aerobicDiscipline null on a non-easy day", () => {
@@ -165,11 +164,7 @@ describe("buildCoachSnapshot", () => {
     expect(buildCoachSnapshot(baseInput()).today.execution?.aerobicDiscipline).toBeNull();
   });
 
-  // Task 5: the aerobic-efficiency figure behind the discipline read, surfaced in the SITUATION line
-  // so a "some drift" read isn't left without detail.
-  it("surfaces the aerobic-efficiency figure alongside discipline, rounded to 1dp, when notably below baseline", () => {
-    // Raw computed %Δ is an unrounded float (lib/aerobic.ts) — the snapshot preserves it raw, the
-    // narration line rounds for readability.
+  it("preserves the raw aerobic-efficiency figure alongside discipline", () => {
     const z2Ride = {
       ...todayAnalysis,
       plannedType: "Z2",
@@ -179,21 +174,6 @@ describe("buildCoachSnapshot", () => {
     } as unknown as TodayAnalysis;
     const s = buildCoachSnapshot(baseInput({ todayAnalysis: z2Ride, todaySessionType: "Z2" }));
     expect(s.today.execution?.aerobicEffPct).toBe(-4.6789);
-    expect(formatCoachSnapshot(s)).toContain("aerobic discipline: some drift (efficiency -4.7% below baseline)");
-  });
-
-  it("omits the efficiency detail when within the deadband", () => {
-    const z2Ride = {
-      ...todayAnalysis,
-      plannedType: "Z2",
-      intervalComparison: null,
-      aerobicDiscipline: "dialed",
-      aerobicEffPct: -1.2,
-    } as unknown as TodayAnalysis;
-    const s = buildCoachSnapshot(baseInput({ todayAnalysis: z2Ride, todaySessionType: "Z2" }));
-    const line = formatCoachSnapshot(s);
-    expect(line).toContain("aerobic discipline: dialed in");
-    expect(line).not.toContain("efficiency");
   });
 
   it("resolves form (TSB modifier, ACWR, readiness, load ramp) and block week", () => {
@@ -227,23 +207,6 @@ describe("buildCoachSnapshot", () => {
     expect(s.today.morningCheck).toMatchObject({ flag: "ill", decision: "downgrade" });
   });
 
-  // The prompt line must name all three flags and all three decisions honestly — an injury/rest was
-  // previously rendered as "extreme fatigue → no change (not a quality day)", both halves wrong.
-  it("renders an injury → rest morning check honestly in the prompt", () => {
-    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "injury", decision: "rest", setAt: "" };
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ morningCheck })));
-    expect(out).toContain("injured");
-    expect(out).toMatch(/resting today/i);
-    expect(out).not.toContain("extreme fatigue");
-  });
-
-  it("renders an extreme-fatigue → rest (easy-day skip) morning check honestly in the prompt", () => {
-    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "extreme-fatigue", decision: "rest", setAt: "" };
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ morningCheck })));
-    expect(out).toContain("extreme fatigue");
-    expect(out).toMatch(/resting today/i);
-  });
-
   it("treats a stale today-analysis (different date) as no ride logged", () => {
     const s = buildCoachSnapshot(baseInput({ todayAnalysis: { ...todayAnalysis, activityDate: "2026-06-19" } as TodayAnalysis }));
     expect(s.today.rideLogged).toBe(false);
@@ -258,8 +221,6 @@ describe("buildCoachSnapshot", () => {
 });
 
 describe("weekly energy balance in the fuel slot (§6 / #1)", () => {
-  // intakeKcal deliberately differs from balanceIntakeKcal so assertions prove the fuel line uses
-  // the matched figure (review §2.8), not intakeKcal by coincidence.
   const wb = { weekOf: "2026-06-22", intakeKcal: 12500, balanceIntakeKcal: 12300, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
 
   it("weekBalance fills and the weekly ratio owns fuelingState over the EA band", () => {
@@ -276,21 +237,6 @@ describe("weekly energy balance in the fuel slot (§6 / #1)", () => {
     expect(snap.fuel.fuelingState).toBe("adequate");
   });
 
-  it("labels the fuel line 'fueling', not 'energy availability', when the weekly ratio overrules a disagreeing EA band", () => {
-    const out = formatCoachSnapshot(
-      buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }))
-    );
-    expect(out).toContain("fueling low");
-    expect(out).not.toContain("energy availability low");
-    expect(out).not.toContain("~30 kcal/kg");
-  });
-
-  it("renders the week line in the prompt only when present", () => {
-    const withLine = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: wb })));
-    expect(withLine).toContain("last week 12,300 kcal vs 14,900 needed (ratio 0.84 — low)"); // balanceIntakeKcal, not intakeKcal
-    const without = formatCoachSnapshot(buildCoachSnapshot(baseInput({ weeklyBalance: null, energyAvailability: null })));
-    expect(without).not.toContain("last week");
-  });
 });
 
 describe("buildCoachSnapshotFromSources", () => {
@@ -367,90 +313,14 @@ describe("buildCoachSnapshotFromSources", () => {
     tss: 90,
   });
 
-  it("resolves the FTP-retest advisory from the ledger and formats it end-to-end (#4)", () => {
+  it("resolves the FTP-retest advisory from the ledger (#4)", () => {
     const scoreEntries = [overRide("2026-06-13"), overRide("2026-06-15"), overRide("2026-06-17"), overRide("2026-06-19")];
     const s = buildCoachSnapshotFromSources(sources({ scoreEntries }));
     expect(s.ftpRetest).toMatchObject({ n: 4, overCount: 4 });
-    const out = formatCoachSnapshot(s);
-    expect(out).toContain("- FTP check:");
-    expect(out).toContain("re-test in Intervals.icu");
   });
 
-  it("stays null on a thin ledger and renders no FTP-check line (#4)", () => {
+  it("stays null on a thin ledger (#4)", () => {
     const s = buildCoachSnapshotFromSources(sources({ scoreEntries: [overRide("2026-06-13")] }));
     expect(s.ftpRetest).toBeNull();
-    expect(formatCoachSnapshot(s)).not.toContain("FTP check");
-  });
-});
-
-describe("formatCoachSnapshot", () => {
-  it("renders the resolved execution + form + fuel lines", () => {
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput()));
-    expect(out).toContain("SITUATION");
-    expect(out).toContain("execution 4/10");
-    expect(out).toContain("2/5 reps");
-    expect(out).toContain("effective 39% (power 95% × duration 41%)");
-    expect(out).toContain("TSB -15 (productive overload");
-    expect(out).toContain("target 2,800 kcal");
-  });
-
-  it("renders the morning flag when present", () => {
-    const morningCheck: MorningCheckEntry = { date: TODAY, flag: "ill", decision: "downgrade", setAt: "" };
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ morningCheck })));
-    expect(out).toContain("Flagged this morning: feeling ill");
-    expect(out).toContain("downgraded today's quality session");
-  });
-
-  it("never leaks the raw fuel slot field names", () => {
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ energyAvailability: { eaKcalPerKg: 32, daysUsed: 7, trend: -3 } })));
-    expect(out).not.toContain("fuelingState");
-    expect(out).not.toContain("intakeVsNeed");
-  });
-
-  it("renders the energy-availability read on the fuel line when resolved", () => {
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ energyAvailability: { eaKcalPerKg: 32, daysUsed: 7, trend: -3 } })));
-    expect(out).toContain("energy availability adequate (~32 kcal/kg, body-weight proxy)");
-  });
-
-  it("emits the strong compromised-disposition guard last", () => {
-    const disposition: DispositionEntry = { date: TODAY, disposition: "compromised", reason: "equipment", setAt: "" };
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ disposition })));
-    expect(out).toContain("COMPROMISED (equipment)");
-    expect(out).toContain("do not infer recovery debt");
-    expect(out.trim().endsWith("on the basis of it.")).toBe(true);
-  });
-
-  it("flags a plan/detection mismatch so duration is judged with care", () => {
-    const ta = { ...todayAnalysis, intervalComparison: { ...intervalComparison, structuralMismatch: true } } as TodayAnalysis;
-    const out = formatCoachSnapshot(buildCoachSnapshot(baseInput({ todayAnalysis: ta })));
-    expect(out).toContain("plan/detection mismatch");
-  });
-});
-
-describe("formatFormFuelLine", () => {
-  it("produces a compact resolved form+fuel line for generation", () => {
-    const line = formatFormFuelLine(buildCoachSnapshot(baseInput()));
-    expect(line).toContain("CURRENT FORM & FUEL");
-    expect(line).toContain("TSB -15 (productive overload)");
-    expect(line).toContain("ACWR optimal");
-    expect(line).toContain("fuel target 2,800 kcal");
-    // today.execution is not part of the generation line
-    expect(line).not.toContain("execution");
-  });
-
-  it("returns null when there's no form/fuel data", () => {
-    const empty = buildCoachSnapshot(baseInput({ fitness: null, acwr: null, readiness: null, todayAnalysis: null, weightTrend7dKg: null }));
-    expect(formatFormFuelLine(empty)).toBeNull();
-  });
-
-  it("labels 'fueling', not 'energy availability', when the weekly ratio owns fuelingState", () => {
-    // Same mislabel bug formatCoachSnapshot's fuel line had (fixed 2026-07-11) — this is the milder
-    // sibling in the /api/generate block-generation line, which had no test on this path.
-    const wb = { weekOf: "2026-06-22", intakeKcal: 12500, balanceIntakeKcal: 12300, needKcal: 14900, ratio: 0.84, loggedDays: 5 };
-    const line = formatFormFuelLine(
-      buildCoachSnapshot(baseInput({ weeklyBalance: wb, energyAvailability: { eaKcalPerKg: 30, daysUsed: 5, trend: null } }))
-    );
-    expect(line).toContain("fueling low");
-    expect(line).not.toContain("energy availability low");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, formatRetestNote, formatUpcomingEventsForBlock, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, formatRecoveryWeeks, formatFocusContext, formatFocusCoverageLine, validateBlockFocus, validatePrimaryQualityCadence, projectSeasonOutlook, type SeasonDraftInput } from "./season";
+import { SEASON_CONSTANTS, defaultBuildOrder, addWeeks, backwardScheduleFromEvent, settleSeasonHistory, replanEventArc, achievedTssForPeriod, currentPeriod, periodForDate, periodsInRange, formatSeasonContext, validateSeasonFit, validateFocusMatch, validateSeasonPlanInput, roadmapView, suggestedBlockWeeks, filterGoalsByFocus, goalRelevanceForFocus, labelExposureWeeks, exposureFromSessions, FOCUS_LABELS, scoreFocusCandidates, selectBuildFocus, execQualityByFocus, FOCUS_TRAINABILITY, WEEKLY_INTENSITY_FLOOR, chooseNextFocus, findUpcomingAEvent, isSeasonFocus, realWeeksSinceLastRecovery, planRecoveryWeeks, validateBlockFocus, validatePrimaryQualityCadence, projectSeasonOutlook, type SeasonDraftInput } from "./season";
 import type { WeekTarget } from "./block-skeleton";
 import type { SeasonPlan, PlannedDay, FocusPeriod, AthleteModel } from "./types";
 
@@ -722,124 +722,9 @@ describe("planRecoveryWeeks", () => {
   });
 });
 
-describe("formatRecoveryWeeks", () => {
-  it("returns null when there are no recovery weeks", () => {
-    expect(formatRecoveryWeeks([], 4, "vo2max", 250)).toBeNull();
-  });
-
-  it("names the volume cut, the cap, the surviving type, and what is dropped entirely", () => {
-    const line = formatRecoveryWeeks([2], 6, "vo2max", 250)!;
-    expect(line).toContain("week 3");
-    expect(line).toMatch(/30–50%/);
-    expect(line).toMatch(/at most 1/i);
-    expect(line).toContain("VO2max"); // the focus type is the one that survives
-    expect(line).toMatch(/dropped entirely, not shortened/i);
-    expect(line).toMatch(/no embedded/i); // the long ride carve-out
-  });
-
-  it("asks for zero quality when the focus has no single required session type", () => {
-    const line = formatRecoveryWeeks([0], 2, "aerobic-base", 250)!;
-    expect(line).toMatch(/no quality sessions/i);
-  });
-
-  // Fix 1 (2026-07-29 whole-branch review): durability HAS a focusSessionMatchers entry, but its
-  // label describes a Z2 ride carrying embedded threshold+ work — exactly what this same message's
-  // LONG RIDE bullet forbids ("no embedded threshold/VO2 efforts this week"). Asking for that
-  // composition contradicted the long-ride carve-out in the same instruction, and the validator-side
-  // fix (validateRecoveryWeekDensity flags ANY non-quality day with embedded intensity, not just the
-  // long ride) meant a plan that followed the COMPOSITION bullet exactly still got flagged. A
-  // durability block's recovery week must carry zero embedded work — same "no quality at all" branch
-  // as aerobic-base/sharpen.
-  it("asks for zero quality sessions for a durability focus, same as aerobic-base/sharpen — a durability recovery week must carry zero embedded work, not a disguised one", () => {
-    const line = formatRecoveryWeeks([1], 8, "durability", 250)!;
-    const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
-    expect(compositionLine).toMatch(/no quality sessions/i);
-    expect(compositionLine).not.toMatch(/embedded/i);
-  });
-
-  // Fix 2: the dropped-type enumeration used to be a single hardcoded string
-  // "(SIT, VO2max, RaceSim, and any second ${m.label})" for every focus — correct only for
-  // `threshold`. For vo2max/anaerobic it named the SURVIVOR as dropped and never named Threshold as
-  // droppable at all. Now derived from QUALITY_TYPES minus the survivor.
-  it("names Threshold as droppable and does not list the survivor as dropped — vo2max focus", () => {
-    const line = formatRecoveryWeeks([2], 6, "vo2max", 250)!;
-    const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
-    // Isolate the dropped-types list from the trailing "and any second <survivor>" clause (still
-    // inside the same parenthetical) — the survivor's name legitimately appears THERE, so matching
-    // the whole parenthetical would pass without the fix actually applied.
-    const parenthetical = compositionLine.match(/Every other quality type \(([^)]*)\)/)?.[1] ?? "";
-    const droppedList = parenthetical.split(", and any second")[0];
-    const namedTypes = droppedList.split(",").map((s) => s.trim());
-    expect(namedTypes).toContain("Threshold");
-    expect(namedTypes).not.toContain("VO2max");
-  });
-
-  it("names Threshold as droppable and does not list the survivor as dropped — anaerobic focus", () => {
-    const line = formatRecoveryWeeks([2], 6, "anaerobic", 250)!;
-    const compositionLine = line.split("\n").find((l) => l.startsWith("- COMPOSITION"))!;
-    const parenthetical = compositionLine.match(/Every other quality type \(([^)]*)\)/)?.[1] ?? "";
-    const droppedList = parenthetical.split(", and any second")[0];
-    const namedTypes = droppedList.split(",").map((s) => s.trim());
-    expect(namedTypes).toContain("Threshold");
-    expect(namedTypes).not.toContain("SIT");
-  });
-
-  it("keeps verb and noun in agreement for a multi-week header (are recovery weeks, not are a recovery week)", () => {
-    const line = formatRecoveryWeeks([1, 5], 8, "vo2max", 250)!;
-    expect(line).toContain("are recovery weeks");
-    expect(line).not.toContain("are a recovery week");
-  });
-});
-
-describe("formatRetestNote (new signature — season-continuous-focus-selection §5)", () => {
-  it("returns null when fresh", () => {
-    expect(formatRetestNote(10, [], "2026-07-01")).toBeNull();
-    expect(formatRetestNote(null, [], "2026-07-01")).toBeNull();
-  });
-  it("fires once stale, pointing at this block's own recovery week when one exists", () => {
-    const note = formatRetestNote(60, [2], "2026-07-01");
-    expect(note).toContain("RETEST DUE");
-    expect(note).toContain(addWeeks("2026-07-01", 2));
-  });
-  it("fires with no slot line when this block has no recovery week", () => {
-    const note = formatRetestNote(60, [], "2026-07-01");
-    expect(note).toContain("RETEST DUE");
-    expect(note).not.toContain("Best slot");
-  });
-});
-
-describe("formatRetestNote — FTP retest cadence", () => {
+describe("FTP retest cadence", () => {
   it("encodes the ~8-week cadence (intersection of the 6–8 and 8–12 wk coaching ranges — one arc)", () => {
     expect(SEASON_CONSTANTS.retestEveryWeeks).toBe(8);
-  });
-});
-
-describe("formatUpcomingEventsForBlock — B/C-priority events inside the block's own date range", () => {
-  it("lists a B-priority event that falls inside the block range, naming the date and asking it be protected", () => {
-    const events: import("./types").SeasonEvent[] = [{ name: "Areh FTP Test", date: "2026-07-22", priority: "B" }];
-    const line = formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })!;
-    expect(line).toContain("Areh FTP Test");
-    expect(line).toContain("2026-07-22");
-    expect(line).toMatch(/protect|build around|do not overwrite/i);
-  });
-  it("returns null when no B/C event falls inside the range", () => {
-    const events: import("./types").SeasonEvent[] = [{ name: "Late Event", date: "2026-09-15", priority: "C" }];
-    expect(formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
-  });
-  it("returns null for an empty events array", () => {
-    expect(formatUpcomingEventsForBlock([], { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
-  });
-  it("ignores A-priority events entirely — those already redirect the whole season via findUpcomingAEvent's event-anchored routing, not this line", () => {
-    const events: import("./types").SeasonEvent[] = [{ name: "A-Race", date: "2026-07-22", priority: "A" }];
-    expect(formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })).toBeNull();
-  });
-  it("lists multiple in-range events in chronological order", () => {
-    const events: import("./types").SeasonEvent[] = [
-      { name: "Second", date: "2026-08-10", priority: "C" },
-      { name: "First", date: "2026-07-25", priority: "B" },
-    ];
-    const line = formatUpcomingEventsForBlock(events, { startDate: "2026-07-20", endDate: "2026-08-30" })!;
-    expect(line.indexOf("First")).toBeLessThan(line.indexOf("Second"));
   });
 });
 
@@ -910,21 +795,7 @@ describe("isSeasonFocus", () => {
   });
 });
 
-describe("formatFocusContext (rolling mode — season-continuous-focus-selection §4)", () => {
-  it("names the focus and rationale, with an objective prefix when set", () => {
-    const line = formatFocusContext({ focus: "threshold", rationale: "rotating the quality focus", scores: [] }, "get faster");
-    expect(line).toContain("get faster");
-    expect(line).toContain("threshold");
-    expect(line).toContain("rotating the quality focus");
-    expect(line).toContain("every week shares it");
-  });
-  it("omits the objective prefix when there is none", () => {
-    const line = formatFocusContext({ focus: "vo2max", rationale: "r", scores: [] }, "");
-    expect(line.startsWith("BLOCK FOCUS: vo2max")).toBe(true);
-  });
-});
-
-describe("validateBlockFocus (rolling mode)", () => {
+ describe("validateBlockFocus (rolling mode)", () => {
   const day = (date: string, type: PlannedDay["type"], durationMin: number, workoutText = ""): PlannedDay =>
     ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText, description: "" });
 
@@ -952,34 +823,7 @@ describe("validateBlockFocus (rolling mode)", () => {
   });
 });
 
-// P2c (2026-07-24 block-generation redesign): the requirement and its enforcement (validateBlockFocus,
-// above) share focusSessionMatchers — asserted here so the two can never silently drift apart.
-describe("formatFocusCoverageLine — mandatory coverage requirement (P2c/P5)", () => {
-  it("names the required session type for a build focus, every loading week, with priority over RaceSim", () => {
-    expect(formatFocusCoverageLine("vo2max", 250)).toBe(
-      "REQUIRED COVERAGE: this block's focus is vo2max — include at least 1 VO2max session in EVERY loading week (not just once across the block). This is the block's primary quality work — it takes priority over RaceSim for the week's quality-session slots; RaceSim is sporadic and fills a slot only when it doesn't crowd this out. Do not substitute a different quality type for this requirement."
-    );
-    expect(formatFocusCoverageLine("threshold", 250)).toContain("include at least 1 Threshold session");
-    expect(formatFocusCoverageLine("anaerobic", 250)).toContain("include at least 1 SIT (anaerobic) session");
-    expect(formatFocusCoverageLine("durability", 250)).toContain("durability-loaded Z2 (embedded threshold+ work)");
-    expect(formatFocusCoverageLine("threshold", 250)).toContain("priority over RaceSim");
-  });
-
-  it("returns null for aerobic-base/sharpen — no single required session type", () => {
-    expect(formatFocusCoverageLine("aerobic-base", 250)).toBeNull();
-    expect(formatFocusCoverageLine("sharpen", 250)).toBeNull();
-  });
-
-  it("uses the exact same matcher validateBlockFocus enforces — a session it accepts never contradicts a requirement it named", () => {
-    const day = (date: string, type: PlannedDay["type"], durationMin: number): PlannedDay =>
-      ({ date, weekNumber: 1, weekTheme: "", name: type, type, durationMin, workoutText: "", description: "" });
-    const line = formatFocusCoverageLine("vo2max", 250);
-    expect(line).not.toBeNull();
-    expect(validateBlockFocus([day("2026-07-01", "VO2max", 60)], "vo2max", 250)).toEqual([]);
-  });
-});
-
-// P5a (2026-07-24 block-generation redesign): stricter than validateBlockFocus's block-wide floor —
+ // P5a (2026-07-24 block-generation redesign): stricter than validateBlockFocus's block-wide floor —
 // the primary quality must appear in EVERY loading week, catching the exact live defects (Week 3
 // dropped Threshold, SIT vanished in weeks 5-6) a block-wide minimum of 1 couldn't see.
 describe("validatePrimaryQualityCadence (P5a)", () => {

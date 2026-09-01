@@ -26,6 +26,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/anthropic-api", () => ({
+  GENERATION_MODEL: "active-retrospective-model",
+  PROMPT_VERSION: 91,
   isAnthropicConfigured: h.isAnthropicConfigured,
   generateRetrospective: h.generateRetrospective,
   generateStructuredRetrospective: h.generateStructuredRetrospective,
@@ -48,6 +50,7 @@ vi.mock("@/lib/data-store", () => ({
 }));
 
 import * as store from "@/lib/data-store";
+import { GENERATION_MODEL, PROMPT_VERSION } from "@/lib/anthropic-api";
 import { POST, yamlDoubleQuoted } from "@/app/api/retrospective/route";
 
 // post() sends { today: "2026-06-29" }; post(obj) without `today` merges that fixed date in, so
@@ -207,12 +210,25 @@ describe("/api/retrospective POST", () => {
     expect(Array.isArray(entry.nextBlockSeeds)).toBe(true);
     expect(entry.retrospective).toBe("Solid block overall.");
     expect(entry.structuredReflections).toEqual([]);
-    expect(entry.model).toBe(block.model);
-    expect(entry.promptVersion).toBe(block.promptVersion);
+    expect(entry.model).toBe(GENERATION_MODEL);
+    expect(entry.promptVersion).toBe(PROMPT_VERSION);
     // SUB-1: every day in this fixture is on/before the block's own endDate, which is in the past
     // relative to any realistic "today" — truncateBlockDays should keep them all.
     expect(entry.days).toHaveLength(block.days.length);
     expect(entry.days.map((d: { date: string }) => d.date)).toEqual(block.days.map((d) => d.date));
+  });
+
+  it("records retrospective AI provenance when the deterministic block has none", async () => {
+    const { model: _model, promptVersion: _promptVersion, ...deterministicBlock } = block;
+    h.readCurrentBlock.mockResolvedValueOnce(deterministicBlock);
+
+    await post();
+
+    const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry.model).toBe(GENERATION_MODEL);
+    expect(entry.promptVersion).toBe(PROMPT_VERSION);
+    expect(deterministicBlock).not.toHaveProperty("model");
+    expect(deterministicBlock).not.toHaveProperty("promptVersion");
   });
 
   it("averages decoupling only across whole-ride-comparable endurance rides", async () => {
@@ -368,6 +384,9 @@ describe("/api/retrospective POST", () => {
     const callArg = h.generateStructuredRetrospective.mock.calls[0][0];
     expect(callArg.interventions).toHaveLength(1);
     expect(callArg.interventions[0].dimension).toBe("Threshold");
+    const content = h.writeRetrospective.mock.calls[0][1] as string;
+    expect(content).toContain("Coach reflections (UNACKNOWLEDGED — history record only)");
+    expect(content).not.toMatch(/reach the next block/i);
   });
 
   it("tolerates an empty/missing intervention log — no crash, empty structuredReflections, structured call skipped", async () => {
@@ -394,10 +413,9 @@ describe("/api/retrospective POST", () => {
     expect(content).toContain("seeds_approved: false");
   });
 
-  it("round-trips seeds through the markdown channel: written gated, parseable once adopted", async () => {
-    // The whole seeds contract end to end: the route writes next_block_seeds into frontmatter,
-    // parseRetroSeeds returns [] while unapproved, and after approveSeedsInMarkdown flips the
-    // stamp the exact response seeds come back out of the file.
+  it("round-trips legacy seeds through the acknowledged history record", async () => {
+    // Stored-history compatibility: acknowledgement exposes the legacy list to its parser, but
+    // deterministic generation has no consumer for the parsed value.
     const res = await post({ today: "2026-06-29" });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -407,7 +425,7 @@ describe("/api/retrospective POST", () => {
     expect(parseRetroSeeds(md)).toEqual([]); // gated while unapproved
     const adopted = approveSeedsInMarkdown(md);
     const seeds = parseRetroSeeds(adopted);
-    expect(seeds.length).toBeGreaterThan(0); // flows once adopted
+    expect(seeds.length).toBeGreaterThan(0);
     expect(body.seeds).toEqual(seeds); // file list == response seeds
   });
 

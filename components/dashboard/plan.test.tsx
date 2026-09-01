@@ -99,11 +99,12 @@ const histEntry = (over: Partial<BlockHistoryEntry>): BlockHistoryEntry =>
 
 const refl = [{ dimension: "Overall", hypothesis: "h", observation: "o", root_cause: "r", adjusted_strategy: "a" }];
 
-describe("BlockHistory — reflection adoption", () => {
-  it("offers Review & adopt for unapproved reflections and posts the entry id", async () => {
+describe("BlockHistory — reflection acknowledgement", () => {
+  it("offers Review & acknowledge for unacknowledged reflections and posts the entry id", async () => {
     h.api.mockResolvedValue({ ok: true });
     render(<BlockHistory history={[histEntry({ structuredReflections: refl })]} />);
-    fireEvent.click(await screen.findByRole("button", { name: /review & adopt/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /review & acknowledge/i }));
+    expect(screen.getByText(/records your review in block history/i)).toBeTruthy();
     await waitFor(() =>
       expect(h.api).toHaveBeenCalledWith("/api/history", {
         method: "POST",
@@ -112,15 +113,15 @@ describe("BlockHistory — reflection adoption", () => {
     );
   });
 
-  it("shows the adopted stamp and no button once approved", () => {
+  it("shows the acknowledged stamp and no button once recorded", () => {
     render(<BlockHistory history={[histEntry({ structuredReflections: [{ ...refl[0], observation: "Private reflection body" }], reflectionsApprovedAt: "2026-06-15T00:00:00.000Z" })]} />);
-    expect(screen.queryByRole("button", { name: /review & adopt/i })).toBeNull();
-    expect(screen.getByText(/Adopted .* — these notes reach the next block/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /review & acknowledge/i })).toBeNull();
+    expect(screen.getByText(/Acknowledged .* — history record only/)).toBeTruthy();
     expect(screen.queryByText("Private reflection body")).toBeNull();
   });
 
-  it("entries without reflections render no adoption control", () => {
+  it("entries without reflections render no acknowledgement control", () => {
     render(<BlockHistory history={[histEntry({})]} />);
-    expect(screen.queryByRole("button", { name: /review & adopt/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /review & acknowledge/i })).toBeNull();
   });
 });

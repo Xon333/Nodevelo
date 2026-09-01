@@ -169,7 +169,7 @@ export function InsightsFold({
         </details>
       )}
       {insights.length > 0 && (
-        <p className="mt-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">These also steer the next block you generate.</p>
+        <p className="mt-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">These measured insights inform deterministic focus and durability selection.</p>
       )}
     </Card>
   );

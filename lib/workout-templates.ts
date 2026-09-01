@@ -1,33 +1,74 @@
-// Deterministic routine-day templates (design §3, plan Task 5). Z2 is parameterized to any duration
-// inside the athlete's configured 60-480 min long-ride range — not a fixed set of durations — but is
-// only template-eligible when the week's long ride is supposed to be unbroken Z2: durability template
-// A ("pure accumulation", lib/durability.ts), or any recovery week (which overrides B-E's embedded
-// efforts regardless of the block's active template, per formatDurabilityForPrompt's own exception).
-// Templates B-E's embedded harder efforts are fuzzy prose ranges meant for an LLM to phrase into a
-// concrete schedule, not something this file can build a deterministic schedule for — buildTemplateDay
-// returns null for those, so Task 7 routes that date to AI authoring instead of silently losing the
-// durability stimulus while lib/durability.ts's stamp on the day would still claim it was delivered.
-
 import type { DaySlot } from "./block-skeleton";
-import type { DurabilityTemplateId } from "./durability";
+import { DURABILITY_RECIPES, type DurabilityTemplateId } from "./durability";
 import type { WorkoutNutritionPlan } from "./nutrition";
-import type { PlannedDay, WorkoutSource, WorkoutType } from "./types";
+import type { CyclingPrescription, PrescriptionStep } from "./prescription";
+import type { WorkoutType } from "./types";
 
-// Duration-mismatch is no longer reachable through the normal 60-480 min settings range once Z2 is
-// parameterized (the whole point of this task) — kept only as a defensive invariant check for a
-// caller passing a duration outside that range, which would itself be a bug elsewhere.
 export class TemplateCoverageError extends Error {}
 
-const Z2_WARMUP_MIN = 10;
-const Z2_COOLDOWN_MIN = 10;
-const Z2_WARMUP_PCT = 55;
-const Z2_STEADY_PCT = 68; // comfortably under the 75% easy ceiling and the 88% durability-insert floor
-const Z2_COOLDOWN_PCT = 50;
-const RECOVERY_PCT = 50; // KB cycling_database.md §"Active recovery": genuinely easy, under 60% FTP throughout
+export interface WorkoutTemplateInput {
+  type: WorkoutType;
+  slot: DaySlot;
+  stage: 0 | 1 | 2;
+  isRecoveryWeek: boolean;
+  durabilityTemplateId: DurabilityTemplateId;
+  hrCeilingBpm: number | null;
+  lapButtonSteps: boolean;
+  nutrition: WorkoutNutritionPlan;
+}
 
-// KB cycling_database.md §4 "Core Programme — Heavy Compound Lifts": the highest-return, year-round
-// strength programme for amateurs. Static/deterministic — no per-athlete scaling, matching Strength's
-// existing "prose, not step syntax, moving_time written directly from durationMin" treatment elsewhere.
+export interface CompiledWorkoutTemplate {
+  name: string;
+  summary: string;
+  prescription: CyclingPrescription | null;
+  workoutText: string;
+  description: string;
+}
+
+const QUALITY_STAGES = {
+  SIT: [
+    { reps: 4, workSec: 30, workPct: 150, recoverySec: 240 },
+    { reps: 5, workSec: 30, workPct: 150, recoverySec: 240 },
+    { reps: 6, workSec: 30, workPct: 150, recoverySec: 240 },
+  ],
+  VO2max: [
+    { reps: 4, workSec: 180, workPct: 110, recoverySec: 180 },
+    { reps: 5, workSec: 240, workPct: 112, recoverySec: 240 },
+    { reps: 5, workSec: 300, workPct: 115, recoverySec: 300 },
+  ],
+  Threshold: [
+    { reps: 2, workSec: 720, workPct: 90, recoverySec: 300 },
+    { reps: 2, workSec: 1200, workPct: 93, recoverySec: 300 },
+    { reps: 3, workSec: 900, workPct: 95, recoverySec: 300 },
+  ],
+} as const;
+
+const RECOVERY_THRESHOLD = { reps: 2, workSec: 480, workPct: 90, recoverySec: 300 } as const;
+const RACE_STAGES = [
+  [
+    { workSec: 180, workPct: 105, recoverySec: 180 },
+    { workSec: 60, workPct: 120, recoverySec: 240 },
+    { workSec: 20, workPct: 150, recoverySec: 300 },
+  ],
+  [
+    { workSec: 300, workPct: 100, recoverySec: 180 },
+    { workSec: 120, workPct: 112, recoverySec: 240 },
+    { workSec: 45, workPct: 135, recoverySec: 300 },
+    { workSec: 20, workPct: 160, recoverySec: 360 },
+  ],
+  [
+    { workSec: 480, workPct: 95, recoverySec: 180 },
+    { workSec: 240, workPct: 108, recoverySec: 240 },
+    { workSec: 120, workPct: 120, recoverySec: 300 },
+    { workSec: 45, workPct: 140, recoverySec: 360 },
+    { workSec: 20, workPct: 170, recoverySec: 420 },
+  ],
+] as const;
+
+const RAMP_SEC = 300;
+const WARMUP_SEC = RAMP_SEC;
+const COOLDOWN_SEC = 600;
+
 const STRENGTH_TEXT = [
   "Core strength programme (KB §4) — heavy compound lifts for force production, not hypertrophy.",
   "Mobility: 5-10 min hip and thoracic work before lifting.",
@@ -42,72 +83,273 @@ const STRENGTH_TEXT = [
 ].join("\n");
 
 function nutritionLine(nutrition: WorkoutNutritionPlan): string {
-  const carbs =
-    nutrition.preRideCarbs > 0
-      ? ` ${nutrition.preRideCarbs}g carbs pre-ride, ${nutrition.inRideCarbsPerHour}g/h during.`
-      : "";
+  const carbs = nutrition.preRideCarbs > 0
+    ? ` ${nutrition.preRideCarbs}g carbs pre-ride, ${nutrition.inRideCarbsPerHour}g/h during.`
+    : "";
   return `Target ${nutrition.dailyTarget} kcal today.${carbs}`;
 }
 
-function z2WorkoutText(durationMin: number): string {
-  const steadyMin = durationMin - Z2_WARMUP_MIN - Z2_COOLDOWN_MIN;
-  if (steadyMin <= 0) {
-    throw new TemplateCoverageError(
-      `Z2 template needs at least ${Z2_WARMUP_MIN + Z2_COOLDOWN_MIN + 1} min; got ${durationMin}.`
-    );
-  }
-  return `Warmup\n- ${Z2_WARMUP_MIN}m ${Z2_WARMUP_PCT}%\n\nSteady Z2\n- ${steadyMin}m ${Z2_STEADY_PCT}%\n\nCooldown\n- ${Z2_COOLDOWN_MIN}m ${Z2_COOLDOWN_PCT}%`;
+function durationLabel(seconds: number): string {
+  return seconds < 60 ? `${seconds}s` : seconds % 60 === 0 ? `${seconds / 60}m` : `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }
 
-function recoveryWorkoutText(durationMin: number): string {
-  if (durationMin <= 0) throw new TemplateCoverageError(`Recovery template needs a positive duration; got ${durationMin}.`);
-  return `Active recovery — genuinely easy throughout\n- ${durationMin}m ${RECOVERY_PCT}%`;
+function summary(reps: number, workSec: number, workPct: number): string {
+  return `${reps}×${durationLabel(workSec)} @ ${workPct}% FTP`;
 }
 
-function buildDay(
-  slot: DaySlot,
-  type: WorkoutType,
-  name: string,
-  workoutText: string,
-  source: WorkoutSource,
-  nutrition: WorkoutNutritionPlan
-): PlannedDay & { source: WorkoutSource } {
+function powerStep(
+  durationSec: number,
+  role: PrescriptionStep["role"],
+  minPctFtp: number,
+  maxPctFtp: number,
+  options: { cue?: string; end?: PrescriptionStep["end"]; hrCeilingBpm?: number } = {}
+): PrescriptionStep {
   return {
-    date: slot.date,
-    // Placeholder — the caller (Task 7) knows the real week context and stamps it on; a synthetic
-    // per-day template builder has no week to report (lib/workout-library.ts's own plannedDay() helper
-    // uses the same placeholder-then-caller-overrides convention for the same reason).
-    weekNumber: 0,
-    weekTheme: "",
-    name,
-    type,
-    durationMin: slot.duration.nominalMin,
-    workoutText,
-    description: nutritionLine(nutrition),
-    source,
+    durationSec,
+    end: options.end ?? "timer",
+    role,
+    target: { kind: "power-percent", minPctFtp, maxPctFtp },
+    ...(options.cue ? { cue: options.cue } : {}),
+    ...(options.hrCeilingBpm ? { hrCeilingBpm: options.hrCeilingBpm } : {}),
   };
 }
 
-// `type` is explicit rather than inferred from `slot.allowedTypes` — an "easy" kind slot allows BOTH
-// Z2 and Recovery (block-skeleton.ts), so the slot alone can't disambiguate which one the caller wants;
-// Task 7 already has to decide per-slot which type it's filling and is the natural owner of that call.
-export function buildTemplateDay(
-  type: Extract<WorkoutType, "Z2" | "Recovery" | "Rest" | "Strength">,
-  slot: DaySlot,
-  durabilityTemplateId: DurabilityTemplateId,
-  isRecoveryWeek: boolean,
-  nutrition: WorkoutNutritionPlan
-): (PlannedDay & { source: WorkoutSource }) | null {
-  const durationMin = slot.duration.nominalMin;
-  switch (type) {
-    case "Rest":
-      return buildDay(slot, "Rest", "Rest", "", "template:rest", nutrition);
-    case "Strength":
-      return buildDay(slot, "Strength", "Strength", STRENGTH_TEXT, `template:strength-${durationMin}`, nutrition);
-    case "Recovery":
-      return buildDay(slot, "Recovery", "Active recovery", recoveryWorkoutText(durationMin), `template:recovery-${durationMin}`, nutrition);
-    case "Z2":
-      if (durabilityTemplateId !== "A" && !isRecoveryWeek) return null;
-      return buildDay(slot, "Z2", "Z2 endurance", z2WorkoutText(durationMin), `template:z2-${durationMin}`, nutrition);
+function powerEasyStep(
+  durationSec: number,
+  role: PrescriptionStep["role"],
+  hrCeilingBpm: number | null,
+  zone: 1 | 2,
+  end: PrescriptionStep["end"] = "timer"
+): PrescriptionStep {
+  return {
+    durationSec,
+    end,
+    role,
+    target: { kind: "power-zone", minZone: zone, maxZone: zone },
+    ...(hrCeilingBpm ? { hrCeilingBpm } : {}),
+  };
+}
+
+function powerWarmup(input: WorkoutTemplateInput, extraSec = 0): PrescriptionStep[] {
+  return [
+    {
+      durationSec: RAMP_SEC,
+      end: "timer",
+      role: "warmup",
+      target: { kind: "power-ramp", fromPctFtp: 50, toPctFtp: 75 },
+    },
+    ...(extraSec > 0
+      ? [powerEasyStep(extraSec, "warmup", null, 2, input.lapButtonSteps ? "lapButton" : "timer")]
+      : []),
+  ];
+}
+
+function powerCooldown(): PrescriptionStep {
+  return powerEasyStep(COOLDOWN_SEC, "cooldown", null, 1);
+}
+
+function interleavedWork(
+  recipe: { reps: number; workSec: number; workPct: number; recoverySec: number }
+): PrescriptionStep[] {
+  const steps: PrescriptionStep[] = [];
+  for (let rep = 0; rep < recipe.reps; rep += 1) {
+    steps.push(powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct));
+    if (rep < recipe.reps - 1) {
+      steps.push(powerEasyStep(recipe.recoverySec, "recovery", null, 1));
+    }
   }
+  return steps;
+}
+
+function prescriptionDuration(prescription: CyclingPrescription): number {
+  return prescription.sections.reduce(
+    (total, section) => total + section.repeats * section.steps.reduce((sum, step) => sum + step.durationSec, 0),
+    0
+  );
+}
+
+function assertFits(input: WorkoutTemplateInput, requiredSec: number): number {
+  const totalSec = input.slot.duration.nominalMin * 60;
+  if (!Number.isInteger(totalSec) || requiredSec > totalSec) {
+    throw new TemplateCoverageError(`${input.type} recipe needs ${Math.ceil(requiredSec / 60)} min; got ${input.slot.duration.nominalMin}.`);
+  }
+  return totalSec;
+}
+
+function assertIntensityCeiling(input: WorkoutTemplateInput, highestPct: number): void {
+  if (input.slot.maxIntensityPct !== null && highestPct > input.slot.maxIntensityPct) {
+    throw new TemplateCoverageError(`${input.type} recipe reaches ${highestPct}% FTP above the slot ceiling of ${input.slot.maxIntensityPct}%.`);
+  }
+}
+
+function compileQuality(input: WorkoutTemplateInput): { summary: string; prescription: CyclingPrescription } {
+  if (input.isRecoveryWeek && (input.type === "SIT" || input.type === "VO2max")) {
+    throw new TemplateCoverageError(`Recovery-week quality must use the Threshold touch, not ${input.type}.`);
+  }
+  const recipe = input.type === "Threshold" && input.isRecoveryWeek
+    ? RECOVERY_THRESHOLD
+    : QUALITY_STAGES[input.type as keyof typeof QUALITY_STAGES][input.stage];
+  assertIntensityCeiling(input, recipe.workPct);
+  const work = powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct, {
+    ...(input.type === "SIT" ? { cue: "Seated max" } : {}),
+  });
+  const finalWork = powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct, {
+    ...(input.type === "SIT" ? { cue: "Standing max" } : {}),
+  });
+  const recovery = powerEasyStep(recipe.recoverySec, "recovery", null, 1);
+  const hardSec = recipe.reps * recipe.workSec + (recipe.reps - 1) * recipe.recoverySec;
+  const totalSec = assertFits(input, WARMUP_SEC + hardSec + COOLDOWN_SEC);
+  return {
+    summary: summary(recipe.reps, recipe.workSec, recipe.workPct),
+    prescription: {
+      targetMode: "power",
+      sections: [
+        { name: "Warmup", repeats: 1, steps: powerWarmup(input, totalSec - WARMUP_SEC - hardSec - COOLDOWN_SEC) },
+        { name: "Main Set", repeats: recipe.reps - 1, steps: [work, recovery] },
+        { name: "Main Set", repeats: 1, steps: [finalWork] },
+        { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
+      ],
+    },
+  };
+}
+
+function compileRaceSim(input: WorkoutTemplateInput): { summary: string; prescription: CyclingPrescription } {
+  const moves = RACE_STAGES[input.stage];
+  assertIntensityCeiling(input, Math.max(...moves.map((move) => move.workPct)));
+  const work: PrescriptionStep[] = [];
+  moves.forEach((move) => {
+    work.push(powerStep(move.workSec, "active", move.workPct, move.workPct));
+    work.push(powerEasyStep(move.recoverySec, "recovery", null, 1));
+  });
+  const workSec = work.reduce((sum, step) => sum + step.durationSec, 0);
+  const totalSec = assertFits(input, WARMUP_SEC + workSec + COOLDOWN_SEC);
+  return {
+    summary: `${moves.length} varied race moves`,
+    prescription: {
+      targetMode: "power",
+      sections: [
+        { name: "Warmup", repeats: 1, steps: powerWarmup(input, totalSec - WARMUP_SEC - workSec - COOLDOWN_SEC) },
+        { name: "Main Set", repeats: 1, steps: work },
+        { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
+      ],
+    },
+  };
+}
+
+function compileEasy(input: WorkoutTemplateInput): CyclingPrescription {
+  const totalSec = assertFits(input, WARMUP_SEC + COOLDOWN_SEC + 60);
+  const mainSec = totalSec - WARMUP_SEC - COOLDOWN_SEC;
+  assertIntensityCeiling(input, 75);
+  return {
+    targetMode: "power",
+    sections: [
+      { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
+      { name: "Main Set", repeats: 1, steps: [powerEasyStep(mainSec, input.type === "Recovery" ? "recovery" : "active", input.hrCeilingBpm, input.type === "Recovery" ? 1 : 2)] },
+      { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
+    ],
+  };
+}
+
+function compileLateDurability(
+  input: WorkoutTemplateInput,
+  recipe: Extract<(typeof DURABILITY_RECIPES)[DurabilityTemplateId], { kind: "late-repeats" }>
+): CyclingPrescription {
+  assertIntensityCeiling(input, recipe.workPct);
+  const work = interleavedWork(recipe);
+  const hardSec = work.reduce((sum, step) => sum + step.durationSec, 0);
+  const totalSec = input.slot.duration.nominalMin * 60;
+  assertFits(input, totalSec / 2 + hardSec + COOLDOWN_SEC);
+  const beforeWorkSec = totalSec / 2 - WARMUP_SEC;
+  const afterWorkSec = totalSec - WARMUP_SEC - beforeWorkSec - hardSec - COOLDOWN_SEC;
+  if (beforeWorkSec < 0 || afterWorkSec < 0) {
+    throw new TemplateCoverageError(`Durability ${input.durabilityTemplateId} cannot fit ${input.slot.duration.nominalMin} min after halfway.`);
+  }
+  const mainSteps: PrescriptionStep[] = [];
+  if (beforeWorkSec > 0) mainSteps.push(powerEasyStep(beforeWorkSec, "active", input.hrCeilingBpm, 2));
+  mainSteps.push(...work);
+  if (afterWorkSec > 0) mainSteps.push(powerEasyStep(afterWorkSec, "active", input.hrCeilingBpm, 2));
+  return {
+    targetMode: "power",
+    sections: [
+      { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
+      { name: "Main Set", repeats: 1, steps: mainSteps },
+      { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
+    ],
+  };
+}
+
+function compileDistributedDurability(
+  input: WorkoutTemplateInput,
+  recipe: Extract<(typeof DURABILITY_RECIPES)[DurabilityTemplateId], { kind: "distributed" }>
+): CyclingPrescription {
+  assertIntensityCeiling(input, recipe.workPct);
+  const totalSec = input.slot.duration.nominalMin * 60;
+  const minimumSec = WARMUP_SEC + COOLDOWN_SEC + recipe.reps * recipe.workSec + (recipe.reps - 1) * recipe.recoverySec;
+  assertFits(input, minimumSec);
+  const easySec = totalSec - WARMUP_SEC - COOLDOWN_SEC - recipe.reps * recipe.workSec;
+  const baseline = [0, ...Array(recipe.reps - 1).fill(recipe.recoverySec), 0];
+  let extra = easySec - (recipe.reps - 1) * recipe.recoverySec;
+  const gaps = baseline.map((seconds, index) => {
+    const share = Math.floor(extra / (baseline.length - index));
+    extra -= share;
+    return seconds + share;
+  });
+  const mainSteps: PrescriptionStep[] = [];
+  for (let rep = 0; rep < recipe.reps; rep += 1) {
+    if (gaps[rep] > 0) mainSteps.push(powerEasyStep(gaps[rep], rep === 0 ? "active" : "recovery", rep === 0 ? input.hrCeilingBpm : null, rep === 0 ? 2 : 1));
+    mainSteps.push(powerStep(recipe.workSec, "active", recipe.workPct, recipe.workPct));
+  }
+  if (gaps[recipe.reps] > 0) mainSteps.push(powerEasyStep(gaps[recipe.reps], "active", input.hrCeilingBpm, 2));
+  return {
+    targetMode: "power",
+    sections: [
+      { name: "Warmup", repeats: 1, steps: powerWarmup(input) },
+      { name: "Main Set", repeats: 1, steps: mainSteps },
+      { name: "Cooldown", repeats: 1, steps: [powerCooldown()] },
+    ],
+  };
+}
+
+function durabilitySummary(id: DurabilityTemplateId): string {
+  const recipe = DURABILITY_RECIPES[id];
+  if (recipe.kind === "steady") return "Steady Z2";
+  return `${summary(recipe.reps, recipe.workSec, recipe.workPct)} ${recipe.kind === "distributed" ? "distributed" : "late"}`;
+}
+
+export function compileWorkoutTemplate(input: WorkoutTemplateInput): CompiledWorkoutTemplate {
+  const description = nutritionLine(input.nutrition);
+  if (input.type === "Rest") return { name: "Rest", summary: "", prescription: null, workoutText: "", description };
+  if (input.type === "Strength") {
+    return { name: "Strength", summary: "Core strength programme", prescription: null, workoutText: STRENGTH_TEXT, description };
+  }
+
+  let compiled: { summary: string; prescription: CyclingPrescription };
+  if (input.type === "SIT" || input.type === "VO2max" || input.type === "Threshold") {
+    compiled = compileQuality(input);
+  } else if (input.type === "RaceSim") {
+    compiled = compileRaceSim(input);
+  } else if (input.type === "Recovery") {
+    compiled = { summary: "Easy throughout", prescription: compileEasy(input) };
+  } else {
+    const durabilityId = input.isRecoveryWeek ? "A" : input.durabilityTemplateId;
+    const recipe = DURABILITY_RECIPES[durabilityId];
+    if (recipe.kind === "steady") {
+      compiled = { summary: durabilitySummary(durabilityId), prescription: compileEasy(input) };
+    } else if (recipe.kind === "late-repeats") {
+      compiled = { summary: durabilitySummary(durabilityId), prescription: compileLateDurability(input, recipe) };
+    } else {
+      compiled = { summary: durabilitySummary(durabilityId), prescription: compileDistributedDurability(input, recipe) };
+    }
+  }
+
+  if (prescriptionDuration(compiled.prescription) !== input.slot.duration.nominalMin * 60) {
+    throw new TemplateCoverageError(`${input.type} recipe did not fill its exact slot.`);
+  }
+  return {
+    name: input.type,
+    summary: compiled.summary,
+    prescription: compiled.prescription,
+    workoutText: "",
+    description,
+  };
 }

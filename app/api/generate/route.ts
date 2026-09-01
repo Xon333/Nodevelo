@@ -1,65 +1,46 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
+import { compileTrainingBlock } from "@/lib/block-compiler";
+import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets } from "@/lib/block-skeleton";
+import { resolveDurabilityInsertEnvelope } from "@/lib/calibration";
+import { resolveCoachSignals } from "@/lib/coach-snapshot";
+import {
+  readAthleteProfile, readBlockSettings, readCurrentBlock, readIntentOverlays, readLastSync,
+  readRollingBaselines, readScoreLog, readSeasonPlan, replaceGenerationVerdict,
+  saveGenerationVerdict, updateSeasonPlan,
+} from "@/lib/data-store";
 import { resolveToday } from "@/lib/date";
+import { selectDurabilityTemplate } from "@/lib/durability";
 import { logError, logWarn } from "@/lib/log";
 import {
-  blockDates,
-  buildAthleteDataSection,
-  buildSystemPrompt,
-  buildUserMessage,
-  generateTrainingBlock,
-  GENERATION_MODEL,
-  isAnthropicConfigured,
-  PROMPT_VERSION,
-} from "@/lib/anthropic-api";
-import { checkOverviewAgainstFacts, extractBlockFacts } from "@/lib/overview-check";
-import { readAthleteProfile, readBlockHistory, readBlockSettings, readCurrentBlock, readIntentOverlays, readInterventionLog, readLastSync, readQuirks, readRollingBaselines, readScoreLog, readSeasonPlan, saveGenerationVerdict, updateSeasonPlan } from "@/lib/data-store";
-import { latestRetrospectiveSeeds, loadKnowledgeBaseContext } from "@/lib/kb-loader";
-import { formatReflectionsForPrompt, latestApprovedReflections } from "@/lib/retrospective-schema";
-import { formatQuirksForPrompt } from "@/lib/quirks";
-import { analyzePowerProfile, formatPowerProfileForPrompt } from "@/lib/power-profile";
-import { readPhysiologyWithStatus, resolveHrZones, resolvePowerZones } from "@/lib/physiology";
-import { buildAthleteModel, deriveInsights } from "@/lib/athlete-model";
-import { summariseValidation } from "@/lib/intervention";
-import { synthesizeCoachingDirectives } from "@/lib/synthesis";
-import { buildCoachSnapshot, formatFormFuelLine, resolveCoachSignals } from "@/lib/coach-snapshot";
-import { resolveDurabilityInsertEnvelope, resolveTsbEdgesOverride } from "@/lib/calibration";
-import type { Zone } from "@/lib/zones";
-import {
-  buildNutritionReferenceRows,
-  nutritionTableMarkdown,
-  resolveBuffer,
-  resolveNutritionModel,
-  smoothedCurrentWeightKg,
-  weightTrendFromWellness,
-  WEIGHT_TREND_LONG_WINDOW_DAYS,
+  buildWorkoutNutritionPlan, resolveBuffer, resolveNutritionModel, smoothedCurrentWeightKg,
+  weightTrendFromWellness, WEIGHT_TREND_LONG_WINDOW_DAYS,
 } from "@/lib/nutrition";
-import { PlanToolSchema, structuredToPlannedDays } from "@/lib/plan-schema";
-import { reconcileDurationMin } from "@/lib/prescription";
-import { repairNutrition } from "@/lib/nutrition-validate";
-import { checkBlockFeasibility, computeBlockSkeleton, computeWeekTargets } from "@/lib/block-skeleton";
-import { deriveSessionRequirements, formatSessionRequirements } from "@/lib/session-requirements";
-import { evaluatePublicationGate, verdictHash } from "@/lib/publication-gate";
-import { formatDurabilityForPrompt, selectDurabilityTemplate } from "@/lib/durability";
-import { dedupeGeneration, generationKey } from "@/lib/generate-cache";
-import { achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, formatFocusContext, formatFocusCoverageLine, formatRecoveryWeeks, formatRetestNote, formatSeasonContext, formatUpcomingEventsForBlock, periodForDate, planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION, settleSeasonHistory } from "@/lib/season";
-import { gatherFocusInputs } from "@/lib/season-signals";
-import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
+import { readPhysiologyWithStatus, resolveHrZones } from "@/lib/physiology";
 import {
-  assessPhysiologyFreshnessFromReads,
-  physiologyGenerationBlock,
-  physiologyGenerationWarning,
+  assessPhysiologyFreshnessFromReads, physiologyGenerationBlock, physiologyGenerationWarning,
   readPhysiologyStatus,
 } from "@/lib/physiology-freshness";
-import type { BlockParams, GeneratedPlan } from "@/lib/types";
+import { verdictHash } from "@/lib/publication-gate";
+import {
+  achievedTssForPeriod, addWeeks, chooseNextFocus, findUpcomingAEvent, periodForDate,
+  planRecoveryWeeks, realWeeksSinceLastRecovery, replanEventArc, SEASON_SHAPES_GENERATION,
+  settleSeasonHistory,
+} from "@/lib/season";
+import { gatherFocusInputs } from "@/lib/season-signals";
+import { deriveSessionRequirements } from "@/lib/session-requirements";
+import { latestWeeklyBalance, weeklyEnergy } from "@/lib/trends";
+import { WORKOUT_TYPES, type BlockParams, type FocusPeriod, type SeasonPlan } from "@/lib/types";
 
-// Generation calls take 1–2 minutes for a 4-week block.
 export const maxDuration = 300;
 
 function parseBlockParams(body: unknown): BlockParams | string {
   if (!body || typeof body !== "object") return "Request body must be a JSON object.";
   const b = body as Record<string, unknown>;
-  const lengthWeeks = b.lengthWeeks;
-  if (lengthWeeks !== 2 && lengthWeeks !== 4 && lengthWeeks !== 6 && lengthWeeks !== 8) return "lengthWeeks must be 2, 4, 6 or 8.";
+  if (b.lengthWeeks !== 2 && b.lengthWeeks !== 4 && b.lengthWeeks !== 6 && b.lengthWeeks !== 8) {
+    return "lengthWeeks must be 2, 4, 6 or 8.";
+  }
   const goal = typeof b.goal === "string" ? b.goal.trim() : "";
   if (!goal) return "goal is required.";
   const startDate = typeof b.startDate === "string" ? b.startDate : "";
@@ -67,19 +48,12 @@ function parseBlockParams(body: unknown): BlockParams | string {
     return "startDate must be a valid YYYY-MM-DD date.";
   }
   const weakpoints = Array.isArray(b.weakpoints)
-    ? b.weakpoints.filter((w): w is string => typeof w === "string" && w.trim() !== "")
+    ? b.weakpoints.filter((value): value is string => typeof value === "string" && value.trim() !== "")
     : [];
-  return { lengthWeeks, goal, startDate, weakpoints };
+  return { lengthWeeks: b.lengthWeeks, goal, startDate, weakpoints };
 }
 
 export async function POST(req: Request) {
-  if (!isAnthropicConfigured()) {
-    return NextResponse.json(
-      { error: "Connect the AI coach to generate blocks." },
-      { status: 400 }
-    );
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -87,503 +61,158 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
   const blockParams = parseBlockParams(body);
-  if (typeof blockParams === "string") {
-    return NextResponse.json({ error: blockParams }, { status: 400 });
-  }
-  const today = resolveToday((body as Record<string, unknown>)?.today);
+  if (typeof blockParams === "string") return NextResponse.json({ error: blockParams }, { status: 400 });
+  const today = resolveToday((body as Record<string, unknown>).today);
 
   try {
-    // Knowledge base is read fresh every call so manager edits apply immediately.
-    const [profile, sync, kbContext, blockSettings, retroSeeds, scoreLog, intentStore, physRead, physStatusRead, interventionLog, baselines, currentBlock, blockHistory, quirks, existingSeason] = await Promise.all([
-      readAthleteProfile(),
-      readLastSync(),
-      loadKnowledgeBaseContext(),
-      readBlockSettings(),
-      latestRetrospectiveSeeds(),
-      readScoreLog(),
-      readIntentOverlays(),
-      readPhysiologyWithStatus(),
-      readPhysiologyStatus(),
-      readInterventionLog(),
-      readRollingBaselines(),
-      readCurrentBlock(),
-      readBlockHistory(),
-      readQuirks(),
-      readSeasonPlan(),
+    const [profile, sync, blockSettings, scoreLog, intentStore, physRead, physStatusRead, baselines, currentBlock, existingSeason] = await Promise.all([
+      readAthleteProfile(), readLastSync(), readBlockSettings(), readScoreLog(), readIntentOverlays(),
+      readPhysiologyWithStatus(), readPhysiologyStatus(), readRollingBaselines(), readCurrentBlock(), readSeasonPlan(),
     ]);
-
-    // P2a (2026-07-24 block-generation redesign): verify the configured settings can jointly fit
-    // inside a week BEFORE spending an LLM call on an impossible ask.
     const feasibilityConflict = checkBlockFeasibility(blockSettings);
-    if (feasibilityConflict) {
-      return NextResponse.json({ error: feasibilityConflict }, { status: 400 });
-    }
-
+    if (feasibilityConflict) return NextResponse.json({ error: feasibilityConflict }, { status: 400 });
     const freshness = assessPhysiologyFreshnessFromReads(physRead, physStatusRead, today);
     const blockReason = physiologyGenerationBlock(freshness);
-    if (blockReason) {
-      return NextResponse.json({ error: blockReason }, { status: 400 });
-    }
+    if (blockReason) return NextResponse.json({ error: blockReason }, { status: 400 });
+
     const warnings: string[] = [];
     if (physRead.liveCorrupt && !physRead.corruptFallback && physRead.store) {
       warnings.push("Recovered physiology from the backup file after the live store became unreadable; using the recovered values.");
     }
     const freshnessWarning = physiologyGenerationWarning(freshness);
     if (freshnessWarning) warnings.push(freshnessWarning);
-    const physStore = physRead.store;
 
+    const latestWeight = sync?.wellness
+      .filter((entry) => entry.weightKg !== null)
+      .sort((left, right) => right.date.localeCompare(left.date))[0]?.weightKg ?? profile.performance.weightKg;
     const weightTrend = (sync ? weightTrendFromWellness(sync.wellness) : null) ?? 0;
-    const latestWeight =
-      sync?.wellness
-        .filter((w) => w.weightKg !== null)
-        .sort((a, b) => b.date.localeCompare(a.date))[0]?.weightKg ??
-      profile.performance.weightKg;
-    // GOAL comparison (resolveBuffer's currentKg) uses the smoothed figure, not the raw latest weigh-in
-    // — a single reading swings ±0.5–1 kg and was flipping the buffer across the deadband boundary
-    // depending on which weigh-in happened to be last (I2). `latestWeight` above feeds
-    // resolveNutritionModel unchanged — RMR should track current mass, not a smoothed goal figure.
     const smoothedWeight = smoothedCurrentWeightKg(sync?.wellness ?? [], today) ?? latestWeight;
-
-    // body.today is already resolved above (`today`, via resolveToday) — reuse it rather than
-    // re-deriving from the raw body or inlining a UTC date.
-    // DT Task 2b: a resolver, not a bare model, for anything that spans multiple days. Passing one
-    // day-type model into a block-wide check would validate
-    // every day against whichever day type today happens to be, silently "correcting" a correctly-copied
-    // rest-day figure once k_rest and k_train genuinely diverge. The same resolver feeds weeklyEnergy:
-    // historical weeks also span both day types.
-    const nutritionModelFor = (isRestDay: boolean) => resolveNutritionModel(profile, latestWeight, today, isRestDay);
-    // buffer-redesign-feedforward Task 2: resolveBuffer replaces adjustBuffer — goal-rate
-    // feed-forward when profile.nutrition.neat is trustworthy, else the trend-servo fallback seeded
-    // from the goal surplus (never the retired profile.nutrition.buffer setting).
     const bufferStatus = resolveBuffer(
-      profile.nutrition.neat,
-      smoothedWeight,
-      profile.nutrition.targetWeightKg,
-      profile.nutrition.targetRateKgPerWeek,
-      weightTrend,
+      profile.nutrition.neat, smoothedWeight, profile.nutrition.targetWeightKg,
+      profile.nutrition.targetRateKgPerWeek, weightTrend,
       weightTrendFromWellness(sync?.wellness ?? [], WEIGHT_TREND_LONG_WINDOW_DAYS),
       profile.nutrition.buffer
     );
-    // DT Task 2: each reference row resolves its OWN model (rest vs training rows now genuinely differ
-    // once day-type NEAT is adopted).
-    const nutritionTable = nutritionTableMarkdown(
-      buildNutritionReferenceRows(profile, latestWeight, today, profile.performance.ftp, bufferStatus.bufferApplied)
-    );
-
-    const weeks = blockDates(blockParams.startDate, blockParams.lengthWeeks);
-
-    // Seeds from the latest block retrospective markdown (athlete-editable in the
-    // Knowledge Base). Edits to next_block_seeds flow into this block only once
-    // the file carries `seeds_approved: true` (set via adoption on Plan).
-    const seedsContext = retroSeeds.length
-      ? `\nPREVIOUS BLOCK PRIORITIES (carry forward into planning)\n${retroSeeds.map((s) => `- ${s}`).join("\n")}`
-      : "";
-
-    // Track D: the last block's structured reflections (the coach's own hypothesis→outcome notes,
-    // typed on block-history) + recurring quirks mined from ride notes. Both are language-only hints;
-    // the math/decisions stay deterministic above.
-    // latestApprovedReflections requires blockHistory in readBlockHistory's newest-first order.
-    const reflectionsContext = formatReflectionsForPrompt(latestApprovedReflections(blockHistory));
-    const quirkContext = formatQuirksForPrompt(quirks.entries);
-
-    // Track A: classify the power-curve shape into a rider type + auto-derived weak point ("easy win"),
-    // injected as a hint that complements the manual weakpoints. Deterministic; the LLM only phrases it.
-    // All-time best efforts give the truest read of what this rider is built for.
-    const powerProfile = analyzePowerProfile(sync?.powerCurveAllTime ?? sync?.powerCurve ?? [], profile.performance.ftp, latestWeight);
-    const powerProfileContext = formatPowerProfileForPrompt(powerProfile);
-
-    // ONE synthesised coaching block: the athlete model's ranked insights (weak/under-
-    // delivering/trending types, off-plan drift) folded together with each dimension's
-    // validation track record — instead of three overlapping context blocks.
     const athleteModel = buildAthleteModel(scoreLog.entries, intentStore.overlays);
-    const insights = deriveInsights(athleteModel); // shared by directives + Track B durability selection
-    const directivesContext = synthesizeCoachingDirectives(insights, summariseValidation(interventionLog));
-
-    // Signal fusion (§5): hand the generator the one fused-state read so the block respects current
-    // systemic state, not just per-dimension execution history.
-    // Form/fuel/state signals via the shared resolver, so generation + Today can't drift (CR-9);
-    // the resolver owns the band resolution (RR-5).
+    const insights = deriveInsights(athleteModel);
+    const nutritionModelFor = (isRestDay: boolean) => resolveNutritionModel(profile, latestWeight, today, isRestDay);
     const signals = resolveCoachSignals(
-      sync,
-      athleteModel,
-      baselines,
-      blockSettings.acwrBands,
-      blockSettings.athleteStateWeights,
-      today,
-      scoreLog.entries,
-      profile.performance.ftp,
-      latestWeeklyBalance(
-        weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModelFor),
-        today
-      )
+      sync, athleteModel, baselines, blockSettings.acwrBands, blockSettings.athleteStateWeights,
+      today, scoreLog.entries, profile.performance.ftp,
+      latestWeeklyBalance(weeklyEnergy(sync?.activities ?? [], sync?.wellness ?? [], today, nutritionModelFor), today)
     );
-    const stateContext = signals.athleteState
-      ? `\nCURRENT ATHLETE STATE (fused signal read — weight intensity/placement accordingly): ${signals.athleteState.headline} — state ${signals.athleteState.score}/100, recommendation: ${signals.athleteState.recommendation}.`
-      : "";
-
-    // Shared CoachSnapshot (ROADMAP #1): hand the planner the resolved form + fuel numbers
-    // Today displays, so it can't invent current TSB/ACWR/readiness/fuel. State + directives are
-    // already injected above; this adds only the compact resolved form/fuel line (today's single-ride
-    // execution is intentionally omitted — generation plans forward).
-    const snapshot = buildCoachSnapshot({
-      date: today,
-      ftp: profile.performance.ftp,
-      block: null,
-      todaySessionType: null,
-      ...signals,
-      todayAnalysis: null,
-      directives: directivesContext,
-      disposition: null,
-      morningCheck: null,
-      tsbModifierEdgesOverride: resolveTsbEdgesOverride(scoreLog.entries, blockSettings.tsbModifierEdges),
-    });
-    const formFuelLine = formatFormFuelLine(snapshot);
-    const formFuelContext = formFuelLine ? `\n${formFuelLine}` : "";
-
-    // Track B — deterministic session selection. A terrain/race goal requires ≥1 RaceSim (the line is
-    // injected here and the floor is validated post-generation); durability rotates through templates
-    // (limiter-driven from the athlete model, else rotated from the last block's stamp) so the long
-    // ride trains a fresh fatigue-resistance mechanism each block.
     const requirements = deriveSessionRequirements(blockParams.goal, blockParams.weakpoints);
-    const sessionReqLine = formatSessionRequirements(requirements);
-    const sessionReqContext = sessionReqLine ? `\n${sessionReqLine}` : "";
-    // HR-18 (still honored): one shared "everything the athlete has said" string, now assembled once
-    // by gatherFocusInputs (season-continuous-focus-selection §6/§9) and reused by both durability
-    // template selection and season focus selection below — keeps the two from ever drifting apart.
-    const focusInputs = await gatherFocusInputs({ blockGoal: blockParams.goal, weakpoints: blockParams.weakpoints, today });
-    const combinedGoalText = focusInputs.signals.goalText ?? "";
-    const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null, combinedGoalText);
-    // Carry-forward (CR-6): quality dropped mid-block with no make-up slot — re-prioritise it here.
-    const deferredContext = currentBlock?.deferredQuality?.length
-      ? `\nCARRY-FORWARD (quality the athlete had to drop last block with no make-up slot — re-prioritise): ${currentBlock.deferredQuality.join("; ")}.`
-      : "";
+    const focusInputs = await gatherFocusInputs({
+      blockGoal: blockParams.goal,
+      weakpoints: blockParams.weakpoints,
+      today,
+      preloaded: { currentBlock, scoreEntries: scoreLog.entries, overlays: intentStore.overlays },
+    });
+    const rollingFocusChoice = chooseNextFocus(focusInputs);
+    const durability = selectDurabilityTemplate(insights, currentBlock?.durabilityTemplate ?? null, focusInputs.signals.goalText ?? "");
 
-    // Goals/Weakpoints centralization: the athlete's live, JSON-sourced goals/weakpoints — replaces the
-    // now-stripped raw markdown copy (see stripGoalsWeakpointsSections) so generation never sees stale data.
-    const goalsContext = profile.goals.length > 0
-      ? `\nGOALS\n${profile.goals.map((g) => `- ${g.goal}${g.target ? ` → ${g.target}` : ""}`).join("\n")}`
-      : "";
-    const weakpointsContext = profile.weakpoints.length > 0
-      ? `\nWEAKPOINTS TO ADDRESS\n${profile.weakpoints.map((w) => `- ${w.weakpoint}${w.detail ? `: ${w.detail}` : ""}`).join("\n")}`
-      : "";
-
-    // Season (season-continuous-focus-selection): rolling blocks get a fresh, stateless focus choice
-    // every call (chooseNextFocus) instead of a drafted period sequence; a future A-event keeps the
-    // existing persisted, backward-scheduled build→peak→taper arc. Best-effort — a failure here must
-    // never block generation.
-    let seasonContext = "";
-    let recoveryContext = "";
-    let upcomingEventsContext = "";
-    let replannedSeason: import("@/lib/types").SeasonPlan | null = null;
-    let rollingFocusChoice: import("@/lib/season").FocusChoice | null = null;
-    let aEventForBlock: import("@/lib/types").SeasonEvent | null = null;
-    // Tracked underneath the flag, same as season-plan.json itself (SEASON_SHAPES_GENERATION only
-    // gates the prompt/validator OPINION, never the tracking). This must run unconditionally: it used
-    // to sit inside the else of `if (aEventForBlock)` below, so an A-priority event on the calendar
-    // silently skipped focus selection entirely — and with the flag off (today's state) that meant the
-    // event arc was gated AND the rolling focus never ran, so seasonContext stayed "",
-    // validateBlockFocus and validatePrimaryQualityCadence never fired, and GeneratedPlan.seasonFocus
-    // was never stamped (degrading the NEXT block's no-back-to-back rule too). The old comment there
-    // claimed this "always runs regardless of the flag" — true only of the branch it sat in.
-    // Pure, and focusInputs is already resolved above, so it sits outside the season try/catch: a
-    // throw here is a real failure worth a 502, not something to degrade past in silence.
-    rollingFocusChoice = chooseNextFocus(focusInputs);
-
-    // EC-3 / EC-12: these three computations depend ONLY on the score log, the rolling baselines and
-    // this block's own params — never on season-plan.json. They used to live inside the try below, so
-    // any throw in the season replan (e.g. a hand-edited malformed date making addWeeks' Date.parse
-    // return NaN) silently produced a block with ZERO recovery weeks and no event callout, announced
-    // by nothing but a server log. The pre-existing comment above computeWeekTargets claimed that
-    // defaulting to [] "degrades safely" — it doesn't; [] is the silent failure. Hoisted so the
-    // correct value survives a season-layer failure.
     const avgWeeklyTss = baselines.avgTss90d != null ? baselines.avgTss90d * 7 : null;
     const weeksSinceRecovery = realWeeksSinceLastRecovery(scoreLog.entries, avgWeeklyTss, today);
-    const allRecoveryIndices = planRecoveryWeeks(weeksSinceRecovery, blockParams.lengthWeeks, !!(signals.loadRamp?.triggered));
-    // Default to the UNFILTERED set: the event-arc branch below narrows it to base/build phases, but
-    // if that branch throws we want the plain cadence answer, not none at all.
-    let recoveryWeekIndices: number[] = allRecoveryIndices;
-
-    const blockEndDate = weeks[weeks.length - 1][weeks[weeks.length - 1].length - 1];
-    const upcomingEventsLine = formatUpcomingEventsForBlock(existingSeason.events, { startDate: blockParams.startDate, endDate: blockEndDate });
-    if (upcomingEventsLine) upcomingEventsContext = `\n${upcomingEventsLine}`;
-
-    // Athlete-visible record that the season layer degraded — folded into plan.warnings below.
+    const allRecoveryIndices = planRecoveryWeeks(weeksSinceRecovery, blockParams.lengthWeeks, !!signals.loadRamp?.triggered);
+    let recoveryWeekIndices = allRecoveryIndices;
+    let replannedSeason: SeasonPlan | null = null;
+    let aEventForBlock: ReturnType<typeof findUpcomingAEvent> = null;
     const seasonDegradedWarnings: string[] = [];
-
     try {
-      const achievedTssFor = (p: import("@/lib/types").FocusPeriod) => achievedTssForPeriod(scoreLog.entries, p);
+      const achievedTssFor = (period: FocusPeriod) => achievedTssForPeriod(scoreLog.entries, period);
       aEventForBlock = findUpcomingAEvent(existingSeason.events, today);
-
       if (aEventForBlock) {
-        replannedSeason = replanEventArc(
-          existingSeason,
-          aEventForBlock,
-          {
-            objective: existingSeason.objective, events: existingSeason.events,
-            ctl: sync?.fitness.ctl ?? null, ftp: profile.performance.ftp,
-            recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null,
-            limiter: focusInputs.limiter, recentFocuses: [], heavyFatigue: !!(signals.loadRamp?.triggered),
-          },
-          achievedTssFor,
-          today
-        );
-        // Peak/taper hold their own deliberate load-shaping — never overlay the generic recovery cap there.
-        recoveryWeekIndices = allRecoveryIndices.filter((wk) => {
-          const weekStart = addWeeks(blockParams.startDate, wk);
-          const period = periodForDate(replannedSeason as import("@/lib/types").SeasonPlan, weekStart);
+        replannedSeason = replanEventArc(existingSeason, aEventForBlock, {
+          objective: existingSeason.objective,
+          events: existingSeason.events,
+          ctl: sync?.fitness.ctl ?? null,
+          ftp: profile.performance.ftp,
+          recentWeeklyTss: baselines.avgTss90d != null ? Math.round(baselines.avgTss90d * 7) : null,
+          limiter: focusInputs.limiter,
+          recentFocuses: [],
+          heavyFatigue: !!signals.loadRamp?.triggered,
+        }, achievedTssFor, today);
+        recoveryWeekIndices = allRecoveryIndices.filter((weekIndex) => {
+          const period = periodForDate(replannedSeason as SeasonPlan, addWeeks(blockParams.startDate, weekIndex));
           return period ? period.phase === "build" || period.phase === "base" : true;
         });
       } else {
         replannedSeason = settleSeasonHistory(existingSeason, achievedTssFor, today);
-        recoveryWeekIndices = allRecoveryIndices;
       }
-      // HR-58: persistence is deferred until generation actually succeeds (see the updateSeasonPlan
-      // call near the final return) — this used to write here unconditionally, so a generation that
-      // then failed (or whose proposal the athlete never accepted) still left a phantom future-arc
-      // redraft on season-plan.json.
-
-      // P1 (2026-07-24 block-generation redesign): the flag now gates ONLY the doubted, event-
-      // anchored fixed-phase arc (formatSeasonContext, backwardScheduleFromEvent's periods) — the
-      // rolling, state-scored bundle (formatFocusContext/chooseNextFocus, formatRecoveryWeeks,
-      // formatRetestNote below) is NOT the doubted model and always runs. See ROADMAP.md "Season
-      // engine — known debt" for the full split rationale.
-      // Fix 3 (2026-07-29 whole-branch review): the rolling-focus half of this if/else used to live
-      // HERE, inside the try — so a throw anywhere in this block (e.g. settleSeasonHistory/
-      // replanEventArc on a malformed season-plan.json date) skipped it entirely, and the model was
-      // never told BLOCK FOCUS or REQUIRED COVERAGE. It's hoisted below, after the catch, because it
-      // depends only on rollingFocusChoice/existingSeason.objective/ftp — none of which live inside
-      // this try. Only the event-anchored branch stays here: it genuinely needs replannedSeason.
-      if (SEASON_SHAPES_GENERATION && aEventForBlock) {
-        const line = formatSeasonContext(replannedSeason, today, { startDate: blockParams.startDate, endDate: blockEndDate });
-        if (line) seasonContext = `\n${line}`;
-      }
-    } catch (err) {
-      logWarn("/api/generate", "season-replan", err instanceof Error ? err.message : String(err)); // best-effort
-      seasonDegradedWarnings.push(
-        "SEASON: the season layer failed to update for this block — recovery-week placement, the event callout, and this block's focus requirement (BLOCK FOCUS / REQUIRED COVERAGE) still applied, but the event-anchored season-phase arc did not persist. Check data/season-plan.json for a malformed date."
-      );
+    } catch (error) {
+      logWarn("/api/generate", "season-replan", error instanceof Error ? error.message : String(error));
+      seasonDegradedWarnings.push("SEASON: the season layer failed to update for this block; recovery placement and rolling focus still applied. Check data/season-plan.json.");
     }
 
-    // Fix 3: hoisted out of the try above — rollingFocusChoice, existingSeason.objective and
-    // profile.performance.ftp are all resolved before the try starts, so this survives a season-replan
-    // throw. Mutually exclusive with the event-anchored branch inside the try, using the same two
-    // values (SEASON_SHAPES_GENERATION, aEventForBlock) it gates on — unaffected for the success path,
-    // and now populated on the throw path too (previously silently skipped alongside it).
-    if (!(SEASON_SHAPES_GENERATION && aEventForBlock) && rollingFocusChoice) {
-      seasonContext += `\n${formatFocusContext(rollingFocusChoice, existingSeason.objective)}`;
-      // P2c (2026-07-24 block-generation redesign): the chosen focus as a mandatory coverage
-      // requirement, not just descriptive context — enforced post-generation by validateBlockFocus.
-      const coverageLine = formatFocusCoverageLine(rollingFocusChoice.focus, profile.performance.ftp);
-      if (coverageLine) seasonContext += `\n${coverageLine}`;
-    }
-
-    // Rendered after the try/catch, not inside it: by this point recoveryWeekIndices holds the
-    // event-arc-filtered set if that branch ran, and the plain cadence set otherwise — including
-    // after a throw. Computing it here means a season-plan failure loses the season PHASE text but
-    // never the recovery-week instruction itself.
-    const recoveryLine = formatRecoveryWeeks(
-      recoveryWeekIndices,
-      blockParams.lengthWeeks,
-      rollingFocusChoice?.focus ?? "aerobic-base",
-      profile.performance.ftp
-    );
-    if (recoveryLine) recoveryContext = `\n${recoveryLine}`;
-
-    // Rendered here rather than beside selectDurabilityTemplate above, because the recovery-week
-    // exception needs recoveryWeekIndices — the template is chosen per BLOCK but this line is injected
-    // for every week, so without the carve-out template B tells the model to put threshold efforts in
-    // the recovery week's long ride, contradicting formatRecoveryWeeks' own long-ride rule.
-    const durabilityContext = `\n${formatDurabilityForPrompt(durability, recoveryWeekIndices.length > 0)}`;
-
-    // P2b (2026-07-24 block-generation redesign): one exact hour figure per week — loading weeks
-    // target the top of the configured range, recovery weeks (recoveryWeekIndices, computed above)
-    // target a figure DERIVED from that loading target, not a fixed absolute band blind to it.
-    // Computed outside the season try/catch: recoveryWeekIndices is now hoisted and correct-by-default
-    // (EC-3/EC-12) even when the season replan throws, so this never silently sees an empty [].
     const weekTargets = computeWeekTargets(blockParams.lengthWeeks, blockSettings, recoveryWeekIndices);
-
-    // Phase B: composition is computed here, not left to the model. The 2026-07-29 live run showed a
-    // single weekly hour figure is not enough — every loading week undershot by 0.5-1.1h.
-    const blockSkeleton = computeBlockSkeleton(
-      blockParams.startDate,
-      weekTargets,
-      blockSettings,
-      rollingFocusChoice?.focus ?? "aerobic-base",
-      existingSeason.events
-    );
-
-    // Retest cadence: a stale tested FTP quietly rots zones and TSS math — nudge the generator to place
-    // a retest in the next lighter week. Additive to seasonContext. Phase-agnostic (P1): always live.
-    if (physStore) {
-      const ftpStaleDays = Math.floor((Date.parse(today) - Date.parse(physStore.current.effectiveFrom)) / 86_400_000);
-      const retestNote = formatRetestNote(Number.isFinite(ftpStaleDays) ? ftpStaleDays : null, recoveryWeekIndices, blockParams.startDate);
-      if (retestNote) seasonContext += `\n${retestNote}`;
-    }
-
-    // Live training zones from the physiology store, rendered for the prompt (these used to
-    // live in athlete_profile.md but are now synced from Intervals.icu).
-    const fmtZoneRange = (z: Zone, unit: string) =>
-      z.lo === 0 ? `< ${z.hi}${unit}` : z.hi === null ? `> ${z.lo}${unit}` : `${z.lo}–${z.hi}${unit}`;
-    let zonesText = "";
-    if (physStore) {
-      const pz = resolvePowerZones(physStore.current);
-      const hz = resolveHrZones(physStore.current);
-      if (pz.length > 0) {
-        const rows = pz.map((z, i) => {
-          const hr = hz[i] ? `, HR ${fmtZoneRange(hz[i], " bpm")}` : "";
-          return `- ${z.name}: ${fmtZoneRange(z, " W")}${hr}`;
-        });
-        zonesText = `TRAINING ZONES (live, from Intervals.icu — FTP ${physStore.current.ftp} W):\n${rows.join("\n")}`;
-      }
-    }
-
-    // Split for prompt caching: the reference KB is the stable, cacheable prefix; the
-    // per-block carry-forward seeds + synthesised directives go in the dynamic half so they
-    // don't invalidate the cached prefix.
-    const { cached, dynamic } = buildSystemPrompt(
-      kbContext,
-      seedsContext + reflectionsContext + stateContext + directivesContext + quirkContext + powerProfileContext + formFuelContext + sessionReqContext + durabilityContext + deferredContext + goalsContext + weakpointsContext + seasonContext + recoveryContext + upcomingEventsContext,
-      buildAthleteDataSection(profile, sync, zonesText),
-      blockParams
-    );
-    const userMessage = buildUserMessage(blockParams, weeks, nutritionTable, blockSettings, weekTargets, blockSkeleton);
-
-    // Dedupe identical generations in a short window (P4): a double-click or a second request landing
-    // mid-generation shares one Claude call instead of paying twice. A considered regenerate minutes
-    // later falls outside the window and re-calls, so temperature-0.3 variation is preserved.
-    // Gate before LLM spend: freshness blockers must return before dedupeGeneration/generateTrainingBlock.
-    const { result: genResult } = await dedupeGeneration(
-      generationKey(cached, dynamic, userMessage),
-      () => generateTrainingBlock(cached, dynamic, userMessage, blockParams.lengthWeeks)
-    );
-    const { toolInput, raw, truncated, stopReason } = genResult;
-
-    // Structured-output path (P2): the generator runs on tool-use, so the plan must arrive as a
-    // tool payload validated by the shared zod schema. The legacy regex text-parser fallback was
-    // retired once structured output became the proven, sole path — a malformed/absent payload
-    // now surfaces as a retryable error instead of silently degrading to text parsing.
-    const parsedTool = toolInput != null ? PlanToolSchema.safeParse(toolInput) : null;
-    if (!parsedTool?.success) {
-      // A token-limit cutoff mid tool-call produces no usable toolInput at all — distinguish that
-      // from a structurally-malformed-but-complete response so the athlete knows retrying (which
-      // requests a length-scaled budget) is the fix, not a prompt/model problem.
-      if (stopReason === "max_tokens") {
-        throw new Error(
-          `The generated ${blockParams.lengthWeeks}-week plan exceeded the response limit. Please retry; the app will request a larger response.`
-        );
-      }
-      throw new Error(
-        toolInput != null
-          ? "The generated plan failed structured validation. Please retry."
-          : "The model did not return a structured plan. Please retry."
-      );
-    }
-    const { overview, days: rawDays } = structuredToPlannedDays(parsedTool.data);
-    // HR-19 (2026-07-17 hostile review): make NodeVelo's own durationMin agree with the real
-    // step-sum Intervals.icu will display, instead of only warning when they disagree — the
-    // mismatch was shipping unchanged to the calendar and every hours total in the app.
-    const reconciledDays = reconcileDurationMin(rawDays);
-    // P3a (2026-07-24 block-generation redesign): the correct kcal figure is always known
-    // (deterministic reference table) — auto-correct a mismatch instead of only flagging it.
-    // A resolver because this block spans both rest and training days (DT Task 2b).
-    const nutritionRepair = repairNutrition(reconciledDays, nutritionModelFor, profile.performance.ftp, bufferStatus.bufferApplied);
-    const days = nutritionRepair.days;
-    const expected = weeks.flat();
-
-    // Publication gate (publication-gate trust-contract plan, Task 3): ONE call runs every
-    // validator exactly once and buckets their outputs — blockers/preferences land on
-    // plan.findings, and only informational output (season degradation, nutrition repairs,
-    // duration-consistency advisories) stays in `warnings`. The old inline day-count mismatch
-    // and truncation warnings are gone: the gate owns both now (as STRUCTURE blockers); the
-    // critic-skip condition below keeps using the raw values. Severity is decided by emitter
-    // inside lib/publication-gate.ts — never here.
-    const gate = evaluatePublicationGate({
-      days,
-      truncated,
-      expectedDayCount: expected.length,
-      ftp: profile.performance.ftp,
-      envelope: resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope),
-      blockSettings,
-      weekTargets,
-      blockSkeleton,
-      events: existingSeason.events,
-      requirements,
-      // Mirrors the route's own branch flags: event-anchored only when the flag AND an A-event
-      // AND a surviving replan are all present; rolling whenever a focus choice exists;
-      // null skips the season family.
-      seasonContext:
-        SEASON_SHAPES_GENERATION && aEventForBlock && replannedSeason
-          ? { mode: "event-anchored", plan: replannedSeason }
-          : rollingFocusChoice
-            ? { mode: "rolling", focus: rollingFocusChoice.focus }
-            : null,
-    });
-    warnings.push(...seasonDegradedWarnings);
-    warnings.push(...nutritionRepair.repairs);
-    warnings.push(...gate.advisories);
-
-    // Overview checks are warnings only and run only when the schedule is complete enough to compare.
-    if (!truncated && days.length === expected.length) {
-      warnings.push(...checkOverviewAgainstFacts(overview, extractBlockFacts(days, weekTargets)));
-    }
-
-    // Audit trail: store the structured tool JSON when present, else the raw text.
-    const rawForAudit = toolInput != null ? JSON.stringify(toolInput, null, 2) : raw;
-    const plan: GeneratedPlan = {
-      overview,
-      days,
-      warnings,
-      // Publication-gate findings stamped sparse (absent entirely on a fully clean plan —
-      // truthy-check on read). protocolViolations are no longer emitted separately; quality-day
-      // breaches now surface via findings.blockers.
-      ...(gate.blockers.length > 0 || gate.preferences.length > 0
-        ? { findings: { blockers: gate.blockers, preferences: gate.preferences } }
-        : {}),
-      raw: rawForAudit,
+    const blockSkeleton = computeBlockSkeleton(blockParams.startDate, weekTargets, blockSettings, rollingFocusChoice.focus, existingSeason.events);
+    const nutritionByDateAndType = Object.fromEntries(blockSkeleton.weeks.flatMap((week) => week.days.map((slot) => [
+      slot.date,
+      Object.fromEntries(WORKOUT_TYPES.map((type) => [
+        type,
+        buildWorkoutNutritionPlan(profile, latestWeight, today, profile.performance.ftp, bufferStatus.bufferApplied, {
+          type,
+          durationMin: slot.duration.nominalMin,
+        }),
+      ])),
+    ])));
+    const hrZones = physRead.store ? resolveHrZones(physRead.store.current) : [];
+    const compiled = compileTrainingBlock({
       blockParams,
-      model: GENERATION_MODEL,
-      promptVersion: PROMPT_VERSION,
-      durabilityTemplate: durability.id, // Track B: stamp the template for rotation + future scoring
-      ...(rollingFocusChoice ? { seasonFocus: rollingFocusChoice.focus, seasonFocusRationale: rollingFocusChoice.rationale } : {}),
-    };
-
-    // Persist the server-authoritative verdict (single slot, latest wins) so /api/write can match
-    // the published plan against THIS generation's classification without re-running validators on
-    // drifted context. Best-effort like the season persist below — a save failure logs and the
-    // generation still succeeds, but the response carries no publishable verdict, so /api/write's
-    // unknown-plan refusal will block publication of this plan until a regeneration (fail-safe).
-    // Nothing about the hash itself is client-facing.
-    try {
-      await saveGenerationVerdict({
-        verdictHash: verdictHash(days, plan.blockParams),
-        blockers: gate.blockers,
-        preferences: gate.preferences,
-        model: GENERATION_MODEL,
-        promptVersion: PROMPT_VERSION,
-        createdAt: new Date().toISOString(),
-      });
-    } catch (err) {
-      logWarn("/api/generate", "verdict-persist", err instanceof Error ? err.message : String(err));
+      settings: blockSettings,
+      weekTargets,
+      skeleton: blockSkeleton,
+      focus: rollingFocusChoice.focus,
+      phase: SEASON_SHAPES_GENERATION && replannedSeason
+        ? (periodForDate(replannedSeason, blockParams.startDate)?.phase ?? "build")
+        : "build",
+      focusRationale: rollingFocusChoice.rationale,
+      durabilityTemplateId: durability.id,
+      requirements,
+      ftp: profile.performance.ftp,
+      hrZone2CeilingBpm: hrZones[1]?.hi ?? null,
+      nutritionByDateAndType,
+      warnings: [...warnings, ...seasonDegradedWarnings],
+      publication: {
+        envelope: resolveDurabilityInsertEnvelope(blockSettings.durabilityInsertEnvelope),
+        events: existingSeason.events,
+        seasonContext: SEASON_SHAPES_GENERATION && aEventForBlock && replannedSeason
+          ? { mode: "event-anchored", plan: replannedSeason }
+          : { mode: "rolling", focus: rollingFocusChoice.focus },
+      },
+    });
+    // Claim the single passport slot only after compilation succeeds. The pending hash can never
+    // match a plan's verdict, and the final CAS keeps concurrent generations isolated.
+    const claimHash = `pending:${randomUUID()}`;
+    await saveGenerationVerdict({
+      verdictHash: claimHash,
+      blockers: [],
+      preferences: [],
+      createdAt: new Date().toISOString(),
+    });
+    const plan = compiled.plan;
+    const verdictResult = await replaceGenerationVerdict(claimHash, {
+      verdictHash: verdictHash(plan.days, plan.blockParams),
+      blockers: compiled.verdict.blockers,
+      preferences: compiled.verdict.preferences,
+      createdAt: new Date().toISOString(),
+    });
+    if (verdictResult === "lost") {
+      throw new Error("A newer generation superseded this preview. Use the newer result.");
     }
-
-    // HR-58: persist the season re-plan/settle only now that generation actually succeeded — never
-    // for a proposal that failed or was discarded. CAS-guarded on the `updatedAt` this route's own
-    // `existingSeason` read saw: if a concurrent Season-form save (PUT /api/season) landed since, the
-    // live value has moved on and this stale-derived mutation is skipped rather than silently
-    // clobbering it. Best-effort, same as the re-plan computation above — never fails the response.
-    const seasonToPersist = replannedSeason;
-    if (seasonToPersist) {
+    if (verdictResult === "write-failed") {
+      logWarn("/api/generate", "verdict-persist", "The final verdict could not replace its pending claim.");
+    }
+    if (replannedSeason) {
       try {
-        await updateSeasonPlan(() => seasonToPersist, existingSeason.updatedAt);
-      } catch (err) {
-        logWarn("/api/generate", "season-persist", err instanceof Error ? err.message : String(err));
+        await updateSeasonPlan(() => replannedSeason as SeasonPlan, existingSeason.updatedAt);
+      } catch (error) {
+        logWarn("/api/generate", "season-persist", error instanceof Error ? error.message : String(error));
       }
     }
-
     return NextResponse.json({ plan });
-  } catch (err) {
-    logError("/api/generate", "generate", err);
-    const message = err instanceof Error ? err.message : "Generation failed.";
-    return NextResponse.json({ error: message }, { status: 502 });
+  } catch (error) {
+    logError("/api/generate", "generate", error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Generation failed." }, { status: 502 });
   }
 }

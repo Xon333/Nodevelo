@@ -1,6 +1,6 @@
 // Shared zod → Anthropic tool-use bridge. ONE place that turns a zod schema into the JSON Schema
-// Claude's `input_schema` expects — used by every structured-output tool (the training-block plan
-// and the block retrospective) so the conversion never drifts per call site.
+// Claude's `input_schema` expects. FR-5 removed the training-block tool; the structured retrospective
+// remains the sole caller.
 import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 

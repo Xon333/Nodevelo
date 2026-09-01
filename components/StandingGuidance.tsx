@@ -11,10 +11,9 @@ import { Card, LoadFailed, Skeleton } from "./ui";
 import type { TrendsData } from "./trends/types";
 
 // STANDING GUIDANCE (UX v2 §6 Model): the directives' sole owner, rendered from their structured
-// source (ranked insights + per-dimension validation — the same inputs lib/synthesis.ts folds into
-// the generator's directive block) instead of the synthesized text blob. One line per directive,
+// source (ranked insights + per-dimension validation) instead of the synthesized text blob. One line per directive,
 // evidence behind "why", validation ✓ where earned, demoted nudges flagged by the same demote
-// rule the generator applies. Reuses the /api/trends query key → shared cache with the Trends page.
+// rule used by this evidence view. Reuses the /api/trends query key → shared cache with the Trends page.
 export default function StandingGuidance() {
   const { state } = useSync();
   const syncedAt = state?.lastSync?.syncedAt ?? null;
@@ -52,7 +51,7 @@ export default function StandingGuidance() {
     );
   } else {
     // Group by dimension, preserving the overall severity ranking; the dimension's matured track
-    // record annotates its header (✓ where earned, demoted per the generator's demote rule).
+    // record annotates its header (✓ where earned, with historically weak levers demoted).
     const groups = new Map<string, Insight[]>();
     for (const ins of data.insights) {
       const g = groups.get(ins.dimension);
@@ -122,7 +121,7 @@ export default function StandingGuidance() {
           );
         })}
         <p className="text-[10px] text-zinc-500 dark:text-zinc-400">
-          The same guidance, with each dimension&apos;s track record folded in, steers every block you generate.
+          This evidence informs deterministic focus and durability selection; retrospective prose does not.
         </p>
       </div>
     );
@@ -131,7 +130,7 @@ export default function StandingGuidance() {
   return (
     <Card
       title="Coaching directives"
-      tip="The standing guidance distilled from your execution history — the structured view of the exact directive block the generator is handed."
+      tip="Standing guidance distilled from execution history, with its evidence and validation record."
       action={trackRecord}
     >
       {body}

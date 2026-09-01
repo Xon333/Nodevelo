@@ -18,7 +18,9 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 
 **Decision.** Every number — nutrition targets, week hours, zones, readiness, execution scores, calibration values — is computed by TypeScript engines. The model receives them as facts (the nutrition reference table it must *copy from*, the coach snapshot, exact week targets) and contributes only session arrangement and prose. Post-hoc, deterministic checks verify the model respected the numbers (`nutrition-validate` even auto-repairs the kcal figure it copied wrong).
 
-**Consequences.** `lib/coach-snapshot.ts` exists so all LLM surfaces read *one* resolved bundle and can't disagree. Prompt builders are pure/offline-testable. The retrospective schema's own comment states the contract: "the math/validation stay in TS; the model only phrases." Cost: large prompt-assembly code and the three-copy protocol-band sync burden ([INVARIANTS #17](INVARIANTS.md)).
+**Consequences.** `lib/coach-snapshot.ts` remains the resolved Today UI/state bundle, while deterministic generation reuses its signal resolver without prompt formatting. Active ride-analysis and retrospective prompt builders are pure/offline-testable. The retrospective schema's own comment states the contract: "the math/validation stay in TS; the model only phrases." Historical prompt-assembly costs were removed from generation by FR-5.
+
+**Amendment (2026-08-30, FR-5).** Block generation no longer uses an LLM. `compileTrainingBlock` owns session selection, progression, canonical workout syntax, overview, and publication eligibility. Claude remains only for optional ride-analysis and retrospective language; the old prompt/table/tool-schema consequences above are historical.
 
 ---
 
@@ -26,7 +28,7 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 
 **Context.** A generation can fail, disappoint, or be regenerated several times. Persisting or pushing calendar events on generate would corrupt state and burn Intervals.icu writes on plans the athlete never accepted.
 
-**Decision.** `POST /api/generate` returns a `GeneratedPlan` and persists nothing (except the season re-plan, CAS-guarded, only after success — HR-58). Acceptance is explicit: `POST /api/write` pushes calendar events (idempotent upserts, rollback on partial failure), archives the old block's lived days, records interventions, then writes `current-block.json`.
+**Decision.** `POST /api/generate` returns a `GeneratedPlan` and persists only the CAS-guarded season re-plan and the best-effort publication-passport verdict record (`data/generation-gate.json`), both after success. Acceptance is explicit: `POST /api/write` pushes calendar events (idempotent upserts, rollback on partial failure), archives the old block's lived days, records interventions, then writes `current-block.json`.
 
 **Consequences.** Regeneration is free and safe. The write route carries the transactional complexity (snapshot → upsert → rollback-or-archive → CAS write → stale-event cleanup). Docs/tools must never assume "generate created the block."
 
@@ -41,6 +43,8 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 **Consequences.** Bad plans surface as informed choices, not silent edits. A structurally invalid tool response is a hard 502 with manual retry — deliberately no self-repair loop for structure. New validators must follow the warn-only contract or argue an ADR change.
 
 **Amendment (2026-08-27).** The narrative critic was removed. `lib/overview-check.ts` now appends deterministic warnings and never rewrites prose; the two repairs above remain the only sanctioned mutations.
+
+**Amendment (2026-08-30, FR-5).** New plans are compiled directly from typed prescriptions, so neither repair is in the active generation path. Generated cycling workouts must render/parse with semantic equality before the warn-only publication gate runs.
 
 ---
 
@@ -78,9 +82,11 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 
 **Context.** Block generation ships a huge prompt (full KB + syntax guide + per-block context) on every call; and free-text plan output required a brittle regex parser.
 
-**Decision.** (a) The system prompt is split `{cached, dynamic}`: the stable prefix (persona + syntax guide + KB) carries `cache_control: ephemeral`; all per-block context goes after the breakpoint. `system-prompt.test.ts` is the executable contract that per-block data never enters the cached half. (b) Structured output is forced tool-use (`tool_choice: {type: "tool"}`) against zod-derived schemas via the single `tool-schema.ts` bridge; the regex parser (`plan-parser.parsePlan`) is retired. (c) `PlanToolSchema` declares `weeks` before `overview` so the model commits the schedule before summarizing it.
+**Decision.** (a) The system prompt was split `{cached, dynamic}`: the stable prefix (persona + syntax guide + KB) carried `cache_control: ephemeral`; all per-block context followed the breakpoint. A dedicated test enforced that partition. (b) Structured output used forced tool-use (`tool_choice: {type: "tool"}`) against a zod-derived plan schema via the single `tool-schema.ts` bridge; the regex parser (`plan-parser.parsePlan`) was retired. (c) The plan schema declared `weeks` before `overview` so the model committed the schedule before summarizing it.
 
 **Consequences.** Cache economics are real (writes 1.25×, reads 0.1× — tracked in `ai-usage.ts`) and KB edits invalidate the cache by design (fresh knowledge wins). Parsing failures became typed zod errors with a truncation-vs-malformed distinction. Every tool schema lives in one of three known files; field order is load-bearing and must survive schema edits.
+
+**Superseded for block generation (2026-08-30, FR-5).** The block prompt, cache split, forced plan tool, and `PlanToolSchema` were deleted. `retrospective-schema.ts` still uses forced tool output for optional structured reflections; `tool-schema.ts` remains its shared bridge. Historical usage rows and this decision stay as the record of the replaced design.
 
 ---
 
@@ -121,7 +127,7 @@ Why NodeVelo is built the way it is — standing architectural decisions in one 
 **Decision.** Each entry below was evaluated and rejected; revisit only on the stated trigger, not by default.
 
 - **Postgres/Supabase + RLS · blob KB storage · auth middleware** — assumed a multi-tenant SaaS; NodeVelo is local-first single-user (ADR-0001), so `fs`/JSON *is* the store. Revisit only on a deliberate hosted pivot.
-- **pgvector RAG for the knowledge base** — small markdown files fit cheaply in the prompt; the context-dump ([04-knowledge](systems/04-knowledge.md)) is intentional, not a scaling compromise.
+- **pgvector RAG for the knowledge base** — deterministic generation no longer consumes the markdown corpus, so retrieval adds no planning value. Revisit only if a separately approved language/search feature needs semantic retrieval.
 - **RxDB reactive-DB rewrite** — contradicts local-first JSON (ADR-0001); the desync it targeted is fixed with refetch-on-sync.
 - **SQLite (`better-sqlite3` + Drizzle + `sqlite-vec`) — deferred, not rejected.** Wins are mostly theoretical at single-user scale and its standout unlock (`sqlite-vec`) is gated on semantic RAG (also deferred). Reconsider when semantic RAG is committed or data volume/multi-user justifies it.
 - **uPlot / canvas charting** — `buildRideTrace` ([02-scoring-and-learning](systems/02-scoring-and-learning.md)) already downsamples to ~240 points; no chart renders raw 1 Hz data.

@@ -609,8 +609,8 @@ export interface SeasonPlan {
 // ---------- Block generation settings (data/block-settings.json) ----------
 
 export interface BlockSettings {
-  weeklyHoursMin: number; // loading weeks minimum
-  weeklyHoursMax: number; // loading weeks maximum
+  targetWeeklyHours: number; // intended loading-week total
+  maxAvailableHours: number; // hard weekly availability ceiling
   recoveryWeekHoursMin: number;
   recoveryWeekHoursMax: number;
   qualitySessionsPerLoadingWeek: number; // threshold / VO2max / SIT sessions
@@ -620,6 +620,7 @@ export interface BlockSettings {
   // Platform behaviour
   autoSyncOnOpen: boolean; // auto-sync the Today view when cached data is stale
   autoPostCoachNote: boolean; // auto-post the coach note to Intervals.icu on each sync
+  lapButtonSteps: boolean; // allow device-supported Press lap workout steps
   // Optional manual calibration override for the ACWR injury-risk bands. Absent = population
   // defaults; set to personalise the optimal/danger thresholds (the hybrid calibration hook).
   acwrBands?: { optimalLow: number; optimalHigh: number; dangerHigh: number };
@@ -647,8 +648,8 @@ export interface BlockSettings {
 }
 
 export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
-  weeklyHoursMin: 10,
-  weeklyHoursMax: 12,
+  targetWeeklyHours: 12,
+  maxAvailableHours: 12,
   recoveryWeekHoursMin: 6,
   // P2b (2026-07-24 block-generation redesign): widened from 7 to 8 so the derived recovery target
   // (60% of a 12h loading target = 7.2h, lib/block-skeleton.ts) governs instead of being immediately
@@ -662,6 +663,7 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   polarisedApproach: true,
   autoSyncOnOpen: true,
   autoPostCoachNote: false,
+  lapButtonSteps: true,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -715,16 +717,17 @@ export interface BlockHistoryEntry {
   actualHours?: number;
   plannedHours?: number;
   ctlGain?: number | null;
-  nextBlockSeeds?: string[];
+  nextBlockSeeds?: string[]; // legacy-named deterministic closeout priorities; history only
   retrospective?: string; // Claude narrative
-  structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome notes, fed into the next block's prompt
+  structuredReflections?: StructuredReflection[]; // Track D: hypothesis→outcome history notes; never generation input
   // Phase 1 trust contract — all four absent on entries written before this shipped; read sites
   // MUST truthy-check, never compare against null/undefined (INVARIANT 3).
   closeout?: CloseoutEvidence;        // deterministic facts (shape above), frozen at closeout
-  reflectionsApprovedAt?: string;     // ISO instant; set ONLY by POST /api/history adoption action
+  reflectionsApprovedAt?: string;     // ISO instant; acknowledgement record set ONLY by POST /api/history
   endedEarlyAt?: string;              // ISO instant when closeout was an explicit early end
   endedEarlyReason?: string;          // the athlete-typed reason recorded with the early end
-  // Provenance of the block this entry archives (see GeneratedPlan).
+  // Provenance of the AI retrospective when one was generated. Legacy entries and deterministic
+  // closeouts with no AI output may retain provenance of the archived AI-generated block.
   model?: string;
   promptVersion?: number;
   durabilityTemplate?: string; // Track B: durability template (A–E) used — for rotation + scoring
@@ -1268,7 +1271,7 @@ export interface CalibrationStore {
 // ---------- Athlete quirks (data/athlete-quirks.json — Track D) ----------
 // A DERIVED store, not owned intent: recurring patterns mined deterministically from the athlete's
 // own ride notes (activityDescription). Kept separate from athlete_profile.md (which stays
-// authoritative). Tags are HINTS injected into generation, not facts — pattern-matching is noisy.
+// authoritative). Tags are noisy derived hints and are not deterministic generation inputs.
 // Regenerated in full on every sync, so no backup/ledger semantics (like rolling-baselines).
 
 export type QuirkCategory = "symptom" | "equipment" | "psyche" | "condition";
