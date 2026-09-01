@@ -116,7 +116,10 @@ export async function POST(req: Request) {
   );
 
   const ctlStart = closestCtl(sync.wellness, block.startDate);
-  const ctlEnd = closestCtl(sync.wellness, effectiveCloseoutDate);
+  const ctlEnd = closestCtl(
+    sync.wellness.filter((w) => w.date <= effectiveCloseoutDate),
+    effectiveCloseoutDate
+  );
 
   const decoupList = blockActivities
     // INVARIANT 34: this block average needs whole-ride comparability, not qualifyingPwHr's

@@ -741,6 +741,42 @@ describe("Phase 1 trust contract", () => {
     expect(entry.days.map((d: { date: string }) => d.date)).toEqual(["2026-09-01"]);
   });
 
+  it("FR-13: early-end CTL ignores a nearer post-closeout wellness row", async () => {
+    const earlyBlock = {
+      ...block,
+      startDate: "2026-08-25",
+      endDate: "2026-09-13",
+      days: [day("2026-08-28", "Z2", 60), day("2026-09-03", "SIT", 45)],
+    };
+    h.readCurrentBlock.mockResolvedValue(earlyBlock);
+    h.readLastSync.mockResolvedValue({
+      ...sync,
+      activities: [],
+      wellness: [
+        { ...sync.wellness[0], date: "2026-08-25", ctl: 50 },
+        { ...sync.wellness[1], date: "2026-08-28", ctl: 54 },
+        { ...sync.wellness[1], date: "2026-09-02", ctl: 99 },
+      ],
+    });
+    h.readScoreLog.mockResolvedValue({ entries: [] });
+
+    const res = await post({
+      today: "2026-09-01",
+      endedEarly: true,
+      endReason: "Recovery reset",
+    });
+
+    expect(res.status).toBe(200);
+    expect(h.generateRetrospective.mock.calls[0][0]).toMatchObject({
+      effectiveCloseoutDate: "2026-09-01",
+      ctlStart: 50,
+      ctlEnd: 54,
+    });
+    expect((store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({
+      ctlGain: 4,
+    });
+  });
+
   it("FR-13: normal completion keeps the full scheduled and actual window", async () => {
     await post({ today: "2026-06-29" });
 
