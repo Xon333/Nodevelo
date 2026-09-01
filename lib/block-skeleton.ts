@@ -19,8 +19,8 @@ const DAYS_PER_WEEK = 7;
 const MIN_QUALITY_SESSION_MIN = 45;
 const MIN_EASY_DAY_MIN = 60;
 
-// P2a: verify the configured settings can jointly fit inside a week BEFORE spending an LLM call on an
-// impossible ask — the one useful idea from a full constraint solver (rejected as too heavy for a
+// P2a: verify the configured settings can jointly fit inside a week BEFORE compiling an impossible
+// block — the one useful idea from a full constraint solver (rejected as too heavy for a
 // solo-maintained app), without the solver. Returns a human-readable conflict, or null if feasible.
 export function checkBlockFeasibility(settings: BlockSettings): string | null {
   const { qualitySessionsPerLoadingWeek, longRideDurationMinutes, restDaysPerWeek, targetWeeklyHours, maxAvailableHours } = settings;

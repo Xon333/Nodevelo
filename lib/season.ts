@@ -1,7 +1,7 @@
 // Macro periodization engine (MACRO-1..3). Pure + deterministic: settles season history (rolling mode —
 // each block's focus is chosen fresh via chooseNextFocus, not drafted ahead) or backward-schedules an
-// event-anchored arc (event mode), grounded in the knowledge base. The LLM only phrases
-// FocusPeriod.rationale.
+// event-anchored arc (event mode), grounded in the knowledge base. FocusPeriod rationale is
+// deterministic provenance text.
 import type { FocusPeriod, PlannedDay, SeasonEvent, SeasonFocus, SeasonPhase, SeasonPlan, WorkoutType, AthleteModel, RideScoreEntry } from "./types";
 import { tagPresent } from "./session-requirements";
 import { carriesEmbeddedIntensity } from "./prescription";
@@ -22,8 +22,7 @@ import type { WeekTarget } from "./block-skeleton";
 // constraint solver, full rolling-horizon generation, a backward-from-event primary planner) --
 // see docs/systems/05-season.md#known-rough-edges before proposing a redesign here. If an edit here
 // reproduces the tripwire condition (a missed hour target, a missing limiter session, an escalation
-// the narrative critic misses), say so explicitly -- that's the signal the LLM shouldn't author
-// structure at all.
+// the validation layer misses), say so explicitly -- generated structure must remain deterministic.
 export const SEASON_SHAPES_GENERATION = false;
 
 // KB-grounded (cycling_database.md Annual Periodisation Framework + training_knowledge.md). Mode-C focus

@@ -2,7 +2,7 @@
 // five templates that each train a different fatigue-resistance mechanism. The template for a block
 // is chosen DETERMINISTICALLY — limiter-driven from the athlete model, else rotated to keep adaptation
 // broad — and structures the week's long Z2 ride (the intensity sits inside the duration, never
-// replacing it). The LLM only phrases the chosen, hardwired structure. See KB §12.
+// replacing it). The typed workout catalogue compiles the chosen structure. See KB §12.
 
 import type { Insight } from "./types";
 import { tagPresent } from "./session-requirements";
