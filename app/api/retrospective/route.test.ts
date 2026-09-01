@@ -307,9 +307,10 @@ describe("/api/retrospective POST", () => {
     it("archives a day already lived local-side even though the server's UTC date hasn't rolled over yet", async () => {
       h.readCurrentBlock.mockResolvedValueOnce({
         ...block,
+        endDate: "2026-06-30",
         days: [...block.days, day("2026-06-29", "Z2", 60)], // rode it this morning, local
       });
-      await post({ today: "2026-06-29" });
+      await post({ today: "2026-06-29", endedEarly: true, endReason: "Recovery reset" });
       const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(entry.days.map((d: { date: string }) => d.date)).toContain("2026-06-29"); // not silently dropped
     });
@@ -660,5 +661,99 @@ describe("Phase 1 trust contract", () => {
     const body = await res.json();
     expect(body.closeout.plannedSessions).toBe(1); // the 2098 day excluded entirely
     expect(body.closeout.missedSessions).toBe(1);
+  });
+
+  it("FR-13: early end gives both AI calls and history only the lived window", async () => {
+    const earlyBlock = {
+      ...block,
+      startDate: "2026-08-31",
+      endDate: "2026-09-13",
+      createdAt: "2026-08-30T08:00:00.000Z",
+      days: [
+        day("2026-09-01", "Threshold", 60),
+        day("2026-09-03", "SIT", 45),
+      ],
+    };
+    const futureRide = {
+      ...sync.activities[0],
+      id: "future",
+      date: "2026-09-03",
+      name: "Future sentinel",
+      movingTimeSec: 2 * 3600,
+      trainingLoad: 200,
+      decoupling: 1,
+    };
+    h.readCurrentBlock.mockResolvedValue(earlyBlock);
+    h.readLastSync.mockResolvedValue({
+      ...sync,
+      activities: [futureRide],
+      wellness: [
+        { ...sync.wellness[0], date: "2026-08-31", ctl: 50 },
+        { ...sync.wellness[1], date: "2026-09-01", ctl: 51 },
+        { ...sync.wellness[1], date: "2026-09-13", ctl: 99 },
+      ],
+    });
+    h.readScoreLog.mockResolvedValue({ entries: [] });
+    h.readInterventionLog.mockResolvedValue({
+      records: [{ ...maturedIntervention, blockStartDate: earlyBlock.startDate }],
+      updatedAt: new Date(0).toISOString(),
+    });
+
+    const res = await post({
+      today: "2026-09-01",
+      endedEarly: true,
+      endReason: "Recovery reset",
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.closeout).toMatchObject({
+      plannedSessions: 1,
+      scoredSessions: 0,
+      missedSessions: 1,
+    });
+
+    for (const input of [
+      h.generateRetrospective.mock.calls[0][0],
+      h.generateStructuredRetrospective.mock.calls[0][0],
+    ]) {
+      expect(input).toMatchObject({
+        startDate: "2026-08-31",
+        endDate: "2026-09-13",
+        effectiveCloseoutDate: "2026-09-01",
+        endedEarly: true,
+        plannedHours: 1,
+        actualHours: 0,
+        ctlEnd: 51,
+        topSessions: [],
+        avgDecoupling: null,
+      });
+    }
+
+    const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry).toMatchObject({
+      startDate: "2026-08-31",
+      endDate: "2026-09-13",
+      lengthWeeks: 2,
+      plannedHours: 1,
+      actualHours: 0,
+    });
+    expect(entry.days.map((d: { date: string }) => d.date)).toEqual(["2026-09-01"]);
+  });
+
+  it("FR-13: normal completion keeps the full scheduled and actual window", async () => {
+    await post({ today: "2026-06-29" });
+
+    expect(h.generateRetrospective.mock.calls[0][0]).toMatchObject({
+      effectiveCloseoutDate: "2026-06-28",
+      endedEarly: false,
+      plannedHours: 6.25,
+      actualHours: 2.5,
+      ctlEnd: 58,
+    });
+    expect((store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({
+      plannedHours: 6.3,
+      actualHours: 2.5,
+    });
   });
 });

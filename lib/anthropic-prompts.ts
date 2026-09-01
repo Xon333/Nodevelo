@@ -284,6 +284,8 @@ export interface RetrospectiveInput {
   lengthWeeks: number;
   startDate: string;
   endDate: string;
+  effectiveCloseoutDate: string;
+  endedEarly: boolean;
   plannedHours: number;
   actualHours: number;
   overallCompliancePct: number;
@@ -296,6 +298,12 @@ export interface RetrospectiveInput {
   // point), pre-formatted by lib/power-profile.formatPowerProfileForPrompt. Empty string when the curve
   // is too thin to say anything — the prompt then omits the section. (ROADMAP Track A.)
   powerProfile?: string;
+}
+
+function retrospectiveCloseoutLine(input: RetrospectiveInput): string | null {
+  return input.endedEarly
+    ? `Closeout window: ended early on ${input.effectiveCloseoutDate}. Evaluate only ${input.startDate} → ${input.effectiveCloseoutDate}; scheduled days after ${input.effectiveCloseoutDate} are excluded and must not be treated as missed.`
+    : null;
 }
 
 // The prose-retrospective prompt. Pure; generateRetrospective() sends it to the model.
@@ -323,6 +331,7 @@ export function buildRetrospectivePrompt(input: RetrospectiveInput): string {
     "You are a cycling coach writing a concise retrospective for a completed training block. Be direct and coaching-like — no bullet points, no fluff, flowing prose only. Do not start with 'This block'.",
     "",
     `Block: "${input.goal}" — ${input.lengthWeeks} weeks (${input.startDate} → ${input.endDate})`,
+    retrospectiveCloseoutLine(input),
     `Volume: ${input.plannedHours.toFixed(1)}h planned → ${input.actualHours.toFixed(1)}h actual (${input.overallCompliancePct}% compliance)`,
     ctlLine,
     decoupLine,
@@ -377,6 +386,7 @@ export function buildStructuredRetrospectivePrompt(
 
   return [
     `Completed block: "${input.goal}" — ${input.lengthWeeks} weeks (${input.startDate} → ${input.endDate}).`,
+    retrospectiveCloseoutLine(input),
     `Volume ${input.plannedHours.toFixed(1)}h planned → ${input.actualHours.toFixed(1)}h actual (${input.overallCompliancePct}% compliance).`,
     profileBlock,
     "The block acted on these hypotheses (interventions). Each has now matured and been scored:",
@@ -386,5 +396,5 @@ export function buildStructuredRetrospectivePrompt(
       "`observation` strictly in the supplied baselines/outcomes — do not invent any metric, date, or " +
       "number. Keep `root_cause` and `adjusted_strategy` concrete and actionable for the next block; where " +
       "the rider's curve shape above is relevant to an intervention's dimension, factor it into `adjusted_strategy`.",
-  ].join("\n");
+  ].filter((line) => line !== null).join("\n");
 }

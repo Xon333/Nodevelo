@@ -224,6 +224,8 @@ const retroInput = (over: Partial<RetrospectiveInput> = {}): RetrospectiveInput 
   lengthWeeks: 4,
   startDate: "2026-05-01",
   endDate: "2026-05-28",
+  effectiveCloseoutDate: "2026-05-28",
+  endedEarly: false,
   plannedHours: 40,
   actualHours: 36,
   overallCompliancePct: 90,
@@ -266,5 +268,41 @@ describe("buildRetrospectivePrompt / buildStructuredRetrospectivePrompt", () => 
     const p = buildStructuredRetrospectivePrompt({ ...retroInput(), interventions });
     expect(p).toContain("1. [VO2max] (alert) Ease VO2 prescription");
     expect(p).toContain("verdict validated");
+  });
+
+  it("marks an early end as an effective window in both retrospective prompts", () => {
+    const early = retroInput({
+      effectiveCloseoutDate: "2026-05-02",
+      endedEarly: true,
+      plannedHours: 1,
+      actualHours: 0,
+    });
+    const expected =
+      "Closeout window: ended early on 2026-05-02. Evaluate only 2026-05-01 → 2026-05-02; " +
+      "scheduled days after 2026-05-02 are excluded and must not be treated as missed.";
+    const interventions: ReflectionInterventionInput[] = [
+      {
+        dimension: "VO2max",
+        severity: "watch",
+        title: "Check execution",
+        physMetric: "5-min power",
+        baselineExecEwma: 5,
+        baselinePhys: 320,
+        outcome: {
+          execNow: 5,
+          physNow: 320,
+          execDelta: 0,
+          physDelta: 0,
+          verdict: "inconclusive",
+        },
+      },
+    ];
+
+    expect(buildRetrospectivePrompt(early)).toContain(expected);
+    expect(buildStructuredRetrospectivePrompt({ ...early, interventions })).toContain(expected);
+  });
+
+  it("does not add early-end instructions to a normal completion", () => {
+    expect(buildRetrospectivePrompt(retroInput())).not.toContain("Closeout window: ended early");
   });
 });

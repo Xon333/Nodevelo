@@ -25,6 +25,7 @@ import {
   generateStructuredRetrospective,
   isAnthropicConfigured,
   type ReflectionInterventionInput,
+  type RetrospectiveInput,
 } from "@/lib/anthropic-api";
 import type { BlockHistoryEntry, StructuredReflection, WorkoutType } from "@/lib/types";
 
@@ -92,24 +93,30 @@ export async function POST(req: Request) {
     );
   }
 
-  // Match actual activities to planned days within the block range.
+  const effectiveCloseoutDate = today < block.endDate ? today : block.endDate;
+  const plannedDays = block.days.filter(
+    (d) => d.date >= block.startDate && d.date <= effectiveCloseoutDate
+  );
   const blockActivities = sync.activities.filter(
-    (a) => a.date >= block.startDate && a.date <= block.endDate && (a.type === "Ride" || a.type === "VirtualRide")
+    (a) =>
+      a.date >= block.startDate &&
+      a.date <= effectiveCloseoutDate &&
+      (a.type === "Ride" || a.type === "VirtualRide")
   );
 
-  const actualHours = blockActivities.reduce((s, a) => s + a.movingTimeSec, 0) / 3600;
-  const plannedHours = block.days.reduce((s, d) => s + d.durationMin, 0) / 60;
+  const actualHours = blockActivities.reduce((sum, activity) => sum + activity.movingTimeSec, 0) / 3600;
+  const plannedHours = plannedDays.reduce((sum, plannedDay) => sum + plannedDay.durationMin, 0) / 60;
 
   // Deterministic FIRST (works with Claude fully unavailable). Evidence covers only lived days.
   const evidence = buildCloseoutEvidence(
     block,
     scoreLog.entries,
     blockActivities,
-    today < block.endDate ? today : block.endDate
+    effectiveCloseoutDate
   );
 
   const ctlStart = closestCtl(sync.wellness, block.startDate);
-  const ctlEnd = closestCtl(sync.wellness, block.endDate);
+  const ctlEnd = closestCtl(sync.wellness, effectiveCloseoutDate);
 
   const decoupList = blockActivities
     // INVARIANT 34: this block average needs whole-ride comparability, not qualifyingPwHr's
@@ -144,6 +151,24 @@ export async function POST(req: Request) {
     if (t.scored > 0 && t.meanCompliancePct !== null) complianceMap[t.type] = t.meanCompliancePct;
   }
 
+  const retrospectiveInput: RetrospectiveInput = {
+    goal: block.goal,
+    lengthWeeks: block.lengthWeeks,
+    startDate: block.startDate,
+    endDate: block.endDate,
+    effectiveCloseoutDate,
+    endedEarly,
+    plannedHours,
+    actualHours,
+    overallCompliancePct,
+    ctlStart,
+    ctlEnd,
+    complianceByType: complianceMap,
+    topSessions,
+    avgDecoupling,
+    powerProfile: powerProfileText,
+  };
+
   // Best-effort narrative: skip unconfigured, survive failure — closeout never depends on Claude.
   let retrospective: string | undefined;
   let narrativeDegraded = false;
@@ -152,21 +177,7 @@ export async function POST(req: Request) {
     logWarn("/api/retrospective", "narrative", "skipped — Anthropic not configured; closing out deterministically");
   } else {
     try {
-      retrospective = await generateRetrospective({
-        goal: block.goal,
-        lengthWeeks: block.lengthWeeks,
-        startDate: block.startDate,
-        endDate: block.endDate,
-        plannedHours,
-        actualHours,
-        overallCompliancePct,
-        ctlStart,
-        ctlEnd,
-        complianceByType: complianceMap,
-        topSessions,
-        avgDecoupling,
-        powerProfile: powerProfileText,
-      });
+      retrospective = await generateRetrospective(retrospectiveInput);
     } catch (err) {
       narrativeDegraded = true;
       logWarn("/api/retrospective", "generate", err instanceof Error ? err.message : String(err));
@@ -198,19 +209,7 @@ export async function POST(req: Request) {
   if (maturedInterventions.length > 0) {
     try {
       structuredReflections = await generateStructuredRetrospective({
-        goal: block.goal,
-        lengthWeeks: block.lengthWeeks,
-        startDate: block.startDate,
-        endDate: block.endDate,
-        plannedHours,
-        actualHours,
-        overallCompliancePct,
-        ctlStart,
-        ctlEnd,
-        complianceByType: complianceMap,
-        topSessions,
-        avgDecoupling,
-        powerProfile: powerProfileText,
+        ...retrospectiveInput,
         interventions: maturedInterventions,
       });
     } catch (err) {
@@ -284,7 +283,7 @@ export async function POST(req: Request) {
     ...(endedEarly ? { endedEarlyAt: new Date().toISOString(), endedEarlyReason: endReason } : {}),
     // SUB-1: truncation keeps one code path instead of special-casing this call site — for an early
     // end it is what actually cuts the not-yet-lived days out of the archived entry.
-    days: truncateBlockDays(block.days, today),
+    days: truncateBlockDays(block.days, effectiveCloseoutDate),
   };
 
   // Persist phase: markdown → history → CAS-clear, each strictly ordered. A failure here must leave
