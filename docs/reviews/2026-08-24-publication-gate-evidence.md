@@ -12,8 +12,8 @@ blocks.
 
 | Requirement | Status | Evidence / notes |
 |---|---|---|
-| Five consecutive structurally valid test generations across varied inputs | ☐ Not started | Record dates, inputs, and whether any structural repair was needed. |
-| Four completed real blocks without manual structural repair | ☐ Not started | Record the block dates and any publication blockers or overrides. |
+| Five consecutive structurally valid test generations across varied inputs | ☑ Satisfied 2026-09-01 | [FR-5 acceptance](2026-08-29-fr5-acceptance.md) records five varied deterministic cases, each repeated identically, with zero blockers and no manual repair. |
+| Four completed real blocks without manual structural repair | ◑ Candidate 1 active | The 2026-08-31 → 2026-09-13 block is registered below; it does not count until closeout. |
 | At least 80% of prescribed sessions retained substantially as generated | ☐ Not started | Calculate from the four completed blocks; link the closeout records. |
 | At least three independent athlete-specific adaptations reached later decisions | ☐ Not started | Record the source evidence, later decision, and provenance. |
 | At least one genuine refutation handled honestly | ☐ Not started | Record the hypothesis, refuting evidence, demotion, and later behavior. |
@@ -63,3 +63,16 @@ observations and links; implementation details belong in the archived PR and sys
 - An earlier same-day setup attempt is excluded from evidence: JSON state was isolated but the KB
   root was not, so repository-local athlete context reached the prompt. It was not published or
   recorded as an FR-1 result. The corrected run above isolated both roots.
+
+### 2026-09-01 — prospective cycle candidate 1 registered
+
+- Candidate window: **2026-08-31 → 2026-09-13**. The active deterministic block contains eleven
+  planned ride days, 1,152 planned minutes (19.2 h), and three rest days.
+- Publication baseline: the persisted gate has zero blockers and zero preferences. The
+  [FR-5 acceptance record](2026-08-29-fr5-acceptance.md) confirms all fourteen events were published,
+  no manual structural repair was required, and the owner reported the resulting Wahoo workouts
+  worked.
+- This is an **active candidate, not a completed clean cycle**. Retention, edits, intervention
+  outcomes/refutations, incidents, and end-of-block usefulness/trust feedback remain pending.
+- Provider/model fixture experiments under FR-6 are synthetic and excluded from this cycle's
+  evidence. Only the lived block and its frozen closeout records can satisfy the prospective rows.
