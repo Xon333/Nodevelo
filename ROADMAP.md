@@ -41,15 +41,16 @@ explicitly says evidence-only.
 
 ### Phase 2 · Make the core journey excellent
 
-#### FR-3 · Core-journey task audit — READY
+#### FR-3 · Core-journey task audit — EVIDENCE COMPLETE
 
 - **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
   [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
   and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
-- **Verified current state:** Today, Plan, the ride closeout, and the adaptive-week path are live;
-  FR-1's attended evidence run and FR-5 acceptance are closed.
-- **Remaining outcome:** observe Today → Plan → ride → closeout → adaptive week as tasks; record
-  failures, confusion, avoidable prose, lost-state risks, and latency before proposing changes.
+- **Verified current state:** the
+  [accepted FR-3 audit](docs/reviews/2026-09-01-fr3-core-journey-audit.md) records the attended
+  Today → Plan → ride → closeout → adaptive-week journey and selects FR3-01 as its one
+  FR-4 candidate.
+- **Remaining outcome:** none; the evidence package is complete.
 - **Entry gate:** FR-1 closed.
 - **Plan scope:** no implementation plan exists until this audit selects a failure. The audit covers
   `app/today/page.tsx`, `app/plan/page.tsx`, `app/api/retrospective/route.ts`, and the adaptive
@@ -58,23 +59,44 @@ explicitly says evidence-only.
   friction; no aesthetic-only backlog.
 - **Non-goals:** page consolidation, new surfaces, or implementation during the audit.
 
-#### FR-4 · Core-journey fixes — BLOCKED on FR-3 evidence
+#### FR-4 · Core-journey fixes — SELECTED
 
 - **Review basis:** [UX findings](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#ux-and-abandoned-surfaces),
   [expand now](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#expand-now),
   and decision [Q29/Q39](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
-- **Verified current state:** no independently evidenced FR-3 failure has been selected, and all
-  current journey surfaces remain pending that audit.
-- **Remaining outcome:** select exactly one independently evidenced FR-3 failure and create one new
-  additive FR-* package, design spec, and implementation plan for that failure.
-- **Entry gate:** FR-3 exit evidence with one ranked failure selected.
-- **Plan scope:** the selected FR-3 finding, its owning current journey files, and the new additive
-  FR-* package/spec/plan only; no implementation plan exists before selection.
+- **Verified current state:** FR3-01, early-end retrospective narratives counting unlived future
+  sessions, is the one selected failure. FR-13 owns the bounded correction.
+- **Remaining outcome:** none at this umbrella level; implement and verify FR-13.
+- **Entry gate:** satisfied by the accepted FR-3 audit.
+- **Plan scope:** delegated to FR-13; the other FR-3 findings remain outside this package.
 - **Exit evidence:** one selected finding cites FR-3 evidence; one new additive package/spec/plan
   targets it; repeated task completion no longer shows that failure without regressing publication
   or turnover gates.
 - **Non-goals:** a portfolio of fixes, unrelated UI polish, or scope not supported by the selected
   FR-3 evidence.
+
+#### FR-13 · Early-end retrospective effective window — READY
+
+- **Review basis:** [FR3-01](docs/reviews/2026-09-01-fr3-core-journey-audit.md#fr3-01--early-end-narrative-grades-the-unlived-future),
+  [INVARIANT 59](docs/INVARIANTS.md#block-closeout--acknowledgement), and the FR-5 deterministic
+  authority boundary.
+- **Verified current state:** deterministic closeout excludes days after an explicit early end, but
+  `/api/retrospective` still derives planned hours from the full scheduled block. The resulting AI
+  narrative and persisted history hours can contradict the closeout record and the UI promise that
+  remaining sessions will not count.
+- **Remaining outcome:** apply one route-owned effective closeout date to planned and actual
+  retrospective inputs, stored history hours, and other block-window narrative evidence. Preserve
+  the original scheduled block identity while explicitly telling the optional language layer which
+  period was lived.
+- **Entry gate:** satisfied by the accepted FR-3 evidence and the approved
+  [FR-13 design](docs/superpowers/specs/2026-09-01-fr13-early-end-retrospective-window-design.md).
+- **Plan scope:** `app/api/retrospective/route.ts`, its route regression tests, the two retrospective
+  prompt builders and prompt tests, the AI prompt-version stamp, and the minimum canonical docs.
+- **Exit evidence:** the exact one-lived-day early-end fixture gives deterministic closeout `0/1`
+  with one miss; both optional AI calls and stored history use only that lived window; a normal
+  completion still uses the full block; the changed language path passes one live smoke run.
+- **Non-goals:** adaptive-roadmap invalidation, preview persistence, retrospective tone or length,
+  unrelated UX findings, closeout/seed arithmetic changes, or any new planning authority for AI.
 
 ### Phase 3 · Reduce Claude's generation authority
 
