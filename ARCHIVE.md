@@ -30,6 +30,7 @@ staleness, preview persistence, prose cleanup, and the other audit observations 
 - **Evidence:** [FR3-01](docs/reviews/2026-09-01-fr3-core-journey-audit.md#fr3-01--early-end-narrative-grades-the-unlived-future)
 - **Design:** [accepted design](docs/superpowers/specs/2026-09-01-fr13-early-end-retrospective-window-design.md)
 - **Plan:** [implementation plan](docs/superpowers/plans/2026-09-01-fr13-early-end-retrospective-window.md)
+- **Acceptance:** [attended verification](docs/reviews/2026-09-01-fr13-acceptance.md)
 - **Shipped:** one effective closeout date now bounds planned and actual retrospective inputs,
   persisted history hours, and block-window language evidence. Normal completion still covers the
   full block; deterministic closeout and FR-5 authority boundaries are unchanged.
