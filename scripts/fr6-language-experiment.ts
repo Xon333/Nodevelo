@@ -26,6 +26,7 @@ export interface ExperimentResult {
   category: LanguageCallCategory;
   provider: "anthropic" | "openai" | "google" | "mistral";
   model: string;
+  promptVersion: string;
   status:
     | "ok"
     | "missing-credential"
@@ -103,7 +104,6 @@ export function projectTwoWeekCost(
 
 export function evaluateHardGates(
   results: ExperimentResult[],
-  budgetUsd = TWO_WEEK_COST_BUDGET_USD,
 ): HardGateEvaluation {
   const projectedCostUsd = projectTwoWeekCost(results, TWO_WEEK_RIDE_DAYS);
   const failures: HardGateFailure[] = [];
@@ -113,7 +113,7 @@ export function evaluateHardGates(
   }
   if (!Number.isFinite(projectedCostUsd)) {
     failures.push("projected-cost-unavailable");
-  } else if (projectedCostUsd > budgetUsd) {
+  } else if (projectedCostUsd > TWO_WEEK_COST_BUDGET_USD) {
     failures.push("projected-cost-exceeds-budget");
   }
   if (
@@ -139,25 +139,25 @@ export function blindReviewRows(
   results: ExperimentResult[],
   seed: string,
 ): BlindReviewRow[] {
-  return results.map((result, index) => ({
-    blindId: opaqueId(result, seed, index),
+  return results.map((result) => ({
+    blindId: opaqueId(result, seed),
     caseId: result.caseId,
     category: result.category,
     output: result.output,
   }));
 }
 
-function opaqueId(result: ExperimentResult, seed: string, index: number): string {
+function opaqueId(result: ExperimentResult, seed: string): string {
   const digest = createHash("sha256")
     .update(seed)
     .update("\0")
-    .update(String(index))
-    .update("\0")
     .update(result.caseId)
     .update("\0")
-    .update(result.provider)
+    .update(result.category)
     .update("\0")
-    .update(result.model)
+    .update(result.promptVersion)
+    .update("\0")
+    .update(result.output)
     .digest("hex")
     .slice(0, 12)
     .toUpperCase();

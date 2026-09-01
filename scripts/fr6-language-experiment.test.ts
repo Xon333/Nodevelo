@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   blindReviewRows,
@@ -22,6 +22,7 @@ function result(overrides: Partial<ExperimentResult> = {}): ExperimentResult {
     category: "ride-analysis",
     provider: "anthropic",
     model: "claude-haiku-4-5",
+    promptVersion: "2026-08-31.v1",
     status: "ok",
     output: "Useful feedback.",
     parsed: null,
@@ -64,6 +65,12 @@ function completeResults(costs: {
 }
 
 describe("provider-neutral cost arithmetic", () => {
+  it("requires prompt provenance on every experiment result", () => {
+    expectTypeOf<ExperimentResult>()
+      .toHaveProperty("promptVersion")
+      .toBeString();
+  });
+
   it("normalizes every billed token class into one request cost", () => {
     expect(
       estimateExperimentCost(pricing, {
@@ -122,6 +129,12 @@ describe("hard gates", () => {
     expect(evaluation.failures).toContain("projected-cost-exceeds-budget");
   });
 
+  it("exposes no parameter that can relax the fixed $0.25 ceiling", () => {
+    expectTypeOf(evaluateHardGates).parameters.toEqualTypeOf<
+      [ExperimentResult[]]
+    >();
+  });
+
   it.each(["missing-credential", "request-failed", "schema-invalid"] as const)(
     "rejects an explicit %s result",
     (status) => {
@@ -172,12 +185,30 @@ describe("blind review rows", () => {
     );
   });
 
-  it("assigns unique IDs to repeated finalist runs", () => {
-    const repeated = result();
-    const blindIds = blindReviewRows([repeated, repeated], "fr6-v1").map(
-      (row) => row.blindId,
-    );
+  it("does not encode provider or model identity in an opaque ID", () => {
+    const anthropic = result();
+    const openai = result({ provider: "openai", model: "gpt-5.6-luna" });
 
-    expect(new Set(blindIds).size).toBe(2);
+    expect(blindReviewRows([anthropic], "fr6-v1")[0]?.blindId).toBe(
+      blindReviewRows([openai], "fr6-v1")[0]?.blindId,
+    );
+  });
+
+  it("keeps each artifact's opaque ID stable when rows are reordered", () => {
+    const ride = result();
+    const prose = result({
+      caseId: "retro-normal",
+      category: "prose-retrospective",
+      output: "A grounded retrospective.",
+    });
+    const forward = blindReviewRows([ride, prose], "fr6-v1");
+    const reversed = blindReviewRows([prose, ride], "fr6-v1");
+
+    expect(forward.find((row) => row.caseId === ride.caseId)?.blindId).toBe(
+      reversed.find((row) => row.caseId === ride.caseId)?.blindId,
+    );
+    expect(forward.find((row) => row.caseId === prose.caseId)?.blindId).toBe(
+      reversed.find((row) => row.caseId === prose.caseId)?.blindId,
+    );
   });
 });
