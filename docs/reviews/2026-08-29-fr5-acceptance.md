@@ -1,15 +1,15 @@
 # FR-5 acceptance evidence
 
 **Date:** 2026-08-31  
-**Implementation commit:** `96d5371123747c64b900ee6436c9af3bc9c98105`
+**Implementation commit:** `bfa36a6c13e676cb68764d7a4ac7b1fc4d143fd6`
 
 ## Automated verification
 
-- `npm run check`: pass at 2026-08-31 18:10 CEST — TypeScript, ESLint, 118 test files / 2,504 tests, agent-workflow guards, sync tests, and the 143-file link check all passed.
+- `npm run check`: pass at 2026-09-01 06:43 CEST — TypeScript, ESLint, 118 test files / 2,505 tests, agent-workflow guards, sync tests, and the 143-file link check all passed.
 - Anthropic-unset generation: pass. The ten requests ran against an isolated copy of the current
   implementation and athlete data. Controlled synthetic recent-exposure fixtures were added only to
   the isolated copies to select the five named focuses; live data and the published block were untouched.
-- Retained evidence: `.git/worktrees/codex-fr5-deterministic-authority-design/sdd/task-7-final-evidence/` (outside the repository worktree).
+- Retained evidence: `.git/sdd/fr5-acceptance-2026-09-01/` (persistent repository metadata outside the tracked worktree).
 
 ## Varied deterministic generations
 
