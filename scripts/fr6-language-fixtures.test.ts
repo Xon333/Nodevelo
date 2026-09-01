@@ -206,4 +206,36 @@ describe("deterministic grounding checks", () => {
     ]);
     expect(findUnsupportedClaims("First, keep 2 priorities in 3 sentences.", facts)).toEqual([]);
   });
+
+  it("checks both endpoints of named CTL comparison clauses", () => {
+    const normal = FR6_CASES.find(({ id }) => id === "retro-normal");
+    expect(normal).toBeDefined();
+
+    expect(
+      findUnsupportedClaims("CTL increased from 50.0 to 53.", normal!.grounding),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims("CTL increased from 50 to 54.", normal!.grounding),
+    ).toEqual(["unsupported numeric claim: CTL 54"]);
+    expect(
+      findUnsupportedClaims("CTL changed from 50 to 54.", normal!.grounding),
+    ).toEqual(["unsupported numeric claim: CTL 54"]);
+  });
+
+  it("checks execution change clauses without scanning unrelated prose numbers", () => {
+    const structured = FR6_CASES.find(
+      ({ id }) => id === "structured-mixed-verdicts",
+    );
+    expect(structured).toBeDefined();
+
+    expect(
+      findUnsupportedClaims(
+        "Execution improved from 5 to 6; summarize it in 2 sentences.",
+        structured!.grounding,
+      ),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims("Execution improved to 9.", structured!.grounding),
+    ).toEqual(["unsupported numeric claim: Execution 9"]);
+  });
 });

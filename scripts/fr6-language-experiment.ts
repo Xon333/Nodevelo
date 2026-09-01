@@ -178,23 +178,52 @@ export function findUnsupportedClaims(
     }
   }
 
+  const seenNumeric = new Set<string>();
+  const recordNumericClaim = (
+    index: number,
+    display: string,
+    normalized: string,
+  ): void => {
+    const key = `${index}:${normalized}`;
+    if (!seenNumeric.has(key) && !allowedNumbers.has(normalized)) {
+      seenNumeric.add(key);
+      unsupported.push({
+        index,
+        message: `unsupported numeric claim: ${display}`,
+      });
+    }
+  };
+
+  const comparisonPattern =
+    /\b(CTL|FTP|TSS|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s+(?:increased|decreased|changed|rose|fell|improved|declined|dropped|grew)\s+(?:from\s+([+-]?\d+(?:\.\d+)?)\s+to\s+([+-]?\d+(?:\.\d+)?)|to\s+([+-]?\d+(?:\.\d+)?)|by\s+([+-]?\d+(?:\.\d+)?))\b/gi;
+  for (const match of output.matchAll(comparisonPattern)) {
+    const metric = match[1].replace(/\s+(?:score|EWMA)$/i, "");
+    let searchFrom = 0;
+    for (const value of match.slice(2).filter((item): item is string => Boolean(item))) {
+      const offset = match[0].indexOf(value, searchFrom);
+      searchFrom = offset + value.length;
+      const display = `${metric} ${value}`;
+      recordNumericClaim(
+        match.index + offset,
+        display,
+        normalizeNumericToken(display),
+      );
+    }
+  }
+
   const numericPatterns = [
     /(?<![\w.+-])[+-]?\d+(?:\.\d+)?\s*(?:-\s*)?(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)(?!\w)/gi,
     /\b(?:TSS|CTL|FTP|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s*(?:(?:was|is|of|at)\s*)?:?\s*[+-]?\d+(?:\.\d+)?\b(?!\s*\/)/gi,
     /\b(?:RPE\s*:?\s*)?[+-]?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
   ];
-  const seenNumeric = new Set<string>();
   for (const pattern of numericPatterns) {
     for (const match of output.matchAll(pattern)) {
       const normalized = normalizeNumericToken(match[0]);
-      const key = `${match.index}:${normalized}`;
-      if (!seenNumeric.has(key) && !allowedNumbers.has(normalized)) {
-        seenNumeric.add(key);
-        unsupported.push({
-          index: match.index,
-          message: `unsupported numeric claim: ${compactNumericToken(match[0])}`,
-        });
-      }
+      recordNumericClaim(
+        match.index,
+        compactNumericToken(match[0]),
+        normalized,
+      );
     }
   }
 
