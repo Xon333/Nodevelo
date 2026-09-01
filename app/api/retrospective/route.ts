@@ -85,13 +85,15 @@ export async function POST(req: Request) {
 
   // Phase 1 gate: a normal completion or an EXPLICIT early-end decision precedes closeout.
   const endReason = typeof b.endReason === "string" ? b.endReason.trim() : "";
-  const endedEarly = b.endedEarly === true && endReason.length > 0;
-  if (!isBlockFinished(block, today) && !endedEarly) {
+  const blockFinished = isBlockFinished(block, today);
+  const requestedEarlyEnd = b.endedEarly === true && endReason.length > 0;
+  if (!blockFinished && !requestedEarlyEnd) {
     return NextResponse.json(
       { error: "This block hasn't finished yet. Wait for its end date, or record why it's ending early." },
       { status: 409 }
     );
   }
+  const endedEarly = !blockFinished && requestedEarlyEnd;
 
   const effectiveCloseoutDate = today < block.endDate ? today : block.endDate;
   const plannedDays = block.days.filter(

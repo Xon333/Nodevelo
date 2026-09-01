@@ -792,4 +792,21 @@ describe("Phase 1 trust contract", () => {
       actualHours: 2.5,
     });
   });
+
+  it("FR-13: a finished block ignores an early-end request flag", async () => {
+    const res = await post({
+      today: "2026-06-29",
+      endedEarly: true,
+      endReason: "Stale client decision",
+    });
+
+    expect(res.status).toBe(200);
+    expect(h.generateRetrospective.mock.calls[0][0]).toMatchObject({
+      effectiveCloseoutDate: "2026-06-28",
+      endedEarly: false,
+    });
+    const entry = (store.appendBlockHistory as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(entry).not.toHaveProperty("endedEarlyAt");
+    expect(entry).not.toHaveProperty("endedEarlyReason");
+  });
 });

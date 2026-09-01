@@ -304,5 +304,8 @@ describe("buildRetrospectivePrompt / buildStructuredRetrospectivePrompt", () => 
 
   it("does not add early-end instructions to a normal completion", () => {
     expect(buildRetrospectivePrompt(retroInput())).not.toContain("Closeout window: ended early");
+    expect(buildStructuredRetrospectivePrompt({ ...retroInput(), interventions: [] })).not.toContain(
+      "Closeout window: ended early"
+    );
   });
 });
