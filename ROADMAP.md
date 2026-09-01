@@ -41,32 +41,9 @@ explicitly says evidence-only.
 
 ### Phase 2 · Make the core journey excellent
 
-FR-3 evidence collection and FR-4 selection/planning are complete; their decision record is in
-[ARCHIVE](ARCHIVE.md#fr-3--fr-4-core-journey-audit-and-selection-2026-09-01). FR-13 is the single
-implementation package selected from that work.
-
-#### FR-13 · Early-end retrospective effective window — READY
-
-- **Review basis:** [FR3-01](docs/reviews/2026-09-01-fr3-core-journey-audit.md#fr3-01--early-end-narrative-grades-the-unlived-future),
-  [INVARIANT 59](docs/INVARIANTS.md#block-closeout--acknowledgement), and the FR-5 deterministic
-  authority boundary.
-- **Verified current state:** deterministic closeout excludes days after an explicit early end, but
-  `/api/retrospective` still derives planned hours from the full scheduled block. The resulting AI
-  narrative and persisted history hours can contradict the closeout record and the UI promise that
-  remaining sessions will not count.
-- **Remaining outcome:** apply one route-owned effective closeout date to planned and actual
-  retrospective inputs, stored history hours, and other block-window narrative evidence. Preserve
-  the original scheduled block identity while explicitly telling the optional language layer which
-  period was lived.
-- **Entry gate:** satisfied by the accepted FR-3 evidence and the approved
-  [FR-13 design](docs/superpowers/specs/2026-09-01-fr13-early-end-retrospective-window-design.md).
-- **Plan scope:** `app/api/retrospective/route.ts`, its route regression tests, the two retrospective
-  prompt builders and prompt tests, the AI prompt-version stamp, and the minimum canonical docs.
-- **Exit evidence:** the exact one-lived-day early-end fixture gives deterministic closeout `0/1`
-  with one miss; both optional AI calls and stored history use only that lived window; a normal
-  completion still uses the full block; the changed language path passes one live smoke run.
-- **Non-goals:** adaptive-roadmap invalidation, preview persistence, retrospective tone or length,
-  unrelated UX findings, closeout/seed arithmetic changes, or any new planning authority for AI.
+FR-3 evidence collection, FR-4 selection/planning, and the selected FR-13 implementation are
+complete; their records are in [ARCHIVE](ARCHIVE.md#fr-3--fr-4-core-journey-audit-and-selection-2026-09-01)
+and [the FR-13 closeout](ARCHIVE.md#fr-13--early-end-retrospective-effective-window-2026-09).
 
 ### Phase 3 · Reduce Claude's generation authority
 
