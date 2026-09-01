@@ -12,6 +12,31 @@ exact commits.
 
 ---
 
+## FR-3 / FR-4 core-journey audit and selection (2026-09-01)
+
+The [accepted FR-3 audit](docs/reviews/2026-09-01-fr3-core-journey-audit.md) exercised Today → Plan
+→ ride → closeout → adaptive week and ranked observed failures by trust and task completion.
+FR-4 selected exactly one: FR3-01, where an early-end retrospective evaluated the athlete against
+unlived future sessions. The approved
+[design](docs/superpowers/specs/2026-09-01-fr13-early-end-retrospective-window-design.md) and
+[implementation plan](docs/superpowers/plans/2026-09-01-fr13-early-end-retrospective-window.md)
+bound the correction to the retrospective input window as additive package FR-13. Adaptive-roadmap
+staleness, preview persistence, prose cleanup, and the other audit observations remain outside it.
+
+---
+
+## FR-13 — early-end retrospective effective window (2026-09)
+
+- **Evidence:** [FR3-01](docs/reviews/2026-09-01-fr3-core-journey-audit.md#fr3-01--early-end-narrative-grades-the-unlived-future)
+- **Design:** [accepted design](docs/superpowers/specs/2026-09-01-fr13-early-end-retrospective-window-design.md)
+- **Plan:** [implementation plan](docs/superpowers/plans/2026-09-01-fr13-early-end-retrospective-window.md)
+- **Acceptance:** [attended verification](docs/reviews/2026-09-01-fr13-acceptance.md)
+- **Shipped:** one effective closeout date now bounds planned and actual retrospective inputs,
+  persisted history hours, and block-window language evidence. Normal completion still covers the
+  full block; deterministic closeout and FR-5 authority boundaries are unchanged.
+
+---
+
 ## FR-5 deterministic generation authority (2026-08-30)
 
 The approved [design](docs/superpowers/specs/2026-08-29-fr5-deterministic-authority-design.md) and

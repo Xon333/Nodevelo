@@ -30,7 +30,7 @@ export const GENERATION_MODEL = "claude-sonnet-4-6";
 // Bump whenever an analysis/retrospective prompt structure or rule changes. Stamped (with the model
 // id) onto every AI-produced artifact — TodayAnalysis and BlockHistoryEntry — so a past
 // output stays reproducible/auditable when the model or prompt later changes.
-export const PROMPT_VERSION = 9; // 8→9: ride prose receives authoritative deterministic intent score/evidence
+export const PROMPT_VERSION = 10; // 9→10: retrospectives identify the effective early-closeout window
 const TEMPERATURE = 0.3;
 
 // One client, lazily constructed. Lazy so importing this module never requires the API key
