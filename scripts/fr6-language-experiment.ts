@@ -179,9 +179,9 @@ export function findUnsupportedClaims(
   }
 
   const numericPatterns = [
-    /\b\d+(?:\.\d+)?\s*(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)\b/gi,
-    /\b(?:TSS|CTL|FTP|execution(?:\s+EWMA)?)\s*:?\s*\d+(?:\.\d+)?\b/gi,
-    /\b(?:RPE\s*:?\s*)?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
+    /(?<![\w.+-])[+-]?\d+(?:\.\d+)?\s*(?:-\s*)?(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)(?!\w)/gi,
+    /\b(?:TSS|CTL|FTP|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s*(?:(?:was|is|of|at)\s*)?:?\s*[+-]?\d+(?:\.\d+)?\b(?!\s*\/)/gi,
+    /\b(?:RPE\s*:?\s*)?[+-]?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
   ];
   const seenNumeric = new Set<string>();
   for (const pattern of numericPatterns) {
@@ -223,19 +223,40 @@ function normalizeNumericToken(token: string): string {
     .replace(/minutes?/g, "min")
     .replace(/watts?/g, "w")
     .replace(/hours?/g, "h")
+    .replace(/(?<=\d)-(?=[a-z%])/g, "")
     .replace(/\s|:/g, "");
   const prefix = compact.match(
-    /^(rpe|tss|ctl|ftp|execution(?:ewma)?)(\d+(?:\.\d+)?(?:\/10)?)$/,
+    /^(rpe|tss|ctl|ftp|execution(?:score|ewma)?|baseline|compliance(?:score|rate)?)(?:was|is|of|at)?([+-]?\d+(?:\.\d+)?(?:\/10)?)$/,
   );
-  if (!prefix) return compact;
-  if (prefix[1] === "rpe") return prefix[2];
-  return `${prefix[2]}${prefix[1]}`;
+  if (prefix) {
+    if (prefix[1] === "rpe") {
+      return `${canonicalNumberToken(prefix[2].replace(/\/10$/, ""))}/10`;
+    }
+    const value = canonicalNumberToken(prefix[2]);
+    const metric = prefix[1]
+      .replace(/^(execution)(?:score|ewma)$/, "$1")
+      .replace(/^(compliance)(?:score|rate)$/, "$1");
+    return `${value}${metric}`;
+  }
+
+  const suffix = compact.match(
+    /^([+-]?\d+(?:\.\d+)?)(w|min|km|bpm|tss|rpm|%|h)$/,
+  );
+  if (suffix) return `${canonicalNumberToken(suffix[1])}${suffix[2]}`;
+
+  const score = compact.match(/^([+-]?\d+(?:\.\d+)?)\/10$/);
+  if (score) return `${canonicalNumberToken(score[1])}/10`;
+
+  return compact;
 }
 
 function compactNumericToken(token: string): string {
-  return token
-    .replace(/\s+(?=(?:W|watts?)\b)/i, "")
-    .trim();
+  return token.replace(/\s+(?=W\b)/, "").trim();
+}
+
+function canonicalNumberToken(value: string): string {
+  const numeric = Number(value);
+  return Object.is(numeric, -0) ? "0" : String(numeric);
 }
 
 function escapeRegExp(value: string): string {

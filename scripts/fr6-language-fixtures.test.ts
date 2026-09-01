@@ -71,13 +71,53 @@ describe("FR-6 fixed language corpus", () => {
     }
   });
 
-  it("declares grounding facts independently rather than deriving them from prompts", () => {
+  it("keeps exact, manually declared grounding facts beside every case", () => {
+    expect(Object.fromEntries(FR6_CASES.map(({ id, grounding }) => [id, grounding]))).toEqual({
+      "ride-prescribed-good": {
+        allowedDates: ["2030-01-08"],
+        allowedNumericTokens: ["250W", "225W", "210W", "90 min", "45 TSS", "8/10", "145 bpm", "170 bpm", "90%"],
+        forbiddenClaims: ["FTP increased", "adaptation confirmed", "missed interval"],
+      },
+      "ride-prescribed-poor": {
+        allowedDates: ["2030-01-10"],
+        allowedNumericTokens: ["250W", "205W", "180W", "60 min", "40 min", "5 min", "10 min", "38 TSS", "3/10", "82%", "50%", "150 bpm", "170 bpm"],
+        forbiddenClaims: ["textbook", "fully completed", "fitness increased"],
+      },
+      "ride-self-directed": {
+        allowedDates: ["2030-01-12"],
+        allowedNumericTokens: ["250W", "210W", "195W", "75 min", "52 TSS", "7/10", "142 bpm", "170 bpm", "84%"],
+        forbiddenClaims: ["prescribed session", "100% compliance", "technique confirmed"],
+      },
+      "retro-normal": {
+        allowedDates: ["2030-01-01", "2030-01-08", "2030-01-14"],
+        allowedNumericTokens: ["12h", "11h", "92%", "95%", "88%", "50 CTL", "53 CTL", "85 TSS", "4.5%"],
+        forbiddenClaims: ["ended early", "future session", "FTP increased"],
+      },
+      "retro-early": {
+        allowedDates: ["2030-02-01", "2030-02-03", "2030-02-14"],
+        allowedNumericTokens: ["2h", "1.5h", "75%", "50%", "50 CTL"],
+        forbiddenClaims: ["two-week failure", "missed after 2030-02-03", "FTP increased"],
+      },
+      "structured-mixed-verdicts": {
+        allowedDates: ["2030-03-01", "2030-03-14"],
+        allowedNumericTokens: ["10h", "9h", "90%", "execution 5", "execution 6", "baseline 5", "baseline 6", "baseline 10", "baseline 250", "250W", "255W"],
+        forbiddenClaims: ["injury", "FTP increased", "medication"],
+      },
+    });
+  });
+
+  it("rejects an invented date, metric, and forbidden claim for every case", () => {
     for (const fixture of FR6_CASES) {
-      expect(fixture.grounding.allowedDates).not.toBe(
-        expect.objectContaining({ derivedFrom: fixture.prompt }),
-      );
-      expect(fixture.grounding.allowedNumericTokens.length).toBeGreaterThan(0);
-      expect(fixture.grounding.forbiddenClaims.length).toBeGreaterThan(0);
+      expect(
+        findUnsupportedClaims(
+          `On 2040-12-31 the output claimed 999 watts and ${fixture.grounding.forbiddenClaims[0]}.`,
+          fixture.grounding,
+        ),
+      ).toEqual([
+        "unsupported date: 2040-12-31",
+        "unsupported numeric claim: 999 watts",
+        `forbidden claim: ${fixture.grounding.forbiddenClaims[0]}`,
+      ]);
     }
   });
 });
@@ -128,5 +168,42 @@ describe("deterministic grounding checks", () => {
     expect(findUnsupportedClaims("The FTP-increased flag was absent.", fixture)).toEqual(
       [],
     );
+  });
+
+  it("preserves signs so an opposite percentage cannot borrow the allowed magnitude", () => {
+    const normal = FR6_CASES.find(({ id }) => id === "retro-normal");
+    expect(normal).toBeDefined();
+
+    expect(findUnsupportedClaims("Decoupling was 4.5%.", normal!.grounding)).toEqual([]);
+    expect(findUnsupportedClaims("Decoupling was -4.5%.", normal!.grounding)).toEqual([
+      "unsupported numeric claim: -4.5%",
+    ]);
+  });
+
+  it("accepts integer-equivalent decimals and hyphenated unit forms", () => {
+    expect(
+      findUnsupportedClaims(
+        "CTL 50.0 followed a 90-minute ride at 225-watt normalized power.",
+        {
+          allowedDates: [],
+          allowedNumericTokens: ["50 CTL", "90 min", "225W"],
+          forbiddenClaims: [],
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  it("checks relevant named metrics without scanning ordinary list numbers", () => {
+    const facts = {
+      allowedDates: [],
+      allowedNumericTokens: ["baseline 5", "execution 6", "90%"],
+      forbiddenClaims: [],
+    };
+
+    expect(findUnsupportedClaims("Baseline was 5.0; execution score was 6.0.", facts)).toEqual([]);
+    expect(findUnsupportedClaims("Baseline was 999.", facts)).toEqual([
+      "unsupported numeric claim: Baseline was 999",
+    ]);
+    expect(findUnsupportedClaims("First, keep 2 priorities in 3 sentences.", facts)).toEqual([]);
   });
 });
