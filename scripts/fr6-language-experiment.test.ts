@@ -10,13 +10,14 @@ import {
   estimateExperimentCost,
   evaluateHardGates,
   executeFr6Experiment,
+  resultsEligibleForBlindReview,
   projectTwoWeekCost,
   resolveFr6EvidenceDirectory,
   type AccountedExperimentResult,
   type CandidatePricing,
   type ExperimentResult,
 } from "./fr6-language-experiment";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FR6_CASES } from "./fr6-language-fixtures";
@@ -178,9 +179,9 @@ describe("blind review rows", () => {
 
     expect(first).toEqual(second);
     expect(first.map((row) => row.blindId)).toEqual([
-      expect.stringMatching(/^FR6-[A-F0-9]{12}$/),
-      expect.stringMatching(/^FR6-[A-F0-9]{12}$/),
-      expect.stringMatching(/^FR6-[A-F0-9]{12}$/),
+      expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
+      expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
+      expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
     ]);
     for (const row of first) {
       expect(row).not.toHaveProperty("provider");
@@ -223,6 +224,48 @@ describe("blind review rows", () => {
     expect(forward.find((row) => row.caseId === prose.caseId)?.blindId).toBe(
       reversed.find((row) => row.caseId === prose.caseId)?.blindId,
     );
+  });
+
+  it("fails closed if opaque IDs collide", () => {
+    const rows = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 });
+
+    expect(() => blindReviewRows(rows, "fr6-v1", () => "FR6-COLLISION"))
+      .toThrow("duplicate blind review ID");
+  });
+
+  it("includes only complete candidates that pass every hard gate", () => {
+    const passing = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 });
+    const truncated = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 })
+      .map((row, index) => ({
+        ...row,
+        provider: "openai" as const,
+        model: "truncated",
+        status: index === 0 ? "truncated" as const : row.status,
+      }));
+    const schemaInvalid = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 })
+      .map((row) => ({
+        ...row,
+        provider: "google" as const,
+        model: "schema-invalid",
+        schemaValid: row.category === "structured-retrospective" ? false : row.schemaValid,
+      }));
+    const unsupported = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 })
+      .map((row, index) => ({
+        ...row,
+        provider: "mistral" as const,
+        model: "unsupported",
+        unsupportedClaims: index === 0 ? ["invented metric"] : [],
+      }));
+    const overBudget = completeResults({ ride: 0.03, prose: 0.03, structured: 0.03 })
+      .map((row) => ({ ...row, model: "over-budget" }));
+
+    expect(resultsEligibleForBlindReview([
+      ...passing,
+      ...truncated,
+      ...schemaInvalid,
+      ...unsupported,
+      ...overBudget,
+    ])).toEqual(passing);
   });
 });
 
@@ -454,20 +497,20 @@ describe("live evidence persistence", () => {
   it("persists a private high-entropy blind seed without credential values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "fr6-seed-"));
     const candidate = FR6_CANDIDATES[0]!;
-    const fixture = FR6_CASES[0]!;
+    const cases = [FR6_CASES[0]!, FR6_CASES[3]!, FR6_CASES[5]!];
     const credentialValue = "must-not-enter-evidence";
     const promptVersion = buildFr6ExperimentProvenance(
       [candidate],
-      [fixture],
+      cases,
     ).promptVersion;
 
     await executeFr6Experiment({
       evidenceDirectory: directory,
       candidates: [candidate],
-      cases: [fixture],
+      cases,
       env: { ANTHROPIC_API_KEY: credentialValue },
-      runCase: async () =>
-        result({
+      runCase: async (_candidate, fixture) =>
+        payableResult(candidate, fixture, {
           provider: candidate.provider,
           model: candidate.model,
           caseId: fixture.id,
@@ -544,14 +587,19 @@ describe("live evidence persistence", () => {
     );
     const initial = createFr6ResultsArtifact(provenance, "a".repeat(64));
     const completed = accountExperimentResult(
-      result({
+      payableResult(firstCandidate, firstCase, {
         provider: firstCandidate.provider,
         model: firstCandidate.model,
         caseId: firstCase.id,
         category: firstCase.category,
         promptVersion: provenance.promptVersion,
       }),
-      0.5,
+      buildRunPlan(
+        [firstCandidate],
+        [firstCase, secondCase],
+        { ANTHROPIC_API_KEY: "set" },
+        [],
+      ).nextRequest!.maximumCostUsd,
     );
     await atomicWriteJson(join(directory, "results.json"), {
       ...initial,
@@ -567,7 +615,7 @@ describe("live evidence persistence", () => {
       env: { ANTHROPIC_API_KEY: "set" },
       runCase: async (_candidate, fixture) => {
         requests += 1;
-        return result({
+        return payableResult(firstCandidate, fixture, {
           provider: firstCandidate.provider,
           model: firstCandidate.model,
           caseId: fixture.id,
@@ -581,7 +629,7 @@ describe("live evidence persistence", () => {
     });
 
     expect(requests).toBe(1);
-    expect(checkpoints).toEqual([2]);
+    expect(checkpoints).toEqual([2, 2]);
     const persisted = JSON.parse(
       await readFile(join(directory, "results.json"), "utf8"),
     ) as { results: AccountedExperimentResult[] };
@@ -628,7 +676,7 @@ describe("live evidence persistence", () => {
       env: { ANTHROPIC_API_KEY: "set" },
       runCase: async () => {
         requests += 1;
-        return result({
+        return payableResult(candidate, fixture, {
           provider: candidate.provider,
           model: candidate.model,
           caseId: fixture.id,
@@ -673,4 +721,222 @@ describe("live evidence persistence", () => {
       costAccounting: "reserved-unknown",
     });
   });
+
+  it("holds an exclusive evidence lock across the network request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-lock-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+    const promptVersion = buildFr6ExperimentProvenance([candidate], [fixture]).promptVersion;
+    let releaseRequest!: () => void;
+    const requestBlocked = new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    let requestStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      requestStarted = resolve;
+    });
+    const first = executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        requestStarted();
+        await requestBlocked;
+        return payableResult(candidate, fixture, {
+          provider: candidate.provider,
+          model: candidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          promptVersion,
+        });
+      },
+    });
+    await started;
+
+    await expect(executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => result(),
+    })).rejects.toThrow("already running");
+
+    releaseRequest();
+    await first;
+  });
+
+  it("fails closed on a pre-existing lock without guessing whether its owner is alive", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-stale-lock-"));
+    await mkdir(join(directory, "run.lock"));
+    let requests = 0;
+
+    await expect(executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [FR6_CANDIDATES[0]!],
+      cases: [FR6_CASES[0]!],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        requests += 1;
+        return result();
+      },
+    })).rejects.toThrow("requires stale lock review");
+    expect(requests).toBe(0);
+  });
+
+  it("checkpoints an in-flight reservation before entering the network seam", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-pre-request-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+    const promptVersion = buildFr6ExperimentProvenance([candidate], [fixture]).promptVersion;
+
+    let observed: AccountedExperimentResult | undefined;
+    await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        const artifact = JSON.parse(
+          await readFile(join(directory, "results.json"), "utf8"),
+        ) as { results: AccountedExperimentResult[] };
+        observed = artifact.results[0];
+        return payableResult(candidate, fixture, {
+          provider: candidate.provider,
+          model: candidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          promptVersion,
+        });
+      },
+    });
+    expect(observed).toMatchObject({
+      status: "in-flight",
+      costUsd: 0,
+      costAccounting: "reserved-in-flight",
+      accountedCostUsd: expect.any(Number),
+    });
+  });
+
+  it("does not repurchase an in-flight request left by an interrupted run", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-interrupted-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+
+    await expect(executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => result(),
+      afterRawCheckpoint: (artifact) => {
+        if (artifact.results[0]?.status === "in-flight") {
+          throw new Error("simulated process interruption");
+        }
+      },
+    })).rejects.toThrow("simulated process interruption");
+
+    let requests = 0;
+    const resumed = await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        requests += 1;
+        return result();
+      },
+    });
+
+    expect(requests).toBe(0);
+    expect(resumed.incompleteRequests).toHaveLength(1);
+    expect(resumed.incompleteRequests[0]?.status).toBe("in-flight");
+  });
+
+  it.each([
+    ["usage total", (row: AccountedExperimentResult) => ({
+      ...row,
+      usage: { ...row.usage, totalTokens: row.usage.totalTokens + 1 },
+    })],
+    ["actual cost", (row: AccountedExperimentResult) => ({
+      ...row,
+      costUsd: row.costUsd / 2,
+      accountedCostUsd: row.costUsd / 2,
+    })],
+    ["reservation", (row: AccountedExperimentResult) => ({
+      ...row,
+      accountedCostUsd: row.accountedCostUsd / 2,
+    })],
+  ] as const)("rejects a tampered persisted %s before network access", async (_label, tamper) => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-tampered-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+    const provenance = buildFr6ExperimentProvenance([candidate], [fixture]);
+    const base = payableResult(candidate, fixture, {
+      provider: candidate.provider,
+      model: candidate.model,
+      caseId: fixture.id,
+      category: fixture.category,
+      promptVersion: provenance.promptVersion,
+    });
+    const reservation = buildRunPlan(
+      [candidate],
+      [fixture],
+      { ANTHROPIC_API_KEY: "set" },
+      [],
+    ).nextRequest!.maximumCostUsd;
+    const accounted = accountExperimentResult(base, reservation);
+    const row = _label === "reservation"
+      ? {
+          ...accounted,
+          status: "request-failed" as const,
+          costUsd: 0,
+          usage: {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+          },
+          costAccounting: "reserved-unknown" as const,
+          accountedCostUsd: reservation,
+        }
+      : accounted;
+    await atomicWriteJson(join(directory, "results.json"), {
+      ...createFr6ResultsArtifact(provenance, "c".repeat(64)),
+      results: [tamper(row)],
+    });
+    let requests = 0;
+
+    await expect(executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        requests += 1;
+        return result();
+      },
+    })).rejects.toThrow("Invalid FR-6 results artifact");
+    expect(requests).toBe(0);
+  });
 });
+
+function payableResult(
+  candidate: (typeof FR6_CANDIDATES)[number],
+  fixture: (typeof FR6_CASES)[number],
+  overrides: Partial<ExperimentResult> = {},
+): ExperimentResult {
+  const value = result({
+    provider: candidate.provider,
+    model: candidate.model,
+    caseId: fixture.id,
+    category: fixture.category,
+    promptVersion: buildFr6ExperimentProvenance([candidate], [fixture]).promptVersion,
+    ...overrides,
+  });
+  return overrides.costUsd === undefined
+    ? { ...value, costUsd: estimateExperimentCost(candidate.pricing, value.usage) }
+    : value;
+}

@@ -41,6 +41,10 @@ describe.skipIf(!LIVE_ENABLED)("FR-6 fixed-input live provider matrix", () => {
       run.capExceeded,
       "Accounted spend exceeded the fixed $2 experiment cap",
     ).toBe(false);
+    expect(
+      run.incompleteRequests,
+      "A prior request remains in-flight; review raw evidence before continuing",
+    ).toEqual([]);
   }, 1_800_000);
 });
 

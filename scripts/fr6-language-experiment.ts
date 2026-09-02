@@ -35,6 +35,7 @@ export interface ExperimentResult {
   status:
     | "ok"
     | "missing-credential"
+    | "in-flight"
     | "request-failed"
     | "schema-invalid"
     | "truncated";
@@ -104,7 +105,11 @@ export interface Fr6RunPlan {
 
 export interface AccountedExperimentResult extends ExperimentResult {
   accountedCostUsd: number;
-  costAccounting: "actual" | "reserved-unknown" | "no-request";
+  costAccounting:
+    | "actual"
+    | "reserved-unknown"
+    | "reserved-in-flight"
+    | "no-request";
 }
 
 export interface Fr6ExperimentProvenance {
@@ -315,6 +320,23 @@ export async function executeFr6Experiment(
   artifact: Fr6ResultsArtifact;
   stoppedBefore: PlannedProviderRequest | null;
   capExceeded: boolean;
+  incompleteRequests: AccountedExperimentResult[];
+}> {
+  const releaseLock = await acquireFr6RunLock(options.evidenceDirectory);
+  try {
+    return await executeLockedFr6Experiment(options);
+  } finally {
+    await releaseLock();
+  }
+}
+
+async function executeLockedFr6Experiment(
+  options: ExecuteFr6ExperimentOptions,
+): Promise<{
+  artifact: Fr6ResultsArtifact;
+  stoppedBefore: PlannedProviderRequest | null;
+  capExceeded: boolean;
+  incompleteRequests: AccountedExperimentResult[];
 }> {
   const provenance = buildFr6ExperimentProvenance(
     options.candidates,
@@ -322,7 +344,12 @@ export async function executeFr6Experiment(
   );
   const rawTarget = join(options.evidenceDirectory, "results.json");
   const blindTarget = join(options.evidenceDirectory, "blind-review.json");
-  const existingArtifact = await loadFr6ResultsArtifact(rawTarget, provenance);
+  const existingArtifact = await loadFr6ResultsArtifact(
+    rawTarget,
+    provenance,
+    options.candidates,
+    options.cases,
+  );
   let artifact: Fr6ResultsArtifact;
   if (existingArtifact === null) {
     artifact = createFr6ResultsArtifact(
@@ -382,6 +409,13 @@ export async function executeFr6Experiment(
     if (candidate === undefined || fixture === undefined) {
       throw new Error("FR-6 run plan referenced an unknown candidate or case");
     }
+    await checkpoint(
+      inFlightResult(
+        candidate,
+        fixture,
+        plan.nextRequest.maximumCostUsd,
+      ),
+    );
     let accounted: AccountedExperimentResult;
     try {
       const result = await options.runCase(candidate, fixture);
@@ -390,7 +424,7 @@ export async function executeFr6Experiment(
         result,
         plan.nextRequest.maximumCostUsd,
       );
-      validateAccountedResult(accounted);
+      validateAccountedResult(accounted, candidate, fixture);
     } catch {
       accounted = accountExperimentResult(
         unknownFailureResult(candidate, fixture),
@@ -401,16 +435,38 @@ export async function executeFr6Experiment(
   }
 
   const blinded = blindReviewRows(
-    artifact.results.filter(
-      ({ status, output }) =>
-        output.length > 0 &&
-        status !== "missing-credential" &&
-        status !== "request-failed",
-    ),
+    resultsEligibleForBlindReview(artifact.results),
     artifact.blindSeed,
   ).sort((left, right) => left.blindId.localeCompare(right.blindId));
   await atomicWriteJson(blindTarget, blinded);
-  return { artifact, stoppedBefore, capExceeded };
+  return {
+    artifact,
+    stoppedBefore,
+    capExceeded,
+    incompleteRequests: artifact.results.filter(
+      ({ status }) => status === "in-flight",
+    ),
+  };
+}
+
+async function acquireFr6RunLock(
+  evidenceDirectory: string,
+): Promise<() => Promise<void>> {
+  await mkdir(evidenceDirectory, { recursive: true });
+  const lockDirectory = join(evidenceDirectory, "run.lock");
+  try {
+    await mkdir(lockDirectory);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "EEXIST") {
+      throw new Error(
+        `FR-6 live experiment is already running or requires stale lock review: ${lockDirectory}`,
+      );
+    }
+    throw error;
+  }
+  return async () => {
+    await rm(lockDirectory, { recursive: true });
+  };
 }
 
 export function resolveFr6EvidenceDirectory(
@@ -445,6 +501,8 @@ export async function atomicWriteJson(
 async function loadFr6ResultsArtifact(
   target: string,
   expectedProvenance: Fr6ExperimentProvenance,
+  candidates: readonly Fr6Candidate[],
+  cases: Fr6ExperimentCase[],
 ): Promise<Fr6ResultsArtifact | null> {
   let raw: string;
   try {
@@ -454,7 +512,12 @@ async function loadFr6ResultsArtifact(
     throw error;
   }
   try {
-    return validateFr6ResultsArtifact(JSON.parse(raw), expectedProvenance);
+    return validateFr6ResultsArtifact(
+      JSON.parse(raw),
+      expectedProvenance,
+      candidates,
+      cases,
+    );
   } catch (error) {
     const detail = error instanceof Error ? error.message : "unknown error";
     throw new Error(`Invalid FR-6 results artifact: ${detail}`);
@@ -464,6 +527,8 @@ async function loadFr6ResultsArtifact(
 function validateFr6ResultsArtifact(
   value: unknown,
   expectedProvenance: Fr6ExperimentProvenance,
+  candidates: readonly Fr6Candidate[],
+  cases: Fr6ExperimentCase[],
 ): Fr6ResultsArtifact {
   const artifact = asObject(value);
   if (
@@ -481,24 +546,30 @@ function validateFr6ResultsArtifact(
     throw new Error("results ledger is missing");
   }
 
-  const allowedCases = new Map(
-    expectedProvenance.corpus.cases.map(({ id, category }) => [id, category]),
-  );
-  const allowedModels = new Set(
-    expectedProvenance.models.map(({ provider, model }) => `${provider}\0${model}`),
+  const allowedCases = new Map(cases.map((fixture) => [fixture.id, fixture]));
+  const allowedModels = new Map(
+    candidates.map((candidate) => [
+      `${candidate.provider}\0${candidate.model}`,
+      candidate,
+    ]),
   );
   const seen = new Set<string>();
   const results = artifact.results.map((rawResult) => {
-    const result = validateAccountedResult(rawResult);
+    const rawObject = asObject(rawResult);
+    const candidate = allowedModels.get(
+      `${String(rawObject.provider)}\0${String(rawObject.model)}`,
+    );
+    const fixture = allowedCases.get(String(rawObject.caseId));
+    if (candidate === undefined) {
+      throw new Error(`unknown candidate result: ${String(rawObject.model)}`);
+    }
+    if (fixture === undefined || fixture.category !== rawObject.category) {
+      throw new Error(`unknown or mismatched corpus case: ${String(rawObject.caseId)}`);
+    }
+    const result = validateAccountedResult(rawResult, candidate, fixture);
     const key = runKey(result.provider, result.model, result.caseId);
     if (seen.has(key)) throw new Error(`duplicate result ledger entry: ${result.caseId}`);
     seen.add(key);
-    if (!allowedModels.has(`${result.provider}\0${result.model}`)) {
-      throw new Error(`unknown candidate result: ${result.model}`);
-    }
-    if (allowedCases.get(result.caseId) !== result.category) {
-      throw new Error(`unknown or mismatched corpus case: ${result.caseId}`);
-    }
     if (result.promptVersion !== expectedProvenance.promptVersion) {
       throw new Error(`prompt provenance mismatch: ${result.caseId}`);
     }
@@ -513,11 +584,16 @@ function validateFr6ResultsArtifact(
   };
 }
 
-function validateAccountedResult(value: unknown): AccountedExperimentResult {
+function validateAccountedResult(
+  value: unknown,
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+): AccountedExperimentResult {
   const result = asObject(value);
   const statuses = new Set<ExperimentResult["status"]>([
     "ok",
     "missing-credential",
+    "in-flight",
     "request-failed",
     "schema-invalid",
     "truncated",
@@ -559,6 +635,7 @@ function validateAccountedResult(value: unknown): AccountedExperimentResult {
   if (
     result.costAccounting !== "actual" &&
     result.costAccounting !== "reserved-unknown" &&
+    result.costAccounting !== "reserved-in-flight" &&
     result.costAccounting !== "no-request"
   ) {
     throw new Error("result ledger row has invalid cost accounting");
@@ -573,6 +650,7 @@ function validateAccountedResult(value: unknown): AccountedExperimentResult {
     throw new Error("no-request accounting is inconsistent");
   }
   const usageValue = asObject(result.usage);
+  let componentTokenTotal = 0;
   for (const field of [
     "inputTokens",
     "cachedInputTokens",
@@ -588,15 +666,62 @@ function validateAccountedResult(value: unknown): AccountedExperimentResult {
     ) {
       throw new Error("result ledger row has invalid usage");
     }
+    componentTokenTotal += usageValue[field] as number;
+  }
+  componentTokenTotal -= usageValue.totalTokens as number;
+  if (usageValue.totalTokens !== componentTokenTotal) {
+    throw new Error("result ledger row has inconsistent total usage");
   }
   if (
-    result.costAccounting === "reserved-unknown" &&
+    (result.costAccounting === "reserved-unknown" ||
+      result.costAccounting === "reserved-in-flight") &&
     (result.status === "missing-credential" ||
       result.costUsd !== 0 ||
       usageValue.totalTokens !== 0 ||
       result.accountedCostUsd <= 0)
   ) {
     throw new Error("reserved cost accounting is inconsistent");
+  }
+  const expectedReservation = conservativeMaximumRequestCost(candidate, fixture);
+  if (
+    (result.costAccounting === "reserved-unknown" ||
+      result.costAccounting === "reserved-in-flight") &&
+    !costsEqual(result.accountedCostUsd as number, expectedReservation)
+  ) {
+    throw new Error("reserved cost does not match the request reservation");
+  }
+  if (
+    result.costAccounting === "reserved-in-flight" &&
+    result.status !== "in-flight"
+  ) {
+    throw new Error("in-flight cost accounting is inconsistent");
+  }
+  if (
+    result.status === "in-flight" &&
+    result.costAccounting !== "reserved-in-flight"
+  ) {
+    throw new Error("in-flight result is missing its reservation");
+  }
+  if (
+    result.status === "missing-credential" &&
+    result.costAccounting !== "no-request"
+  ) {
+    throw new Error("missing credential result has request accounting");
+  }
+  if (
+    result.costAccounting === "no-request" &&
+    usageValue.totalTokens !== 0
+  ) {
+    throw new Error("no-request result has billed usage");
+  }
+  if (result.costAccounting === "actual") {
+    const expectedActual = estimateExperimentCost(
+      candidate.pricing,
+      result.usage as ExperimentUsage,
+    );
+    if (!costsEqual(result.costUsd as number, expectedActual)) {
+      throw new Error("actual cost does not match persisted usage and pricing");
+    }
   }
   if (
     typeof result.latencyMs !== "number" ||
@@ -610,6 +735,24 @@ function validateAccountedResult(value: unknown): AccountedExperimentResult {
     throw new Error("result ledger row has invalid request metadata");
   }
   return result as unknown as AccountedExperimentResult;
+}
+
+function costsEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 1e-12;
+}
+
+function inFlightResult(
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+  maximumCostUsd: number,
+): AccountedExperimentResult {
+  return {
+    ...missingCredentialResult(candidate, fixture),
+    status: "in-flight",
+    output: "Request reserved; completion was not checkpointed.",
+    accountedCostUsd: maximumCostUsd,
+    costAccounting: "reserved-in-flight",
+  };
 }
 
 function assertPlannedResult(
@@ -794,13 +937,40 @@ export function evaluateHardGates(
 export function blindReviewRows(
   results: ExperimentResult[],
   seed: string,
+  idFor: (result: ExperimentResult, seed: string) => string = opaqueId,
 ): BlindReviewRow[] {
-  return results.map((result) => ({
-    blindId: opaqueId(result, seed),
-    caseId: result.caseId,
-    category: result.category,
-    output: result.output,
-  }));
+  const ids = new Set<string>();
+  return results.map((result) => {
+    const blindId = idFor(result, seed);
+    if (ids.has(blindId)) {
+      throw new Error(`duplicate blind review ID: ${blindId}`);
+    }
+    ids.add(blindId);
+    return {
+      blindId,
+      caseId: result.caseId,
+      category: result.category,
+      output: result.output,
+    };
+  });
+}
+
+export function resultsEligibleForBlindReview(
+  results: ExperimentResult[],
+): ExperimentResult[] {
+  const grouped = new Map<string, ExperimentResult[]>();
+  for (const result of results) {
+    const key = runKey(result.provider, result.model, "");
+    grouped.set(key, [...(grouped.get(key) ?? []), result]);
+  }
+  const eligible = new Set(
+    [...grouped.entries()]
+      .filter(([, candidateResults]) => evaluateHardGates(candidateResults).passed)
+      .map(([key]) => key),
+  );
+  return results.filter(
+    (result) => eligible.has(runKey(result.provider, result.model, "")),
+  );
 }
 
 /**
@@ -1107,7 +1277,7 @@ function opaqueId(result: ExperimentResult, seed: string): string {
     .update("\0")
     .update(result.output)
     .digest("hex")
-    .slice(0, 12)
+    .slice(0, 24)
     .toUpperCase();
 
   return `FR6-${digest}`;
