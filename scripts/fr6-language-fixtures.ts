@@ -336,6 +336,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "170 bpm",
       "90%",
     ],
+    allowedMetricValues: [{ metric: "ftp", value: 250 }],
     allowedDeltas: [],
     forbiddenClaims: [
       "FTP increased",
@@ -360,6 +361,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "150 bpm",
       "170 bpm",
     ],
+    allowedMetricValues: [{ metric: "ftp", value: 250 }],
     allowedDeltas: [],
     forbiddenClaims: ["textbook", "fully completed", "fitness increased"],
   }),
@@ -375,6 +377,10 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "142 bpm",
       "170 bpm",
       "84%",
+    ],
+    allowedMetricValues: [
+      { metric: "ftp", value: 250 },
+      { metric: "execution", value: 7 },
     ],
     allowedDeltas: [],
     forbiddenClaims: [
@@ -396,6 +402,11 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "85 TSS",
       "4.5%",
     ],
+    allowedMetricValues: [
+      { metric: "ctl", value: 50 },
+      { metric: "ctl", value: 53 },
+      { metric: "compliance", value: 92 },
+    ],
     allowedDeltas: [{ metric: "ctl", value: 3 }],
     forbiddenClaims: ["ended early", "future session", "FTP increased"],
   }),
@@ -407,6 +418,10 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "75%",
       "50%",
       "50 CTL",
+    ],
+    allowedMetricValues: [
+      { metric: "ctl", value: 50 },
+      { metric: "compliance", value: 75 },
     ],
     allowedDeltas: [{ metric: "ctl", value: 0 }],
     forbiddenClaims: [
@@ -430,7 +445,25 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "250W",
       "255W",
     ],
-    allowedDeltas: [{ metric: "execution", value: 1 }],
+    allowedMetricValues: [
+      { metric: "execution", value: 5 },
+      { metric: "execution", value: 6 },
+      { metric: "baseline", value: 5 },
+      { metric: "baseline", value: 6 },
+      { metric: "baseline", value: 10 },
+      { metric: "baseline", value: 250 },
+      { metric: "threshold power", value: 250 },
+      { metric: "threshold power", value: 255 },
+      { metric: "repeat completion", value: 10 },
+      { metric: "repeat completion", value: 9 },
+    ],
+    allowedDeltas: [
+      { metric: "execution", value: 1 },
+      { metric: "execution", value: -1 },
+      { metric: "execution", value: 0 },
+      { metric: "threshold power", value: 5 },
+      { metric: "repeat completion", value: -1 },
+    ],
     forbiddenClaims: ["injury", "FTP increased", "medication"],
   }),
 ];

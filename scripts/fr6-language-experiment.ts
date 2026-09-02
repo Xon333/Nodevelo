@@ -67,8 +67,9 @@ export interface BlindReviewRow {
 export interface IndependentGroundingFacts {
   allowedDates: string[];
   allowedNumericTokens: string[];
+  allowedMetricValues: Array<{ metric: string; value: number }>;
   allowedDeltas: Array<{
-    metric: "ctl" | "ftp" | "tss" | "execution" | "baseline" | "compliance";
+    metric: string;
     value: number;
   }>;
   forbiddenClaims: string[];
@@ -173,7 +174,12 @@ export function findUnsupportedClaims(
   );
   const allowedDeltas = new Set(
     facts.allowedDeltas.map(
-      ({ metric, value }) => `${metric}:${canonicalNumberToken(String(value))}`,
+      ({ metric, value }) => `${normalizeMetricName(metric)}:${canonicalNumberToken(String(value))}`,
+    ),
+  );
+  const allowedMetricValues = new Set(
+    facts.allowedMetricValues.map(
+      ({ metric, value }) => `${normalizeMetricName(metric)}:${canonicalNumberToken(String(value))}`,
     ),
   );
 
@@ -203,12 +209,17 @@ export function findUnsupportedClaims(
     }
   };
 
-  const comparisonPattern =
-    /\b(CTL|FTP|TSS|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s+(increased|decreased|changed|rose|fell|improved|declined|dropped|grew)\s+(?:from\s+([+-]?\d+(?:\.\d+)?)\s+to\s+([+-]?\d+(?:\.\d+)?)|to\s+([+-]?\d+(?:\.\d+)?)|by\s+([+-]?\d+(?:\.\d+)?))\b/gi;
+  const metricPattern = groundingMetricPattern(facts);
+  const signedNumber = "[+\\-−–]?\\d+(?:\\.\\d+)?";
+  const comparisonPattern = new RegExp(
+    `\\b(${metricPattern})\\s+(increased|decreased|changed|rose|fell|improved|declined|dropped|grew)\\s+` +
+      `(?:from\\s+(${signedNumber})\\s+to\\s+(${signedNumber})|to\\s+(${signedNumber})|by\\s+(${signedNumber}))\\b`,
+    "gi",
+  );
   for (const match of output.matchAll(comparisonPattern)) {
     const [, rawMetric, verb, from, to, single, delta] = match;
     const metric = rawMetric.replace(/\s+(?:score|EWMA)$/i, "");
-    const metricKey = metric.toLowerCase() as IndependentGroundingFacts["allowedDeltas"][number]["metric"];
+    const metricKey = normalizeMetricName(metric);
     if (delta !== undefined) {
       const direction = deltaDirection(verb, delta);
       const normalizedDelta = canonicalNumberToken(String(direction));
@@ -229,19 +240,19 @@ export function findUnsupportedClaims(
     )) {
       const offset = match[0].indexOf(value, searchFrom);
       searchFrom = offset + value.length;
-      const display = `${metric} ${value}`;
-      recordNumericClaim(
-        match.index + offset,
-        display,
-        normalizeNumericToken(display),
-      );
+      const normalizedValue = canonicalNumberToken(normalizeSign(value));
+      if (!allowedMetricValues.has(`${metricKey}:${normalizedValue}`)) {
+        unsupported.push({
+          index: match.index + offset,
+          message: `unsupported numeric claim: ${metric} ${normalizedValue}`,
+        });
+      }
     }
   }
 
   const numericPatterns = [
-    /(?<![\w.+-])[+-]?\d+(?:\.\d+)?\s*(?:-\s*)?(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)(?!\w)/gi,
-    /\b(?:TSS|CTL|FTP|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s*(?:(?:was|is|of|at)\s*)?:?\s*[+-]?\d+(?:\.\d+)?\b(?!\s*\/)/gi,
-    /\b(?:RPE\s*:?\s*)?[+-]?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
+    /(?<![\w.+\-−–])[+\-−–]?\d+(?:\.\d+)?\s*(?:-\s*)?(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)(?!\w)/gi,
+    /\b(?:RPE\s*:?\s*)?[+\-−–]?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
   ];
   for (const pattern of numericPatterns) {
     for (const match of output.matchAll(pattern)) {
@@ -251,6 +262,27 @@ export function findUnsupportedClaims(
         compactNumericToken(match[0]),
         normalized,
       );
+    }
+  }
+
+  const metricValuePattern = new RegExp(
+    `\\b(${metricPattern})\\s*(?:(?:was|is|of|at)\\s*)?:?\\s*(${signedNumber})\\b(?!\\s*\\/)`,
+    "gi",
+  );
+  for (const match of output.matchAll(metricValuePattern)) {
+    const metric = match[1].replace(/\s+(?:score|EWMA)$/i, "");
+    const value = canonicalNumberToken(normalizeSign(match[2]));
+    const allowedAsMetric = allowedMetricValues.has(
+      `${normalizeMetricName(metric)}:${value}`,
+    );
+    const allowedAsNumericToken = allowedNumbers.has(
+      normalizeNumericToken(`${metric} ${value}`),
+    );
+    if (!allowedAsMetric && !allowedAsNumericToken) {
+      unsupported.push({
+        index: match.index,
+        message: `unsupported numeric claim: ${compactNumericToken(match[0])}`,
+      });
     }
   }
 
@@ -274,14 +306,15 @@ export function findUnsupportedClaims(
 }
 
 function deltaDirection(verb: string, rawValue: string): number {
-  const explicit = Number(rawValue);
-  if (rawValue.startsWith("+") || rawValue.startsWith("-")) return explicit;
+  const normalized = normalizeSign(rawValue);
+  const explicit = Number(normalized);
+  if (/^[+-]/.test(normalized)) return explicit;
   if (/^(decreased|fell|declined|dropped)$/i.test(verb)) return -explicit;
   return explicit;
 }
 
 function normalizeNumericToken(token: string): string {
-  const compact = token
+  const compact = normalizeSign(token)
     .toLowerCase()
     .replace(/minutes?/g, "min")
     .replace(/watts?/g, "w")
@@ -318,8 +351,41 @@ function compactNumericToken(token: string): string {
 }
 
 function canonicalNumberToken(value: string): string {
-  const numeric = Number(value);
+  const numeric = Number(normalizeSign(value));
   return Object.is(numeric, -0) ? "0" : String(numeric);
+}
+
+function normalizeSign(value: string): string {
+  return value.replace(/[−–]/g, "-");
+}
+
+function normalizeMetricName(metric: string): string {
+  return metric
+    .toLowerCase()
+    .replace(/\s+(?:score|ewma)$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function groundingMetricPattern(facts: IndependentGroundingFacts): string {
+  const metrics = new Set([
+    "CTL",
+    "FTP",
+    "TSS",
+    "execution",
+    "execution score",
+    "execution EWMA",
+    "baseline",
+    "compliance",
+    "compliance score",
+    "compliance rate",
+    ...facts.allowedMetricValues.map(({ metric }) => metric),
+    ...facts.allowedDeltas.map(({ metric }) => metric),
+  ]);
+  return [...metrics]
+    .sort((left, right) => right.length - left.length)
+    .map((metric) => escapeRegExp(metric).replace(/\\ /g, "\\s+"))
+    .join("|");
 }
 
 function escapeRegExp(value: string): string {
