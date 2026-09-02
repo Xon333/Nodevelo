@@ -63,19 +63,18 @@ function completeResults(costs: {
   prose: number;
   structured: number;
 }): ExperimentResult[] {
-  return [
-    result({ costUsd: costs.ride }),
+  return FR6_CASES.map((fixture) =>
     result({
-      caseId: "retro-normal",
-      category: "prose-retrospective",
-      costUsd: costs.prose,
+      caseId: fixture.id,
+      category: fixture.category,
+      costUsd:
+        fixture.category === "ride-analysis"
+          ? costs.ride
+          : fixture.category === "prose-retrospective"
+            ? costs.prose
+            : costs.structured,
     }),
-    result({
-      caseId: "structured-mixed-verdicts",
-      category: "structured-retrospective",
-      costUsd: costs.structured,
-    }),
-  ];
+  );
 }
 
 describe("provider-neutral cost arithmetic", () => {
@@ -121,6 +120,24 @@ describe("provider-neutral cost arithmetic", () => {
 });
 
 describe("hard gates", () => {
+  it("rejects an incomplete fixed six-case corpus", () => {
+    const rows = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 });
+
+    expect(evaluateHardGates(rows.slice(0, 5)).failures).toContain(
+      "corpus-incomplete",
+    );
+  });
+
+  it("rejects duplicate or category-mismatched case rows", () => {
+    const rows = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 });
+    rows[1] = { ...rows[1]!, caseId: rows[0]!.caseId };
+    expect(evaluateHardGates(rows).failures).toContain("corpus-incomplete");
+
+    const mismatched = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 });
+    mismatched[3] = { ...mismatched[3]!, category: "ride-analysis" };
+    expect(evaluateHardGates(mismatched).failures).toContain("corpus-incomplete");
+  });
+
   it("accepts the inclusive $0.25 two-week ceiling", () => {
     const evaluation = evaluateHardGates(
       completeResults({ ride: 0.02, prose: 0.015, structured: 0.015 }),
@@ -162,7 +179,7 @@ describe("hard gates", () => {
   it("rejects invalid structured output and unsupported claims", () => {
     const rows = completeResults({ ride: 0.01, prose: 0.01, structured: 0.01 });
     rows[0] = result({ unsupportedClaims: ["FTP increased"] });
-    rows[2] = { ...rows[2], schemaValid: false };
+    rows[5] = { ...rows[5]!, schemaValid: false };
 
     expect(evaluateHardGates(rows).failures).toEqual([
       "structured-schema-invalid",
@@ -178,11 +195,12 @@ describe("blind review rows", () => {
     const second = blindReviewRows(rows, "fr6-v1");
 
     expect(first).toEqual(second);
-    expect(first.map((row) => row.blindId)).toEqual([
-      expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
-      expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
-      expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
-    ]);
+    expect(first).toHaveLength(6);
+    expect(first.map((row) => row.blindId)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^FR6-[A-F0-9]{24}$/),
+      ]),
+    );
     for (const row of first) {
       expect(row).not.toHaveProperty("provider");
       expect(row).not.toHaveProperty("model");
@@ -497,7 +515,7 @@ describe("live evidence persistence", () => {
   it("persists a private high-entropy blind seed without credential values", async () => {
     const directory = await mkdtemp(join(tmpdir(), "fr6-seed-"));
     const candidate = FR6_CANDIDATES[0]!;
-    const cases = [FR6_CASES[0]!, FR6_CASES[3]!, FR6_CASES[5]!];
+    const cases = FR6_CASES;
     const credentialValue = "must-not-enter-evidence";
     const promptVersion = buildFr6ExperimentProvenance(
       [candidate],

@@ -288,7 +288,6 @@ async function requestOpenAi(
     max_output_tokens: fixture.maxOutputTokens,
     store: false,
     service_tier: "default",
-    temperature: 0.3,
     reasoning: { effort: "none" },
   };
   if (fixture.category === "structured-retrospective") {

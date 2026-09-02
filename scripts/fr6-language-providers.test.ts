@@ -292,8 +292,10 @@ describe("runProviderCase OpenAI", () => {
       max_output_tokens: structuredCase.maxOutputTokens,
       store: false,
       service_tier: "default",
+      reasoning: { effort: "none" },
       text: { format: { type: "json_schema", name: "submit_reflections", strict: true } },
     });
+    expect(JSON.parse(init.body)).not.toHaveProperty("temperature");
     expect(result).toMatchObject({
       status: "ok",
       usage: {

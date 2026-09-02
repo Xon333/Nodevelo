@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { PROMPT_VERSION } from "../lib/anthropic-api";
-import type { Fr6ExperimentCase } from "./fr6-language-fixtures";
+import { FR6_CASES, type Fr6ExperimentCase } from "./fr6-language-fixtures";
 import type { Fr6Candidate } from "./fr6-language-providers";
 
 export type LanguageCallCategory =
@@ -57,6 +57,7 @@ export interface HardGateEvaluation {
 }
 
 export type HardGateFailure =
+  | "corpus-incomplete"
   | "result-not-ok"
   | "projected-cost-unavailable"
   | "projected-cost-exceeds-budget"
@@ -906,6 +907,32 @@ export function evaluateHardGates(
 ): HardGateEvaluation {
   const projectedCostUsd = projectTwoWeekCost(results, TWO_WEEK_RIDE_DAYS);
   const failures: HardGateFailure[] = [];
+
+  const expectedCases = new Map(
+    FR6_CASES.map(({ id, category }) => [id, category]),
+  );
+  const contexts = new Map<string, ExperimentResult[]>();
+  for (const result of results) {
+    const context = runKey(result.provider, result.model, "");
+    contexts.set(context, [...(contexts.get(context) ?? []), result]);
+  }
+  const corpusComplete =
+    contexts.size > 0 &&
+    [...contexts.values()].every((candidateResults) => {
+      if (candidateResults.length !== expectedCases.size) return false;
+      const seen = new Set<string>();
+      for (const result of candidateResults) {
+        if (
+          seen.has(result.caseId) ||
+          expectedCases.get(result.caseId) !== result.category
+        ) {
+          return false;
+        }
+        seen.add(result.caseId);
+      }
+      return seen.size === expectedCases.size;
+    });
+  if (!corpusComplete) failures.push("corpus-incomplete");
 
   if (results.some((result) => result.status !== "ok")) {
     failures.push("result-not-ok");
