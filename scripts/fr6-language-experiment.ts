@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { PROMPT_VERSION } from "../lib/anthropic-api";
 import type { Fr6ExperimentCase } from "./fr6-language-fixtures";
@@ -83,6 +83,7 @@ export interface IndependentGroundingFacts {
 const TWO_WEEK_RIDE_DAYS = 11;
 const TWO_WEEK_COST_BUDGET_USD = 0.25;
 const EXPERIMENT_COST_CAP_USD = 2;
+const WRAPPER_INPUT_TOKEN_ALLOWANCE = 20_000;
 
 export interface PlannedProviderRequest {
   provider: ExperimentResult["provider"];
@@ -93,18 +94,64 @@ export interface PlannedProviderRequest {
 
 export interface Fr6RunPlan {
   candidateOrder: string[];
-  measuredCostUsd: number;
+  actualCostUsd: number;
+  accountedCostUsd: number;
   capExceeded: boolean;
   missingCredentialResults: ExperimentResult[];
   nextRequest: PlannedProviderRequest | null;
   stoppedBefore: PlannedProviderRequest | null;
 }
 
+export interface AccountedExperimentResult extends ExperimentResult {
+  accountedCostUsd: number;
+  costAccounting: "actual" | "reserved-unknown" | "no-request";
+}
+
+export interface Fr6ExperimentProvenance {
+  protocolVersion: "fr6-fixed-input-v1";
+  promptVersion: string;
+  costPolicy: {
+    experimentCapUsd: 2;
+    wrapperInputTokenAllowance: 20_000;
+  };
+  corpus: {
+    sha256: string;
+    cases: Array<{ id: string; category: LanguageCallCategory }>;
+  };
+  models: Array<{
+    provider: ExperimentResult["provider"];
+    model: string;
+    credential: Fr6Candidate["credential"];
+    pricing: CandidatePricing;
+  }>;
+}
+
+export interface Fr6ResultsArtifact {
+  provenance: Fr6ExperimentProvenance;
+  blindSeed: string;
+  createdAt: string;
+  updatedAt: string;
+  results: AccountedExperimentResult[];
+}
+
+export interface ExecuteFr6ExperimentOptions {
+  evidenceDirectory: string;
+  candidates: readonly Fr6Candidate[];
+  cases: Fr6ExperimentCase[];
+  env: Record<string, string | undefined>;
+  runCase: (
+    candidate: Fr6Candidate,
+    fixture: Fr6ExperimentCase,
+  ) => Promise<ExperimentResult>;
+  afterRawCheckpoint?: (artifact: Fr6ResultsArtifact) => void;
+  now?: () => Date;
+}
+
 export function buildRunPlan(
   candidates: readonly Fr6Candidate[],
   cases: Fr6ExperimentCase[],
   env: Record<string, string | undefined>,
-  completedResults: ExperimentResult[],
+  completedResults: readonly (ExperimentResult | AccountedExperimentResult)[],
 ): Fr6RunPlan {
   if (
     completedResults.some(
@@ -113,21 +160,38 @@ export function buildRunPlan(
   ) {
     throw new Error("FR-6 measured costs must be finite and non-negative");
   }
-  const measuredCostUsd = completedResults.reduce(
+  const actualCostUsd = completedResults.reduce(
     (sum, result) => sum + result.costUsd,
     0,
   );
+  const accountedCostUsd = completedResults.reduce(
+    (sum, result) =>
+      sum +
+      ("accountedCostUsd" in result ? result.accountedCostUsd : result.costUsd),
+    0,
+  );
+  if (!Number.isFinite(accountedCostUsd) || accountedCostUsd < 0) {
+    throw new Error("FR-6 accounted costs must be finite and non-negative");
+  }
   const completed = new Set(
-    completedResults.map((result) =>
-      runKey(result.provider, result.model, result.caseId),
-    ),
+    completedResults
+      .filter((result) => {
+        if (result.status !== "missing-credential") return true;
+        const candidate = candidates.find(
+          ({ provider, model }) =>
+            provider === result.provider && model === result.model,
+        );
+        return candidate === undefined || !env[candidate.credential];
+      })
+      .map((result) => runKey(result.provider, result.model, result.caseId)),
   );
   const missingCredentialResults: ExperimentResult[] = [];
 
-  if (measuredCostUsd > EXPERIMENT_COST_CAP_USD) {
+  if (accountedCostUsd > EXPERIMENT_COST_CAP_USD) {
     return {
       candidateOrder: candidates.map(({ model }) => model),
-      measuredCostUsd,
+      actualCostUsd,
+      accountedCostUsd,
       capExceeded: true,
       missingCredentialResults,
       nextRequest: null,
@@ -149,15 +213,16 @@ export function buildRunPlan(
       const request = plannedRequest(candidate, fixture);
       return {
         candidateOrder: candidates.map(({ model }) => model),
-        measuredCostUsd,
+        actualCostUsd,
+        accountedCostUsd,
         capExceeded: false,
         missingCredentialResults,
         nextRequest:
-          measuredCostUsd + request.maximumCostUsd <= EXPERIMENT_COST_CAP_USD
+          accountedCostUsd + request.maximumCostUsd <= EXPERIMENT_COST_CAP_USD
             ? request
             : null,
         stoppedBefore:
-          measuredCostUsd + request.maximumCostUsd > EXPERIMENT_COST_CAP_USD
+          accountedCostUsd + request.maximumCostUsd > EXPERIMENT_COST_CAP_USD
             ? request
             : null,
       };
@@ -166,12 +231,186 @@ export function buildRunPlan(
 
   return {
     candidateOrder: candidates.map(({ model }) => model),
-    measuredCostUsd,
+    actualCostUsd,
+    accountedCostUsd,
     capExceeded: false,
     missingCredentialResults,
     nextRequest: null,
     stoppedBefore: null,
   };
+}
+
+export function accountExperimentResult(
+  result: ExperimentResult,
+  maximumCostUsd: number,
+): AccountedExperimentResult {
+  if (!Number.isFinite(maximumCostUsd) || maximumCostUsd < 0) {
+    throw new Error("FR-6 request reservation must be finite and non-negative");
+  }
+  if (result.status === "missing-credential") {
+    return { ...result, accountedCostUsd: 0, costAccounting: "no-request" };
+  }
+  if (result.costUsd === 0 && result.usage.totalTokens === 0) {
+    return {
+      ...result,
+      accountedCostUsd: maximumCostUsd,
+      costAccounting: "reserved-unknown",
+    };
+  }
+  return {
+    ...result,
+    accountedCostUsd: result.costUsd,
+    costAccounting: "actual",
+  };
+}
+
+export function buildFr6ExperimentProvenance(
+  candidates: readonly Fr6Candidate[],
+  cases: Fr6ExperimentCase[],
+): Fr6ExperimentProvenance {
+  const corpusCases = cases.map(({ id, category }) => ({ id, category }));
+  return {
+    protocolVersion: "fr6-fixed-input-v1",
+    promptVersion: String(PROMPT_VERSION),
+    costPolicy: {
+      experimentCapUsd: EXPERIMENT_COST_CAP_USD,
+      wrapperInputTokenAllowance: WRAPPER_INPUT_TOKEN_ALLOWANCE,
+    },
+    corpus: {
+      sha256: createHash("sha256")
+        .update(JSON.stringify(cases))
+        .digest("hex"),
+      cases: corpusCases,
+    },
+    models: candidates.map(({ provider, model, credential, pricing }) => ({
+      provider,
+      model,
+      credential,
+      pricing: { ...pricing },
+    })),
+  };
+}
+
+export function createFr6ResultsArtifact(
+  provenance: Fr6ExperimentProvenance,
+  blindSeed = randomBytes(32).toString("hex"),
+  now = new Date(),
+): Fr6ResultsArtifact {
+  if (!/^[a-f0-9]{64}$/.test(blindSeed)) {
+    throw new Error("FR-6 blind seed must be 32 random bytes encoded as hex");
+  }
+  const timestamp = now.toISOString();
+  return {
+    provenance,
+    blindSeed,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    results: [],
+  };
+}
+
+export async function executeFr6Experiment(
+  options: ExecuteFr6ExperimentOptions,
+): Promise<{
+  artifact: Fr6ResultsArtifact;
+  stoppedBefore: PlannedProviderRequest | null;
+  capExceeded: boolean;
+}> {
+  const provenance = buildFr6ExperimentProvenance(
+    options.candidates,
+    options.cases,
+  );
+  const rawTarget = join(options.evidenceDirectory, "results.json");
+  const blindTarget = join(options.evidenceDirectory, "blind-review.json");
+  const existingArtifact = await loadFr6ResultsArtifact(rawTarget, provenance);
+  let artifact: Fr6ResultsArtifact;
+  if (existingArtifact === null) {
+    artifact = createFr6ResultsArtifact(
+      provenance,
+      undefined,
+      (options.now ?? (() => new Date()))(),
+    );
+    await atomicWriteJson(rawTarget, artifact);
+  } else {
+    artifact = existingArtifact;
+  }
+
+  let stoppedBefore: PlannedProviderRequest | null = null;
+  let capExceeded = false;
+  const checkpoint = async (result: AccountedExperimentResult): Promise<void> => {
+    const resultKey = runKey(result.provider, result.model, result.caseId);
+    const retained = artifact.results.filter(
+      (existing) =>
+        runKey(existing.provider, existing.model, existing.caseId) !== resultKey,
+    );
+    artifact = {
+      ...artifact,
+      updatedAt: (options.now ?? (() => new Date()))().toISOString(),
+      results: [...retained, result],
+    };
+    await atomicWriteJson(rawTarget, artifact);
+    options.afterRawCheckpoint?.(artifact);
+  };
+
+  while (true) {
+    const plan = buildRunPlan(
+      options.candidates,
+      options.cases,
+      options.env,
+      artifact.results,
+    );
+    for (const missing of plan.missingCredentialResults) {
+      await checkpoint(accountExperimentResult(missing, 0));
+    }
+    if (plan.capExceeded) {
+      capExceeded = true;
+      break;
+    }
+    if (plan.stoppedBefore !== null) {
+      stoppedBefore = plan.stoppedBefore;
+      break;
+    }
+    if (plan.nextRequest === null) break;
+
+    const candidate = options.candidates.find(
+      ({ provider, model }) =>
+        provider === plan.nextRequest?.provider && model === plan.nextRequest.model,
+    );
+    const fixture = options.cases.find(
+      ({ id }) => id === plan.nextRequest?.caseId,
+    );
+    if (candidate === undefined || fixture === undefined) {
+      throw new Error("FR-6 run plan referenced an unknown candidate or case");
+    }
+    let accounted: AccountedExperimentResult;
+    try {
+      const result = await options.runCase(candidate, fixture);
+      assertPlannedResult(result, candidate, fixture, provenance.promptVersion);
+      accounted = accountExperimentResult(
+        result,
+        plan.nextRequest.maximumCostUsd,
+      );
+      validateAccountedResult(accounted);
+    } catch {
+      accounted = accountExperimentResult(
+        unknownFailureResult(candidate, fixture),
+        plan.nextRequest.maximumCostUsd,
+      );
+    }
+    await checkpoint(accounted);
+  }
+
+  const blinded = blindReviewRows(
+    artifact.results.filter(
+      ({ status, output }) =>
+        output.length > 0 &&
+        status !== "missing-credential" &&
+        status !== "request-failed",
+    ),
+    artifact.blindSeed,
+  ).sort((left, right) => left.blindId.localeCompare(right.blindId));
+  await atomicWriteJson(blindTarget, blinded);
+  return { artifact, stoppedBefore, capExceeded };
 }
 
 export function resolveFr6EvidenceDirectory(
@@ -203,6 +442,216 @@ export async function atomicWriteJson(
   }
 }
 
+async function loadFr6ResultsArtifact(
+  target: string,
+  expectedProvenance: Fr6ExperimentProvenance,
+): Promise<Fr6ResultsArtifact | null> {
+  let raw: string;
+  try {
+    raw = await readFile(target, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    return validateFr6ResultsArtifact(JSON.parse(raw), expectedProvenance);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "unknown error";
+    throw new Error(`Invalid FR-6 results artifact: ${detail}`);
+  }
+}
+
+function validateFr6ResultsArtifact(
+  value: unknown,
+  expectedProvenance: Fr6ExperimentProvenance,
+): Fr6ResultsArtifact {
+  const artifact = asObject(value);
+  if (
+    JSON.stringify(artifact.provenance) !== JSON.stringify(expectedProvenance)
+  ) {
+    throw new Error("protocol, corpus, model, pricing, or prompt provenance changed");
+  }
+  if (typeof artifact.blindSeed !== "string" || !/^[a-f0-9]{64}$/.test(artifact.blindSeed)) {
+    throw new Error("blind seed is missing or invalid");
+  }
+  if (typeof artifact.createdAt !== "string" || typeof artifact.updatedAt !== "string") {
+    throw new Error("artifact timestamps are missing");
+  }
+  if (!Array.isArray(artifact.results)) {
+    throw new Error("results ledger is missing");
+  }
+
+  const allowedCases = new Map(
+    expectedProvenance.corpus.cases.map(({ id, category }) => [id, category]),
+  );
+  const allowedModels = new Set(
+    expectedProvenance.models.map(({ provider, model }) => `${provider}\0${model}`),
+  );
+  const seen = new Set<string>();
+  const results = artifact.results.map((rawResult) => {
+    const result = validateAccountedResult(rawResult);
+    const key = runKey(result.provider, result.model, result.caseId);
+    if (seen.has(key)) throw new Error(`duplicate result ledger entry: ${result.caseId}`);
+    seen.add(key);
+    if (!allowedModels.has(`${result.provider}\0${result.model}`)) {
+      throw new Error(`unknown candidate result: ${result.model}`);
+    }
+    if (allowedCases.get(result.caseId) !== result.category) {
+      throw new Error(`unknown or mismatched corpus case: ${result.caseId}`);
+    }
+    if (result.promptVersion !== expectedProvenance.promptVersion) {
+      throw new Error(`prompt provenance mismatch: ${result.caseId}`);
+    }
+    return result;
+  });
+  return {
+    provenance: expectedProvenance,
+    blindSeed: artifact.blindSeed,
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+    results,
+  };
+}
+
+function validateAccountedResult(value: unknown): AccountedExperimentResult {
+  const result = asObject(value);
+  const statuses = new Set<ExperimentResult["status"]>([
+    "ok",
+    "missing-credential",
+    "request-failed",
+    "schema-invalid",
+    "truncated",
+  ]);
+  const categories = new Set<LanguageCallCategory>([
+    "ride-analysis",
+    "prose-retrospective",
+    "structured-retrospective",
+  ]);
+  const providers = new Set<ExperimentResult["provider"]>([
+    "anthropic",
+    "openai",
+    "google",
+    "mistral",
+  ]);
+  if (
+    typeof result.caseId !== "string" ||
+    typeof result.category !== "string" ||
+    !categories.has(result.category as LanguageCallCategory) ||
+    typeof result.provider !== "string" ||
+    !providers.has(result.provider as ExperimentResult["provider"]) ||
+    typeof result.model !== "string" ||
+    typeof result.promptVersion !== "string" ||
+    typeof result.status !== "string" ||
+    !statuses.has(result.status as ExperimentResult["status"]) ||
+    typeof result.output !== "string" ||
+    typeof result.costUsd !== "number" ||
+    !Number.isFinite(result.costUsd) ||
+    result.costUsd < 0 ||
+    typeof result.accountedCostUsd !== "number" ||
+    !Number.isFinite(result.accountedCostUsd) ||
+    result.accountedCostUsd < result.costUsd ||
+    typeof result.schemaValid !== "boolean" ||
+    !Array.isArray(result.unsupportedClaims) ||
+    !result.unsupportedClaims.every((claim) => typeof claim === "string")
+  ) {
+    throw new Error("result ledger row has an invalid shape");
+  }
+  if (
+    result.costAccounting !== "actual" &&
+    result.costAccounting !== "reserved-unknown" &&
+    result.costAccounting !== "no-request"
+  ) {
+    throw new Error("result ledger row has invalid cost accounting");
+  }
+  if (result.costAccounting === "actual" && result.accountedCostUsd !== result.costUsd) {
+    throw new Error("actual cost accounting disagrees with request cost");
+  }
+  if (
+    result.costAccounting === "no-request" &&
+    (result.status !== "missing-credential" || result.accountedCostUsd !== 0)
+  ) {
+    throw new Error("no-request accounting is inconsistent");
+  }
+  const usageValue = asObject(result.usage);
+  for (const field of [
+    "inputTokens",
+    "cachedInputTokens",
+    "cacheWriteTokens",
+    "outputTokens",
+    "reasoningTokens",
+    "totalTokens",
+  ]) {
+    if (
+      typeof usageValue[field] !== "number" ||
+      !Number.isFinite(usageValue[field]) ||
+      usageValue[field] < 0
+    ) {
+      throw new Error("result ledger row has invalid usage");
+    }
+  }
+  if (
+    result.costAccounting === "reserved-unknown" &&
+    (result.status === "missing-credential" ||
+      result.costUsd !== 0 ||
+      usageValue.totalTokens !== 0 ||
+      result.accountedCostUsd <= 0)
+  ) {
+    throw new Error("reserved cost accounting is inconsistent");
+  }
+  if (
+    typeof result.latencyMs !== "number" ||
+    !Number.isFinite(result.latencyMs) ||
+    result.latencyMs < 0 ||
+    typeof result.retries !== "number" ||
+    !Number.isFinite(result.retries) ||
+    result.retries < 0 ||
+    (result.finishReason !== null && typeof result.finishReason !== "string")
+  ) {
+    throw new Error("result ledger row has invalid request metadata");
+  }
+  return result as unknown as AccountedExperimentResult;
+}
+
+function assertPlannedResult(
+  result: ExperimentResult,
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+  promptVersion: string,
+): void {
+  if (
+    result.provider !== candidate.provider ||
+    result.model !== candidate.model ||
+    result.caseId !== fixture.id ||
+    result.category !== fixture.category ||
+    result.promptVersion !== promptVersion ||
+    result.status === "missing-credential"
+  ) {
+    throw new Error("provider result does not match the planned request");
+  }
+}
+
+function unknownFailureResult(
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+): ExperimentResult {
+  return {
+    ...missingCredentialResult(candidate, fixture),
+    status: "request-failed",
+    output: `${candidate.provider} request failed before usage was reported.`,
+  };
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("expected an object");
+  }
+  return value as Record<string, unknown>;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
 function runKey(
   provider: ExperimentResult["provider"],
   model: string,
@@ -232,7 +681,7 @@ function conservativeMaximumRequestCost(
   // schema. Charge all of it at the most expensive input class, then reserve the
   // full output cap at the output rate.
   const promptBytes = Buffer.byteLength(fixture.prompt, "utf8");
-  const inputTokenCeiling = promptBytes + 20_000;
+  const inputTokenCeiling = promptBytes + WRAPPER_INPUT_TOKEN_ALLOWANCE;
   const inputRate = Math.max(
     candidate.pricing.inputPerMillion,
     candidate.pricing.cachedInputPerMillion,
@@ -645,6 +1094,10 @@ function escapeRegExp(value: string): string {
 function opaqueId(result: ExperimentResult, seed: string): string {
   const digest = createHash("sha256")
     .update(seed)
+    .update("\0")
+    .update(result.provider)
+    .update("\0")
+    .update(result.model)
     .update("\0")
     .update(result.caseId)
     .update("\0")

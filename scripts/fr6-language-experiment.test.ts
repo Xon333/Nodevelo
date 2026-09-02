@@ -1,17 +1,22 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  accountExperimentResult,
   atomicWriteJson,
   blindReviewRows,
+  buildFr6ExperimentProvenance,
   buildRunPlan,
+  createFr6ResultsArtifact,
   estimateExperimentCost,
   evaluateHardGates,
+  executeFr6Experiment,
   projectTwoWeekCost,
   resolveFr6EvidenceDirectory,
+  type AccountedExperimentResult,
   type CandidatePricing,
   type ExperimentResult,
 } from "./fr6-language-experiment";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FR6_CASES } from "./fr6-language-fixtures";
@@ -193,11 +198,11 @@ describe("blind review rows", () => {
     );
   });
 
-  it("does not encode provider or model identity in an opaque ID", () => {
+  it("uses hidden provider and model identity to disambiguate identical outputs", () => {
     const anthropic = result();
     const openai = result({ provider: "openai", model: "gpt-5.6-luna" });
 
-    expect(blindReviewRows([anthropic], "fr6-v1")[0]?.blindId).toBe(
+    expect(blindReviewRows([anthropic], "fr6-v1")[0]?.blindId).not.toBe(
       blindReviewRows([openai], "fr6-v1")[0]?.blindId,
     );
   });
@@ -270,12 +275,42 @@ describe("live run planning", () => {
       ANTHROPIC_API_KEY: "present",
     }, completed);
 
-    expect(plan.measuredCostUsd).toBe(1.99);
+    expect(plan.actualCostUsd).toBe(1.99);
+    expect(plan.accountedCostUsd).toBe(1.99);
     expect(plan.nextRequest).toBeNull();
     expect(plan.stoppedBefore).toMatchObject({
       model: "claude-sonnet-4-6",
       caseId: FR6_CASES[1]?.id,
     });
+  });
+
+  it("uses reserved accounting for an unknown-cost failure", () => {
+    const failed = accountExperimentResult(
+      result({
+        status: "request-failed",
+        costUsd: 0,
+        usage: {
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          totalTokens: 0,
+        },
+      }),
+      1.99,
+    );
+
+    expect(failed).toMatchObject({
+      costUsd: 0,
+      accountedCostUsd: 1.99,
+      costAccounting: "reserved-unknown",
+    });
+    expect(
+      buildRunPlan(FR6_CANDIDATES, FR6_CASES, { ANTHROPIC_API_KEY: "set" }, [
+        failed,
+      ]).stoppedBefore,
+    ).not.toBeNull();
   });
 
   it("reports measured overspend even when there is no next request to reserve", () => {
@@ -310,7 +345,7 @@ describe("live run planning", () => {
       typeof FR6_CANDIDATES,
       typeof FR6_CASES,
       Record<string, string | undefined>,
-      ExperimentResult[],
+      readonly (ExperimentResult | AccountedExperimentResult)[],
     ]>();
   });
 });
@@ -334,6 +369,308 @@ describe("live evidence persistence", () => {
     expect(JSON.parse(await readFile(target, "utf8"))).toEqual({
       status: "ok",
       rows: [1, 2],
+    });
+  });
+
+  it("fails closed on corrupt prior evidence before a request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-corrupt-"));
+    await writeFile(join(directory, "results.json"), "{broken", "utf8");
+    let requests = 0;
+
+    await expect(
+      executeFr6Experiment({
+        evidenceDirectory: directory,
+        candidates: FR6_CANDIDATES,
+        cases: FR6_CASES,
+        env: { ANTHROPIC_API_KEY: "set" },
+        runCase: async () => {
+          requests += 1;
+          return result();
+        },
+      }),
+    ).rejects.toThrow("Invalid FR-6 results artifact");
+    expect(requests).toBe(0);
+  });
+
+  it("fails closed on incompatible provenance before a request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-incompatible-"));
+    const provenance = buildFr6ExperimentProvenance(
+      FR6_CANDIDATES,
+      FR6_CASES,
+    );
+    const incompatible = createFr6ResultsArtifact(
+      {
+        ...provenance,
+        promptVersion: `${provenance.promptVersion}-changed`,
+      },
+      "b".repeat(64),
+    );
+    await atomicWriteJson(join(directory, "results.json"), incompatible);
+    let requests = 0;
+
+    await expect(
+      executeFr6Experiment({
+        evidenceDirectory: directory,
+        candidates: FR6_CANDIDATES,
+        cases: FR6_CASES,
+        env: { ANTHROPIC_API_KEY: "set" },
+        runCase: async () => {
+          requests += 1;
+          return result();
+        },
+      }),
+    ).rejects.toThrow("provenance changed");
+    expect(requests).toBe(0);
+  });
+
+  it("includes the full fixture contract and request policy in provenance", () => {
+    const baseline = buildFr6ExperimentProvenance(
+      [FR6_CANDIDATES[0]!],
+      [FR6_CASES[0]!],
+    );
+    const changedGrounding = buildFr6ExperimentProvenance(
+      [FR6_CANDIDATES[0]!],
+      [
+        {
+          ...FR6_CASES[0]!,
+          grounding: {
+            ...FR6_CASES[0]!.grounding,
+            forbiddenClaims: ["new forbidden claim"],
+          },
+        },
+      ],
+    );
+
+    expect(changedGrounding.corpus.sha256).not.toBe(baseline.corpus.sha256);
+    expect(baseline).toMatchObject({
+      costPolicy: {
+        experimentCapUsd: 2,
+        wrapperInputTokenAllowance: 20_000,
+      },
+      models: [{ credential: "ANTHROPIC_API_KEY" }],
+    });
+  });
+
+  it("persists a private high-entropy blind seed without credential values", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-seed-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+    const credentialValue = "must-not-enter-evidence";
+    const promptVersion = buildFr6ExperimentProvenance(
+      [candidate],
+      [fixture],
+    ).promptVersion;
+
+    await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: credentialValue },
+      runCase: async () =>
+        result({
+          provider: candidate.provider,
+          model: candidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          promptVersion,
+        }),
+    });
+
+    const raw = await readFile(join(directory, "results.json"), "utf8");
+    const blind = await readFile(join(directory, "blind-review.json"), "utf8");
+    const parsed = JSON.parse(raw) as { blindSeed: string };
+    const blindRows = JSON.parse(blind) as Array<Record<string, unknown>>;
+    expect(parsed.blindSeed).toMatch(/^[a-f0-9]{64}$/);
+    expect(blind).not.toContain(parsed.blindSeed);
+    expect(raw).not.toContain(credentialValue);
+    expect(blind).not.toContain(credentialValue);
+    expect(Object.keys(blindRows[0]!).sort()).toEqual([
+      "blindId",
+      "caseId",
+      "category",
+      "output",
+    ]);
+  });
+
+  it("checkpoints an unknown-cost request with reserved rather than actual spend", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-unknown-cost-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+    const promptVersion = buildFr6ExperimentProvenance(
+      [candidate],
+      [fixture],
+    ).promptVersion;
+    const run = await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () =>
+        result({
+          provider: candidate.provider,
+          model: candidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          promptVersion,
+          status: "request-failed",
+          costUsd: 0,
+          usage: {
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+          },
+        }),
+    });
+
+    expect(run.artifact.results[0]).toMatchObject({
+      costUsd: 0,
+      costAccounting: "reserved-unknown",
+      accountedCostUsd: expect.any(Number),
+    });
+    expect(run.artifact.results[0]!.accountedCostUsd).toBeGreaterThan(0);
+  });
+
+  it("checkpoints every result and resumes without repurchasing completed cases", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-resume-"));
+    const firstCase = FR6_CASES[0]!;
+    const secondCase = FR6_CASES[1]!;
+    const firstCandidate = FR6_CANDIDATES[0]!;
+    const provenance = buildFr6ExperimentProvenance(
+      [firstCandidate],
+      [firstCase, secondCase],
+    );
+    const initial = createFr6ResultsArtifact(provenance, "a".repeat(64));
+    const completed = accountExperimentResult(
+      result({
+        provider: firstCandidate.provider,
+        model: firstCandidate.model,
+        caseId: firstCase.id,
+        category: firstCase.category,
+        promptVersion: provenance.promptVersion,
+      }),
+      0.5,
+    );
+    await atomicWriteJson(join(directory, "results.json"), {
+      ...initial,
+      results: [completed],
+    });
+    const checkpoints: number[] = [];
+    let requests = 0;
+
+    await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [firstCandidate],
+      cases: [firstCase, secondCase],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async (_candidate, fixture) => {
+        requests += 1;
+        return result({
+          provider: firstCandidate.provider,
+          model: firstCandidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          promptVersion: provenance.promptVersion,
+        });
+      },
+      afterRawCheckpoint: (artifact) => {
+        checkpoints.push(artifact.results.length);
+      },
+    });
+
+    expect(requests).toBe(1);
+    expect(checkpoints).toEqual([2]);
+    const persisted = JSON.parse(
+      await readFile(join(directory, "results.json"), "utf8"),
+    ) as { results: AccountedExperimentResult[] };
+    expect(persisted.results).toHaveLength(2);
+
+    requests = 0;
+    await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [firstCandidate],
+      cases: [firstCase, secondCase],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        requests += 1;
+        return result();
+      },
+    });
+    expect(requests).toBe(0);
+  });
+
+  it("replaces a prior missing-credential row when the credential becomes available", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-late-credential-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+    const promptVersion = buildFr6ExperimentProvenance(
+      [candidate],
+      [fixture],
+    ).promptVersion;
+
+    await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: {},
+      runCase: async () => {
+        throw new Error("must not request without a credential");
+      },
+    });
+
+    let requests = 0;
+    const completed = await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () => {
+        requests += 1;
+        return result({
+          provider: candidate.provider,
+          model: candidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          promptVersion,
+        });
+      },
+    });
+
+    expect(requests).toBe(1);
+    expect(completed.artifact.results).toHaveLength(1);
+    expect(completed.artifact.results[0]?.status).toBe("ok");
+  });
+
+  it("checkpoints an exact planned failure when an adapter returns mismatched provenance", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-result-provenance-"));
+    const candidate = FR6_CANDIDATES[0]!;
+    const fixture = FR6_CASES[0]!;
+
+    const run = await executeFr6Experiment({
+      evidenceDirectory: directory,
+      candidates: [candidate],
+      cases: [fixture],
+      env: { ANTHROPIC_API_KEY: "set" },
+      runCase: async () =>
+        result({
+          provider: "openai",
+          model: "wrong-model",
+          caseId: "wrong-case",
+          promptVersion: "wrong-prompt",
+        }),
+    });
+
+    expect(run.artifact.results).toHaveLength(1);
+    expect(run.artifact.results[0]).toMatchObject({
+      provider: candidate.provider,
+      model: candidate.model,
+      caseId: fixture.id,
+      category: fixture.category,
+      status: "request-failed",
+      costUsd: 0,
+      costAccounting: "reserved-unknown",
     });
   });
 });
