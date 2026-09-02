@@ -10,6 +10,7 @@
     "start": "next start -H 127.0.0.1",
     "lint": "eslint --max-warnings 0",
     "test": "vitest run",
+    "experiment:fr6": "FR6_RUN_LIVE=1 vitest run scripts/fr6-language-experiment.live.test.ts",
     "test:agent-workflow": "bash scripts/start-agent-task.test.sh && bash scripts/finish-agent-task.test.sh && bash scripts/merge-agent-task.test.sh",
     "test:finish-agent-task": "bash scripts/finish-agent-task.test.sh",
     "test:sync": "bash scripts/sync.test.sh",

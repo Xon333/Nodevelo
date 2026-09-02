@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { PROMPT_VERSION } from "../lib/anthropic-api";
+import type { Fr6ExperimentCase } from "./fr6-language-fixtures";
+import type { Fr6Candidate } from "./fr6-language-providers";
 
 export type LanguageCallCategory =
   | "ride-analysis"
@@ -77,6 +82,197 @@ export interface IndependentGroundingFacts {
 
 const TWO_WEEK_RIDE_DAYS = 11;
 const TWO_WEEK_COST_BUDGET_USD = 0.25;
+const EXPERIMENT_COST_CAP_USD = 2;
+
+export interface PlannedProviderRequest {
+  provider: ExperimentResult["provider"];
+  model: string;
+  caseId: string;
+  maximumCostUsd: number;
+}
+
+export interface Fr6RunPlan {
+  candidateOrder: string[];
+  measuredCostUsd: number;
+  capExceeded: boolean;
+  missingCredentialResults: ExperimentResult[];
+  nextRequest: PlannedProviderRequest | null;
+  stoppedBefore: PlannedProviderRequest | null;
+}
+
+export function buildRunPlan(
+  candidates: readonly Fr6Candidate[],
+  cases: Fr6ExperimentCase[],
+  env: Record<string, string | undefined>,
+  completedResults: ExperimentResult[],
+): Fr6RunPlan {
+  if (
+    completedResults.some(
+      ({ costUsd }) => !Number.isFinite(costUsd) || costUsd < 0,
+    )
+  ) {
+    throw new Error("FR-6 measured costs must be finite and non-negative");
+  }
+  const measuredCostUsd = completedResults.reduce(
+    (sum, result) => sum + result.costUsd,
+    0,
+  );
+  const completed = new Set(
+    completedResults.map((result) =>
+      runKey(result.provider, result.model, result.caseId),
+    ),
+  );
+  const missingCredentialResults: ExperimentResult[] = [];
+
+  if (measuredCostUsd > EXPERIMENT_COST_CAP_USD) {
+    return {
+      candidateOrder: candidates.map(({ model }) => model),
+      measuredCostUsd,
+      capExceeded: true,
+      missingCredentialResults,
+      nextRequest: null,
+      stoppedBefore: null,
+    };
+  }
+
+  for (const candidate of candidates) {
+    for (const fixture of cases) {
+      const key = runKey(candidate.provider, candidate.model, fixture.id);
+      if (completed.has(key)) continue;
+      if (!env[candidate.credential]) {
+        missingCredentialResults.push(
+          missingCredentialResult(candidate, fixture),
+        );
+        continue;
+      }
+
+      const request = plannedRequest(candidate, fixture);
+      return {
+        candidateOrder: candidates.map(({ model }) => model),
+        measuredCostUsd,
+        capExceeded: false,
+        missingCredentialResults,
+        nextRequest:
+          measuredCostUsd + request.maximumCostUsd <= EXPERIMENT_COST_CAP_USD
+            ? request
+            : null,
+        stoppedBefore:
+          measuredCostUsd + request.maximumCostUsd > EXPERIMENT_COST_CAP_USD
+            ? request
+            : null,
+      };
+    }
+  }
+
+  return {
+    candidateOrder: candidates.map(({ model }) => model),
+    measuredCostUsd,
+    capExceeded: false,
+    missingCredentialResults,
+    nextRequest: null,
+    stoppedBefore: null,
+  };
+}
+
+export function resolveFr6EvidenceDirectory(
+  worktree: string,
+  gitCommonDirOutput: string,
+): string {
+  const commonDir = gitCommonDirOutput.trim();
+  if (commonDir.length === 0) {
+    throw new Error("git rev-parse returned an empty common directory");
+  }
+  const absoluteCommonDir = isAbsolute(commonDir)
+    ? commonDir
+    : resolve(worktree, commonDir);
+  return join(absoluteCommonDir, "sdd", "fr6-language-provider-experiment");
+}
+
+export async function atomicWriteJson(
+  target: string,
+  value: unknown,
+): Promise<void> {
+  await mkdir(dirname(target), { recursive: true });
+  const temporary = `${target}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  try {
+    await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+function runKey(
+  provider: ExperimentResult["provider"],
+  model: string,
+  caseId: string,
+): string {
+  return `${provider}\0${model}\0${caseId}`;
+}
+
+function plannedRequest(
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+): PlannedProviderRequest {
+  return {
+    provider: candidate.provider,
+    model: candidate.model,
+    caseId: fixture.id,
+    maximumCostUsd: conservativeMaximumRequestCost(candidate, fixture),
+  };
+}
+
+function conservativeMaximumRequestCost(
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+): number {
+  // UTF-8 bytes are an intentionally high token estimate for this ASCII fixture
+  // corpus. The additional allowance covers request wrappers and the structured
+  // schema. Charge all of it at the most expensive input class, then reserve the
+  // full output cap at the output rate.
+  const promptBytes = Buffer.byteLength(fixture.prompt, "utf8");
+  const inputTokenCeiling = promptBytes + 20_000;
+  const inputRate = Math.max(
+    candidate.pricing.inputPerMillion,
+    candidate.pricing.cachedInputPerMillion,
+    candidate.pricing.cacheWritePerMillion,
+  );
+  return (
+    inputTokenCeiling * inputRate +
+    fixture.maxOutputTokens * candidate.pricing.outputPerMillion
+  ) / 1_000_000;
+}
+
+function missingCredentialResult(
+  candidate: Fr6Candidate,
+  fixture: Fr6ExperimentCase,
+): ExperimentResult {
+  return {
+    caseId: fixture.id,
+    category: fixture.category,
+    provider: candidate.provider,
+    model: candidate.model,
+    promptVersion: String(PROMPT_VERSION),
+    status: "missing-credential",
+    output: `Missing credential: ${candidate.credential}`,
+    parsed: null,
+    usage: {
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 0,
+    },
+    costUsd: 0,
+    latencyMs: 0,
+    finishReason: null,
+    retries: 0,
+    schemaValid: fixture.schema === null,
+    unsupportedClaims: [],
+  };
+}
 
 export function estimateExperimentCost(
   pricing: CandidatePricing,

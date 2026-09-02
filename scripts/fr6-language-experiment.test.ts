@@ -1,13 +1,21 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  atomicWriteJson,
   blindReviewRows,
+  buildRunPlan,
   estimateExperimentCost,
   evaluateHardGates,
   projectTwoWeekCost,
+  resolveFr6EvidenceDirectory,
   type CandidatePricing,
   type ExperimentResult,
 } from "./fr6-language-experiment";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { FR6_CASES } from "./fr6-language-fixtures";
+import { FR6_CANDIDATES } from "./fr6-language-providers";
 
 const pricing: CandidatePricing = {
   inputPerMillion: 1,
@@ -210,5 +218,122 @@ describe("blind review rows", () => {
     expect(forward.find((row) => row.caseId === prose.caseId)?.blindId).toBe(
       reversed.find((row) => row.caseId === prose.caseId)?.blindId,
     );
+  });
+});
+
+describe("live run planning", () => {
+  it("uses the fixed candidate order and exposes the first payable request only", () => {
+    const plan = buildRunPlan(FR6_CANDIDATES, FR6_CASES, {
+      ANTHROPIC_API_KEY: "present",
+      OPENAI_API_KEY: "present",
+      GEMINI_API_KEY: "present",
+      MISTRAL_API_KEY: "present",
+    }, []);
+
+    expect(plan.candidateOrder).toEqual([
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5",
+      "gpt-5.6-luna",
+      "gemini-3.1-flash-lite",
+      "mistral-small-2603",
+    ]);
+    expect(plan.nextRequest).toMatchObject({
+      model: "claude-sonnet-4-6",
+      caseId: FR6_CASES[0]?.id,
+    });
+  });
+
+  it("turns absent credentials into explicit rows without a payable request", () => {
+    const plan = buildRunPlan(FR6_CANDIDATES, FR6_CASES, {}, []);
+
+    expect(plan.nextRequest).toBeNull();
+    expect(plan.missingCredentialResults).toHaveLength(
+      FR6_CANDIDATES.length * FR6_CASES.length,
+    );
+    expect(plan.missingCredentialResults[0]).toMatchObject({
+      status: "missing-credential",
+      model: "claude-sonnet-4-6",
+      caseId: FR6_CASES[0]?.id,
+      costUsd: 0,
+    });
+  });
+
+  it("uses measured cumulative spend before reserving the next request", () => {
+    const completed = [
+      result({
+        model: "claude-sonnet-4-6",
+        caseId: FR6_CASES[0]?.id,
+        costUsd: 1.99,
+      }),
+    ];
+    const plan = buildRunPlan(FR6_CANDIDATES, FR6_CASES, {
+      ANTHROPIC_API_KEY: "present",
+    }, completed);
+
+    expect(plan.measuredCostUsd).toBe(1.99);
+    expect(plan.nextRequest).toBeNull();
+    expect(plan.stoppedBefore).toMatchObject({
+      model: "claude-sonnet-4-6",
+      caseId: FR6_CASES[1]?.id,
+    });
+  });
+
+  it("reports measured overspend even when there is no next request to reserve", () => {
+    const allCompleted = FR6_CANDIDATES.flatMap((candidate) =>
+      FR6_CASES.map((fixture, index) =>
+        result({
+          provider: candidate.provider,
+          model: candidate.model,
+          caseId: fixture.id,
+          category: fixture.category,
+          costUsd: index === 0 && candidate === FR6_CANDIDATES[0] ? 2.01 : 0,
+        }),
+      ),
+    );
+
+    const plan = buildRunPlan(FR6_CANDIDATES, FR6_CASES, {}, allCompleted);
+
+    expect(plan.capExceeded).toBe(true);
+    expect(plan.nextRequest).toBeNull();
+  });
+
+  it("rejects invalid measured costs instead of letting them relax the cap", () => {
+    expect(() =>
+      buildRunPlan(FR6_CANDIDATES, FR6_CASES, {}, [
+        result({ costUsd: -10 }),
+      ]),
+    ).toThrow("finite and non-negative");
+  });
+
+  it("does not expose a caller-controlled experiment cap", () => {
+    expectTypeOf(buildRunPlan).parameters.toEqualTypeOf<[
+      typeof FR6_CANDIDATES,
+      typeof FR6_CASES,
+      Record<string, string | undefined>,
+      ExperimentResult[],
+    ]>();
+  });
+});
+
+describe("live evidence persistence", () => {
+  it("resolves relative git common directories against the worktree", () => {
+    expect(resolveFr6EvidenceDirectory("/repo/.worktrees/task", "../.git\n")).toBe(
+      "/repo/.worktrees/.git/sdd/fr6-language-provider-experiment",
+    );
+    expect(resolveFr6EvidenceDirectory("/repo", "/repo/.git\n")).toBe(
+      "/repo/.git/sdd/fr6-language-provider-experiment",
+    );
+  });
+
+  it("atomically writes parseable JSON to the requested target", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "fr6-evidence-"));
+    const target = join(directory, "nested", "results.json");
+
+    await atomicWriteJson(target, { status: "ok", rows: [1, 2] });
+
+    expect(JSON.parse(await readFile(target, "utf8"))).toEqual({
+      status: "ok",
+      rows: [1, 2],
+    });
   });
 });
