@@ -64,7 +64,11 @@ For an optional language artifact:
 
 ## Known rough edges
 
-- Provider/model/cost changes remain a separate measured experiment; compare usefulness, latency, and cost on fixed inputs before changing a live language route.
+- Provider/model/cost changes remain a separate
+  [fixed-input experiment](../reviews/2026-09-01-fr6-language-provider-experiment.md). The first run
+  measured Sonnet and Haiku but neither cleared schema/grounding gates; OpenAI, Gemini, and Mistral
+  remain explicit missing-credential arms. Complete the same sanitized matrix, cost projection, and
+  blind owner review before changing a live language route.
 - Historical types and cost rows retain generation-era provenance names for compatibility.
 
 ## Common modifications
