@@ -72,7 +72,7 @@ it("projects eleven ride notes and both closeout calls", () => {
 
 - [ ] **Step 2: Run the tests and verify RED**
 
-Run: `npx vitest run scripts/fr6-language-experiment.test.ts`  
+Run: `npx vitest run scripts/fr6-language-experiment.test.ts`
 Expected: FAIL because `fr6-language-experiment.ts` does not exist.
 
 - [ ] **Step 3: Implement the minimal pure contracts**
@@ -140,7 +140,7 @@ Test that missing/failed/schema-invalid results fail, `$0.25` passes while `$0.2
 
 - [ ] **Step 5: Run Task 1 tests and verify GREEN**
 
-Run: `npx vitest run scripts/fr6-language-experiment.test.ts`  
+Run: `npx vitest run scripts/fr6-language-experiment.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Commit Task 1**
@@ -196,7 +196,7 @@ it("uses the production prompt builders and exact output caps", () => {
 
 - [ ] **Step 2: Run fixture tests and verify RED**
 
-Run: `npx vitest run scripts/fr6-language-fixtures.test.ts`  
+Run: `npx vitest run scripts/fr6-language-fixtures.test.ts`
 Expected: FAIL because the fixture module does not exist.
 
 - [ ] **Step 3: Implement all six fixtures with synthetic literals**
@@ -256,7 +256,7 @@ Do not claim this proves semantic grounding; the blind human review remains auth
 
 - [ ] **Step 5: Verify corpus, prompt, schema, and grounding tests**
 
-Run: `npx vitest run scripts/fr6-language-fixtures.test.ts scripts/fr6-language-experiment.test.ts`  
+Run: `npx vitest run scripts/fr6-language-fixtures.test.ts scripts/fr6-language-experiment.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Commit Task 2**
@@ -303,7 +303,7 @@ finish reason, schema status, HTTP error sanitization, and zero retries.
 
 - [ ] **Step 2: Run provider tests and verify RED**
 
-Run: `npx vitest run scripts/fr6-language-providers.test.ts`  
+Run: `npx vitest run scripts/fr6-language-providers.test.ts`
 Expected: FAIL because the provider module does not exist.
 
 - [ ] **Step 3: Define the exact candidate matrix and prices**
@@ -334,7 +334,7 @@ Keep these experiment prices next to the dated evidence; they do not replace pro
 
 - [ ] **Step 5: Verify all provider-adapter tests**
 
-Run: `npx vitest run scripts/fr6-language-providers.test.ts`  
+Run: `npx vitest run scripts/fr6-language-providers.test.ts`
 Expected: PASS with no network access.
 
 - [ ] **Step 6: Commit Task 3**
@@ -365,7 +365,7 @@ conservative maximum would cross `$2`.
 
 - [ ] **Step 2: Run runner tests and verify RED**
 
-Run: `npx vitest run scripts/fr6-language-experiment.test.ts`  
+Run: `npx vitest run scripts/fr6-language-experiment.test.ts`
 Expected: FAIL because live-runner planning is absent.
 
 - [ ] **Step 3: Implement the opt-in live test and package command**
@@ -382,7 +382,7 @@ JSON contains only opaque IDs and outputs.
 
 - [ ] **Step 4: Verify runner behavior without credentials or network**
 
-Run: `npx vitest run scripts/fr6-language-experiment.test.ts scripts/fr6-language-experiment.live.test.ts`  
+Run: `npx vitest run scripts/fr6-language-experiment.test.ts scripts/fr6-language-experiment.live.test.ts`
 Expected: pure tests PASS and the live suite SKIPS when `FR6_RUN_LIVE` is absent.
 
 - [ ] **Step 5: Commit Task 4**
@@ -413,7 +413,7 @@ values.
 
 - [ ] **Step 2: Run the live matrix once**
 
-Run: `npm run experiment:fr6`  
+Run: `npm run experiment:fr6`
 Expected: every configured candidate produces six result rows; unconfigured candidates produce six
 `missing-credential` rows; total measured spend remains below `$2`; raw and blind JSON are written.
 
@@ -444,7 +444,7 @@ credential boundary to `07-ai-layer`'s known rough edges.
 
 - [ ] **Step 6: Verify and commit Task 5**
 
-Run: `git diff --check && npm run check-links`  
+Run: `git diff --check && npm run check-links`
 Expected: PASS.
 
 ```bash
@@ -487,7 +487,7 @@ worth its cost. Never raise the budget automatically.
 
 - [ ] **Step 4: Run full verification before any completion claim**
 
-Run: `npm run check && git diff --check`  
+Run: `npm run check && git diff --check`
 Expected: TypeScript, lint, all tests, agent-workflow guards, sync tests, and link checks PASS.
 
 - [ ] **Step 5: Update canonical status and commit**

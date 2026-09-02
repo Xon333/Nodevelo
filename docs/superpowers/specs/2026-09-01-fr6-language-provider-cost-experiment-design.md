@@ -1,6 +1,6 @@
 # FR-6 remaining-language provider and cost experiment
 
-**Date:** 2026-09-01  
+**Date:** 2026-09-01
 **Status:** Approved design; implementation pending
 
 ## Outcome

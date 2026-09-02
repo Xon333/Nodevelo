@@ -1,6 +1,6 @@
 # FR-6 language-provider landscape
 
-**Date:** 2026-09-01  
+**Date:** 2026-09-01
 **Status:** research input for a fixed-input experiment; not a production-switch decision
 
 ## Decision summary
