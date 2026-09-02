@@ -315,16 +315,17 @@ async function requestOpenAi(
     },
     "OpenAI",
   );
-  const output = extractOpenAiText(raw);
+  const refused = hasOpenAiRefusal(raw);
+  const output = refused ? "OpenAI response refused." : extractOpenAiText(raw);
   const status = stringOrNull(raw.status);
   const incompleteReason = stringOrNull(asRecord(raw.incomplete_details).reason);
   const truncated = status === "incomplete" && incompleteReason === "max_output_tokens";
   return {
     output,
     usage: normalizeOpenAiUsage(asRecord(raw.usage)),
-    finishReason: incompleteReason ?? status,
+    finishReason: refused ? "refusal" : (incompleteReason ?? status),
     truncated,
-    failed: output.length === 0 || (status !== "completed" && !truncated),
+    failed: refused || output.length === 0 || (status !== "completed" && !truncated),
   };
 }
 
@@ -546,15 +547,24 @@ function usage(
 
 function extractOpenAiText(raw: Record<string, unknown>): string {
   if (typeof raw.output_text === "string") return raw.output_text.trim();
-  const output = Array.isArray(raw.output) ? raw.output.map(asRecord) : [];
-  return output
-    .flatMap((item) =>
-      Array.isArray(item.content) ? item.content.map(asRecord) : [],
-    )
+  return openAiContent(raw)
     .filter((item) => item.type === "output_text" && typeof item.text === "string")
     .map((item) => item.text)
     .join("\n")
     .trim();
+}
+
+function hasOpenAiRefusal(raw: Record<string, unknown>): boolean {
+  return openAiContent(raw).some(
+    (item) => item.type === "refusal" && typeof item.refusal === "string",
+  );
+}
+
+function openAiContent(raw: Record<string, unknown>): Record<string, unknown>[] {
+  const output = Array.isArray(raw.output) ? raw.output.map(asRecord) : [];
+  return output.flatMap((item) =>
+    Array.isArray(item.content) ? item.content.map(asRecord) : [],
+  );
 }
 
 function ensureOk(response: Response, provider: string): void {

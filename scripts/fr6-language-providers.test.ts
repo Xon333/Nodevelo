@@ -368,6 +368,44 @@ describe("runProviderCase OpenAI", () => {
       expect(fetch).toHaveBeenCalledTimes(1);
     }
   });
+
+  it("records canonical Responses refusal provenance without exposing its body", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      jsonResponse({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "refusal",
+                refusal: "Sensitive refusal detail containing openai-test-key",
+              },
+            ],
+          },
+        ],
+        usage: { input_tokens: 8, output_tokens: 2 },
+      }),
+    );
+    const result = await runProviderCase(candidate("openai"), FR6_CASES[0], {
+      env: { OPENAI_API_KEY: "openai-test-key" },
+      fetch,
+      now: vi.fn().mockReturnValueOnce(4).mockReturnValueOnce(11),
+    });
+
+    expect(result).toMatchObject({
+      status: "request-failed",
+      output: "OpenAI response refused.",
+      finishReason: "refusal",
+      latencyMs: 7,
+      usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+      retries: 0,
+    });
+    expect(result.costUsd).toBeGreaterThan(0);
+    expect(result.output).not.toContain("Sensitive refusal detail");
+    expect(result.output).not.toContain("openai-test-key");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("runProviderCase Google", () => {
