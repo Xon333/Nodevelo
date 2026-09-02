@@ -194,6 +194,44 @@ describe("deterministic grounding checks", () => {
     );
   });
 
+  it("allows locally negated forbidden phrases while preserving affirmative failures", () => {
+    const poor = FR6_CASES.find(({ id }) => id === "ride-prescribed-poor");
+    const selfDirected = FR6_CASES.find(
+      ({ id }) => id === "ride-self-directed",
+    );
+    expect(poor).toBeDefined();
+    expect(selfDirected).toBeDefined();
+
+    expect(
+      findUnsupportedClaims(
+        "This was not textbook and the work was not fully completed.",
+        poor!.grounding,
+      ),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims(
+        "This was not a prescribed session.",
+        selfDirected!.grounding,
+      ),
+    ).toEqual([]);
+
+    expect(
+      findUnsupportedClaims(
+        "The execution was textbook and fully completed.",
+        poor!.grounding,
+      ),
+    ).toEqual([
+      "forbidden claim: textbook",
+      "forbidden claim: fully completed",
+    ]);
+    expect(
+      findUnsupportedClaims(
+        "It was not easy; this was a prescribed session.",
+        selfDirected!.grounding,
+      ),
+    ).toEqual(["forbidden claim: prescribed session"]);
+  });
+
   it("preserves signs so an opposite percentage cannot borrow the allowed magnitude", () => {
     const normal = FR6_CASES.find(({ id }) => id === "retro-normal");
     expect(normal).toBeDefined();
@@ -320,5 +358,54 @@ describe("deterministic grounding checks", () => {
     expect(
       findUnsupportedClaims("Repeat completion fell from 10 to 99.", structured!.grounding),
     ).toEqual(["unsupported numeric claim: Repeat completion 99"]);
+  });
+
+  it("grounds movement verbs and arrow endpoints", () => {
+    const structured = FR6_CASES.find(
+      ({ id }) => id === "structured-mixed-verdicts",
+    );
+    expect(structured).toBeDefined();
+
+    for (const verb of ["moved", "went", "shifted"]) {
+      expect(
+        findUnsupportedClaims(
+          `Execution ${verb} from 5 to 6.`,
+          structured!.grounding,
+        ),
+      ).toEqual([]);
+      expect(
+        findUnsupportedClaims(
+          `Execution ${verb} from 5 to 99.`,
+          structured!.grounding,
+        ),
+      ).toEqual(["unsupported numeric claim: Execution 99"]);
+    }
+
+    expect(
+      findUnsupportedClaims("Execution 5 → 6.", structured!.grounding),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims("Execution 5 → 99.", structured!.grounding),
+    ).toEqual(["unsupported numeric claim: Execution 99"]);
+  });
+
+  it("grounds metric delta and delta-symbol forms", () => {
+    const structured = FR6_CASES.find(
+      ({ id }) => id === "structured-mixed-verdicts",
+    );
+    expect(structured).toBeDefined();
+
+    expect(
+      findUnsupportedClaims("Execution delta was +1.", structured!.grounding),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims("Execution Δ -1.", structured!.grounding),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims("Execution delta was +99.", structured!.grounding),
+    ).toEqual(["unsupported numeric delta: Execution +99"]);
+    expect(
+      findUnsupportedClaims("Execution Δ -99.", structured!.grounding),
+    ).toEqual(["unsupported numeric delta: Execution -99"]);
   });
 });

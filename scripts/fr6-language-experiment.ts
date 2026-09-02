@@ -212,7 +212,7 @@ export function findUnsupportedClaims(
   const metricPattern = groundingMetricPattern(facts);
   const signedNumber = "[+\\-−–]?\\d+(?:\\.\\d+)?";
   const comparisonPattern = new RegExp(
-    `\\b(${metricPattern})\\s+(increased|decreased|changed|rose|fell|improved|declined|dropped|grew)\\s+` +
+    `\\b(${metricPattern})\\s+(increased|decreased|changed|rose|fell|improved|declined|dropped|grew|moved|went|shifted)\\s+` +
       `(?:from\\s+(${signedNumber})\\s+to\\s+(${signedNumber})|to\\s+(${signedNumber})|by\\s+(${signedNumber}))\\b`,
     "gi",
   );
@@ -250,6 +250,42 @@ export function findUnsupportedClaims(
     }
   }
 
+  const arrowPattern = new RegExp(
+    `\\b(${metricPattern})\\s+(${signedNumber})\\s*(?:→|->|=>)\\s*(${signedNumber})\\b`,
+    "gi",
+  );
+  for (const match of output.matchAll(arrowPattern)) {
+    const metric = match[1].replace(/\s+(?:score|EWMA)$/i, "");
+    const metricKey = normalizeMetricName(metric);
+    let searchFrom = metric.length;
+    for (const value of [match[2], match[3]]) {
+      const offset = match[0].indexOf(value, searchFrom);
+      searchFrom = offset + value.length;
+      const normalizedValue = canonicalNumberToken(normalizeSign(value));
+      if (!allowedMetricValues.has(`${metricKey}:${normalizedValue}`)) {
+        unsupported.push({
+          index: match.index + offset,
+          message: `unsupported numeric claim: ${metric} ${normalizedValue}`,
+        });
+      }
+    }
+  }
+
+  const metricDeltaPattern = new RegExp(
+    `\\b(${metricPattern})\\s+(?:delta|Δ)\\s*(?:(?:was|is|of|at)\\s*)?(?::|=)?\\s*(${signedNumber})\\b`,
+    "gi",
+  );
+  for (const match of output.matchAll(metricDeltaPattern)) {
+    const metric = match[1].replace(/\s+(?:score|EWMA)$/i, "");
+    const normalizedDelta = canonicalNumberToken(normalizeSign(match[2]));
+    if (!allowedDeltas.has(`${normalizeMetricName(metric)}:${normalizedDelta}`)) {
+      unsupported.push({
+        index: match.index + match[0].lastIndexOf(match[2]),
+        message: `unsupported numeric delta: ${metric} ${Number(normalizedDelta) >= 0 ? "+" : ""}${normalizedDelta}`,
+      });
+    }
+  }
+
   const numericPatterns = [
     /(?<![\w.+\-−–])[+\-−–]?\d+(?:\.\d+)?\s*(?:-\s*)?(?:watts?|W|min(?:ute)?s?|km|bpm|TSS|rpm|%|hours?|h)(?!\w)/gi,
     /\b(?:RPE\s*:?\s*)?[+\-−–]?\d+(?:\.\d+)?\s*\/\s*10\b/gi,
@@ -266,7 +302,7 @@ export function findUnsupportedClaims(
   }
 
   const metricValuePattern = new RegExp(
-    `\\b(${metricPattern})\\s*(?:(?:was|is|of|at)\\s*)?:?\\s*(${signedNumber})\\b(?!\\s*\\/)`,
+    `\\b(${metricPattern})\\s*(?:(?:was|is|of|at)\\s*)?:?\\s*(${signedNumber})\\b(?!\\s*(?:\\/|→|->|=>))`,
     "gi",
   );
   for (const match of output.matchAll(metricValuePattern)) {
@@ -289,10 +325,12 @@ export function findUnsupportedClaims(
   for (const phrase of facts.forbiddenClaims) {
     const pattern = new RegExp(
       `\\b${escapeRegExp(phrase).replace(/\\ /g, "\\s+")}\\b`,
-      "i",
+      "gi",
     );
-    const match = pattern.exec(output);
-    if (match) {
+    const match = [...output.matchAll(pattern)].find(
+      (candidate) => !isLocallyNegated(output, candidate.index),
+    );
+    if (match !== undefined) {
       unsupported.push({
         index: match.index,
         message: `forbidden claim: ${phrase}`,
@@ -303,6 +341,13 @@ export function findUnsupportedClaims(
   return unsupported
     .sort((left, right) => left.index - right.index)
     .map(({ message }) => message);
+}
+
+function isLocallyNegated(output: string, claimIndex: number): boolean {
+  const localPrefix = output.slice(Math.max(0, claimIndex - 32), claimIndex);
+  return /(?:\b(?:not|never)\s+(?:(?:a|an|the)\s+)?|\b(?:isn't|wasn't|isnt|wasnt)\s+(?:(?:a|an|the)\s+)?)$/i.test(
+    localPrefix,
+  );
 }
 
 function deltaDirection(verb: string, rawValue: string): number {
