@@ -2,7 +2,7 @@
 
 **Run date:** 2026-09-02
 
-**Run head:** `5eb856d`
+**Run head:** `5eb856d0e278f0e3cdabe941c31647372a15bf1c`
 
 **Status:** **INCOMPLETE** — no candidate cleared the hard gates; external credentials and owner
 blind scoring remain outstanding
@@ -97,8 +97,10 @@ identity and scores each from 1 (unacceptable) to 5 (excellent):
 2. **Trust:** does it stay within supplied facts and appropriately express uncertainty?
 3. **Specificity:** is it concrete without inventing numbers, causes, or prescriptions?
 4. **Tone:** is it concise, respectful, and appropriate for coaching language?
-5. **Truncation:** score 5 only when the artifact is complete and cleanly ended; record any abrupt or
-   structurally incomplete ending separately.
+
+The owner separately records a **reject flag** for any invented claim or unsafe advice. Truncation is
+an observation and reject condition, not a fifth score: record any abrupt or structurally incomplete
+ending and reject that output.
 
 The owner also records keep, switch, or retire by call category. A candidate cannot advance on polish
 alone: schema validity, grounding, and the `$0.25` combined projection remain absolute gates.
@@ -112,13 +114,20 @@ Persistent raw evidence is outside tracked source in the repository's common Git
 - `.git/sdd/fr6-language-provider-experiment/blind-review.json` — currently `[]` because no complete
   candidate passed.
 
-The implementation is reproducible with `npm run experiment:fr6`; the resumable ledger will not
-repeat completed candidate/case rows. To finish FR-6:
+The implementation is reproducible with `npm run experiment:fr6`; the resumable v1 ledger will not
+repeat completed candidate/case rows. Protocol `fr6-fixed-input-v1` can only be continued unchanged,
+so its remaining work is limited to the three missing external-provider arms. Existing v1 Anthropic
+failures cannot be replaced in that ledger by changing the output cap, schema, prompt, or any other
+protocol input.
+
+Any such change must create a new protocol version with a distinct evidence artifact/ledger and rerun
+every required provider/case arm under that identical protocol. Results from v1 and a changed protocol
+must never be mixed into one cost projection or comparison. To finish FR-6:
 
 1. provide attended `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `MISTRAL_API_KEY` environment credentials
    and run the three missing arms without placing secrets in source or evidence;
-2. resolve the structured-cap/schema failure as a separately recorded protocol change, then rerun any
-   affected candidates under one comparable protocol;
+2. if resolving the structured-cap/schema failure changes the protocol, create the new versioned
+   artifact and rerun every required arm rather than only the affected Anthropic rows;
 3. obtain the combined eleven-plus-two projection at or below `$0.25` with every hard gate passing;
 4. have the owner score the resulting blind artifact and record keep/switch/retire for each category.
 
