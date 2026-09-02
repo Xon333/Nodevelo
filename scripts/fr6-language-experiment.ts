@@ -345,7 +345,16 @@ export function findUnsupportedClaims(
 
 function isLocallyNegated(output: string, claimIndex: number): boolean {
   const localPrefix = output.slice(Math.max(0, claimIndex - 32), claimIndex);
-  return /(?:\b(?:not|never)\s+(?:(?:a|an|the)\s+)?|\b(?:isn't|wasn't|isnt|wasnt)\s+(?:(?:a|an|the)\s+)?)$/i.test(
+  const qualifier = "(?:actually|remotely|really|quite|exactly|necessarily|entirely)";
+  const article = "(?:a|an|the)";
+  const contraction = "(?:isn(?:['’]t|t)|wasn(?:['’]t|t))";
+  return new RegExp(
+    `(?:\\b(?:not|never)\\s+(?:${qualifier}\\s+)?(?:${article}\\s+)?|` +
+      `\\b${contraction}\\s+(?:${qualifier}\\s+)?(?:${article}\\s+)?|` +
+      `\\b(?:hardly|scarcely|barely)\\s+(?:${article}\\s+)?|` +
+      `\\banything\\s+but\\s+(?:${article}\\s+)?)$`,
+    "i",
+  ).test(
     localPrefix,
   );
 }

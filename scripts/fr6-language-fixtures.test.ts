@@ -232,6 +232,34 @@ describe("deterministic grounding checks", () => {
     ).toEqual(["forbidden claim: prescribed session"]);
   });
 
+  it("recognizes common generated-prose negation forms", () => {
+    const poor = FR6_CASES.find(({ id }) => id === "ride-prescribed-poor");
+    expect(poor).toBeDefined();
+
+    for (const output of [
+      "The execution wasn’t textbook.",
+      "The execution was not remotely textbook.",
+      "The work was not actually fully completed.",
+      "The execution was hardly textbook.",
+      "The execution was anything but textbook.",
+    ]) {
+      expect(findUnsupportedClaims(output, poor!.grounding)).toEqual([]);
+    }
+
+    expect(
+      findUnsupportedClaims(
+        "The opening was hardly difficult; execution was textbook.",
+        poor!.grounding,
+      ),
+    ).toEqual(["forbidden claim: textbook"]);
+    expect(
+      findUnsupportedClaims(
+        "This was anything but easy; the work was fully completed.",
+        poor!.grounding,
+      ),
+    ).toEqual(["forbidden claim: fully completed"]);
+  });
+
   it("preserves signs so an opposite percentage cannot borrow the allowed magnitude", () => {
     const normal = FR6_CASES.find(({ id }) => id === "retro-normal");
     expect(normal).toBeDefined();
