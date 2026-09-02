@@ -35,6 +35,12 @@ export interface ProviderCaseDependencies {
     maxRetries: 0;
     timeout: 240_000;
   }) => AnthropicMessageClient;
+  setTimer?: (callback: () => void, delayMs: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+  createAbortController?: () => {
+    signal: AbortSignal;
+    abort(): void;
+  };
 }
 
 const ZERO_USAGE: ExperimentUsage = {
@@ -207,11 +213,11 @@ async function requestProvider(
     case "anthropic":
       return requestAnthropic(selected, fixture, key, deps);
     case "openai":
-      return requestOpenAi(selected, fixture, key, deps.fetch ?? globalThis.fetch);
+      return requestOpenAi(selected, fixture, key, deps);
     case "google":
-      return requestGoogle(selected, fixture, key, deps.fetch ?? globalThis.fetch);
+      return requestGoogle(selected, fixture, key, deps);
     case "mistral":
-      return requestMistral(selected, fixture, key, deps.fetch ?? globalThis.fetch);
+      return requestMistral(selected, fixture, key, deps);
   }
 }
 
@@ -246,14 +252,12 @@ async function requestAnthropic(
     fixture.category === "structured-retrospective"
       ? tool === undefined
         ? ""
-        : JSON.stringify(tool.input)
+        : (JSON.stringify(tool.input) ?? "")
       : blocks
           .filter((block) => block.type === "text" && typeof block.text === "string")
           .map((block) => block.text)
           .join("\n")
           .trim();
-  if (!output) throw new Error("Malformed Anthropic response");
-
   const usage = normalizeAnthropicUsage(asRecord(raw.usage));
   const finishReason = stringOrNull(raw.stop_reason);
   return {
@@ -264,10 +268,11 @@ async function requestAnthropic(
     truncated:
       finishReason === "max_tokens" || finishReason === "model_context_window_exceeded",
     failed:
-      finishReason !== "end_turn" &&
-      finishReason !== "tool_use" &&
-      finishReason !== "max_tokens" &&
-      finishReason !== "model_context_window_exceeded",
+      output.length === 0 ||
+      (finishReason !== "end_turn" &&
+        finishReason !== "tool_use" &&
+        finishReason !== "max_tokens" &&
+        finishReason !== "model_context_window_exceeded"),
   };
 }
 
@@ -275,7 +280,7 @@ async function requestOpenAi(
   selected: Fr6Candidate,
   fixture: Fr6ExperimentCase,
   key: string,
-  fetchImpl: typeof globalThis.fetch,
+  deps: ProviderCaseDependencies,
 ): Promise<ProviderResponse> {
   const body: Record<string, unknown> = {
     model: selected.model,
@@ -297,28 +302,29 @@ async function requestOpenAi(
     };
   }
 
-  const response = await fetchImpl("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
+  const raw = await fetchJsonWithTimeout(
+    deps,
+    "https://api.openai.com/v1/responses",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
-  ensureOk(response, "OpenAI");
-  const raw = asRecord(await response.json());
+    "OpenAI",
+  );
   const output = extractOpenAiText(raw);
-  if (!output) throw new Error("Malformed OpenAI response");
   const status = stringOrNull(raw.status);
   const incompleteReason = stringOrNull(asRecord(raw.incomplete_details).reason);
+  const truncated = status === "incomplete" && incompleteReason === "max_output_tokens";
   return {
     output,
     usage: normalizeOpenAiUsage(asRecord(raw.usage)),
     finishReason: incompleteReason ?? status,
-    truncated: status === "incomplete" && incompleteReason === "max_output_tokens",
-    failed:
-      status !== "completed" &&
-      !(status === "incomplete" && incompleteReason === "max_output_tokens"),
+    truncated,
+    failed: output.length === 0 || (status !== "completed" && !truncated),
   };
 }
 
@@ -326,7 +332,7 @@ async function requestGoogle(
   selected: Fr6Candidate,
   fixture: Fr6ExperimentCase,
   key: string,
-  fetchImpl: typeof globalThis.fetch,
+  deps: ProviderCaseDependencies,
 ): Promise<ProviderResponse> {
   const generationConfig: Record<string, unknown> = {
     maxOutputTokens: fixture.maxOutputTokens,
@@ -336,7 +342,8 @@ async function requestGoogle(
     generationConfig.responseMimeType = "application/json";
     generationConfig.responseJsonSchema = jsonSchema(fixture);
   }
-  const response = await fetchImpl(
+  const raw = await fetchJsonWithTimeout(
+    deps,
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(selected.model)}:generateContent`,
     {
       method: "POST",
@@ -349,9 +356,8 @@ async function requestGoogle(
         generationConfig,
       }),
     },
+    "Google",
   );
-  ensureOk(response, "Google");
-  const raw = asRecord(await response.json());
   const firstCandidate = asRecord(arrayFirst(raw.candidates));
   const parts = Array.isArray(asRecord(firstCandidate.content).parts)
     ? (asRecord(firstCandidate.content).parts as unknown[]).map(asRecord)
@@ -361,14 +367,15 @@ async function requestGoogle(
     .map((part) => part.text)
     .join("\n")
     .trim();
-  if (!output) throw new Error("Malformed Google response");
   const finishReason = stringOrNull(firstCandidate.finishReason);
   return {
     output,
     usage: normalizeGoogleUsage(asRecord(raw.usageMetadata)),
     finishReason,
     truncated: finishReason === "MAX_TOKENS",
-    failed: finishReason !== "STOP" && finishReason !== "MAX_TOKENS",
+    failed:
+      output.length === 0 ||
+      (finishReason !== "STOP" && finishReason !== "MAX_TOKENS"),
   };
 }
 
@@ -376,13 +383,14 @@ async function requestMistral(
   selected: Fr6Candidate,
   fixture: Fr6ExperimentCase,
   key: string,
-  fetchImpl: typeof globalThis.fetch,
+  deps: ProviderCaseDependencies,
 ): Promise<ProviderResponse> {
   const body: Record<string, unknown> = {
     model: selected.model,
     max_tokens: fixture.maxOutputTokens,
     temperature: 0.3,
     reasoning_effort: "none",
+    service_tier: "standard_only",
     messages: [{ role: "user", content: fixture.prompt }],
   };
   if (fixture.category === "structured-retrospective") {
@@ -395,20 +403,22 @@ async function requestMistral(
       },
     };
   }
-  const response = await fetchImpl("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
+  const raw = await fetchJsonWithTimeout(
+    deps,
+    "https://api.mistral.ai/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
-  ensureOk(response, "Mistral");
-  const raw = asRecord(await response.json());
+    "Mistral",
+  );
   const choice = asRecord(arrayFirst(raw.choices));
   const content = asRecord(choice.message).content;
   const output = typeof content === "string" ? content.trim() : "";
-  if (!output) throw new Error("Malformed Mistral response");
   const finishReason = stringOrNull(choice.finish_reason);
   return {
     output,
@@ -416,10 +426,40 @@ async function requestMistral(
     finishReason,
     truncated: finishReason === "length" || finishReason === "model_length",
     failed:
-      finishReason !== "stop" &&
-      finishReason !== "length" &&
-      finishReason !== "model_length",
+      output.length === 0 ||
+      (finishReason !== "stop" &&
+        finishReason !== "length" &&
+        finishReason !== "model_length"),
   };
+}
+
+async function fetchJsonWithTimeout(
+  deps: ProviderCaseDependencies,
+  url: string,
+  init: RequestInit,
+  provider: string,
+): Promise<Record<string, unknown>> {
+  const controller = (deps.createAbortController ?? (() => new AbortController()))();
+  const setTimer =
+    deps.setTimer ??
+    ((callback: () => void, delayMs: number): unknown =>
+      globalThis.setTimeout(callback, delayMs));
+  const clearTimer =
+    deps.clearTimer ??
+    ((handle: unknown): void =>
+      globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>));
+  const timer = setTimer(() => controller.abort(), 240_000);
+
+  try {
+    const response = await (deps.fetch ?? globalThis.fetch)(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    ensureOk(response, provider);
+    return asRecord(await response.json());
+  } finally {
+    clearTimer(timer);
+  }
 }
 
 function validateOutput(

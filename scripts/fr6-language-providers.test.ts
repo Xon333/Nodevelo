@@ -190,6 +190,8 @@ describe("runProviderCase Anthropic", () => {
 
     expect(result.status).toBe("schema-invalid");
     expect(result.schemaValid).toBe(false);
+    expect(result.usage.totalTokens).toBe(7);
+    expect(result.costUsd).toBeGreaterThan(0);
     expect(result.retries).toBe(0);
     expect(create).toHaveBeenCalledTimes(1);
   });
@@ -219,12 +221,41 @@ describe("runProviderCase Anthropic", () => {
     const result = await runProviderCase(candidate("anthropic"), FR6_CASES[0], {
       env: { ANTHROPIC_API_KEY: "test-key" },
       fetch: vi.fn(),
-      now: () => 1,
+      now: vi.fn().mockReturnValueOnce(1).mockReturnValueOnce(7),
       createAnthropicClient: () => ({ messages: { create } }),
     });
 
-    expect(result.status).toBe("request-failed");
-    expect(result.finishReason).toBe("refusal");
+    expect(result).toMatchObject({
+      status: "request-failed",
+      finishReason: "refusal",
+      latencyMs: 6,
+      usage: { inputTokens: 4, outputTokens: 5, totalTokens: 9 },
+    });
+    expect(result.costUsd).toBeGreaterThan(0);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves paid accounting when the response contains no output", async () => {
+    const create = vi.fn().mockResolvedValue({
+      content: [],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 6, output_tokens: 2 },
+    });
+    const result = await runProviderCase(candidate("anthropic"), FR6_CASES[0], {
+      env: { ANTHROPIC_API_KEY: "test-key" },
+      fetch: vi.fn(),
+      now: vi.fn().mockReturnValueOnce(2).mockReturnValueOnce(5),
+      createAnthropicClient: () => ({ messages: { create } }),
+    });
+
+    expect(result).toMatchObject({
+      status: "request-failed",
+      output: "",
+      finishReason: "end_turn",
+      latencyMs: 3,
+      usage: { inputTokens: 6, outputTokens: 2, totalTokens: 8 },
+    });
+    expect(result.costUsd).toBeGreaterThan(0);
     expect(create).toHaveBeenCalledTimes(1);
   });
 });
@@ -282,7 +313,11 @@ describe("runProviderCase OpenAI", () => {
 
   it("records malformed structured output without retrying", async () => {
     const fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ status: "completed", output_text: "not json", usage: {} }),
+      jsonResponse({
+        status: "completed",
+        output_text: "not json",
+        usage: { input_tokens: 4, output_tokens: 3 },
+      }),
     );
     const result = await runProviderCase(candidate("openai"), structuredCase, {
       env: { OPENAI_API_KEY: "test-key" },
@@ -291,6 +326,8 @@ describe("runProviderCase OpenAI", () => {
     });
 
     expect(result.status).toBe("schema-invalid");
+    expect(result.usage.totalTokens).toBe(7);
+    expect(result.costUsd).toBeGreaterThan(0);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(result.retries).toBe(0);
   });
@@ -307,6 +344,29 @@ describe("runProviderCase OpenAI", () => {
     expect(result.output).toBe("OpenAI request failed (HTTP 401)." );
     expect(result.output).not.toContain("secret-body");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves paid accounting for failed and empty responses", async () => {
+    for (const response of [
+      { status: "failed", output_text: "Refused.", usage: { input_tokens: 8, output_tokens: 2 } },
+      { status: "completed", output_text: "", usage: { input_tokens: 8, output_tokens: 2 } },
+    ]) {
+      const fetch = vi.fn().mockResolvedValue(jsonResponse(response));
+      const result = await runProviderCase(candidate("openai"), FR6_CASES[0], {
+        env: { OPENAI_API_KEY: "test-key" },
+        fetch,
+        now: vi.fn().mockReturnValueOnce(3).mockReturnValueOnce(8),
+      });
+
+      expect(result).toMatchObject({
+        status: "request-failed",
+        finishReason: response.status,
+        latencyMs: 5,
+        usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+      });
+      expect(result.costUsd).toBeGreaterThan(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
   });
 });
 
@@ -368,7 +428,7 @@ describe("runProviderCase Google", () => {
     const fetch = vi.fn().mockResolvedValue(
       jsonResponse({
         candidates: [{ finishReason: "STOP", content: { parts: [{ text: "{}" }] } }],
-        usageMetadata: {},
+        usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 3 },
       }),
     );
     const result = await runProviderCase(candidate("google"), structuredCase, {
@@ -376,6 +436,8 @@ describe("runProviderCase Google", () => {
     });
 
     expect(result.status).toBe("schema-invalid");
+    expect(result.usage.totalTokens).toBe(7);
+    expect(result.costUsd).toBeGreaterThan(0);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -388,6 +450,35 @@ describe("runProviderCase Google", () => {
     expect(result.output).toBe("Google request failed (HTTP 403)." );
     expect(result.output).not.toContain("secret-body");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves paid accounting for safety-blocked and empty responses", async () => {
+    for (const response of [
+      {
+        candidates: [{ finishReason: "SAFETY", content: { parts: [{ text: "Refused." }] } }],
+        usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 2 },
+      },
+      {
+        candidates: [{ finishReason: "STOP", content: { parts: [] } }],
+        usageMetadata: { promptTokenCount: 8, candidatesTokenCount: 2 },
+      },
+    ]) {
+      const fetch = vi.fn().mockResolvedValue(jsonResponse(response));
+      const result = await runProviderCase(candidate("google"), FR6_CASES[0], {
+        env: { GEMINI_API_KEY: "test-key" },
+        fetch,
+        now: vi.fn().mockReturnValueOnce(3).mockReturnValueOnce(8),
+      });
+
+      expect(result).toMatchObject({
+        status: "request-failed",
+        finishReason: response.candidates[0].finishReason,
+        latencyMs: 5,
+        usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+      });
+      expect(result.costUsd).toBeGreaterThan(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
   });
 });
 
@@ -417,6 +508,7 @@ describe("runProviderCase Mistral", () => {
     expect(JSON.parse(init.body)).toMatchObject({
       model: "mistral-small-2603",
       max_tokens: structuredCase.maxOutputTokens,
+      service_tier: "standard_only",
       messages: [{ role: "user", content: structuredCase.prompt }],
       response_format: {
         type: "json_schema",
@@ -443,7 +535,7 @@ describe("runProviderCase Mistral", () => {
     const fetch = vi.fn().mockResolvedValue(
       jsonResponse({
         choices: [{ finish_reason: "stop", message: { content: "[]" } }],
-        usage: {},
+        usage: { prompt_tokens: 4, completion_tokens: 3 },
       }),
     );
     const result = await runProviderCase(candidate("mistral"), structuredCase, {
@@ -451,6 +543,8 @@ describe("runProviderCase Mistral", () => {
     });
 
     expect(result.status).toBe("schema-invalid");
+    expect(result.usage.totalTokens).toBe(7);
+    expect(result.costUsd).toBeGreaterThan(0);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -463,5 +557,75 @@ describe("runProviderCase Mistral", () => {
     expect(result.output).toBe("Mistral request failed (HTTP 429)." );
     expect(result.output).not.toContain("secret-body");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves paid accounting for filtered and empty responses", async () => {
+    for (const response of [
+      {
+        choices: [{ finish_reason: "content_filter", message: { content: "Refused." } }],
+        usage: { prompt_tokens: 8, completion_tokens: 2 },
+      },
+      {
+        choices: [{ finish_reason: "stop", message: { content: "" } }],
+        usage: { prompt_tokens: 8, completion_tokens: 2 },
+      },
+    ]) {
+      const fetch = vi.fn().mockResolvedValue(jsonResponse(response));
+      const result = await runProviderCase(candidate("mistral"), FR6_CASES[0], {
+        env: { MISTRAL_API_KEY: "test-key" },
+        fetch,
+        now: vi.fn().mockReturnValueOnce(3).mockReturnValueOnce(8),
+      });
+
+      expect(result).toMatchObject({
+        status: "request-failed",
+        finishReason: response.choices[0].finish_reason,
+        latencyMs: 5,
+        usage: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+      });
+      expect(result.costUsd).toBeGreaterThan(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+});
+
+describe("runProviderCase fetch timeout", () => {
+  it.each([
+    ["openai", "OPENAI_API_KEY"],
+    ["google", "GEMINI_API_KEY"],
+    ["mistral", "MISTRAL_API_KEY"],
+  ] as const)("aborts one %s request at 240 seconds and clears its timer", async (provider, credential) => {
+    let timeout: (() => void) | undefined;
+    const timerHandle = { id: 1 };
+    const abort = vi.fn();
+    const signal = {} as AbortSignal;
+    const setTimer = vi.fn((callback: () => void) => {
+      timeout = callback;
+      return timerHandle;
+    });
+    const clearTimer = vi.fn();
+    const fetch = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.signal).toBe(signal);
+      timeout?.();
+      expect(abort).toHaveBeenCalledTimes(1);
+      return Promise.reject(new DOMException("secret timeout detail", "AbortError"));
+    });
+
+    const result = await runProviderCase(candidate(provider), FR6_CASES[0], {
+      env: { [credential]: "provider-test-key" },
+      fetch,
+      now: vi.fn().mockReturnValueOnce(1).mockReturnValueOnce(9),
+      setTimer,
+      clearTimer,
+      createAbortController: () => ({ abort, signal }),
+    });
+
+    expect(setTimer).toHaveBeenCalledWith(expect.any(Function), 240_000);
+    expect(clearTimer).toHaveBeenCalledWith(timerHandle);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ status: "request-failed", retries: 0, latencyMs: 8 });
+    expect(result.output).toBe(`${provider === "openai" ? "OpenAI" : provider === "google" ? "Google" : "Mistral"} request failed.`);
+    expect(result.output).not.toContain("secret timeout detail");
+    expect(result.output).not.toContain("provider-test-key");
   });
 });
