@@ -76,31 +76,37 @@ describe("FR-6 fixed language corpus", () => {
       "ride-prescribed-good": {
         allowedDates: ["2030-01-08"],
         allowedNumericTokens: ["250W", "225W", "210W", "90 min", "45 TSS", "8/10", "145 bpm", "170 bpm", "90%"],
+        allowedDeltas: [],
         forbiddenClaims: ["FTP increased", "adaptation confirmed", "missed interval"],
       },
       "ride-prescribed-poor": {
         allowedDates: ["2030-01-10"],
         allowedNumericTokens: ["250W", "205W", "180W", "60 min", "40 min", "5 min", "10 min", "38 TSS", "3/10", "82%", "50%", "150 bpm", "170 bpm"],
+        allowedDeltas: [],
         forbiddenClaims: ["textbook", "fully completed", "fitness increased"],
       },
       "ride-self-directed": {
         allowedDates: ["2030-01-12"],
         allowedNumericTokens: ["250W", "210W", "195W", "75 min", "52 TSS", "7/10", "142 bpm", "170 bpm", "84%"],
+        allowedDeltas: [],
         forbiddenClaims: ["prescribed session", "100% compliance", "technique confirmed"],
       },
       "retro-normal": {
         allowedDates: ["2030-01-01", "2030-01-08", "2030-01-14"],
         allowedNumericTokens: ["12h", "11h", "92%", "95%", "88%", "50 CTL", "53 CTL", "85 TSS", "4.5%"],
+        allowedDeltas: [{ metric: "ctl", value: 3 }],
         forbiddenClaims: ["ended early", "future session", "FTP increased"],
       },
       "retro-early": {
         allowedDates: ["2030-02-01", "2030-02-03", "2030-02-14"],
         allowedNumericTokens: ["2h", "1.5h", "75%", "50%", "50 CTL"],
+        allowedDeltas: [{ metric: "ctl", value: 0 }],
         forbiddenClaims: ["two-week failure", "missed after 2030-02-03", "FTP increased"],
       },
       "structured-mixed-verdicts": {
         allowedDates: ["2030-03-01", "2030-03-14"],
         allowedNumericTokens: ["10h", "9h", "90%", "execution 5", "execution 6", "baseline 5", "baseline 6", "baseline 10", "baseline 250", "250W", "255W"],
+        allowedDeltas: [{ metric: "execution", value: 1 }],
         forbiddenClaims: ["injury", "FTP increased", "medication"],
       },
     });
@@ -126,6 +132,7 @@ describe("deterministic grounding checks", () => {
   const fixture = {
     allowedDates: ["2030-01-08"],
     allowedNumericTokens: ["225W", "90 min", "8/10", "45 TSS"],
+    allowedDeltas: [],
     forbiddenClaims: ["FTP increased"],
   };
 
@@ -187,6 +194,7 @@ describe("deterministic grounding checks", () => {
         {
           allowedDates: [],
           allowedNumericTokens: ["50 CTL", "90 min", "225W"],
+          allowedDeltas: [],
           forbiddenClaims: [],
         },
       ),
@@ -197,6 +205,7 @@ describe("deterministic grounding checks", () => {
     const facts = {
       allowedDates: [],
       allowedNumericTokens: ["baseline 5", "execution 6", "90%"],
+      allowedDeltas: [],
       forbiddenClaims: [],
     };
 
@@ -237,5 +246,35 @@ describe("deterministic grounding checks", () => {
     expect(
       findUnsupportedClaims("Execution improved to 9.", structured!.grounding),
     ).toEqual(["unsupported numeric claim: Execution 9"]);
+  });
+
+  it("checks CTL deltas independently with direction semantics", () => {
+    const normal = FR6_CASES.find(({ id }) => id === "retro-normal");
+    expect(normal).toBeDefined();
+
+    expect(findUnsupportedClaims("CTL increased by 3.0.", normal!.grounding)).toEqual([]);
+    expect(findUnsupportedClaims("CTL increased by 4.", normal!.grounding)).toEqual([
+      "unsupported numeric delta: CTL +4",
+    ]);
+    expect(findUnsupportedClaims("CTL decreased by 3.", normal!.grounding)).toEqual([
+      "unsupported numeric delta: CTL -3",
+    ]);
+  });
+
+  it("accepts the declared execution delta and rejects an invented one", () => {
+    const structured = FR6_CASES.find(
+      ({ id }) => id === "structured-mixed-verdicts",
+    );
+    expect(structured).toBeDefined();
+
+    expect(
+      findUnsupportedClaims(
+        "Execution improved by 1; summarize it in 2 sentences.",
+        structured!.grounding,
+      ),
+    ).toEqual([]);
+    expect(
+      findUnsupportedClaims("Execution improved by 2.", structured!.grounding),
+    ).toEqual(["unsupported numeric delta: Execution +2"]);
   });
 });

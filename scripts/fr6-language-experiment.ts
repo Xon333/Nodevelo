@@ -67,6 +67,10 @@ export interface BlindReviewRow {
 export interface IndependentGroundingFacts {
   allowedDates: string[];
   allowedNumericTokens: string[];
+  allowedDeltas: Array<{
+    metric: "ctl" | "ftp" | "tss" | "execution" | "baseline" | "compliance";
+    value: number;
+  }>;
   forbiddenClaims: string[];
 }
 
@@ -167,6 +171,11 @@ export function findUnsupportedClaims(
   const allowedNumbers = new Set(
     facts.allowedNumericTokens.map(normalizeNumericToken),
   );
+  const allowedDeltas = new Set(
+    facts.allowedDeltas.map(
+      ({ metric, value }) => `${metric}:${canonicalNumberToken(String(value))}`,
+    ),
+  );
 
   for (const match of output.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g)) {
     const value = match[0];
@@ -195,11 +204,29 @@ export function findUnsupportedClaims(
   };
 
   const comparisonPattern =
-    /\b(CTL|FTP|TSS|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s+(?:increased|decreased|changed|rose|fell|improved|declined|dropped|grew)\s+(?:from\s+([+-]?\d+(?:\.\d+)?)\s+to\s+([+-]?\d+(?:\.\d+)?)|to\s+([+-]?\d+(?:\.\d+)?)|by\s+([+-]?\d+(?:\.\d+)?))\b/gi;
+    /\b(CTL|FTP|TSS|execution(?:\s+(?:score|EWMA))?|baseline|compliance(?:\s+(?:score|rate))?)\s+(increased|decreased|changed|rose|fell|improved|declined|dropped|grew)\s+(?:from\s+([+-]?\d+(?:\.\d+)?)\s+to\s+([+-]?\d+(?:\.\d+)?)|to\s+([+-]?\d+(?:\.\d+)?)|by\s+([+-]?\d+(?:\.\d+)?))\b/gi;
   for (const match of output.matchAll(comparisonPattern)) {
-    const metric = match[1].replace(/\s+(?:score|EWMA)$/i, "");
+    const [, rawMetric, verb, from, to, single, delta] = match;
+    const metric = rawMetric.replace(/\s+(?:score|EWMA)$/i, "");
+    const metricKey = metric.toLowerCase() as IndependentGroundingFacts["allowedDeltas"][number]["metric"];
+    if (delta !== undefined) {
+      const direction = deltaDirection(verb, delta);
+      const normalizedDelta = canonicalNumberToken(String(direction));
+      const offset = match[0].lastIndexOf(delta);
+      const key = `${metricKey}:${normalizedDelta}`;
+      if (!allowedDeltas.has(key)) {
+        unsupported.push({
+          index: match.index + offset,
+          message: `unsupported numeric delta: ${metric} ${direction >= 0 ? "+" : ""}${normalizedDelta}`,
+        });
+      }
+      continue;
+    }
+
     let searchFrom = 0;
-    for (const value of match.slice(2).filter((item): item is string => Boolean(item))) {
+    for (const value of [from, to, single].filter(
+      (item): item is string => item !== undefined,
+    )) {
       const offset = match[0].indexOf(value, searchFrom);
       searchFrom = offset + value.length;
       const display = `${metric} ${value}`;
@@ -244,6 +271,13 @@ export function findUnsupportedClaims(
   return unsupported
     .sort((left, right) => left.index - right.index)
     .map(({ message }) => message);
+}
+
+function deltaDirection(verb: string, rawValue: string): number {
+  const explicit = Number(rawValue);
+  if (rawValue.startsWith("+") || rawValue.startsWith("-")) return explicit;
+  if (/^(decreased|fell|declined|dropped)$/i.test(verb)) return -explicit;
+  return explicit;
 }
 
 function normalizeNumericToken(token: string): string {

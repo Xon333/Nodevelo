@@ -336,6 +336,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "170 bpm",
       "90%",
     ],
+    allowedDeltas: [],
     forbiddenClaims: [
       "FTP increased",
       "adaptation confirmed",
@@ -359,6 +360,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "150 bpm",
       "170 bpm",
     ],
+    allowedDeltas: [],
     forbiddenClaims: ["textbook", "fully completed", "fitness increased"],
   }),
   rideCase("ride-self-directed", selfDirectedRide, {
@@ -374,6 +376,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "170 bpm",
       "84%",
     ],
+    allowedDeltas: [],
     forbiddenClaims: [
       "prescribed session",
       "100% compliance",
@@ -393,6 +396,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "85 TSS",
       "4.5%",
     ],
+    allowedDeltas: [{ metric: "ctl", value: 3 }],
     forbiddenClaims: ["ended early", "future session", "FTP increased"],
   }),
   proseRetroCase("retro-early", earlyRetrospective, {
@@ -404,6 +408,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "50%",
       "50 CTL",
     ],
+    allowedDeltas: [{ metric: "ctl", value: 0 }],
     forbiddenClaims: [
       "two-week failure",
       "missed after 2030-02-03",
@@ -425,6 +430,7 @@ export const FR6_CASES: Fr6ExperimentCase[] = [
       "250W",
       "255W",
     ],
+    allowedDeltas: [{ metric: "execution", value: 1 }],
     forbiddenClaims: ["injury", "FTP increased", "medication"],
   }),
 ];
