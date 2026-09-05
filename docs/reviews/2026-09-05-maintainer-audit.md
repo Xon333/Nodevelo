@@ -42,7 +42,7 @@ The strongest confirmed defect was an interval-provider outage being saved as a 
 
 ### MA-8 — P3 — Navigation counts are stale — open documentation maintenance
 
-**Location:** `app/README.md:6`, `lib/README.md:8`, `docs/systems/01-sync-and-data.md:32`. **Evidence:** the README says 22 routes, while `app/api/**/route.ts` has 24; types are described as 999 lines but have 1,499 at baseline; sync is described as 905 lines but has 1,216. **Why missed:** link validation checks destinations, not content freshness. **Smallest fix:** remove volatile line counts and use FILE_INDEX for navigation, or generate them. **Verification:** recount routes from tracked source and check references; no new test infrastructure needed.
+**Location:** `app/README.md:6`, `lib/README.md:8`, `docs/systems/01-sync-and-data.md:28`. **Evidence:** the README says 22 routes, while `app/api/**/route.ts` has 24; types are described as 999 lines but have 1,499 at baseline; sync is described as 905 lines but has 1,216. **Why missed:** link validation checks destinations, not content freshness. **Smallest fix:** remove volatile line counts and use FILE_INDEX for navigation, or generate them. **Verification:** recount routes from tracked source and check references; no new test infrastructure needed.
 
 ## 3. Slop decisions
 
