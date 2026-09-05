@@ -166,6 +166,32 @@ beforeEach(() => {
 });
 
 describe("runIntentParsing", () => {
+  it("retries supported intent after an HTTP outage through the real interval adapter", async () => {
+    const actual = await vi.importActual<typeof import("./intervals-api")>("./intervals-api");
+    activities[0].description = "-Effort 1 (10m)";
+    vi.mocked(intervals.fetchIntervals).mockImplementation(actual.fetchIntervals);
+    vi.stubEnv("INTERVALS_ATHLETE_ID", "synthetic-athlete");
+    vi.stubEnv("INTERVALS_API_KEY", "synthetic-key");
+    const http = vi.fn()
+      .mockResolvedValueOnce(new Response("Unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ icu_intervals: [] })));
+    vi.stubGlobal("fetch", http);
+    try {
+      expect(await runIntentParsing(TODAY, [])).toMatchObject({
+        processed: 0, remaining: 1, stalled: true, failedIds: ["a1"],
+      });
+      expect(overlayStore.overlays).toHaveLength(0);
+      // A successful empty response is genuine missing evidence and may be recorded.
+      expect(await runIntentParsing(TODAY, [])).toMatchObject({ processed: 1, failedIds: [] });
+      expect(overlayStore.overlays).toHaveLength(1);
+      expect(http).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      vi.mocked(intervals.fetchIntervals).mockReset();
+    }
+  });
+
   it("scores the August 23 labelled intervals without calling Claude", async () => {
     activities[0].description = `Intent:
 -Block 1 (Z3, 1h)

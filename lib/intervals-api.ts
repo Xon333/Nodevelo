@@ -208,8 +208,12 @@ export function fetchPowerStream(activityId: string): Promise<number[]> {
 }
 
 // The activity's intervals as curated in Intervals.icu (where the athlete adjusts
-// detection). Best-effort: [] on failure. Field names tolerate API shape variation.
-export async function fetchIntervals(activityId: string): Promise<ExecutedInterval[]> {
+// detection). Best-effort by default: [] on failure. Intent opts into errors so it can retry.
+// Field names tolerate API shape variation.
+export async function fetchIntervals(
+  activityId: string,
+  options: { throwOnError?: boolean } = {}
+): Promise<ExecutedInterval[]> {
   if (!activityId) return [];
   try {
     const data = await icuFetch(`/activity/${encodeURIComponent(activityId)}/intervals`);
@@ -241,7 +245,10 @@ export async function fetchIntervals(activityId: string): Promise<ExecutedInterv
         avgSpeedKph: (() => { const s = num(iv.average_speed); return s === null ? null : s * 3.6; })(),
       };
     });
-  } catch {
+  } catch (error) {
+    // Persisted intent decisions must distinguish an outage from genuinely absent laps.
+    // Sync callers retain their existing best-effort empty-evidence fallback.
+    if (options.throwOnError) throw error;
     return [];
   }
 }

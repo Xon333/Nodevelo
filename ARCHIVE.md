@@ -12,6 +12,16 @@ exact commits.
 
 ---
 
+## MA-1 — Preserve intent retries after interval HTTP failure (2026-09-05)
+
+The deterministic intent runner now opts into interval-fetch errors, leaving the note eligible for
+retry instead of persisting missing evidence after a provider outage. Sync retains its best-effort
+fallback. A real-adapter HTTP 503 regression fails before the fix and passes afterward, including
+same-note retry; targeted suites pass 61 tests and the full gate passes 2,512. Historical overlays
+remain unchanged. See the [maintainer audit](docs/reviews/2026-09-05-maintainer-audit.md).
+
+---
+
 ## FR-3 / FR-4 core-journey audit and selection (2026-09-01)
 
 The [accepted FR-3 audit](docs/reviews/2026-09-01-fr3-core-journey-audit.md) exercised Today → Plan

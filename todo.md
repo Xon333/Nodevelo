@@ -14,6 +14,18 @@ P2 high-value UX/feature · P3 polish/education · Type: `bug` `ux` `feat` `audi
 
 ## Open
 
+**Maintainer audit (2026-09-05).** Full evidence, locations, smallest fixes and verification:
+[maintainer audit](docs/reviews/2026-09-05-maintainer-audit.md). MA-1 is fixed in the accompanying change.
+
+- ☐ P2 `bug` **MA-2** Reject null/primitive Profile section containers before property reads; current null nutrition/performance requests return 500.
+- ☐ P2 `audit` **MA-3** Exclude private runtime roots from production traces and add synthetic-canary build assertions (52 references reproduced).
+- ☐ P2 `bug` **MA-4** PR #109: unknown successful usage must not pass measured-cost gates as $0.
+- ☐ P2 `bug` **MA-5** PR #109: permit independent category winners, then gate their combined cost.
+- ☐ P2 `audit` **MA-6** Primary cleanup owner: exclude modifications to immutable historical plans before committing; preserve working files during reconciliation.
+- ☐ P3 `edu` **MA-7** Primary cleanup owner: retain bounded-search, quadratic-baseline and binary-loading rationale when removing unwanted comment wording.
+- ☐ P3 `edu` **MA-8** Remove stale route/module line counts from owning navigation docs or regenerate them.
+
+
 **Whole-repo hostile review (2026-08-15) — remaining decisions.** Closed findings HR-60…HR-65,
 HR-67, HR-68, HR-70…HR-72 are recorded in [ARCHIVE.md](ARCHIVE.md).
 

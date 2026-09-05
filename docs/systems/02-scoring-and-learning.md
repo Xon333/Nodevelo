@@ -70,6 +70,11 @@ Scoring happens inside `POST /api/sync` (see [01-sync-and-data.md](01-sync-and-d
 
 ## Known rough edges
 
+- **Intent retries preserve provider failures.** The intent runner opts into throwing interval-fetch
+  errors, so an HTTP outage writes no overlay and leaves the same note eligible for a later sync.
+  A successful response with no laps remains genuine missing evidence. The regression exercises the
+  real HTTP adapter: mocking only a rejected `fetchIntervals` call hid its default empty-array fallback.
+
 - **Phases 2b–2c shipped 2026-08-12.** A self-directed ride can now replace the ledger's
   generic off-plan verdict in derived state with a deterministic score against objectives recovered
   from the athlete's own note; the Today debrief renders that effective outcome and refreshes after

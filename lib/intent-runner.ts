@@ -91,7 +91,7 @@ export async function runIntentParsing(
       let laps: ExecutedInterval[] = [];
       if (parsed !== null) {
         try {
-          laps = await fetchIntervals(item.activityId);
+          laps = await fetchIntervals(item.activityId, { throwOnError: true });
         } catch {
           failedIds.push(item.activityId);
           continue;
