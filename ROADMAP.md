@@ -1,6 +1,6 @@
 # NodeVelo roadmap
 
-*Last reconciled 2026-08-31.* The forward backlog — open work only.
+*Last reconciled 2026-09-02.* The forward backlog — open work only.
 
 Phase charter: [accepted adversarial investment review](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md).
 The adversarial review is the **master decision record for the freeze**. Its
@@ -51,18 +51,23 @@ and [the FR-13 closeout](ARCHIVE.md#fr-13--early-end-retrospective-effective-win
 
 - **Review basis:** [maintainability](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#maintainability)
   and decision [Q5/Q11](docs/reviews/2026-08-20-nodevelo-adversarial-investment-review.md#interview-decision-record--q1q53).
-- **Verified current state:** `lib/anthropic-config.ts` and `lib/ai-usage.ts` provide the current
-  provider/configuration and usage surfaces; the FR-5 deterministic baseline and its
-  [attended acceptance record](docs/reviews/2026-08-29-fr5-acceptance.md) are closed.
-- **Remaining outcome:** hold inputs and prompts constant; compare validity, publication findings,
-  usefulness, latency, and cost. Change a live route only if measured results justify it.
+- **Verified current state:** FR-5's [attended acceptance record](docs/reviews/2026-08-29-fr5-acceptance.md)
+  closes AI block generation at a $0 API baseline. FR-6 now covers only ride-analysis prose,
+  retrospective prose, and structured retrospective reflections. The first
+  [fixed-input run](docs/reviews/2026-09-01-fr6-language-provider-experiment.md) is incomplete: both
+  Anthropic models failed hard gates and three external-provider arms lack credentials.
+- **Remaining outcome:** complete the fixed sanitized matrix, obtain a valid combined projection of
+  at most `$0.25` for eleven ride notes plus both retrospective calls, blind-review passing outputs,
+  and record keep/switch/retire separately for all three categories.
 - **Entry gate:** satisfied by the accepted FR-5 record.
-- **Plan scope:** `lib/anthropic-config.ts`, `lib/anthropic-api.ts`, `lib/ai-usage.ts`,
-  `app/api/generate/route.ts`, and the publication-gate evidence record; preserve the FR-5
-  deterministic-authority decision surface.
-- **Exit evidence:** a recorded fixed-input comparison with validity, publication findings,
-  usefulness, latency, and cost; any live-route change is justified by that record.
-- **Non-goals:** mixing vendor/model tuning into deterministic cleanup.
+- **Plan scope:** the isolated experiment harness, sanitized fixtures, provider research, raw
+  evidence, and the dated review record. Production routes/configuration enter scope only in a
+  separate follow-up after a measured winner is approved.
+- **Exit evidence:** every category has a recorded keep/switch/retire decision backed by schema and
+  grounding gates, the `≤ $0.25` combined projection, latency/cost measurements, and blind owner
+  scoring.
+- **Non-goals:** reopening deterministic generation or building a production multi-provider layer
+  before evidence selects one.
 
 ### Phase 4 · Complete the narrow workout-library loop
 
