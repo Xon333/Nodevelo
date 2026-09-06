@@ -29,7 +29,7 @@ context — applies them the same way.
 once built; don't leave them saying "Approved design (pre-implementation)" forever),
 `knowledge-base-defaults/*.md` (the committed KB skeleton — real user-facing copy, not just a
 fixture), and the docs system (2026-07-25, consolidated same day): `docs/COMPASS.md` (the single
-navigation hub — keep its task table and doc-set listing current), `docs/systems/01–08-*.md` (the
+navigation hub — keep its task table and doc-set listing current), `docs/systems/01–09-*.md` (the
 numbered pipeline docs), `docs/RECIPES.md`, `docs/FILE_INDEX.md`, `docs/INVARIANTS.md`,
 `docs/GLOSSARY.md`, `docs/DECISIONS.md` (append new ADR sections; existing ones are decision
 records — amend with a dated note, don't rewrite), and the folder READMEs `lib/README.md`,
@@ -42,31 +42,13 @@ sweep (a fact duplicated across docs gets one owner + links, not copies).
 silently skipping), `docs/superpowers/plans/*.md` (point-in-time execution records, immutable like
 commits — don't rewrite history).
 
-**Doc drift from concurrent sessions:** this repo is trunk-based with a shared checkout, so a
+**Doc drift from concurrent sessions:** this repo integrates isolated task worktrees into main, so a
 feature can ship (with its own commit) while the docs describing it are never updated in the same
 pass — cross-check `git log` against what ROADMAP/ARCHIVE claim is "open" before trusting either.
 
-## Bloat tripwires — check these without waiting to be asked
+## Scope and drift
 
-This skill used to be purely reactive ("clean up when asked"), and the repo drifted three times
-before anyone asked — ROADMAP.md reached 385 lines, todo.md reached 314, both re-accumulating
-exactly the shipped-narrative bloat a 2026-07-25 sweep had just removed. These are the cheap,
-mechanical signals that a sweep is due — check them with `wc -l`/`grep`, don't estimate:
-
-- `todo.md` has grown past ~80 lines, or has any `☑` line still sitting in the "Open" section (a
-  shipped item that was never archived).
-- `ROADMAP.md` has grown past ~150 lines, or any bullet under an open item runs longer than 2–3
-  lines of prose — that's archive-shaped rationale creeping back into the backlog, the exact
-  failure mode the 2026-07-25 redesign fixed.
-- `git log --oneline -20` shows a feature-shipping commit (not a docs commit) whose corresponding
-  ROADMAP/todo line is still marked open — code and docs have started disagreeing.
-- A `docs/superpowers/specs/*.md` still says "Approved design (pre-implementation)" for something
-  `git log` already shows as shipped.
-
-None of these are hard failures or a reason to launch a full sweep unprompted — they're a signal to
-**flag one line to the user** ("todo.md's grown past its usual size, worth a sweep?") and let them
-decide when to spend the session on it. `whats-next` runs this same check as a cheap side effect of
-its own read of ROADMAP/todo, so the flag usually surfaces there first.
+Inspect the documents relevant to the request. In a backlog cleanup, look for shipped items still marked open and historical rationale crowding out actionable work. Size alone is not a reason to launch another sweep or ask for one during an unrelated task.
 
 ## Procedure
 
@@ -80,7 +62,7 @@ its own read of ROADMAP/todo, so the flag usually surfaces there first.
    in ROADMAP (decision + revisit trigger); its investigation detail moves to ARCHIVE.
 4. Check WORKFLOW.md's "standing rules" against CLAUDE.md/AGENTS.md — the cheat sheet drifts when
    the underlying policy changes.
-5. Update README's doc map table if the set of docs changed. One-off point-in-time reports (audits,
+5. Update Compass's doc-set listing if the maintained doc set changed. One-off point-in-time reports (audits,
    transcript analyses) live under `docs/`, not the repo root — root is for living docs only.
 6. Commit doc changes separately from code changes when both happened in the same session.
 

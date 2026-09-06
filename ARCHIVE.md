@@ -12,6 +12,14 @@ exact commits.
 
 ---
 
+## Agent instruction cleanup (2026-09-06)
+
+Made context reads conditional, removed routine skill approval gates, and aligned operating docs
+with the owner's Codex-only workflow. Web skill entrypoints now route to detailed references;
+CLAUDE.md remains a single import of AGENTS.md. Required checks and project safeguards remain.
+
+---
+
 ## MA-1 — Preserve intent retries after interval HTTP failure (2026-09-05)
 
 The deterministic intent runner now opts into interval-fetch errors, leaving the note eligible for

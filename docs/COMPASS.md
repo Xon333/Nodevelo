@@ -56,17 +56,13 @@ The numbers are the doc files: [systems/](systems/) is this pipeline in order �
 | **know** what to work on next | [../ROADMAP.md](../ROADMAP.md#freeze-implementation-plan-queue): select the first READY `FR-*` package; evidence-only packages use their linked run log; phase law comes from the [master adversarial review](reviews/2026-08-20-nodevelo-adversarial-investment-review.md) | — |
 | **find** something that already shipped | [../ARCHIVE.md](../ARCHIVE.md) — grep by ID (HR-nn, UXA-nn, P1–P7, SUB-n) | — |
 | **run** / verify / commands | [../WORKFLOW.md](../WORKFLOW.md) cheat sheet | `npm run dev` · `npm run check` · `npm test` |
-| **work with Codex + opencode** | [../WORKFLOW.md § Codex + opencode workflow](../WORKFLOW.md#codex--opencode-workflow) | isolated worktrees · reciprocal review · `npm run merge:agent-task` |
+| **work with Codex** | [../WORKFLOW.md § Codex workflow](../WORKFLOW.md#codex-workflow) | isolated worktrees · required checks · `npm run finish:agent-task` |
 
 ## Session rituals
 
-**Opening (30 seconds):** `npm run sync` (fetch + fast-forward `main` + prune stale worktrees) →
-`git branch --show-current` → `git log --oneline -5` → `git status --short`. Implementation must be
-on a fresh `claude/<task>` or `codex/<task>` worktree, created via `npm run start:agent-task -- <agent>
-<task-name>`; if you are on `main`, read only and start an isolated task. Only re-read the mental
-model above if you're actually lost.
+For task setup and integration, follow [AGENTS.md](../AGENTS.md#parallel-agent-integration). Use this page as a lookup when orientation is needed; routine edits do not require reading the full doc set.
 
-**Stuck >10 minutes?** That's the signal to open a doc, not grep harder: GLOSSARY (naming trap?) → FILE_INDEX (who else touches this?) → the numbered systems doc (the diagram shows the missing step) → DECISIONS (is the "weird" thing deliberate?). Six systems docs carry a **"Known rough edges"** section with live judgment calls, tripwires, and rejected alternatives for that area — `01-sync-and-data`, `05-season` (the deepest one — read before touching `season.ts`), `06-generation` (the week skeleton + the publication gate), `07-ai-layer`, `08-frontend`, `09-nutrition` (measured sensitivities and known biases, with their magnitudes). High-traffic files in those areas also carry an inline `// AI:` comment pointing at the relevant anchor.
+For subsystem judgment calls, consult the relevant **Known rough edges** section in `01-sync-and-data`, `05-season`, `06-generation`, `07-ai-layer`, `08-frontend`, or `09-nutrition`. High-traffic files also carry `// AI:` pointers to these sections.
 
 **Closing — update the ONE doc that owns what you changed:**
 
@@ -92,7 +88,7 @@ Repo layout: the seven-line table in [../README.md](../README.md). Folder rules:
 
 ## For AI agents
 
-Orientation = this page + [INVARIANTS.md](INVARIANTS.md). Lookups: [FILE_INDEX.md](FILE_INDEX.md) (files), [RECIPES.md](RECIPES.md) (change procedures), [GLOSSARY.md § naming traps](GLOSSARY.md#naming-traps) (e.g. `trace.ts` ≠ LLM tracing). Operating law — concurrency, commit policy, recurring bug classes — is [../AGENTS.md](../AGENTS.md)/[../CLAUDE.md](../CLAUDE.md). Stack is Next.js **16** (check `node_modules/next/dist/docs/`); verify with `npm run check`; a changed AI path needs one live smoke run ([how](systems/07-ai-layer.md#debugging-a-bad-generation)).
+Use this page for orientation and [INVARIANTS.md](INVARIANTS.md) for affected hard contracts. Lookups: [FILE_INDEX.md](FILE_INDEX.md) (files), [RECIPES.md](RECIPES.md) (change procedures), [GLOSSARY.md § naming traps](GLOSSARY.md#naming-traps) (e.g. `trace.ts` ≠ LLM tracing). Operating law — concurrency, commit policy, recurring bug classes — is [../AGENTS.md](../AGENTS.md)/[../CLAUDE.md](../CLAUDE.md). Stack is Next.js **16** (check `node_modules/next/dist/docs/`); verify with `npm run check`; a changed AI path needs one live smoke run ([how](systems/07-ai-layer.md#debugging-a-bad-generation)).
 
 ## The full doc set (one question each)
 
